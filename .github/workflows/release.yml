@@ -1,0 +1,100 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22.23.3'
+      - name: Verify version, merged source and existing approval gate
+        run: python scripts/release_checks.py --tag "$RELEASE_TAG" --check-environment
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+      - run: python -m pip install -r requirements-dev.lock build==1.6.1 twine==7.0.0
+      - run: python -m pip install --no-deps --no-build-isolation -e .
+      - run: python -m pytest -q
+      - run: ruff check src tests scripts
+      - run: finassist demo
+      - run: finassist scan --repo .
+      - run: npm install --global pnpm@12.9.1 --ignore-scripts
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+        working-directory: dashboard
+      - run: pnpm run build
+        working-directory: dashboard
+      - name: Verify shipped assets match source
+        run: git diff --exit-code -- src/finassist/resources/dashboard
+      - run: pnpm run test
+        working-directory: dashboard
+      - name: Build sdist and wheel from the sdist
+        run: python -m build
+      - run: python -m twine check --strict dist/*
+      - run: python scripts/wheel_smoke.py
+      - run: python scripts/dashboard_wheel_smoke.py
+      - name: Generate source and distribution SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: release-sbom.spdx.json
+          syft-version: v1.55.0
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Preserve distributions and SBOM for the approval job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ github.sha }}
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            release-sbom.spdx.json
+          if-no-files-found: error
+          retention-days: 30
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/finassist/
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-${{ github.sha }}
+          path: release
+      - name: Attest distribution and SBOM provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: |
+            release/dist/*
+            release/release-sbom.spdx.json
+      - name: Attach the SBOM attestation to distributions
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: release/dist/*
+          sbom-path: release/release-sbom.spdx.json
+      - name: Publish to PyPI using Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
+        with:
+          packages-dir: release/dist/
+          attestations: true
