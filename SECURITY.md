@@ -41,5 +41,6 @@ do not use a shared folder for private audit/evidence data. `doctor` reports thi
 limitation explicitly. No security policy or ACL is changed automatically.
 Native CI exercises Windows, macOS and Linux. Local recipes remain trusted-code
 execution: POSIX process groups and Windows job objects are cleanup mechanisms,
-not sandboxes; Windows attachment occurs after process creation. Container daemon
+not sandboxes. Windows launches the primary thread suspended, assigns its Job,
+then resumes execution. Container daemon
 cleanup is verified separately. `doctor` checks binary presence, not daemon access.

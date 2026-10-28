@@ -11,6 +11,16 @@
 
 ## 0.2.0 — Unreleased
 
+- Harden native supervision: require positive nonempty zombie-only observations,
+  launch Windows children suspended before Job assignment, and always clean up
+  pipes/readers while draining completed output before deadline decisions.
+- Retain host container CLI context/storage selectors through cleanup, reject
+  Python 3.11 reparse points and tracked symlink modes, and preserve CRLF through
+  apply/rollback with an explicit shipped-resource LF policy.
+- Add fail-before-fix regressions, descendant lifecycle tests, read-only Windows
+  replacement, native doctor discovery and all three Python versions on every OS.
+  Extend the protection proposal without changing live repository settings.
+
 - Context packets now use `schema_version: 2` and include before/after Git modes.
   Legacy schema1 packets remain inspectable but must be rebuilt for readiness.
 - Add configurable readiness requirements, source/configuration-bound review and

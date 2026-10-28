@@ -1,5 +1,5 @@
 include LICENSE README.md SECURITY.md CONTRIBUTING.md AGENTS.md CHANGELOG.md requirements-dev.lock
-include .gitignore .dockerignore
+include .gitignore .dockerignore .gitattributes
 graft docs
 graft examples
 graft skills

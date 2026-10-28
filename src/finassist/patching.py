@@ -188,6 +188,7 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
         modes[name] = target.stat().st_mode & 0o777 if target.exists() else None
     # Git parses the entire patch before any mutation; --check is not an execution hook.
     command = git_command(repo, "apply", "--whitespace=error")
+    command[1:1] = ["-c", "core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol"]
     try:
         subprocess.run(
             command + ["--check", "-"],

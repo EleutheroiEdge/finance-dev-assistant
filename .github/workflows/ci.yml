@@ -16,7 +16,11 @@ jobs:
           - {os: ubuntu-24.04, python: '3.11', check_name: 'test (3.11)'}
           - {os: ubuntu-24.04, python: '3.12', check_name: 'test (3.12)'}
           - {os: ubuntu-24.04, python: '3.13', check_name: 'test (3.13)'}
+          - {os: windows-latest, python: '3.11', check_name: 'platform (Windows, 3.11)'}
+          - {os: windows-latest, python: '3.12', check_name: 'platform (Windows, 3.12)'}
           - {os: windows-latest, python: '3.13', check_name: 'platform (Windows)'}
+          - {os: macos-latest, python: '3.11', check_name: 'platform (macOS, 3.11)'}
+          - {os: macos-latest, python: '3.12', check_name: 'platform (macOS, 3.12)'}
           - {os: macos-latest, python: '3.13', check_name: 'platform (macOS)'}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683

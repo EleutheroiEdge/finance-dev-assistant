@@ -8,6 +8,8 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import tempfile
+import stat
+import sys
 
 from .errors import AssistantError
 from .platform_support import canonical_system_path
@@ -154,11 +156,29 @@ def check_text(text: str, *, extra_patterns: tuple[str, ...] = ()) -> None:
 
 def regular_path(path: Path) -> Path:
     """Reject symlink ancestors before resolving, including not-yet-created files."""
-    path = canonical_system_path(Path(path).expanduser().absolute())
+    path = Path(path).expanduser().absolute()
+    # Inspect raw ancestors before collapsing .., including older Python builds
+    # without Path.is_junction(). Only fixed, verified Darwin OS aliases qualify.
     for item in (path, *path.parents):
-        if item.is_symlink() or (hasattr(item, "is_junction") and item.is_junction()):
+        try:
+            attributes = getattr(item.lstat(), "st_file_attributes", 0)
+        except FileNotFoundError:
+            attributes = 0
+        if (item.is_symlink() or attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT) and canonical_system_path(
+            item
+        ) == item:
             raise AssistantError("linked_path")
-    return path
+        if item.is_symlink():
+            if not (
+                sys.platform == "darwin"
+                and len(item.parts) == 2
+                and item.name in {"var", "tmp", "etc"}
+                and canonical_system_path(item) != item
+            ):
+                raise AssistantError("linked_path")
+        elif attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+            raise AssistantError("linked_path")
+    return canonical_system_path(path)
 
 
 def write_private(path: Path, data: bytes, *, replace: bool = False) -> None:
@@ -175,7 +195,15 @@ def write_private(path: Path, data: bytes, *, replace: bool = False) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         if replace:
-            Path(name).replace(path)
+            readonly_mode = None
+            if sys.platform == "win32" and path.exists() and not path.stat().st_mode & stat.S_IWRITE:
+                readonly_mode = path.stat().st_mode
+                path.chmod(readonly_mode | stat.S_IWRITE)
+            try:
+                Path(name).replace(path)
+            finally:
+                if readonly_mode is not None and path.exists():
+                    path.chmod(readonly_mode)
         else:
             # An exclusive hard-link prevents silently overwriting concurrent output.
             try:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .platform_support import read_utf8
+from .platform_support import tool_present, read_utf8
 
 import argparse
 from dataclasses import asdict, replace
@@ -11,7 +11,6 @@ import json
 import os
 from pathlib import Path
 import platform
-import shutil
 import sqlite3
 import sys
 import tempfile
@@ -217,8 +216,8 @@ def execute(args, config: Config | None = None) -> int:
                 "model_configured": bool(config.model),
                 "network_enabled": config.allow_network,
                 "key_present": bool(os.environ.get(config.key_name)) if config.key_name else None,
-                "docker_binary_present": bool(shutil.which("docker")),
-                "podman_binary_present": bool(shutil.which("podman")),
+                "docker_binary_present": tool_present("docker"),
+                "podman_binary_present": tool_present("podman"),
                 "container_daemon_checked": False,
                 "recipes": sorted(config.recipes),
                 "profile": config.profile,
@@ -332,10 +331,20 @@ def execute(args, config: Config | None = None) -> int:
         write_private(Path(args.output), report_html(_read_json(args.input)).encode())
         _emit({"output": args.output})
     elif args.command == "scan":
-        names = git(args.repo, "ls-files", "-z", binary=True).decode().split("\0")
+        entries = git(args.repo, "ls-files", "--stage", "-z", binary=True).decode().split("\0")
+        modes = {}
+        for row in filter(None, entries):
+            metadata, name = row.split("\t", 1)
+            mode, _blob, stage = metadata.split()
+            if stage != "0":
+                raise AssistantError("publication_index_unmerged")
+            modes[name] = mode
+        names = list(modes)
         findings = []
         for name in filter(None, names):
             try:
+                if modes[name] not in {"100644", "100755"}:
+                    raise AssistantError("linked_or_special_git_object")
                 check_path(name, source_only=False)
             except AssistantError as exc:
                 findings.append({"path": name, "code": exc.code})

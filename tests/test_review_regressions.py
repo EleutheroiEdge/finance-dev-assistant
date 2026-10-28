@@ -290,7 +290,7 @@ def test_scan_records_tracked_link_and_continues(repository, capsys):
     command(repo, "add", "src/link.py", "src/synthetic.py")
     assert main(["scan", "--repo", str(repo)]) == 1
     report = json.loads(capsys.readouterr().out)
-    assert {row["code"] for row in report["findings"]} == {"linked_path", "sensitive_content"}
+    assert {row["code"] for row in report["findings"]} == {"linked_or_special_git_object", "sensitive_content"}
 
 
 @pytest.mark.parametrize("kind", ["output", "input"])

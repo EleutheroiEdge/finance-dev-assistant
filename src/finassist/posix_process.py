@@ -13,7 +13,7 @@ def zombie_group_only(pid):
     """Darwin can refuse signals to zombies. Never ignore a live group member."""
     try:
         result = subprocess.run(
-            [find_tool("ps"), "-o", "stat=", "-g", str(pid)],
+            [find_tool("ps"), "-x", "-o", "stat=", "-g", str(pid)],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -22,7 +22,8 @@ def zombie_group_only(pid):
             env=clean_environment(),
             shell=False,
         )
-        return result.returncode in {0, 1} and all(row.startswith("Z") for row in result.stdout.split())
+        rows = result.stdout.split()
+        return result.returncode == 0 and bool(rows) and all(row.startswith("Z") for row in rows)
     except (OSError, subprocess.SubprocessError, AssistantError):
         return False
 

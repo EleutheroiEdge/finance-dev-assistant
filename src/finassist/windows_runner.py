@@ -1,6 +1,7 @@
 """Bounded native Windows process supervision for explicitly trusted commands.
 
-Job objects provide cleanup after attachment, not an untrusted-code sandbox.
+Children start suspended and join the Job before execution; this is supervision,
+not an untrusted-code sandbox.
 The container daemon is independently cleaned/inspected by the recipe runner.
 """
 
@@ -72,6 +73,58 @@ class Job:
         if not self.api.AssignProcessToJobObject(self.handle, int(process._handle)):
             raise AssistantError("windows_job_attachment_failed")
 
+    def resume(self, process):
+        # Popen closes CreateProcess's primary thread handle. The suspended
+        # process has not executed user code; locate its single initial thread
+        # using documented Tool Help APIs and resume only after Job assignment.
+        class ThreadEntry(ctypes.Structure):
+            _fields_ = [
+                ("size", wintypes.DWORD),
+                ("usage", wintypes.DWORD),
+                ("thread", wintypes.DWORD),
+                ("owner", wintypes.DWORD),
+                ("base_priority", wintypes.LONG),
+                ("delta_priority", wintypes.LONG),
+                ("flags", wintypes.DWORD),
+            ]
+
+        api = self.api
+        api.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+        api.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        api.Thread32First.argtypes = [wintypes.HANDLE, ctypes.POINTER(ThreadEntry)]
+        api.Thread32First.restype = wintypes.BOOL
+        api.Thread32Next.argtypes = [wintypes.HANDLE, ctypes.POINTER(ThreadEntry)]
+        api.Thread32Next.restype = wintypes.BOOL
+        api.OpenThread.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        api.OpenThread.restype = wintypes.HANDLE
+        api.ResumeThread.argtypes = [wintypes.HANDLE]
+        api.ResumeThread.restype = wintypes.DWORD
+        snapshot = api.CreateToolhelp32Snapshot(0x4, 0)  # TH32CS_SNAPTHREAD
+        if not snapshot or snapshot == ctypes.c_void_p(-1).value:
+            raise AssistantError("windows_thread_snapshot_failed")
+        try:
+            entry = ThreadEntry()
+            entry.size = ctypes.sizeof(entry)
+            present = api.Thread32First(snapshot, ctypes.byref(entry))
+            threads = []
+            while present:
+                if entry.owner == process.pid:
+                    threads.append(entry.thread)
+                entry.size = ctypes.sizeof(entry)
+                present = api.Thread32Next(snapshot, ctypes.byref(entry))
+            if len(threads) != 1:
+                raise AssistantError("windows_initial_thread_invalid")
+            thread = api.OpenThread(0x2, False, threads[0])  # THREAD_SUSPEND_RESUME
+            if not thread:
+                raise AssistantError("windows_thread_open_failed")
+            try:
+                if api.ResumeThread(thread) != 1:
+                    raise AssistantError("windows_thread_resume_failed")
+            finally:
+                api.CloseHandle(thread)
+        finally:
+            api.CloseHandle(snapshot)
+
     def close(self):
         if self.handle:
             handle = self.handle
@@ -117,42 +170,56 @@ def run_windows(argv, *, cwd, env, timeout, max_bytes):
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             shell=False,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | 0x4,  # CREATE_SUSPENDED
         )
         job.attach(process)
+        job.resume(process)
         reader = threading.Thread(target=consume, daemon=True)
         reader.start()
         drained = False
         while True:
+            # Drain currently queued data before consulting the deadline. A
+            # completed child must not lose output to queue-drain overhead.
             try:
                 block = blocks.get(timeout=0.02)
-                if block is None:
-                    drained = True
-                else:
-                    room = max_bytes - len(output)
-                    output.extend(block[:room])
-                    overflow = len(block) > room
+                while True:
+                    if block is None:
+                        drained = True
+                    else:
+                        room = max_bytes - len(output)
+                        output.extend(block[:room])
+                        overflow |= len(block) > room
+                    if overflow:
+                        break
+                    block = blocks.get_nowait()
             except queue.Empty:
                 pass
-            if process.poll() is not None:
-                # Kill attached descendants even if they inherited the output
-                # pipe. The reader can then drain remaining bytes to EOF.
+            exited = process.poll() is not None
+            if exited:
                 job.close()
-            if overflow or (drained and process.poll() is not None):
+            if overflow or (drained and exited):
                 break
             if time.monotonic() - started > timeout:
                 timed_out = True
                 break
     finally:
-        job.close()
-        if process is not None:
-            if process.poll() is None:
-                process.kill()
-            process.wait(timeout=5)
-            stopped.set()
-            if reader is not None:
-                reader.join(timeout=5)
-            process.stdout.close()
+        # Each nested finally must run even if a Job operation or wait fails.
+        try:
+            job.close()
+        finally:
+            try:
+                if process is not None:
+                    if process.poll() is None:
+                        process.kill()
+                    process.wait(timeout=5)
+            finally:
+                stopped.set()
+                try:
+                    if reader is not None:
+                        reader.join(timeout=5)
+                finally:
+                    if process is not None and process.stdout is not None:
+                        process.stdout.close()
     return {
         "exit_code": process.returncode,
         "timed_out": timed_out,

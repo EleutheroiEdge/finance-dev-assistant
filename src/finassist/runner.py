@@ -16,7 +16,7 @@ import sys
 from .config import Config
 from .errors import AssistantError
 from .security import canonical, digest, pinned_image, regular_path
-from .platform_support import clean_environment, find_tool
+from .platform_support import clean_environment, container_environment, find_tool
 from .posix_process import ExitObserver, zombie_group_only
 
 
@@ -134,16 +134,7 @@ def run_recipe(
     else:
         pinned_image(config.runner_image)
         executable = find_tool(backend)
-        if backend == "docker":
-            # The CLI consumes its existing Desktop context internally. No file
-            # content, credential or context is copied into the container.
-            env["DOCKER_CONFIG"] = os.environ.get("DOCKER_CONFIG", str(Path.home() / ".docker"))
-            if os.environ.get("DOCKER_CONTEXT"):
-                env["DOCKER_CONTEXT"] = os.environ["DOCKER_CONTEXT"]
-        else:
-            env["XDG_CONFIG_HOME"] = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
-            if os.environ.get("XDG_RUNTIME_DIR"):
-                env["XDG_RUNTIME_DIR"] = os.environ["XDG_RUNTIME_DIR"]
+        env = container_environment(backend)
         container_name = "finassist-" + uuid.uuid4().hex
         argv = [
             executable,
@@ -172,36 +163,36 @@ def run_recipe(
         ]
         cwd, isolation = source, "network-disabled read-only container; image must already be present"
     cleanup_verified = backend == "local"
-    try:
-        with tempfile.TemporaryDirectory(prefix="finassist-home-") as private_home:
+    with tempfile.TemporaryDirectory(prefix="finassist-home-") as private_home:
+        if backend == "local":
             env["HOME"] = private_home
-            if backend == "local":
-                env["PYTHONPATH"] = str(source / "src") + os.pathsep + str(source)
+            env["PYTHONPATH"] = str(source / "src") + os.pathsep + str(source)
+        try:
             result = run_bounded(argv, cwd=cwd, env=env, timeout=config.timeout_seconds)
-    finally:
-        if backend != "local":
-            # A terminated CLI does not prove daemon-owned container exit.
-            # Cleanup is attempted even when supervision itself raises.
-            try:
-                cleanup = subprocess.run(
-                    [executable, "rm", "--force", container_name],
-                    capture_output=True,
-                    env=env,
-                    timeout=15,
-                    check=False,
-                )
-                inspect = subprocess.run(
-                    [executable, "container", "inspect", container_name],
-                    capture_output=True,
-                    env=env,
-                    timeout=15,
-                    check=False,
-                )
-                cleanup_verified = inspect.returncode != 0 and (
-                    cleanup.returncode == 0 or b"No such container" in cleanup.stderr
-                )
-            except (OSError, subprocess.SubprocessError):
-                cleanup_verified = False
+        finally:
+            if backend != "local":
+                # The host CLI keeps its context/storage selectors until both
+                # cleanup calls complete; none become container variables.
+                try:
+                    cleanup = subprocess.run(
+                        [executable, "rm", "--force", container_name],
+                        capture_output=True,
+                        env=env,
+                        timeout=15,
+                        check=False,
+                    )
+                    inspect = subprocess.run(
+                        [executable, "container", "inspect", container_name],
+                        capture_output=True,
+                        env=env,
+                        timeout=15,
+                        check=False,
+                    )
+                    cleanup_verified = inspect.returncode != 0 and (
+                        cleanup.returncode == 0 or b"No such container" in cleanup.stderr
+                    )
+                except (OSError, subprocess.SubprocessError):
+                    cleanup_verified = False
     if not cleanup_verified:
         result["passed"] = False
     # A recipe's log is local evidence, never automatically forwarded to a model.
