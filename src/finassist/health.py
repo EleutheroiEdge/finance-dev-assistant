@@ -2,10 +2,10 @@
 
 import os
 import platform
-import shutil
 
 from . import __version__
 from .config import Config
+from .platform_support import tool_present, private_state_protection
 
 
 def doctor_report(config: Config) -> dict:
@@ -17,13 +17,11 @@ def doctor_report(config: Config) -> dict:
         "model_configured": bool(config.model),
         "network_enabled": config.allow_network,
         "key_present": bool(os.environ.get(config.key_name)) if config.key_name else None,
-        "docker_binary_present": bool(shutil.which("docker")),
-        "podman_binary_present": bool(shutil.which("podman")),
+        "docker_binary_present": tool_present("docker"),
+        "podman_binary_present": tool_present("podman"),
         "container_daemon_checked": False,
         "recipes": sorted(config.recipes),
         "profile": config.profile,
-        "private_state_protection": "POSIX owner-only modes"
-        if os.name == "posix"
-        else "Windows inherited ACLs: use a private user directory and review access",
+        "private_state_protection": private_state_protection(),
         "next_step": "inspect a plan packet before enabling any provider or running a recipe",
     }

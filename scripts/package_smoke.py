@@ -8,6 +8,8 @@ import sys
 import tempfile
 
 import finassist
+from finassist.platform_support import find_tool
+from finassist.scope import git_environment
 
 assert "site-packages" in str(Path(finassist.__file__).resolve()), finassist.__file__
 if len(sys.argv) != 2:
@@ -22,6 +24,7 @@ with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
             cwd=root,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             check=False,
         )
         assert result.returncode == expected_exit, (result.returncode, result.stderr)
@@ -31,7 +34,10 @@ with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
 
     def git(*args):
         return subprocess.check_output(
-            ["git", "-c", "core.hooksPath=" + os.devnull, "-C", str(root), *args], text=True
+            [find_tool("git"), "-c", "core.hooksPath=" + os.devnull, "-C", str(root), *args],
+            env=git_environment(),
+            text=True,
+            encoding="utf-8",
         ).strip()
 
     assert cli("demo")[0]["status"] == "PASS"
@@ -44,16 +50,16 @@ with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
     git("config", "user.name", "Synthetic Tester")
     git("config", "user.email", "tester@example.invalid")
     (root / "src").mkdir()
-    (root / "src/cash.py").write_text("def cash(a, b):\n    return a + b\n")
+    (root / "src/cash.py").write_text("def cash(a, b):\n    return a + b\n", encoding="utf-8", newline="\n")
     git("add", "src/cash.py")
     git("commit", "-m", "Synthetic baseline")
-    (root / "src/cash.py").write_text("def cash(a, b):\n    return a - b\n")
+    (root / "src/cash.py").write_text("def cash(a, b):\n    return a - b\n", encoding="utf-8", newline="\n")
     git("add", "src/cash.py")
     git("commit", "-m", "Synthetic candidate")
     packet, report = root / "packet.json", root / "report.json"
     cli("plan", "--repo", root, "--base", "HEAD~1", "--output", packet)
     cli("review", "--packet", packet, "--output", report)
-    assert json.loads(report.read_text())["status"] == "offline-analysis"
+    assert json.loads(report.read_text(encoding="utf-8"))["status"] == "offline-analysis"
     gate = cli(
         "verify-gate",
         "--repo",
@@ -71,13 +77,13 @@ with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
     refused = cli("github-audit", "--repository", "example/repository", expected_exit=2)
     assert refused["code"] == "network_not_approved"  # Offline refusal; no GitHub request.
     audit = cli("audit", "--export", root / "events.jsonl")[0]
-    events = [json.loads(line) for line in (root / "events.jsonl").read_text().splitlines()]
+    events = [json.loads(line) for line in (root / "events.jsonl").read_text(encoding="utf-8").splitlines()]
     assert audit["events_verified"] == len(events) and not audit["incomplete_runs"]
     assert any(row["payload"]["event"] == "command_failed" for row in events)
     cli("render", "--input", report, "--output", root / "report.html")
     assert cli("finance-check", "--kind", "cash", "--input", examples / "cash-check.json")[0]["passed"]
     cli("evaluate", "--suite", examples / "review-cases.json", "--output", root / "evaluation.json")
-    assert not json.loads((root / "evaluation.json").read_text())["model_quality_measured"]
+    assert not json.loads((root / "evaluation.json").read_text(encoding="utf-8"))["model_quality_measured"]
     entry = cli("evidence", "add", "--input", examples / "evidence-observation.json")[0]
     cli("evidence", "approve", "--id", entry["id"], "--approve-hash", entry["hash"])
     latest = cli("evidence", "latest", "--entity", "Fictional Example", "--metric", "revenue")[0]

@@ -31,9 +31,9 @@ def test_model_proposal_can_be_inspected_applied_and_rolled_back(repository, tmp
     packet = build_packet(repo, base, head, Config())
     generated = generate(packet, model_config(), tmp_path, artifact(repo, head), monkeypatch)
     path = tmp_path / "proposal.json"
-    path.write_text(json.dumps(generated))
+    path.write_text(json.dumps(generated), encoding="utf-8", newline="\n")
     assert not generated["applied"]
-    assert "- deposits" in (repo / "src/cash.py").read_text()
+    assert "- deposits" in (repo / "src/cash.py").read_text(encoding="utf-8")
     assert (
         main(
             [
@@ -48,7 +48,7 @@ def test_model_proposal_can_be_inspected_applied_and_rolled_back(repository, tmp
         )
         == 0
     )
-    assert "+ deposits" in (repo / "src/cash.py").read_text()
+    assert "+ deposits" in (repo / "src/cash.py").read_text(encoding="utf-8")
     capsys.readouterr()
     assert main(["rollback", "--repo", str(repo), "--patch-hash", generated["approval_hash"]]) == 0
     assert command(repo, "status", "--porcelain") == ""
@@ -56,7 +56,7 @@ def test_model_proposal_can_be_inspected_applied_and_rolled_back(repository, tmp
 
 def test_partial_review_cannot_propose_changes_to_omitted_source(repository, tmp_path, monkeypatch):
     repo, base, _ = repository
-    (repo / "src/other.py").write_text("value = 1\n")
+    (repo / "src/other.py").write_text("value = 1\n", encoding="utf-8", newline="\n")
     command(repo, "add", "src/other.py")
     command(repo, "commit", "-m", "Add second synthetic file")
     head = command(repo, "rev-parse", "HEAD")
@@ -67,9 +67,15 @@ def test_partial_review_cannot_propose_changes_to_omitted_source(repository, tmp
         "patch": "diff --git a/src/other.py b/src/other.py\n--- a/src/other.py\n+++ b/src/other.py\n@@ -1 +1 @@\n-value = 1\n+value = 2\n",
     }
     assert packet["omitted"] == [{"path": "src/other.py", "reason": "outside_allowlist"}]
-    with pytest.raises(AssistantError, match="proposal_outside_review_scope"):
-        generate(packet, replace(model_config(), allow_partial_review=True), tmp_path, candidate, monkeypatch)
-    assert (repo / "src/other.py").read_text() == "value = 1\n"
+    with pytest.raises(AssistantError, match="patch_path_not_approved"):
+        generate(
+            packet,
+            replace(model_config(), allow_partial_review=True, allow_paths=("src/cash.py",)),
+            tmp_path,
+            candidate,
+            monkeypatch,
+        )
+    assert (repo / "src/other.py").read_text(encoding="utf-8") == "value = 1\n"
 
 
 def test_proposal_summary_is_screened_before_returning_output(repository, tmp_path, monkeypatch):

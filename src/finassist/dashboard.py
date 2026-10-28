@@ -14,7 +14,7 @@ import threading
 from urllib.parse import urlsplit, unquote
 
 from .auditing import command_audit
-from .config import Config, DEFAULT_KEYS, PROVIDERS, load_config
+from .config import Config, DEFAULT_KEYS, PROVIDERS, load_config, config_document
 from .errors import AssistantError, OperationOutcomeUnknown
 from .health import doctor_report
 from .ledger import Ledger
@@ -123,7 +123,7 @@ class DashboardState:
             _, current, before_bytes = self._configuration_snapshot()
             if current != revision:
                 raise AssistantError("configuration_changed_reload")
-            payload = canonical(asdict(candidate)) + b"\n"
+            payload = canonical(config_document(candidate)) + b"\n"
             saved = False
             try:
                 with command_audit(self.ledger_path, "dashboard-save", candidate):

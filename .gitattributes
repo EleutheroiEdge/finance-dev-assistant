@@ -1,4 +1,4 @@
-# Packaged assets are hashed as bytes and must survive Windows Git checkouts.
-src/finassist/resources/dashboard/** text eol=lf
-# Vite preserves the input HTML newlines, so its source must be stable too.
+# Keep text and mirrored package resources byte-stable across native checkouts.
+* text=auto eol=lf
+src/finassist/resources/** text eol=lf
 dashboard/** text eol=lf

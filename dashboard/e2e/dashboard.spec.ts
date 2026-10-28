@@ -71,6 +71,14 @@ test("offline configuration, confirmation, statistics and health work end to end
   await expect(page.getByText("Configuration is valid")).toBeVisible();
   await page.getByRole("button", {name: /^Configuration/}).click();
   await page.screenshot({path: "test-results/configuration.png", fullPage: true});
+  await writeFile(path.join(root, "configuration.json"), "invalid JSON", "utf8");
+  await page.getByRole("button", {name: "Refresh local data"}).click();
+  await expect(page.getByRole("alert")).toContainText("Configuration is invalid");
+  for (const name of ["Statistics", "Health", "Configuration"]) {
+    await page.getByRole("button", {name: new RegExp("^" + name)}).click();
+    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(page.getByText("Loading local data…")).toHaveCount(0);
+  }
   expect(external).toEqual([]);
   expect(errors).toEqual([]);
 });

@@ -9,12 +9,14 @@ import re
 import subprocess
 
 from .config import Config
+from .platform_support import find_tool, clean_environment
 from .errors import AssistantError
-from .security import PUBLIC_ASSETS, canonical, check_path, check_text, digest
+from .security import PUBLIC_ASSETS, canonical, check_text, digest
 
 
 def git_environment() -> dict[str, str]:
     environment = {
+        **clean_environment(),
         "PATH": os.environ.get("PATH", os.defpath),
         "LANG": "C.UTF-8",
         "GIT_CONFIG_NOSYSTEM": "1",
@@ -26,14 +28,70 @@ def git_environment() -> dict[str, str]:
     return environment
 
 
+def _newline_options(repo: Path) -> list[str]:
+    # Query only two enumerated formatting settings in the host's normal Git
+    # config scopes. Source/status/apply still run with hooks, filters, global
+    # configuration and untrusted GIT_* overrides disabled.
+    environment = clean_environment()
+    for name in ("HOME", "USERPROFILE", "APPDATA", "XDG_CONFIG_HOME"):
+        if name in os.environ:
+            environment[name] = os.environ[name]
+    environment["GIT_TERMINAL_PROMPT"] = "0"
+    result = []
+    for key, allowed in (
+        ("core.autocrlf", {"true", "false", "input"}),
+        ("core.eol", {"lf", "crlf", "native"}),
+    ):
+        try:
+            value = subprocess.run(
+                [
+                    find_tool("git"),
+                    "-c",
+                    "core.hooksPath=" + os.devnull,
+                    "-c",
+                    "core.fsmonitor=false",
+                    "-C",
+                    str(repo),
+                    "config",
+                    "--get",
+                    key,
+                ],
+                capture_output=True,
+                env=environment,
+                timeout=10,
+                check=False,
+            )
+            text = value.stdout.decode("ascii").strip().lower()
+            if key == "core.autocrlf":
+                text = {
+                    "yes": "true",
+                    "on": "true",
+                    "1": "true",
+                    "": "true",
+                    "no": "false",
+                    "off": "false",
+                    "0": "false",
+                }.get(text, text)
+            if value.returncode == 1:
+                continue
+            if value.returncode != 0 or text not in allowed:
+                raise AssistantError("git_newline_policy_invalid")
+            result.extend(["-c", key + "=" + text])
+        except (OSError, UnicodeError, subprocess.SubprocessError) as exc:
+            raise AssistantError("git_newline_policy_unavailable") from exc
+    return result
+
+
 def git_command(repo: Path, *args: str) -> list[str]:
+    newline = _newline_options(repo) if args and args[0] in {"status", "apply"} else []
     return [
-        "git",
+        find_tool("git"),
         "--no-optional-locks",
         "-c",
         "core.fsmonitor=false",
         "-c",
         "core.hooksPath=" + os.devnull,
+        *newline,
         "-C",
         str(repo),
         *args,
@@ -63,8 +121,10 @@ def resolve(repo: Path, ref: str) -> str:
     return sha
 
 
-def read_entry(repo: Path, sha: str, path: str, max_bytes: int) -> tuple[bytes | None, str | None]:
-    safe_relative = check_path(path)
+def read_entry(
+    repo: Path, sha: str, path: str, max_bytes: int, config: Config | None = None
+) -> tuple[bytes | None, str | None]:
+    safe_relative = (config or Config()).check_path(path)
     entries = git(repo, "--literal-pathspecs", "ls-tree", "-z", sha, "--", safe_relative, binary=True)
     if not entries:
         return None, None
@@ -81,8 +141,8 @@ def read_entry(repo: Path, sha: str, path: str, max_bytes: int) -> tuple[bytes |
     return data, mode
 
 
-def read_blob(repo: Path, sha: str, path: str, max_bytes: int) -> bytes | None:
-    return read_entry(repo, sha, path, max_bytes)[0]
+def read_blob(repo: Path, sha: str, path: str, max_bytes: int, config: Config | None = None) -> bytes | None:
+    return read_entry(repo, sha, path, max_bytes, config)[0]
 
 
 @dataclass(frozen=True)
@@ -120,7 +180,7 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
     for pos in range(0, len(tokens) - 1, 2):
         status, path = tokens[pos : pos + 2]
         changed.append(path)
-        check_path(path, source_only=False, metadata_only=True)
+        config.check_path(path, source_only=False, metadata_only=True)
         check_text(path, extra_patterns=config.extra_sensitive_patterns)
         if config.generated(path):
             omitted.append({"path": path, "reason": "generated_artifact_excluded"})
@@ -131,8 +191,8 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
         if not config.allows(path):
             omitted.append({"path": path, "reason": "outside_allowlist"})
             continue
-        before, before_mode = read_entry(repo, ancestor, path, config.max_file_bytes)
-        after, after_mode = read_entry(repo, head_sha, path, config.max_file_bytes)
+        before, before_mode = read_entry(repo, ancestor, path, config.max_file_bytes, config)
+        after, after_mode = read_entry(repo, head_sha, path, config.max_file_bytes, config)
         decoded = []
         for data in (before, after):
             try:
@@ -162,6 +222,7 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
         "merge_base": ancestor,
         "profile": config.profile,
         "generated_paths": list(config.generated_paths),
+        "allow_paths": list(config.allow_paths),
         "changed_paths": changed,
         "files": files,
         "omitted": omitted,
@@ -175,6 +236,7 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
 
 
 def verify_packet(packet: dict, config: Config | None = None) -> None:
+    active_config = config is not None
     config = (config or Config()).validate()
     keys = {
         "schema_version",
@@ -190,6 +252,8 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
         "generated_paths",
         "packet_hash",
     }
+    if isinstance(packet, dict) and "allow_paths" in packet:
+        keys.add("allow_paths")
     if (
         not isinstance(packet, dict)
         or set(packet) != keys
@@ -209,6 +273,15 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
         raise AssistantError("packet_coverage_invalid")
     if packet["generated_paths"] != list(config.generated_paths):
         raise AssistantError("packet_generated_paths_mismatch")
+    if "allow_paths" not in packet:
+        if active_config:
+            raise AssistantError("packet_allow_paths_missing")
+    elif not isinstance(packet["allow_paths"], list) or packet["allow_paths"] != list(config.allow_paths):
+        raise AssistantError("packet_allow_paths_mismatch")
+    if packet["profile"] != config.profile:
+        raise AssistantError("packet_profile_mismatch")
+    for name in changed:
+        check_text(name, extra_patterns=config.extra_sensitive_patterns)
     accounted = []
     for item in packet["omitted"]:
         if (
@@ -217,7 +290,7 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
             or not isinstance(item["reason"], str)
         ):
             raise AssistantError("packet_schema_invalid")
-        accounted.append(check_path(item["path"], source_only=False, metadata_only=True))
+        accounted.append(config.check_path(item["path"], source_only=False, metadata_only=True))
         if item["reason"] == "generated_artifact_excluded" and not config.generated(item["path"]):
             raise AssistantError("generated_omission_invalid")
     for item in packet["files"]:
@@ -226,7 +299,9 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
             file_keys |= {"before_mode", "after_mode"}
         if not isinstance(item, dict) or set(item) != file_keys or item["status"] not in {"A", "D", "M", "T"}:
             raise AssistantError("packet_schema_invalid")
-        accounted.append(check_path(item["path"]))
+        accounted.append(config.check_path(item["path"]))
+        if not config.allows(item["path"]):
+            raise AssistantError("packet_outside_allowlist")
         if config.generated(item["path"]):
             raise AssistantError("generated_source_in_packet")
         if item["before"] is None and item["after"] is None:
@@ -244,13 +319,13 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
     if digest(canonical({k: v for k, v in packet.items() if k != "packet_hash"})) != expected:
         raise AssistantError("packet_integrity_failed")
     for file in packet["files"]:
-        check_path(file["path"])
+        config.check_path(file["path"])
         for side in ("before", "after"):
             data = file[side]
             if (digest(data.encode()) if data is not None else None) != file[side + "_hash"]:
                 raise AssistantError("file_integrity_failed")
             if data is not None:
-                check_text(data)
+                check_text(data, extra_patterns=config.extra_sensitive_patterns)
 
 
 def triage(packet: dict, config: Config | None = None) -> dict:

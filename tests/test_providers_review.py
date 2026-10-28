@@ -114,7 +114,7 @@ def test_packet_approval_and_coverage_fail_before_transport(repository, tmp_path
     with pytest.raises(AssistantError, match="packet_approval_required"):
         review_packet(packet, model_config(), tmp_path / "audit.db", network_approved=True)
     packet = build_packet(repo, base, head, replace(Config(), allow_paths=("docs/",)))
-    with pytest.raises(AssistantError, match="scope_incomplete"):
+    with pytest.raises(AssistantError, match="packet_allow_paths_mismatch"):
         review_packet(
             packet,
             model_config(),

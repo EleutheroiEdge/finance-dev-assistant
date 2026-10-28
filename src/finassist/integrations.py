@@ -21,6 +21,10 @@ def export_kit(destination: Path) -> dict:
         "docs/workflows.md": "workflow-guide.md",
         "docs/providers.md": "provider-guide.md",
         "docs/readiness-and-auditing.md": "readiness-guide.md",
+        "docs/platforms.md": "platform-guide.md",
+        "docs/configuration.md": "configuration-guide.md",
+        "examples/fork-config.json": "fork-config.json",
+        "examples/profiles/engineering.json": "engineering-profile.json",
     }
     for target, resource in mapping.items():
         content = files("finassist").joinpath("resources/" + resource).read_bytes()

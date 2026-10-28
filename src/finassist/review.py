@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .platform_support import read_utf8
+
 from decimal import Decimal
 from dataclasses import asdict
 from importlib.resources import files
@@ -13,14 +15,13 @@ import jsonschema
 from .config import Config
 from .errors import AssistantError
 from .ledger import Ledger
-from .profiles import instructions
 from .providers import invoke, request_shape
 from .scope import triage, verify_packet, review_omissions
 from .security import canonical, check_text, digest
 
 
 def review_schema() -> dict:
-    return json.loads(files("finassist").joinpath("resources/review.schema.json").read_text())
+    return json.loads(read_utf8(files("finassist").joinpath("resources/review.schema.json")))
 
 
 def validate_review(
@@ -188,7 +189,7 @@ def review_packet(
         config,
         ledger_path,
         review_schema(),
-        instructions(config.profile),
+        config.instructions(),
         network_approved=network_approved,
         approved_packet_hash=approved_packet_hash,
         transport=transport,

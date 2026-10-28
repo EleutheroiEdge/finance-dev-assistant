@@ -4,11 +4,11 @@ from datetime import datetime, timezone
 import json
 import os
 import re
-import shutil
 import subprocess
 from urllib.parse import quote
 
 from .config import Config
+from .platform_support import find_tool
 from .errors import AssistantError
 from .security import canonical, digest
 
@@ -25,9 +25,7 @@ def inspect_github(repository: str, branch: str, config: Config, *, network_appr
         or ".." in branch
     ):
         raise AssistantError("github_branch_invalid")
-    executable = shutil.which("gh")
-    if executable is None:
-        raise AssistantError("github_cli_missing")
+    executable = find_tool("gh")
     requests = []
     # Retain only the existing CLI's required OS/auth inputs. Do not inherit
     # unrelated provider keys, proxy/debug routing or GH host/repo/config overrides.
@@ -45,10 +43,21 @@ def inspect_github(repository: str, branch: str, config: Config, *, network_appr
         "TMP",
         "WSL_INTEROP",
         "WSL_DISTRO_NAME",
-        "GH_TOKEN",
-        "GITHUB_TOKEN",
+    )
+    names += (
+        ("GH_TOKEN", "GITHUB_TOKEN")
+        if config.github_host == "github.com"
+        else ("GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
     )
     environment = {name: os.environ[name] for name in names if name in os.environ}
+    if config.github_host.endswith(".ghe.com"):
+        # gh uses the cloud token variable for ghe.com. Only an explicitly
+        # supplied Enterprise credential may populate it for another tenant.
+        enterprise = environment.pop("GH_ENTERPRISE_TOKEN", None) or environment.pop(
+            "GITHUB_ENTERPRISE_TOKEN", None
+        )
+        if enterprise:
+            environment["GH_TOKEN"] = enterprise
     environment.update(GH_PROMPT_DISABLED="1", GH_NO_UPDATE_NOTIFIER="1")
 
     def get(suffix: str, *, missing_ok: bool = False):
@@ -56,9 +65,10 @@ def inspect_github(repository: str, branch: str, config: Config, *, network_appr
         requests.append(digest(endpoint.encode()))
         try:
             result = subprocess.run(
-                [executable, "api", endpoint, "--hostname", "github.com"],
+                [executable, "api", endpoint, "--hostname", config.github_host],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=min(config.timeout_seconds, 120),
                 check=False,
                 env=environment,
@@ -138,6 +148,7 @@ def inspect_github(repository: str, branch: str, config: Config, *, network_appr
             observations.append("formal_approvals_not_required")
     report = {
         "repository": repository,
+        "host": config.github_host,
         "branch": branch,
         "observed_head": observed_head,
         "recorded_at": datetime.now(timezone.utc).isoformat(),

@@ -307,6 +307,28 @@ def test_unchanged_json_lists_do_not_create_false_preview_differences(dashboard)
     assert preview[0] == 200 and preview[1]["diff"] == []
 
 
+def test_dashboard_saves_preserve_file_profile_provenance(dashboard):
+    from finassist.config import load_config
+
+    state, _, request = dashboard
+    profile = state.config_path.parent / "profiles.json"
+    profile.write_text(json.dumps({"custom": ["Synthetic checklist"]}), encoding="utf-8", newline="\n")
+    state.config_path.write_text(
+        json.dumps({"profile": "general", "profile_files": ["profiles.json"]}), encoding="utf-8", newline="\n"
+    )
+    current = request("GET", "/api/config")[1]
+    assert "custom" in current["options"]["profiles"]
+    preview = request(
+        "POST", "/api/config/preview", {"revision": current["revision"], "changes": {"daily_budget_usd": 7}}
+    )[1]
+    assert (
+        request("POST", "/api/config/confirm", {"proposal_id": preview["proposal_id"], "confirm": True})[0]
+        == 200
+    )
+    profile.write_text(json.dumps({"other": ["Replacement checklist"]}), encoding="utf-8", newline="\n")
+    assert "custom" not in load_config(state.config_path).profiles
+
+
 def test_write_acknowledgement_failure_is_also_an_unknown_save(dashboard, monkeypatch):
     import finassist.dashboard as module
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .platform_support import read_utf8
+
 import argparse
 from dataclasses import asdict, replace
 from decimal import Decimal, InvalidOperation
@@ -14,7 +16,7 @@ import time
 
 from . import __version__
 from .auditing import command_audit
-from .config import Config, PROVIDERS, PROFILES, load_config, save_config
+from .config import Config, PROVIDERS, load_config, save_config
 from .demo import run_demo
 from .health import doctor_report
 from .errors import AssistantError
@@ -31,7 +33,7 @@ from .readiness import verify_gate
 from .review import review_packet
 from .runner import run_recipe
 from .scope import build_packet, git, resolve, triage
-from .security import canonical, check_path, check_text, digest, regular_path, write_private
+from .security import canonical, check_text, digest, regular_path, write_private
 from .workspace import export_snapshot
 
 
@@ -39,7 +41,7 @@ def _read_json(path: str) -> dict:
     file = regular_path(Path(path))
     if file.stat().st_size > 2_000_000:
         raise AssistantError("input_limit_exceeded")
-    value = json.loads(file.read_text())
+    value = json.loads(read_utf8(file))
     if not isinstance(value, dict):
         raise AssistantError("input_object_required")
     return value
@@ -69,7 +71,7 @@ def parser() -> argparse.ArgumentParser:
     init.add_argument("--output", default="finassist.json")
     init.add_argument("--provider", choices=sorted(PROVIDERS), default="offline")
     init.add_argument("--model", default="")
-    init.add_argument("--profile", choices=sorted(PROFILES), default="finance-saas")
+    init.add_argument("--profile", help="Name in the configured profile registry")
     commands.add_parser(
         "doctor", help="Check runtime, provider setup and container availability without network"
     )
@@ -202,7 +204,15 @@ def execute(args, config: Config | None = None) -> int:
     config = config or load_config(args.config)
     if args.command == "init":
         save_config(
-            Path(args.output), replace(config, provider=args.provider, model=args.model, profile=args.profile)
+            Path(args.output),
+            replace(
+                config,
+                provider=args.provider,
+                model=args.model,
+                profile=args.profile or config.profile,
+                profile_files=(),
+                profiles=dict(config.profiles),
+            ),
         )
         _emit({"created": args.output, "network_enabled": False})
     elif args.command == "doctor":
@@ -252,7 +262,7 @@ def execute(args, config: Config | None = None) -> int:
             )
         _emit(receipt)
     elif args.command == "rollback":
-        receipt = rollback_patch(args.repo, args.patch_hash)
+        receipt = rollback_patch(args.repo, args.patch_hash, config)
         with Ledger(audit_directory(args) / "audit.sqlite") as ledger:
             ledger.append(
                 {
@@ -319,11 +329,21 @@ def execute(args, config: Config | None = None) -> int:
         write_private(Path(args.output), report_html(_read_json(args.input)).encode())
         _emit({"output": args.output})
     elif args.command == "scan":
-        names = git(args.repo, "ls-files", "-z", binary=True).decode().split("\0")
+        entries = git(args.repo, "ls-files", "--stage", "-z", binary=True).decode().split("\0")
+        modes = {}
+        for row in filter(None, entries):
+            metadata, name = row.split("\t", 1)
+            mode, _blob, stage = metadata.split()
+            if stage != "0":
+                raise AssistantError("publication_index_unmerged")
+            modes[name] = mode
+        names = list(modes)
         findings = []
         for name in filter(None, names):
             try:
-                check_path(name, source_only=False)
+                if modes[name] not in {"100644", "100755"}:
+                    raise AssistantError("linked_or_special_git_object")
+                config.check_path(name, source_only=False)
             except AssistantError as exc:
                 findings.append({"path": name, "code": exc.code})
                 continue
@@ -334,7 +354,7 @@ def execute(args, config: Config | None = None) -> int:
                 if path.stat().st_size > 2_000_000:
                     findings.append({"path": name, "code": "publication_file_too_large"})
                     continue
-                content = path.read_text()
+                content = read_utf8(path)
                 check_text(content, extra_patterns=config.extra_sensitive_patterns)
                 if any(value.casefold() in (name + "\n" + content).casefold() for value in args.forbid):
                     findings.append({"path": name, "code": "forbidden_publication_text"})

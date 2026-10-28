@@ -8,8 +8,11 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import tempfile
+import stat
+import sys
 
 from .errors import AssistantError
+from .platform_support import canonical_system_path
 
 DENIED_PARTS = {
     ".finassist",
@@ -79,7 +82,7 @@ SECRET_PATTERNS = (
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"\bsk-[A-Za-z0-9_-]{24,}\b"),
     re.compile(
-        r"(?i)\b[A-Za-z0-9_-]*(?:api[_-]?key|password|secret|access[_-]?token)\b[\"']?\s*[=:]\s*"
+        r"(?i)\b[A-Za-z0-9_-]*(?:api[_-]?key|password|secret|access[_-]?token|gh[_-]?token|github[_-](?:enterprise[_-])?token)\b[\"']?\s*[=:]\s*"
         r"(?:[\"'][^\"'\n]{12,}[\"']|[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
     ),
     re.compile(
@@ -119,20 +122,32 @@ def safe_relative(value: str) -> str:
     return str(path)
 
 
-def check_path(value: str, *, source_only: bool = True, metadata_only: bool = False) -> str:
+def check_path(
+    value: str,
+    *,
+    source_only: bool = True,
+    metadata_only: bool = False,
+    denied_parts=None,
+    text_suffixes=None,
+) -> str:
     name = safe_relative(value)
     check_text(name)
     parts = PurePosixPath(name).parts
     if parts[-1].lower() in {"auth.json", "user.md", "memory.md", "session.md"}:
         raise AssistantError("private_profile_path")
-    if any(p.lower() in DENIED_PARTS or p.lower().startswith(".env") for p in parts):
+    denied = DENIED_PARTS if denied_parts is None else denied_parts
+    suffixes = TEXT_SUFFIXES if text_suffixes is None else text_suffixes
+    if any(
+        p.lower() in denied or p.lower().startswith(".env") or p.lower() in {".git", ".finassist"}
+        for p in parts
+    ):
         raise AssistantError("private_path")
     suffix = PurePosixPath(name).suffix.lower()
     if suffix in DENIED_SUFFIXES and not (metadata_only and suffix in PUBLIC_ASSETS):
         raise AssistantError("private_or_binary_path")
     if (
         source_only
-        and suffix not in TEXT_SUFFIXES
+        and suffix not in suffixes
         and parts[-1]
         not in {"LICENSE", "Dockerfile", "Makefile", ".gitignore", ".dockerignore", ".gitattributes"}
     ):
@@ -154,11 +169,29 @@ def check_text(text: str, *, extra_patterns: tuple[str, ...] = ()) -> None:
 
 def regular_path(path: Path) -> Path:
     """Reject symlink ancestors before resolving, including not-yet-created files."""
-    path = Path(os.path.abspath(path.expanduser()))
+    path = Path(path).expanduser().absolute()
+    # Inspect raw ancestors before collapsing .., including older Python builds
+    # without Path.is_junction(). Only fixed, verified Darwin OS aliases qualify.
     for item in (path, *path.parents):
-        if item.is_symlink() or (hasattr(item, "is_junction") and item.is_junction()):
+        try:
+            attributes = getattr(item.lstat(), "st_file_attributes", 0)
+        except FileNotFoundError:
+            attributes = 0
+        if (item.is_symlink() or attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT) and canonical_system_path(
+            item
+        ) == item:
             raise AssistantError("linked_path")
-    return path
+        if item.is_symlink():
+            if not (
+                sys.platform == "darwin"
+                and len(item.parts) == 2
+                and item.name in {"var", "tmp", "etc"}
+                and canonical_system_path(item) != item
+            ):
+                raise AssistantError("linked_path")
+        elif attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+            raise AssistantError("linked_path")
+    return canonical_system_path(path)
 
 
 def write_private(path: Path, data: bytes, *, replace: bool = False) -> None:
@@ -175,11 +208,19 @@ def write_private(path: Path, data: bytes, *, replace: bool = False) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         if replace:
-            os.replace(name, path)
+            readonly_mode = None
+            if sys.platform == "win32" and path.exists() and not path.stat().st_mode & stat.S_IWRITE:
+                readonly_mode = path.stat().st_mode
+                path.chmod(readonly_mode | stat.S_IWRITE)
+            try:
+                Path(name).replace(path)
+            finally:
+                if readonly_mode is not None and path.exists():
+                    path.chmod(readonly_mode)
         else:
             # An exclusive hard-link prevents silently overwriting concurrent output.
             try:
-                os.link(name, path)
+                path.hardlink_to(Path(name))
             except FileExistsError as exc:
                 raise AssistantError("output_exists") from exc
     finally:

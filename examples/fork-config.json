@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "provider": "offline",
+  "model": "",
+  "endpoint": "",
+  "api_key_env": "",
+  "auth_header": "Authorization",
+  "profile": "engineering",
+  "profiles": {
+    "general": [
+      "Trace inputs through serialization, persisted state, decisions and final outputs.",
+      "Check boundary conditions, failure paths, concurrency, migrations and rollback.",
+      "Prefer a small reproducible counterexample to a speculative architectural claim.",
+      "Identify missing tests, dead assertions and assertions that mirror the implementation."
+    ],
+    "finance-saas": [
+      "Prove tenant scope at every route, background job, cache key and artifact lookup.",
+      "Use exact money/unit representations and reconcile final ledgers, cash and disclosures.",
+      "Test idempotency, retries, duplicate callbacks, concurrent writers and interrupted transactions.",
+      "Keep credentials, client information and licensed data outside model packets and logs.",
+      "Check entitlements, approval state, audit integrity, retention and migration recovery."
+    ],
+    "investment-research": [
+      "Bind each metric to entity, period, units, source, filing time and retrieval time.",
+      "Use as-filed point-in-time inputs; test restatement leakage and look-ahead bias.",
+      "Prefer explicit candidate-tag resolution with provenance to a single financial-statement tag.",
+      "Distinguish annual, quarter, year-to-date, trailing and annual-stub observations.",
+      "Score only approved analyst inputs; revisions append and supersede, never rewrite history.",
+      "Treat missing and stale evidence explicitly, not as zero; no invented prices or probabilities.",
+      "Separate fundamentals, market prices and licensed enrichment with distinct source authority."
+    ],
+    "quant-review": [
+      "Run immutable baseline and candidate on the same synthetic inputs with frozen prices.",
+      "Test zero cash/budget, fractional lots, cent boundaries and mixed gain characters.",
+      "Check permutation, lot-split and identity invariance where the governing spec requires it.",
+      "Compare preview, booking and final disclosures; every numerical difference needs explanation.",
+      "Check objective/constraint holds at every optimization stage and fallback feasibility.",
+      "Do not invent tax, wash, holding-period, execution or portfolio policy; escalate missing canon."
+    ],
+    "engineering": [
+      "Check infrastructure and application changes against the project specification.",
+      "Use synthetic inputs to reproduce boundary and concurrency defects."
+    ]
+  },
+  "profile_files": [
+    "profiles/engineering.json"
+  ],
+  "denied_parts": [
+    ".aws",
+    ".azure",
+    ".env",
+    ".finassist",
+    ".git",
+    ".ssh",
+    ".venv",
+    "credentials",
+    "holdings",
+    "memory",
+    "node_modules",
+    "secrets",
+    "sessions",
+    "uploads"
+  ],
+  "text_suffixes": [
+    ".cs",
+    ".css",
+    ".dockerfile",
+    ".go",
+    ".html",
+    ".in",
+    ".java",
+    ".js",
+    ".json",
+    ".jsx",
+    ".lock",
+    ".md",
+    ".mjs",
+    ".py",
+    ".rs",
+    ".rst",
+    ".sh",
+    ".sql",
+    ".tf",
+    ".toml",
+    ".ts",
+    ".tsx",
+    ".txt",
+    ".yaml",
+    ".yml"
+  ],
+  "github_host": "git.example.com",
+  "allow_network": false,
+  "allow_partial_review": false,
+  "allowed_hosts": [],
+  "allow_paths": [
+    "src/",
+    "tests/",
+    "docs/",
+    "scripts/",
+    "README.md",
+    "pyproject.toml",
+    ".gitattributes"
+  ],
+  "protected_paths": [
+    ".github/",
+    "LICENSE",
+    "AGENTS.md",
+    "finassist.json",
+    "pyproject.toml",
+    "scripts/",
+    "requirements-dev.lock",
+    ".gitattributes"
+  ],
+  "protected_branches": [
+    "main",
+    "master",
+    "trunk",
+    "production",
+    "release",
+    "release/*"
+  ],
+  "extra_sensitive_patterns": [],
+  "max_file_bytes": 48000,
+  "max_packet_bytes": 120000,
+  "max_output_tokens": 4096,
+  "timeout_seconds": 60,
+  "max_run_usd": 1.0,
+  "daily_budget_usd": 5.0,
+  "input_usd_per_million": 0.0,
+  "output_usd_per_million": 0.0,
+  "recipes": {},
+  "runner_image": "",
+  "required_recipes": [],
+  "blocking_severities": [
+    "critical",
+    "high"
+  ],
+  "readiness_max_age_seconds": 86400,
+  "allow_local_readiness": false,
+  "generated_paths": [
+    "src/finassist/resources/dashboard/"
+  ],
+  "monthly_budget_usd": 100.0
+}

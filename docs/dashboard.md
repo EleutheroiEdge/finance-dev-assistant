@@ -48,7 +48,7 @@ The form edits only the following settings. Every value is validated by the same
 
 Recipe definitions, provider endpoints, network authorization, custom profile files
 and other advanced settings stay in the JSON configuration. The dashboard preserves
-them. Configured custom profiles appear in the selector when supported by the
+them, including the original inline/file profile provenance. Configured custom profiles appear in the selector when supported by the
 installed configuration schema. Sensitive patterns apply to reviewed material;
 they do not screen their own definitions. Built-in credential screening still
 screens the configuration before it can be displayed or saved.

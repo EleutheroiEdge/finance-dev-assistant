@@ -1,4 +1,5 @@
 from dataclasses import replace
+import os
 
 import pytest
 
@@ -7,7 +8,7 @@ from finassist.errors import AssistantError
 from finassist.scope import build_packet, triage, verify_packet
 from finassist.security import canonical, check_path, check_text, digest, regular_path, write_private
 from finassist.workspace import export_snapshot
-from conftest import command
+from conftest import command, synthetic_symlink
 
 
 @pytest.mark.parametrize(
@@ -50,7 +51,7 @@ def test_project_patterns_and_invalid_regex():
 
 def test_ancestor_link_rejected_even_for_missing_leaf(tmp_path):
     (tmp_path / "real").mkdir()
-    (tmp_path / "linked").symlink_to(tmp_path / "real", target_is_directory=True)
+    synthetic_symlink(tmp_path / "linked", tmp_path / "real", target_is_directory=True)
     with pytest.raises(AssistantError, match="linked_path"):
         regular_path(tmp_path / "linked/missing/file.json")
 
@@ -61,13 +62,14 @@ def test_exclusive_outputs_never_overwrite(tmp_path):
     with pytest.raises(AssistantError, match="output_exists"):
         write_private(path, b"second")
     assert path.read_bytes() == b"first"
-    assert path.stat().st_mode & 0o077 == 0
+    if os.name == "posix":
+        assert path.stat().st_mode & 0o077 == 0
 
 
 def test_scope_hashes_both_sides_and_ignores_uncommitted_changes(repository):
     repo, base, head = repository
     packet = build_packet(repo, base, head, Config())
-    (repo / "src/cash.py").write_text("uncommitted and not reviewed")
+    (repo / "src/cash.py").write_text("uncommitted and not reviewed", encoding="utf-8", newline="\n")
     verify_packet(packet)
     assert "+ deposits" in packet["files"][0]["before"]
     assert "- deposits" in packet["files"][0]["after"]
@@ -82,7 +84,7 @@ def test_merge_base_does_not_invent_upstream_deletions(repository):
     repo, base, head = repository
     command(repo, "switch", "main")
     (repo / "docs").mkdir()
-    (repo / "docs/upstream.md").write_text("Upstream-only addition")
+    (repo / "docs/upstream.md").write_text("Upstream-only addition", encoding="utf-8", newline="\n")
     command(repo, "add", "docs/upstream.md")
     command(repo, "commit", "-m", "Upstream addition")
     packet = build_packet(repo, "main", head, Config())
@@ -94,12 +96,12 @@ def test_coverage_omissions_are_explicit(repository):
     repo, base, head = repository
     packet = build_packet(repo, base, head, replace(Config(), allow_paths=("docs/",)))
     assert packet["omitted"] == [{"path": "src/cash.py", "reason": "outside_allowlist"}]
-    assert not triage(packet)["coverage_complete"]
+    assert not triage(packet, replace(Config(), allow_paths=("docs/",)))["coverage_complete"]
 
 
 def test_git_symlink_is_never_followed(repository):
     repo, base, _ = repository
-    (repo / "src/linked.py").symlink_to("/etc/passwd")
+    synthetic_symlink(repo / "src/linked.py", "unavailable-target")
     command(repo, "add", "src/linked.py")
     command(repo, "commit", "-m", "Synthetic link")
     with pytest.raises(AssistantError, match="linked_or_special_git_object"):
@@ -129,7 +131,7 @@ def test_snapshot_is_committed_screened_code(repository, tmp_path):
     result = export_snapshot(repo, head, destination, Config())
     assert result["head"] == head and len(result["files"]) == 1
     assert not (destination / ".git").exists()
-    assert "- deposits" in (destination / "src/cash.py").read_text()
+    assert "- deposits" in (destination / "src/cash.py").read_text(encoding="utf-8")
 
 
 def test_config_is_explicit_and_keys_do_not_choose_provider(tmp_path, monkeypatch):
@@ -138,8 +140,8 @@ def test_config_is_explicit_and_keys_do_not_choose_provider(tmp_path, monkeypatc
     path = tmp_path / "config.json"
     save_config(path, Config())
     assert load_config(path) == Config()
-    path.write_text(canonical({"unknown_field": True}).decode())
-    with pytest.raises(AssistantError, match="invalid_config"):
+    path.write_text(canonical({"unknown_field": True}).decode(), encoding="utf-8", newline="\n")
+    with pytest.raises(AssistantError, match="unknown_config_option"):
         load_config(path)
 
 

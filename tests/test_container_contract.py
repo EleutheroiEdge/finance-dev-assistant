@@ -10,7 +10,7 @@ from finassist.runner import run_recipe
 @pytest.mark.parametrize("raises", [False, True])
 def test_container_flags_and_cleanup_on_supervisor_failure(tmp_path, monkeypatch, raises):
     commands = []
-    monkeypatch.setattr("finassist.runner.shutil.which", lambda _: "/usr/bin/docker")
+    monkeypatch.setattr("finassist.platform_support.shutil.which", lambda _: "/usr/bin/docker")
 
     def supervise(argv, **kwargs):
         commands.append(argv)

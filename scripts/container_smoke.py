@@ -1,18 +1,35 @@
 """Exercise real OCI isolation with a caller-prepared, immutable test image."""
 
 from dataclasses import replace
+import argparse
 import json
 from pathlib import Path
 import sys
 import tempfile
+import shutil
+import subprocess
 
 from finassist.config import Config
 from finassist.runner import run_recipe
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: python scripts/container_smoke.py sha256:IMAGE_ID")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("image")
+    parser.add_argument("--require-runtime", action="store_true")
+    args = parser.parse_args()
+    if sys.platform != "linux" or not shutil.which("docker"):
+        print("SKIP: real container isolation requires Linux with an available Docker daemon")
+        return 1 if args.require_runtime else 0
+    daemon = subprocess.run(
+        [shutil.which("docker"), "info", "--format", "{{.OSType}}"],
+        capture_output=True,
+        timeout=15,
+        check=False,
+    )
+    if daemon.returncode:
+        print("SKIP: Docker daemon is unavailable; no isolation result claimed")
+        return 1 if args.require_runtime else 0
     script = """
 import os
 from pathlib import Path
@@ -51,10 +68,10 @@ print('non-root; readonly source and root; writable scratch; no network; no prov
     with tempfile.TemporaryDirectory(prefix="finassist-oci-smoke-") as root:
         source = Path(root) / "source"
         source.mkdir(mode=0o755)
-        (source / "case.py").write_text(script)
+        (source / "case.py").write_text(script, encoding="utf-8", newline="\n")
         (source / "case.py").chmod(0o444)
         source.chmod(0o555)
-        config = replace(Config(), runner_image=sys.argv[1], recipes={"isolation": ["python", "case.py"]})
+        config = replace(Config(), runner_image=args.image, recipes={"isolation": ["python", "case.py"]})
         result = run_recipe(config, "isolation", source)
     print(json.dumps(result["receipt"], sort_keys=True))
     return 0 if result["receipt"]["passed"] and result["receipt"]["cleanup_verified"] else 1
