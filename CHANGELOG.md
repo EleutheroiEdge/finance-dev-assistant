@@ -1,5 +1,13 @@
 # Changelog
 
+## Next
+
+- Configure private path components, source suffixes, review profile registries
+  and GitHub Enterprise hostnames while retaining conservative defaults.
+- Load custom profile checklists from bounded user JSON files, bind their
+  content to configuration hashes, and apply path policy through the full workflow.
+- Add a complete configuration reference and a synthetic fork example.
+
 ## 0.2.0 — Unreleased
 
 - Context packets now use `schema_version: 2` and include before/after Git modes.

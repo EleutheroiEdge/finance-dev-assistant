@@ -119,6 +119,7 @@ finassist rollback --repo . --patch-hash YOUR_INSPECTED_PROPOSAL_HASH
 ```
 
 See [workflow contracts](docs/workflows.md), [security boundaries](SECURITY.md),
+[all configuration options](docs/configuration.md),
 [configuration examples](examples), [evaluation](docs/evaluation.md) and
 the portable [evidence-review skill](skills/evidence-review/SKILL.md).
 Optional native reviewer roles are described in [agent integration](docs/integrations.md).

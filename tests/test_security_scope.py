@@ -139,7 +139,7 @@ def test_config_is_explicit_and_keys_do_not_choose_provider(tmp_path, monkeypatc
     save_config(path, Config())
     assert load_config(path) == Config()
     path.write_text(canonical({"unknown_field": True}).decode())
-    with pytest.raises(AssistantError, match="invalid_config"):
+    with pytest.raises(AssistantError, match="unknown_config_option"):
         load_config(path)
 
 

@@ -9,7 +9,6 @@ from .config import Config
 from .errors import AssistantError
 from .patching import patch_paths
 from .ledger import Ledger
-from .profiles import instructions
 from .review import call_model
 from .security import canonical, check_text, digest
 
@@ -34,7 +33,7 @@ def propose(
     approved_packet_hash: str,
     transport=None,
 ) -> dict:
-    system = instructions(config.profile) + (
+    system = config.instructions() + (
         "\nPropose the smallest corrective unified Git patch for concrete defects. "
         "Do not change policy, credentials, deployment, permissions or protected paths. "
         "Do not execute commands. Use only supplied paths and the exact head. "

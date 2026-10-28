@@ -11,7 +11,7 @@ import subprocess
 from .config import Config
 from .errors import AssistantError
 from .scope import git, git_command, git_environment, resolve
-from .security import canonical, check_path, check_text, digest, regular_path, write_private
+from .security import canonical, check_text, digest, regular_path, write_private
 
 
 def patch_paths(patch: str, config: Config) -> list[str]:
@@ -62,7 +62,7 @@ def patch_paths(patch: str, config: Config) -> list[str]:
             match = re.fullmatch(r"diff --git a/([^\s]+) b/([^\s]+)", line)
             if not match or match[1] != match[2]:
                 raise AssistantError("patch_rename_or_path_invalid")
-            name = check_path(match[1])
+            name = config.check_path(match[1])
             if not config.allows(name) or config.protected(name):
                 raise AssistantError("patch_path_not_approved")
             paths.append(name)
@@ -90,7 +90,7 @@ def patch_paths(patch: str, config: Config) -> list[str]:
             value = line[4:]
             if value != "/dev/null":
                 prefix = "a/" if line.startswith("--- ") else "b/"
-                if not value.startswith(prefix) or check_path(value[2:]) != paths[-1]:
+                if not value.startswith(prefix) or config.check_path(value[2:]) != paths[-1]:
                     raise AssistantError("patch_header_mismatch")
         elif (
             not re.fullmatch(r"index [0-9a-f]+\.\.[0-9a-f]+(?: 100(?:644|755))?", line)
@@ -166,7 +166,7 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
             added, removed, path = row.split(b"\t", 2)
             if not added.isdigit() or not removed.isdigit():
                 raise AssistantError("patch_format_not_supported")
-            parsed_paths.append(check_path(path.decode()))
+            parsed_paths.append(config.check_path(path.decode()))
     except (OSError, ValueError, UnicodeError, subprocess.SubprocessError) as exc:
         raise AssistantError("patch_invalid") from exc
     if len(parsed_paths) != len(paths) or set(parsed_paths) != set(paths):
@@ -192,7 +192,14 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
     except subprocess.SubprocessError as exc:
         raise AssistantError("patch_does_not_apply") from exc
     backup_path = repo / ".finassist" / "patches" / (approved_hash + ".json")
-    backup_data = canonical({"head": artifact["head"], "before": backup, "modes": modes})
+    backup_data = canonical(
+        {
+            "head": artifact["head"],
+            "before": backup,
+            "modes": modes,
+            "path_policy": {"denied_parts": config.denied_parts, "text_suffixes": config.text_suffixes},
+        }
+    )
     write_private(backup_path, backup_data)
     try:
         subprocess.run(
@@ -245,14 +252,18 @@ def rollback_patch(repo: Path, patch_hash: str) -> dict:
         raise AssistantError("rollback_head_changed")
     if receipt.get("state", "applied") != "applied":
         raise AssistantError("patch_not_applied")
+    selected_policy = saved.get("path_policy", {})
+    if not isinstance(selected_policy, dict) or set(selected_policy) - {"denied_parts", "text_suffixes"}:
+        raise AssistantError("patch_backup_integrity_failed")
+    policy = Config(allow_paths=(), protected_paths=(), **selected_policy).validate()
     for name, expected in receipt["after"].items():
-        target = regular_path(repo / check_path(name))
+        target = regular_path(repo / policy.check_path(name))
         actual = digest(target.read_bytes()) if target.exists() else None
         mode = target.stat().st_mode & 0o777 if target.exists() else None
         if actual != expected or mode != receipt["after_modes"][name]:
             raise AssistantError("rollback_would_overwrite_later_work")
     for name, before in saved["before"].items():
-        target = regular_path(repo / check_path(name))
+        target = regular_path(repo / policy.check_path(name))
         if before is None:
             target.unlink(missing_ok=True)
         else:

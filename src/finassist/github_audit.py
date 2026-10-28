@@ -45,8 +45,11 @@ def inspect_github(repository: str, branch: str, config: Config, *, network_appr
         "TMP",
         "WSL_INTEROP",
         "WSL_DISTRO_NAME",
-        "GH_TOKEN",
-        "GITHUB_TOKEN",
+    )
+    names += (
+        ("GH_TOKEN", "GITHUB_TOKEN")
+        if config.github_host == "github.com" or config.github_host.endswith(".ghe.com")
+        else ("GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
     )
     environment = {name: os.environ[name] for name in names if name in os.environ}
     environment.update(GH_PROMPT_DISABLED="1", GH_NO_UPDATE_NOTIFIER="1")
@@ -56,7 +59,7 @@ def inspect_github(repository: str, branch: str, config: Config, *, network_appr
         requests.append(digest(endpoint.encode()))
         try:
             result = subprocess.run(
-                [executable, "api", endpoint, "--hostname", "github.com"],
+                [executable, "api", endpoint, "--hostname", config.github_host],
                 capture_output=True,
                 text=True,
                 timeout=min(config.timeout_seconds, 120),
@@ -138,6 +141,7 @@ def inspect_github(repository: str, branch: str, config: Config, *, network_appr
             observations.append("formal_approvals_not_required")
     report = {
         "repository": repository,
+        "host": config.github_host,
         "branch": branch,
         "observed_head": observed_head,
         "recorded_at": datetime.now(timezone.utc).isoformat(),

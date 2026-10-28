@@ -2,17 +2,27 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
+from copy import deepcopy
 import json
 from fnmatch import fnmatchcase
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from .errors import AssistantError
-from .security import check_path, check_text, pinned_image, regular_path, write_private, canonical
+from .security import (
+    check_path,
+    check_text,
+    pinned_image,
+    regular_path,
+    write_private,
+    canonical,
+    DENIED_PARTS,
+    TEXT_SUFFIXES,
+)
+from .profiles import PROFILES as DEFAULT_PROFILES
 
 PROVIDERS = {"offline", "openai", "anthropic", "google", "compatible", "ollama"}
-PROFILES = {"finance-saas", "investment-research", "quant-review", "general"}
 DEFAULT_ENDPOINTS = {
     "openai": "https://api.openai.com/v1/responses",
     "anthropic": "https://api.anthropic.com/v1/messages",
@@ -31,6 +41,11 @@ class Config:
     api_key_env: str = ""
     auth_header: str = "Authorization"
     profile: str = "finance-saas"
+    profiles: dict = field(default_factory=lambda: deepcopy(DEFAULT_PROFILES))
+    profile_files: tuple[str, ...] = ()
+    denied_parts: tuple[str, ...] = tuple(sorted(DENIED_PARTS))
+    text_suffixes: tuple[str, ...] = tuple(sorted(TEXT_SUFFIXES))
+    github_host: str = "github.com"
     allow_network: bool = False
     allow_partial_review: bool = False
     allowed_hosts: tuple[str, ...] = ()
@@ -76,13 +91,69 @@ class Config:
         check_text(self.endpoint)
         if self.runner_image:
             pinned_image(self.runner_image)
-        if (
-            type(self.schema_version) is not int
-            or self.schema_version != 1
-            or self.provider not in PROVIDERS
-            or self.profile not in PROFILES
-        ):
+        if type(self.schema_version) is not int or self.schema_version != 1 or self.provider not in PROVIDERS:
             raise AssistantError("unsupported_config")
+        if (
+            not isinstance(self.denied_parts, (list, tuple))
+            or any(
+                not isinstance(value, str)
+                or not re.fullmatch(r"[a-z0-9_.-]{1,64}", value)
+                or value in {".", ".."}
+                for value in self.denied_parts
+            )
+            or len(self.denied_parts) > 128
+            or len(set(self.denied_parts)) != len(self.denied_parts)
+        ):
+            raise AssistantError("invalid_denied_parts")
+        if not {".git", ".finassist"} <= set(self.denied_parts):
+            raise AssistantError("required_denied_parts_missing")
+        if (
+            not isinstance(self.text_suffixes, (list, tuple))
+            or not self.text_suffixes
+            or any(
+                not isinstance(value, str) or not re.fullmatch(r"\.[a-z][a-z0-9]{0,15}", value)
+                for value in self.text_suffixes
+            )
+            or len(self.text_suffixes) > 128
+            or len(set(self.text_suffixes)) != len(self.text_suffixes)
+        ):
+            raise AssistantError("invalid_text_suffixes")
+        if (
+            not isinstance(self.github_host, str)
+            or len(self.github_host) > 253
+            or not all(
+                re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+                for label in self.github_host.split(".")
+            )
+        ):
+            raise AssistantError("invalid_github_host")
+        if (
+            not isinstance(self.profiles, dict)
+            or not 1 <= len(self.profiles) <= 64
+            or "general" not in self.profiles
+        ):
+            raise AssistantError("invalid_profiles")
+        for name, checklist in self.profiles.items():
+            if not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name):
+                raise AssistantError("invalid_profile_name")
+            if (
+                not isinstance(checklist, list)
+                or not 1 <= len(checklist) <= 64
+                or any(
+                    not isinstance(item, str) or not item.strip() or len(item) > 2000 for item in checklist
+                )
+            ):
+                raise AssistantError("invalid_profile_checklist")
+            for item in checklist:
+                check_text(item)
+        if self.profile not in self.profiles:
+            raise AssistantError("unknown_profile")
+        if (
+            not isinstance(self.profile_files, (list, tuple))
+            or len(self.profile_files) > 16
+            or any(not isinstance(item, str) or not item or "\0" in item for item in self.profile_files)
+        ):
+            raise AssistantError("invalid_profile_files")
         if self.auth_header not in {"Authorization", "api-key", "x-api-key"}:
             raise AssistantError("unsupported_auth_header")
         for key in (
@@ -122,9 +193,9 @@ class Config:
             ):
                 raise AssistantError("invalid_list")
         for prefix in self.allow_paths:
-            check_path(prefix.rstrip("/"), source_only=False)
+            self.check_path(prefix.rstrip("/"), source_only=False)
         for prefix in self.protected_paths:
-            check_path(prefix.rstrip("/"), source_only=False)
+            self.check_path(prefix.rstrip("/"), source_only=False)
         if not self.protected_branches or any(
             not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_./*?-]*", branch) for branch in self.protected_branches
         ):
@@ -134,6 +205,7 @@ class Config:
                 re.compile(pattern, re.IGNORECASE)
         except re.error as exc:
             raise AssistantError("invalid_content_pattern") from exc
+        check_text(canonical(self.profiles).decode(), extra_patterns=self.extra_sensitive_patterns)
         if self.provider != "offline" and not self.model:
             raise AssistantError("model_required")
         if self.provider != "offline":
@@ -186,6 +258,15 @@ class Config:
     def allows(self, path: str) -> bool:
         return any(path.startswith(p) if p.endswith("/") else path == p for p in self.allow_paths)
 
+    def check_path(self, path: str, **kwargs) -> str:
+        return check_path(path, denied_parts=self.denied_parts, text_suffixes=self.text_suffixes, **kwargs)
+
+    def instructions(self) -> str:
+        from .profiles import instructions
+
+        self.validate()
+        return instructions(self.profile, self.profiles)
+
     def protected(self, path: str) -> bool:
         return any(
             path == p.rstrip("/") or path.startswith(p.rstrip("/") + "/") for p in self.protected_paths
@@ -199,7 +280,12 @@ def load_config(path: Path | None = None) -> Config:
     if path is None:
         return Config().validate()
     try:
-        raw = json.loads(regular_path(path).read_text())
+        path = regular_path(path)
+        if path.stat().st_size > 2_000_000:
+            raise AssistantError("config_file_too_large")
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict) or set(raw) - {item.name for item in fields(Config)}:
+            raise AssistantError("unknown_config_option")
         for key in (
             "allow_paths",
             "protected_paths",
@@ -208,10 +294,38 @@ def load_config(path: Path | None = None) -> Config:
             "allowed_hosts",
             "required_recipes",
             "blocking_severities",
+            "denied_parts",
+            "text_suffixes",
+            "profile_files",
         ):
             if key in raw and isinstance(raw[key], list):
                 raw[key] = tuple(raw[key])
-        return Config(**raw).validate()
+        config = Config(**raw)
+        if not isinstance(config.profile_files, (list, tuple)) or len(config.profile_files) > 16:
+            raise AssistantError("invalid_profile_files")
+        profiles = deepcopy(config.profiles)
+        if not isinstance(profiles, dict):
+            raise AssistantError("invalid_profiles")
+        loaded = set()
+        for filename in config.profile_files:
+            if not isinstance(filename, str) or not filename or "\0" in filename:
+                raise AssistantError("invalid_profile_files")
+            try:
+                source = regular_path(path.parent / filename)
+                if source.stat().st_size > 128_000:
+                    raise AssistantError("profile_file_too_large")
+                definitions = json.loads(source.read_text(encoding="utf-8"))
+            except OSError as exc:
+                raise AssistantError("profile_file_unavailable") from exc
+            except ValueError as exc:
+                raise AssistantError("profile_file_invalid") from exc
+            if not isinstance(definitions, dict) or loaded.intersection(definitions):
+                raise AssistantError("duplicate_or_invalid_profile_file")
+            loaded.update(definitions)
+            profiles.update(definitions)
+        from dataclasses import replace
+
+        return replace(config, profiles=profiles).validate()
     except (ValueError, TypeError, OSError) as exc:
         raise AssistantError("invalid_config") from exc
 
