@@ -17,7 +17,9 @@ def test_release_versions_and_tag_gate():
     for tag in ["main", "v0.2.0", "v0.3.0rc1", "v0.3.0; echo unsafe"]:
         with pytest.raises(ValueError):
             validate_tag(ROOT, tag)
-    assert tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["name"] == "finassist"
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    assert project["name"] == "finledgerpoli"
+    assert project["scripts"] == {"finassist": "finassist.cli:main", "finledgerpoli": "finassist.cli:main"}
 
 
 def test_environment_requires_actual_human_reviewers():
@@ -34,6 +36,7 @@ def test_release_workflow_is_tag_only_and_least_privilege():
     assert set(workflow["jobs"]) == {"build", "publish"}
     publish = workflow["jobs"]["publish"]
     assert publish["needs"] == "build" and publish["environment"]["name"] == "pypi"
+    assert publish["environment"]["url"] == "https://pypi.org/project/finledgerpoli/"
     assert publish["permissions"] == {"contents": "write", "id-token": "write", "attestations": "write"}
     assert "permissions" not in workflow["jobs"]["build"]
     for job in workflow["jobs"].values():
@@ -52,6 +55,6 @@ def test_release_workflow_is_tag_only_and_least_privilege():
 
 def test_release_notes_only_include_requested_version():
     notes = release_notes(ROOT, "0.3.0")
-    assert notes.startswith("# finassist 0.3.0\n")
+    assert notes.startswith("# finledgerpoli 0.3.0\n")
     assert "#1 and #3–#5" in notes
     assert "## Next" not in notes and "Unreleased" not in notes

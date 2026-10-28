@@ -77,7 +77,7 @@ jobs:
     timeout-minutes: 10
     environment:
       name: pypi
-      url: https://pypi.org/project/finassist/
+      url: https://pypi.org/project/finledgerpoli/
     permissions:
       contents: write
       id-token: write

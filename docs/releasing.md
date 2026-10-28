@@ -1,11 +1,10 @@
-# Releasing finassist
+# Releasing finledgerpoli
 
-The PyPI distribution, Python import and executable are named `finassist`.
-Version 0.3.0 is the first intended public release. The repository name remains
-`finance-dev-assistant`. On 2026-10-28 the PyPI project, JSON and simple-index
-endpoints for `finassist` returned 404. This is an availability observation, not
-reservation or a guarantee: PyPI may reject a reserved name. Recheck before setup;
-if it is unavailable, choose another distribution name before publishing.
+The PyPI distribution is **`finledgerpoli`**. The Python import package and primary
+console command remain **`finassist`**; **`finledgerpoli`** is an additional command
+alias for the same entry point. Config/state paths remain `finassist.json` and
+`.finassist/`. Version 0.3.0 is the first intended public release, and the GitHub
+repository remains `finance-dev-assistant`.
 
 ## One-time owner setup
 
@@ -14,10 +13,12 @@ approve and perform them; preparing this workflow does not configure them.
 
 1. Sign in to PyPI with a secured owner account. For a new project, create a
    [pending Trusted Publisher](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/)
-   with project name `finassist`, GitHub owner `EleutheroiEdge`, repository
+   with project name `finledgerpoli`, GitHub owner `EleutheroiEdge`, repository
    `finance-dev-assistant`, workflow filename **`release.yml`** and environment
-   **`pypi`**. For an existing owned project, add the same publisher from its
-   Publishing page. No API token or GitHub secret is needed.
+   **`pypi`**. The upstream owner has already created this pending publisher;
+   verify and reuse it rather than creating a duplicate. Fork owners configure
+   their own project/repository binding. For an existing owned project, add the
+   same publisher from its Publishing page. No API token or GitHub secret is needed.
 2. In GitHub Settings → Environments, create **`pypi`**. Add at least one trusted
    maintainer/team under **Required reviewers**. Each publish must wait for human
    approval. Disable administrator bypass where available. For a sole maintainer,
@@ -68,7 +69,7 @@ do not remove that guard or add an upload token as a workaround.
 Verify GitHub provenance after downloading a distribution:
 
 ```sh
-gh attestation verify finassist-0.3.0-py3-none-any.whl --repo EleutheroiEdge/finance-dev-assistant
+gh attestation verify finledgerpoli-0.3.0-py3-none-any.whl --repo EleutheroiEdge/finance-dev-assistant
 ```
 
 The [GitHub attestation guide](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations)

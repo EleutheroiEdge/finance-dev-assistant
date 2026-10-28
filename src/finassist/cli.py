@@ -14,7 +14,7 @@ import sys
 import tempfile
 import time
 
-from . import __version__
+from . import installed_version
 from .auditing import command_audit
 from .config import Config, PROVIDERS, load_config, save_config
 from .demo import run_demo
@@ -59,7 +59,7 @@ def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
         prog="finassist", description="Evidence-first developer assistance for finance software"
     )
-    root.add_argument("--version", action="version", version=__version__)
+    root.add_argument("--version", action="version", version=installed_version())
     root.add_argument("--config", type=Path, help="Explicit reviewed JSON configuration; default is offline")
     root.add_argument(
         "--audit-dir",

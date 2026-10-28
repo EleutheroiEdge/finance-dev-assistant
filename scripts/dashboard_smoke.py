@@ -1,5 +1,6 @@
 """Verify packaged dashboard assets and APIs without Node or external calls."""
 
+from importlib import metadata
 import http.client
 import json
 import os
@@ -34,7 +35,9 @@ def main():
                             content = response.read()
                             assert response.status == 200, target
                             if target == "/api/health":
-                                assert json.loads(content)["configuration"]["valid"]
+                                health = json.loads(content)
+                                assert health["configuration"]["valid"]
+                                assert health["doctor"]["version"] == metadata.version("finledgerpoli")
                         finally:
                             connection.close()
                 finally:
