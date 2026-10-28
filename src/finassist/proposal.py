@@ -10,7 +10,7 @@ from .errors import AssistantError
 from .patching import patch_paths
 from .profiles import instructions
 from .review import call_model
-from .security import canonical, digest
+from .security import canonical, check_text, digest
 
 SCHEMA = {
     "type": "object",
@@ -56,8 +56,9 @@ def propose(
         raise AssistantError("proposal_schema_invalid") from exc
     if artifact["head"] != packet["head"]:
         raise AssistantError("proposal_head_mismatch")
+    check_text(canonical(artifact).decode(), extra_patterns=config.extra_sensitive_patterns)
     paths = patch_paths(artifact["patch"], config)
-    if not set(paths) <= set(packet["changed_paths"]):
+    if not set(paths) <= {file["path"] for file in packet["files"]}:
         raise AssistantError("proposal_outside_review_scope")
     return {
         "artifact": artifact,

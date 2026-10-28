@@ -220,3 +220,20 @@ def test_missing_key_is_preflighted_before_budget_reservation(repository, tmp_pa
 def test_truncated_outputs_are_never_reviews(provider, data):
     with pytest.raises(AssistantError, match="provider_incomplete"):
         parse_response(provider, data)
+
+
+@pytest.mark.parametrize(
+    "provider,data",
+    [
+        ("openai", []),
+        ("anthropic", None),
+        ("openai", {"status": "completed", "output": [None]}),
+        ("anthropic", {"stop_reason": "end_turn", "content": [1]}),
+        ("google", {"candidates": [None]}),
+        ("compatible", {"choices": ["unexpected"]}),
+        ("ollama", {"done": True, "message": []}),
+    ],
+)
+def test_malformed_provider_envelopes_fail_with_a_fixed_error(provider, data):
+    with pytest.raises(AssistantError, match="invalid_provider_response"):
+        parse_response(provider, data)

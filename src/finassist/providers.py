@@ -96,6 +96,8 @@ def request_shape(config: Config, system: str, packet: dict, schema: dict) -> tu
 
 
 def parse_response(provider: str, data: dict) -> ModelResult:
+    if not isinstance(data, dict):
+        raise AssistantError("invalid_provider_response")
     try:
         if provider == "openai":
             if data.get("status") != "completed":
@@ -146,7 +148,7 @@ def parse_response(provider: str, data: dict) -> ModelResult:
             _usage(usage.get("prompt_tokens")),
             _usage(usage.get("completion_tokens")),
         )
-    except (KeyError, IndexError, TypeError) as exc:
+    except (KeyError, IndexError, TypeError, AttributeError) as exc:
         raise AssistantError("invalid_provider_response") from exc
 
 
