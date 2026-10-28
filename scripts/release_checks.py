@@ -31,13 +31,22 @@ def validate_environment(document):
         raise ValueError("pypi environment must exist and have a required human reviewer")
 
 
+def release_notes(root, version):
+    text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    section = text.split("## " + version + " — Unreleased\n", 1)[1].split("\n## ", 1)[0]
+    return "# finassist " + version + "\n" + section.strip() + "\n"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tag", required=True)
     parser.add_argument("--check-environment", action="store_true")
+    parser.add_argument("--notes-output", type=Path)
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
     version = validate_tag(root, args.tag)
+    if args.notes_output:
+        args.notes_output.write_text(release_notes(root, version), encoding="utf-8", newline="\n")
     if args.check_environment:
         repository = os.environ["GITHUB_REPOSITORY"]
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):

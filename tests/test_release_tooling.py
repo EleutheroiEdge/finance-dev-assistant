@@ -7,7 +7,7 @@ import tomllib
 import pytest
 import yaml
 
-from scripts.release_checks import validate_environment, validate_tag
+from scripts.release_checks import release_notes, validate_environment, validate_tag
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -34,7 +34,7 @@ def test_release_workflow_is_tag_only_and_least_privilege():
     assert set(workflow["jobs"]) == {"build", "publish"}
     publish = workflow["jobs"]["publish"]
     assert publish["needs"] == "build" and publish["environment"]["name"] == "pypi"
-    assert publish["permissions"] == {"contents": "read", "id-token": "write", "attestations": "write"}
+    assert publish["permissions"] == {"contents": "write", "id-token": "write", "attestations": "write"}
     assert "permissions" not in workflow["jobs"]["build"]
     for job in workflow["jobs"].values():
         for step in job["steps"]:
@@ -44,6 +44,14 @@ def test_release_workflow_is_tag_only_and_least_privilege():
     assert any("--check-environment" in step.get("run", "") for step in steps)
     assert any("git diff --exit-code -- src/finassist/resources/dashboard" == step.get("run") for step in steps)
     assert not any("secrets." in str(job) for job in workflow["jobs"].values())
-    publisher = publish["steps"][-1]
+    assert "gh release create" in publish["steps"][-1]["run"]
+    publisher = publish["steps"][-2]
     assert publisher["uses"].startswith("pypa/gh-action-pypi-publish@")
     assert publisher["with"] == {"packages-dir": "release/dist/", "attestations": True}
+
+
+def test_release_notes_only_include_requested_version():
+    notes = release_notes(ROOT, "0.3.0")
+    assert notes.startswith("# finassist 0.3.0\n")
+    assert "#1 and #3–#5" in notes
+    assert "## Next" not in notes and "Unreleased" not in notes

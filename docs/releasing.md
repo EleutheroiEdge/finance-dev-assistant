@@ -48,19 +48,22 @@ do not remove that guard or add an upload token as a workaround.
    workflow runs only for pushed `v*` tags; it has no manual, branch or PR trigger.
    The tag must exactly match the version and its commit must be in main.
 4. Inspect the build run and download `release-<commit>` from Actions. It contains
-   the wheel, sdist and `release-sbom.spdx.json`. The SBOM inventories source
+   the wheel, sdist, release notes and `release-sbom.spdx.json`. The SBOM inventories source
    manifests, lockfiles and built distributions, including development dependencies;
    it is not a vulnerability report or a minimal runtime-only inventory.
 5. The required reviewer approves the `pypi` job only after inspecting artifacts
    and the exact commit. That job downloads the same artifact from the same run,
    records GitHub build/SBOM attestations and publishes with short-lived OIDC
-   credentials. PyPI publishing also generates PyPI publish attestations. There
+   credentials, then attaches the distributions and SBOM to a GitHub Release
+   using the extracted 0.3.0 notes. PyPI publishing also generates PyPI publish
+   attestations. Only this approval-gated job has repository contents-write
+   permission, needed to create that release. There
    is no stored token, source checkout or build execution in the privileged job.
 6. Verify the PyPI version, wheel install, command version/doctor, bundled assets
    and provenance before announcing availability. Add the PyPI badge only after
-   publication. This workflow preserves Actions artifacts for 30 days; download
-   and retain the SBOM for long-term release records. It does not create a GitHub
-   Release or alter repository settings.
+   publication. Actions artifacts are retained for 30 days; the GitHub Release
+   retains distributions and the SBOM for long-term records. Repository settings
+   are not altered.
 
 Verify GitHub provenance after downloading a distribution:
 

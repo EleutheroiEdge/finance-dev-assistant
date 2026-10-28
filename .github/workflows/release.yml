@@ -42,6 +42,10 @@ jobs:
         run: git diff --exit-code -- src/finassist/resources/dashboard
       - run: pnpm run test
         working-directory: dashboard
+      - name: Extract release notes
+        run: python scripts/release_checks.py --tag "$RELEASE_TAG" --notes-output release-notes.md
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
       - name: Build sdist and wheel from the sdist
         run: python -m build
       - run: python -m twine check --strict dist/*
@@ -64,6 +68,7 @@ jobs:
             dist/*.whl
             dist/*.tar.gz
             release-sbom.spdx.json
+            release-notes.md
           if-no-files-found: error
           retention-days: 30
   publish:
@@ -74,7 +79,7 @@ jobs:
       name: pypi
       url: https://pypi.org/project/finassist/
     permissions:
-      contents: read
+      contents: write
       id-token: write
       attestations: write
     steps:
@@ -98,3 +103,9 @@ jobs:
         with:
           packages-dir: release/dist/
           attestations: true
+      - name: Attach distributions, SBOM and notes to the GitHub release
+        run: gh release create "$RELEASE_TAG" release/dist/* release/release-sbom.spdx.json --verify-tag --title "$RELEASE_TAG" --notes-file release/release-notes.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
