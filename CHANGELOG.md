@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.0 — Unreleased
+
+First public release, consolidating the work in #1 and #3–#5.
+
+- Security: explicit packet and patch approvals, protected paths, private audit
+  records, budget reservations and readiness checks that fail closed on unknown outcomes.
+- Configuration: customize source paths/types, review profiles, provider settings
+  and GitHub Enterprise hosts without editing the core.
+- Platforms: native Windows, macOS and Linux support, UTF-8/LF handling, portable
+  process cleanup and Docker Desktop-compatible checks.
+- Dashboard: offline configuration previews, explicit saves, audit statistics and
+  health checks, shipped prebuilt with no Node requirement at runtime.
+- Packaging: the distribution is named `finassist`; the command/import name remains
+  `finassist`. Add tag-only builds, SBOMs, provenance and approval-gated PyPI publishing.
+
+Earlier 0.2.0 entries below describe development milestones, not a PyPI release.
+
 ## Next
 
 - Add grouped weekly dependency updates, Python/JavaScript CodeQL and OpenSSF
