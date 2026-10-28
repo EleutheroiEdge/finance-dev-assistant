@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .platform_support import read_utf8
+
 import base64
 import json
 from pathlib import Path
@@ -9,6 +11,7 @@ import re
 import subprocess
 
 from .config import Config
+from .platform_support import executable_modes_supported
 from .errors import AssistantError
 from .scope import git, git_command, git_environment, resolve
 from .security import canonical, check_text, digest, regular_path, write_private
@@ -136,7 +139,7 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
             if prior.name.endswith(".receipt.json"):
                 continue
             try:
-                previous_receipt = json.loads(regular_path(prior.with_suffix(".receipt.json")).read_text())
+                previous_receipt = json.loads(read_utf8(regular_path(prior.with_suffix(".receipt.json"))))
                 valid = (
                     isinstance(previous_receipt, dict)
                     and previous_receipt.get("backup_hash") == digest(prior.read_bytes())
@@ -148,6 +151,11 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
             if not valid:
                 raise AssistantError("incomplete_patch_reconciliation_required")
     paths = patch_paths(artifact["patch"], config)
+    if not executable_modes_supported() and any(
+        line.startswith(("old mode ", "new mode ", "new file mode 100755"))
+        for line in artifact["patch"].splitlines()
+    ):
+        raise AssistantError("executable_mode_change_not_supported")
     # Independently compare Git's complete interpretation, including traditional
     # sections and mode-only files, before trusting our scope for backups.
     try:
@@ -180,6 +188,7 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
         modes[name] = target.stat().st_mode & 0o777 if target.exists() else None
     # Git parses the entire patch before any mutation; --check is not an execution hook.
     command = git_command(repo, "apply", "--whitespace=error")
+    command[1:1] = ["-c", "core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol"]
     try:
         subprocess.run(
             command + ["--check", "-"],
@@ -236,8 +245,8 @@ def rollback_patch(repo: Path, patch_hash: str, config: Config | None = None) ->
         raise AssistantError("invalid_patch_hash")
     path = regular_path(repo / ".finassist" / "patches" / (patch_hash + ".json"))
     try:
-        saved = json.loads(path.read_text())
-        receipt = json.loads(path.with_suffix(".receipt.json").read_text())
+        saved = json.loads(read_utf8(path))
+        receipt = json.loads(read_utf8(path.with_suffix(".receipt.json")))
     except (OSError, ValueError) as exc:
         raise AssistantError("patch_backup_unavailable") from exc
     if (

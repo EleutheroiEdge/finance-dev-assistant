@@ -8,7 +8,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from conftest import command
+from conftest import command, synthetic_symlink
 from finassist.cli import main
 from finassist.config import Config, load_config, save_config
 from finassist.errors import AssistantError
@@ -69,7 +69,7 @@ def test_profile_sources_require_regular_nonempty_unique_files(tmp_path, monkeyp
 
 def test_symlink_traversal_is_rejected_before_collapsing_segments(tmp_path):
     (tmp_path / "real").mkdir()
-    (tmp_path / "link").symlink_to(tmp_path / "real", target_is_directory=True)
+    synthetic_symlink(tmp_path / "link", tmp_path / "real", target_is_directory=True)
     write_json(tmp_path / "profile.json", {"custom": ["Synthetic checklist"]})
     write_json(tmp_path / "config.json", {"profile_files": ["link/../profile.json"]})
     with pytest.raises(AssistantError):
@@ -120,7 +120,7 @@ def test_public_github_tokens_never_reach_other_cloud_tenants(monkeypatch):
         assert "GH_TOKEN" not in kwargs["env"] and "GITHUB_TOKEN" not in kwargs["env"]
         raise OSError("stop after inspecting the environment")
 
-    monkeypatch.setattr("finassist.github_audit.shutil.which", lambda _: "gh")
+    monkeypatch.setattr("finassist.platform_support.shutil.which", lambda _: "gh")
     monkeypatch.setattr("finassist.github_audit.subprocess.run", run)
     with pytest.raises(AssistantError, match="github_metadata_unavailable"):
         inspect_github(

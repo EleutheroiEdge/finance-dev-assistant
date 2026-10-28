@@ -22,7 +22,7 @@ def test_plan_and_offline_review_are_distinct_from_test_success(repository, tmp_
     assert main(["plan", "--repo", str(repo), "--base", base, "--head", head, "--output", str(packet)]) == 0
     capsys.readouterr()
     assert main(["review", "--packet", str(packet), "--output", str(report)]) == 0
-    result = json.loads(report.read_text())
+    result = json.loads(report.read_text(encoding="utf-8"))
     assert result["status"] == "offline-analysis" and not result["merge_authority"]
 
 

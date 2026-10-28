@@ -6,24 +6,22 @@ import os
 import math
 from pathlib import Path
 import selectors
-import shutil
 import signal
 import subprocess
 import tempfile
 import time
 import uuid
+import sys
 
 from .config import Config
 from .errors import AssistantError
 from .security import canonical, digest, pinned_image, regular_path
+from .platform_support import clean_environment, container_environment, find_tool
+from .posix_process import ExitObserver, zombie_group_only
 
 
 def run_bounded(argv: list[str], *, cwd: Path, env: dict, timeout: float, max_bytes: int = 1_000_000) -> dict:
-    """POSIX child-group supervision for trusted commands; not a security sandbox."""
-    if os.name != "posix":
-        raise AssistantError("posix_runner_required")
-    if not hasattr(os, "waitid") or not hasattr(os, "WNOWAIT"):
-        raise AssistantError("non_reaping_wait_required")
+    """Native process supervision for trusted commands; not a security sandbox."""
     if (
         isinstance(timeout, bool)
         or not isinstance(timeout, (int, float))
@@ -33,6 +31,12 @@ def run_bounded(argv: list[str], *, cwd: Path, env: dict, timeout: float, max_by
         or max_bytes <= 0
     ):
         raise AssistantError("invalid_run_limits")
+    if os.name == "nt":
+        from .windows_runner import run_windows
+
+        return run_windows(
+            argv, cwd=cwd, env={**clean_environment(), **env}, timeout=timeout, max_bytes=max_bytes
+        )
     started = time.monotonic()
     process = subprocess.Popen(
         argv,
@@ -42,10 +46,13 @@ def run_bounded(argv: list[str], *, cwd: Path, env: dict, timeout: float, max_by
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         start_new_session=True,
+        shell=False,
     )
     output, timed_out, overflow = bytearray(), False, False
     selector = selectors.DefaultSelector()
+    observer = None
     try:
+        observer = ExitObserver(process.pid)
         os.set_blocking(process.stdout.fileno(), False)
         selector.register(process.stdout, selectors.EVENT_READ)
         while True:
@@ -63,7 +70,7 @@ def run_bounded(argv: list[str], *, cwd: Path, env: dict, timeout: float, max_by
                 break
             # Observe exit without reaping the leader. Its reserved PID prevents
             # the process-group number being reused before both cleanup signals.
-            if os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None:
+            if observer.poll():
                 if not ready or not selector.get_map():
                     break
             if time.monotonic() - started > timeout:
@@ -77,6 +84,14 @@ def run_bounded(argv: list[str], *, cwd: Path, env: dict, timeout: float, max_by
                 os.killpg(process.pid, sig)
             except ProcessLookupError:
                 pass
+            except PermissionError:
+                if not (
+                    sys.platform == "darwin"
+                    and observer is not None
+                    and observer.poll()
+                    and zombie_group_only(process.pid)
+                ):
+                    raise
             if sig == signal.SIGTERM:
                 time.sleep(0.1)
         try:
@@ -84,6 +99,8 @@ def run_bounded(argv: list[str], *, cwd: Path, env: dict, timeout: float, max_by
         finally:
             selector.close()
             process.stdout.close()
+            if observer is not None:
+                observer.close()
     return {
         "exit_code": process.returncode,
         "timed_out": timed_out,
@@ -106,7 +123,7 @@ def run_recipe(
     recipe = config.recipes[name]
     if backend not in {"docker", "podman", "local"}:
         raise AssistantError("unsupported_runner")
-    env = {"PATH": os.defpath, "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1"}
+    env = clean_environment()
     if backend == "local":
         if not approve_local:
             raise AssistantError("local_execution_not_approved")
@@ -116,9 +133,8 @@ def run_recipe(
         isolation = "none: trusted local execution explicitly approved"
     else:
         pinned_image(config.runner_image)
-        executable = shutil.which(backend)
-        if executable is None:
-            raise AssistantError("container_runtime_missing")
+        executable = find_tool(backend)
+        env = container_environment(backend)
         container_name = "finassist-" + uuid.uuid4().hex
         argv = [
             executable,
@@ -137,7 +153,7 @@ def run_recipe(
             "--user=65534:65534",
             "--tmpfs=/tmp:rw,nosuid,nodev,size=256m",
             "--mount",
-            f"type=bind,src={source},dst=/workspace,readonly",
+            f"type=bind,src={source.as_posix()},dst=/workspace,readonly",
             "--workdir=/workspace",
             "--env=HOME=/tmp",
             "--env=PYTHONDONTWRITEBYTECODE=1",
@@ -147,36 +163,36 @@ def run_recipe(
         ]
         cwd, isolation = source, "network-disabled read-only container; image must already be present"
     cleanup_verified = backend == "local"
-    try:
-        with tempfile.TemporaryDirectory(prefix="finassist-home-") as private_home:
+    with tempfile.TemporaryDirectory(prefix="finassist-home-") as private_home:
+        if backend == "local":
             env["HOME"] = private_home
-            if backend == "local":
-                env["PYTHONPATH"] = str(source / "src") + os.pathsep + str(source)
+            env["PYTHONPATH"] = str(source / "src") + os.pathsep + str(source)
+        try:
             result = run_bounded(argv, cwd=cwd, env=env, timeout=config.timeout_seconds)
-    finally:
-        if backend != "local":
-            # A terminated CLI does not prove daemon-owned container exit.
-            # Cleanup is attempted even when supervision itself raises.
-            try:
-                cleanup = subprocess.run(
-                    [executable, "rm", "--force", container_name],
-                    capture_output=True,
-                    env=env,
-                    timeout=15,
-                    check=False,
-                )
-                inspect = subprocess.run(
-                    [executable, "container", "inspect", container_name],
-                    capture_output=True,
-                    env=env,
-                    timeout=15,
-                    check=False,
-                )
-                cleanup_verified = inspect.returncode != 0 and (
-                    cleanup.returncode == 0 or b"No such container" in cleanup.stderr
-                )
-            except (OSError, subprocess.SubprocessError):
-                cleanup_verified = False
+        finally:
+            if backend != "local":
+                # The host CLI keeps its context/storage selectors until both
+                # cleanup calls complete; none become container variables.
+                try:
+                    cleanup = subprocess.run(
+                        [executable, "rm", "--force", container_name],
+                        capture_output=True,
+                        env=env,
+                        timeout=15,
+                        check=False,
+                    )
+                    inspect = subprocess.run(
+                        [executable, "container", "inspect", container_name],
+                        capture_output=True,
+                        env=env,
+                        timeout=15,
+                        check=False,
+                    )
+                    cleanup_verified = inspect.returncode != 0 and (
+                        cleanup.returncode == 0 or b"No such container" in cleanup.stderr
+                    )
+                except (OSError, subprocess.SubprocessError):
+                    cleanup_verified = False
     if not cleanup_verified:
         result["passed"] = False
     # A recipe's log is local evidence, never automatically forwarded to a model.

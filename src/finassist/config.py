@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .platform_support import read_utf8
+
 from dataclasses import asdict, dataclass, field, fields, replace
 from copy import deepcopy
 import json
@@ -309,7 +311,7 @@ def load_config(path: Path | None = None) -> Config:
         path = regular_path(path)
         if path.stat().st_size > 2_000_000:
             raise AssistantError("config_file_too_large")
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(read_utf8(path))
         if not isinstance(raw, dict) or set(raw) - {
             item.name for item in fields(Config) if not item.metadata.get("internal")
         }:

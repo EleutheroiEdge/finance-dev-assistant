@@ -1,0 +1,3 @@
+# Keep text and mirrored package resources byte-stable across native checkouts.
+* text=auto eol=lf
+src/finassist/resources/** text eol=lf

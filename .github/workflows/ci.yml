@@ -6,11 +6,22 @@ permissions:
   contents: read
 jobs:
   test:
-    runs-on: ubuntu-24.04
+    name: ${{ matrix.check_name }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
+      fail-fast: false
       matrix:
-        python: ['3.11', '3.12', '3.13']
+        include:
+          - {os: ubuntu-24.04, python: '3.11', check_name: 'test (3.11)'}
+          - {os: ubuntu-24.04, python: '3.12', check_name: 'test (3.12)'}
+          - {os: ubuntu-24.04, python: '3.13', check_name: 'test (3.13)'}
+          - {os: windows-latest, python: '3.11', check_name: 'platform (Windows, 3.11)'}
+          - {os: windows-latest, python: '3.12', check_name: 'platform (Windows, 3.12)'}
+          - {os: windows-latest, python: '3.13', check_name: 'platform (Windows)'}
+          - {os: macos-latest, python: '3.11', check_name: 'platform (macOS, 3.11)'}
+          - {os: macos-latest, python: '3.12', check_name: 'platform (macOS, 3.12)'}
+          - {os: macos-latest, python: '3.13', check_name: 'platform (macOS)'}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -25,12 +36,7 @@ jobs:
       - run: finassist demo
       - run: finassist scan --repo .
       - name: Verify a clean wheel installation
-        shell: bash
-        run: |
-          python -m pip wheel --no-deps --no-build-isolation . --wheel-dir /tmp/finassist-wheels
-          python -m venv /tmp/finassist-install
-          /tmp/finassist-install/bin/python -m pip install -c requirements-dev.lock /tmp/finassist-wheels/*.whl
-          /tmp/finassist-install/bin/python scripts/package_smoke.py examples
+        run: python scripts/wheel_smoke.py
   isolation:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -48,4 +54,4 @@ jobs:
         shell: bash
         run: |
           image_id="$(docker image inspect finassist-test-runner --format '{{.Id}}')"
-          python scripts/container_smoke.py "$image_id"
+          python scripts/container_smoke.py "$image_id" --require-runtime

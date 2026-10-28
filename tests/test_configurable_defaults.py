@@ -164,7 +164,7 @@ def test_enterprise_metadata_goes_only_to_configured_host(monkeypatch):
         )
         return subprocess.CompletedProcess(argv, 0, json.dumps(value), "")
 
-    monkeypatch.setattr("finassist.github_audit.shutil.which", lambda _: "gh")
+    monkeypatch.setattr("finassist.platform_support.shutil.which", lambda _: "gh")
     monkeypatch.setattr("finassist.github_audit.subprocess.run", get)
     report = inspect_github(
         "example/repository",

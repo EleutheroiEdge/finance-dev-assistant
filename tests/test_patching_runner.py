@@ -1,4 +1,5 @@
 from dataclasses import replace
+import os
 import sys
 
 import pytest
@@ -13,10 +14,10 @@ from conftest import command
 
 def artifact(repo, head):
     path = repo / "src/cash.py"
-    original = path.read_text()
-    path.write_text(original.replace("- deposits", "+ deposits"))
+    original = path.read_text(encoding="utf-8")
+    path.write_text(original.replace("- deposits", "+ deposits"), encoding="utf-8", newline="\n")
     patch = command(repo, "diff", "--no-ext-diff", "--no-textconv") + "\n"
-    path.write_text(original)
+    path.write_text(original, encoding="utf-8", newline="\n")
     return {"head": head, "patch": patch, "summary": "Restore deposit conservation"}
 
 
@@ -25,10 +26,10 @@ def test_apply_approved_patch_and_safe_rollback(repository):
     proposal = artifact(repo, head)
     approved = digest(canonical(proposal))
     receipt = apply_patch_artifact(repo, proposal, approved, Config())
-    assert "+ deposits" in (repo / "src/cash.py").read_text()
+    assert "+ deposits" in (repo / "src/cash.py").read_text(encoding="utf-8")
     assert not receipt["committed"] and not receipt["tests_executed"]
     rollback_patch(repo, approved)
-    assert "- deposits" in (repo / "src/cash.py").read_text()
+    assert "- deposits" in (repo / "src/cash.py").read_text(encoding="utf-8")
 
 
 def test_rollback_preserves_later_operator_work(repository):
@@ -36,12 +37,13 @@ def test_rollback_preserves_later_operator_work(repository):
     proposal = artifact(repo, head)
     approved = digest(canonical(proposal))
     apply_patch_artifact(repo, proposal, approved, Config())
-    (repo / "src/cash.py").write_text("later operator work")
+    (repo / "src/cash.py").write_text("later operator work", encoding="utf-8", newline="\n")
     with pytest.raises(AssistantError, match="rollback_would_overwrite_later_work"):
         rollback_patch(repo, approved)
-    assert (repo / "src/cash.py").read_text() == "later operator work"
+    assert (repo / "src/cash.py").read_text(encoding="utf-8") == "later operator work"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Native Windows has no POSIX executable permission bit")
 def test_rollback_restores_original_executable_mode(repository):
     repo, _, _ = repository
     path = repo / "src/cash.py"
@@ -59,6 +61,7 @@ def test_rollback_restores_original_executable_mode(repository):
     assert command(repo, "status", "--porcelain") == ""
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Native Windows has no POSIX executable permission bit")
 def test_rollback_refuses_later_permission_changes(repository):
     repo, _, head = repository
     proposal = artifact(repo, head)
@@ -75,7 +78,7 @@ def test_unapproved_stale_dirty_and_main_patches_fail(repository):
     approved = digest(canonical(proposal))
     with pytest.raises(AssistantError, match="patch_approval_mismatch"):
         apply_patch_artifact(repo, proposal, "wrong", Config())
-    (repo / "untracked.txt").write_text("unrelated")
+    (repo / "untracked.txt").write_text("unrelated", encoding="utf-8", newline="\n")
     with pytest.raises(AssistantError, match="clean_worktree_required"):
         apply_patch_artifact(repo, proposal, approved, Config())
     (repo / "untracked.txt").unlink()

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .platform_support import tool_present, read_utf8
+
 import argparse
 from dataclasses import asdict, replace
 from decimal import Decimal, InvalidOperation
@@ -9,7 +11,6 @@ import json
 import os
 from pathlib import Path
 import platform
-import shutil
 import sqlite3
 import sys
 import tempfile
@@ -17,6 +18,7 @@ import time
 
 from . import __version__
 from .auditing import command_audit
+from .platform_support import private_state_protection
 from .config import Config, PROVIDERS, load_config, save_config
 from .demo import run_demo
 from .errors import AssistantError
@@ -41,7 +43,7 @@ def _read_json(path: str) -> dict:
     file = regular_path(Path(path))
     if file.stat().st_size > 2_000_000:
         raise AssistantError("input_limit_exceeded")
-    value = json.loads(file.read_text())
+    value = json.loads(read_utf8(file))
     if not isinstance(value, dict):
         raise AssistantError("input_object_required")
     return value
@@ -216,13 +218,14 @@ def execute(args, config: Config | None = None) -> int:
         _emit(
             {
                 "version": __version__,
+                "private_state_protection": private_state_protection(),
                 "python": platform.python_version(),
                 "provider": config.provider,
                 "model_configured": bool(config.model),
                 "network_enabled": config.allow_network,
                 "key_present": bool(os.environ.get(config.key_name)) if config.key_name else None,
-                "docker_binary_present": bool(shutil.which("docker")),
-                "podman_binary_present": bool(shutil.which("podman")),
+                "docker_binary_present": tool_present("docker"),
+                "podman_binary_present": tool_present("podman"),
                 "container_daemon_checked": False,
                 "recipes": sorted(config.recipes),
                 "profile": config.profile,
@@ -336,10 +339,20 @@ def execute(args, config: Config | None = None) -> int:
         write_private(Path(args.output), report_html(_read_json(args.input)).encode())
         _emit({"output": args.output})
     elif args.command == "scan":
-        names = git(args.repo, "ls-files", "-z", binary=True).decode().split("\0")
+        entries = git(args.repo, "ls-files", "--stage", "-z", binary=True).decode().split("\0")
+        modes = {}
+        for row in filter(None, entries):
+            metadata, name = row.split("\t", 1)
+            mode, _blob, stage = metadata.split()
+            if stage != "0":
+                raise AssistantError("publication_index_unmerged")
+            modes[name] = mode
+        names = list(modes)
         findings = []
         for name in filter(None, names):
             try:
+                if modes[name] not in {"100644", "100755"}:
+                    raise AssistantError("linked_or_special_git_object")
                 config.check_path(name, source_only=False)
             except AssistantError as exc:
                 findings.append({"path": name, "code": exc.code})
@@ -351,7 +364,7 @@ def execute(args, config: Config | None = None) -> int:
                 if path.stat().st_size > 2_000_000:
                     findings.append({"path": name, "code": "publication_file_too_large"})
                     continue
-                content = path.read_text()
+                content = read_utf8(path)
                 check_text(content, extra_patterns=config.extra_sensitive_patterns)
                 if any(value.casefold() in (name + "\n" + content).casefold() for value in args.forbid):
                     findings.append({"path": name, "code": "forbidden_publication_text"})

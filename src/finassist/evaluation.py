@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 
 from .config import Config
+from .platform_support import find_tool
 from .errors import AssistantError
 from .review import review_packet
 from .scope import build_packet
@@ -55,7 +56,9 @@ def _fixture_git(repo: Path, *args: str) -> None:
     if os.name == "nt" and "SYSTEMROOT" in os.environ:
         env["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
     try:
-        subprocess.run(["git", "-C", str(repo), *args], env=env, capture_output=True, timeout=15, check=True)
+        subprocess.run(
+            [find_tool("git"), "-C", str(repo), *args], env=env, capture_output=True, timeout=15, check=True
+        )
     except subprocess.SubprocessError as exc:
         raise AssistantError("eval_fixture_git_failed") from exc
 
@@ -83,10 +86,10 @@ def evaluate(
             _fixture_git(repo, "config", "user.email", "evaluation@example.invalid")
             target = repo / case["path"]
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(case["before"])
+            target.write_text(case["before"], encoding="utf-8", newline="\n")
             _fixture_git(repo, "add", "--", case["path"])
             _fixture_git(repo, "commit", "-m", "Synthetic baseline")
-            target.write_text(case["after"])
+            target.write_text(case["after"], encoding="utf-8", newline="\n")
             _fixture_git(repo, "add", "--", case["path"])
             _fixture_git(repo, "commit", "-m", "Synthetic candidate")
             local_config = replace(config, allow_paths=(case["path"],))

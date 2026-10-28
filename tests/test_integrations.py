@@ -14,10 +14,10 @@ def test_export_is_explicit_and_never_overwrites_host_configuration(tmp_path):
     result = export_kit(destination)
     assert result["installed_into_host"] is False
     assert (destination / "configuration.json").exists()
-    skill = (destination / "evidence-review/SKILL.md").read_text()
+    skill = (destination / "evidence-review/SKILL.md").read_text(encoding="utf-8")
     frontmatter = yaml.safe_load(skill.split("---", 2)[1])
     assert frontmatter["name"] == "evidence-review" and frontmatter["description"]
-    role = tomllib.loads((destination / "roles/codex-reviewer.toml").read_text())
+    role = tomllib.loads((destination / "roles/codex-reviewer.toml").read_text(encoding="utf-8"))
     assert role["sandbox_mode"] == "read-only"
     with pytest.raises(AssistantError, match="integration_destination_exists"):
         export_kit(destination)
@@ -32,6 +32,7 @@ def test_export_is_explicit_and_never_overwrites_host_configuration(tmp_path):
         ("docs/workflows.md", "workflow-guide.md"),
         ("docs/providers.md", "provider-guide.md"),
         ("docs/readiness-and-auditing.md", "readiness-guide.md"),
+        ("docs/platforms.md", "platform-guide.md"),
         ("docs/configuration.md", "configuration-guide.md"),
     ],
 )

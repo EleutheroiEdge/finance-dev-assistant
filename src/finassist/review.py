@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .platform_support import read_utf8
+
 from decimal import Decimal
 from dataclasses import asdict
 from importlib.resources import files
@@ -19,7 +21,7 @@ from .security import canonical, check_text, digest
 
 
 def review_schema() -> dict:
-    return json.loads(files("finassist").joinpath("resources/review.schema.json").read_text())
+    return json.loads(read_utf8(files("finassist").joinpath("resources/review.schema.json")))
 
 
 def validate_review(

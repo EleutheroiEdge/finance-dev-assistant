@@ -9,12 +9,14 @@ import re
 import subprocess
 
 from .config import Config
+from .platform_support import find_tool, clean_environment
 from .errors import AssistantError
 from .security import PUBLIC_ASSETS, canonical, check_text, digest
 
 
 def git_environment() -> dict[str, str]:
     environment = {
+        **clean_environment(),
         "PATH": os.environ.get("PATH", os.defpath),
         "LANG": "C.UTF-8",
         "GIT_CONFIG_NOSYSTEM": "1",
@@ -26,14 +28,70 @@ def git_environment() -> dict[str, str]:
     return environment
 
 
+def _newline_options(repo: Path) -> list[str]:
+    # Query only two enumerated formatting settings in the host's normal Git
+    # config scopes. Source/status/apply still run with hooks, filters, global
+    # configuration and untrusted GIT_* overrides disabled.
+    environment = clean_environment()
+    for name in ("HOME", "USERPROFILE", "APPDATA", "XDG_CONFIG_HOME"):
+        if name in os.environ:
+            environment[name] = os.environ[name]
+    environment["GIT_TERMINAL_PROMPT"] = "0"
+    result = []
+    for key, allowed in (
+        ("core.autocrlf", {"true", "false", "input"}),
+        ("core.eol", {"lf", "crlf", "native"}),
+    ):
+        try:
+            value = subprocess.run(
+                [
+                    find_tool("git"),
+                    "-c",
+                    "core.hooksPath=" + os.devnull,
+                    "-c",
+                    "core.fsmonitor=false",
+                    "-C",
+                    str(repo),
+                    "config",
+                    "--get",
+                    key,
+                ],
+                capture_output=True,
+                env=environment,
+                timeout=10,
+                check=False,
+            )
+            text = value.stdout.decode("ascii").strip().lower()
+            if key == "core.autocrlf":
+                text = {
+                    "yes": "true",
+                    "on": "true",
+                    "1": "true",
+                    "": "true",
+                    "no": "false",
+                    "off": "false",
+                    "0": "false",
+                }.get(text, text)
+            if value.returncode == 1:
+                continue
+            if value.returncode != 0 or text not in allowed:
+                raise AssistantError("git_newline_policy_invalid")
+            result.extend(["-c", key + "=" + text])
+        except (OSError, UnicodeError, subprocess.SubprocessError) as exc:
+            raise AssistantError("git_newline_policy_unavailable") from exc
+    return result
+
+
 def git_command(repo: Path, *args: str) -> list[str]:
+    newline = _newline_options(repo) if args and args[0] in {"status", "apply"} else []
     return [
-        "git",
+        find_tool("git"),
         "--no-optional-locks",
         "-c",
         "core.fsmonitor=false",
         "-c",
         "core.hooksPath=" + os.devnull,
+        *newline,
         "-C",
         str(repo),
         *args,

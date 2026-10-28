@@ -26,6 +26,30 @@
         {
           "context": "isolation",
           "app_id": 15368
+        },
+        {
+          "context": "platform (Windows, 3.11)",
+          "app_id": 15368
+        },
+        {
+          "context": "platform (Windows, 3.12)",
+          "app_id": 15368
+        },
+        {
+          "context": "platform (Windows)",
+          "app_id": 15368
+        },
+        {
+          "context": "platform (macOS, 3.11)",
+          "app_id": 15368
+        },
+        {
+          "context": "platform (macOS, 3.12)",
+          "app_id": 15368
+        },
+        {
+          "context": "platform (macOS)",
+          "app_id": 15368
         }
       ]
     },

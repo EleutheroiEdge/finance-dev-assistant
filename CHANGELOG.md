@@ -2,6 +2,13 @@
 
 ## Next
 
+- Add Windows and macOS native CI alongside Linux, retaining required check names.
+- Standardize UTF-8/universal-newline reads and LF writes; lint missing encodings.
+- Discover native tools, supervise Windows commands with job cleanup, support
+  macOS non-reaping exit observation, and use Docker Desktop-compatible mounts.
+- Test portable SQLite/temp cleanup and Git object modes/links; document Windows
+  inherited ACLs and explicit refusal of unrepresentable executable-bit patches.
+
 - Configure private path components, source suffixes, review profile registries
   and GitHub Enterprise hostnames while retaining conservative defaults.
 - Load custom profile checklists from bounded user JSON files, bind their
@@ -9,6 +16,16 @@
 - Add a complete configuration reference and a synthetic fork example.
 
 ## 0.2.0 — Unreleased
+
+- Harden native supervision: require positive nonempty zombie-only observations,
+  launch Windows children suspended before Job assignment, and always clean up
+  pipes/readers while draining completed output before deadline decisions.
+- Retain host container CLI context/storage selectors through cleanup, reject
+  Python 3.11 reparse points and tracked symlink modes, and preserve CRLF through
+  apply/rollback with an explicit shipped-resource LF policy.
+- Add fail-before-fix regressions, descendant lifecycle tests, read-only Windows
+  replacement, native doctor discovery and all three Python versions on every OS.
+  Extend the protection proposal without changing live repository settings.
 
 - Confine custom-profile files to screened, regular relative JSON files; reject
   duplicate/empty definitions and preserve inline/file provenance across saves.

@@ -9,19 +9,32 @@ weights. It does not train on repository content or claim professional credentia
 
 ## Start in one minute
 
-Python 3.11 or newer is required. From a clone:
+Python 3.11 or newer is required. Git is needed for source workflows.
+From a clone, macOS and Linux:
 
 ```sh
-python -m venv .venv
-# macOS / Linux
-. .venv/bin/activate
-# Windows PowerShell: .venv\Scripts\Activate.ps1
-python -m pip install .
-finassist demo
-finassist doctor
-finassist init --output finassist.json
-finassist export-kit --output assistant-integration
+python3 -m venv .venv
+.venv/bin/python -m pip install .
+.venv/bin/finassist demo
+.venv/bin/finassist doctor
+.venv/bin/finassist init --output finassist.json
+.venv/bin/finassist export-kit --output assistant-integration
 ```
+
+Windows PowerShell (no execution-policy change or activation required):
+
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install .
+.\.venv\Scripts\finassist.exe demo
+.\.venv\Scripts\finassist.exe doctor
+.\.venv\Scripts\finassist.exe init --output finassist.json
+.\.venv\Scripts\finassist.exe export-kit --output assistant-integration
+```
+
+Activate the environment if you prefer the shorter `finassist` commands below.
+See [platform behavior and Docker Desktop](docs/platforms.md) for encoding,
+permissions, Git modes, symlinks and container availability.
 
 The demo needs no key, model download, container or network. It runs fictional
 cash, weight, tax-character and point-in-time evidence checks and detects
