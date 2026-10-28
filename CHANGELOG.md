@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 — Unreleased
+
+- PyPI page: absolute links and images, project URLs, badge.
+
 ## 0.3.0 — Unreleased
 
 First public release, consolidating the work in #1 and #3–#5.
