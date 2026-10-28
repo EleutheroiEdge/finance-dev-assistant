@@ -154,11 +154,11 @@ class DashboardState:
                                 }
                             )
                     except Exception as exc:
-                        if saved:
-                            # Raise inside command_audit so it retains the open
-                            # run rather than recording a false terminal failure.
-                            raise OperationOutcomeUnknown("configuration_saved_audit_unknown_reload") from exc
-                        raise
+                        # A replacement attempt can take effect before an IO
+                        # acknowledgement fails. Retain the open audit run even
+                        # when write_private itself cannot confirm completion.
+                        raise OperationOutcomeUnknown("configuration_saved_audit_unknown_reload") from exc
+
             except Exception as exc:
                 if saved:
                     raise OperationOutcomeUnknown("configuration_saved_audit_unknown_reload") from exc

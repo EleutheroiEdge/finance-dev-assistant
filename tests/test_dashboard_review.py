@@ -305,3 +305,26 @@ def test_unchanged_json_lists_do_not_create_false_preview_differences(dashboard)
         "POST", "/api/config/preview", {"revision": current["revision"], "changes": current["values"]}
     )
     assert preview[0] == 200 and preview[1]["diff"] == []
+
+
+def test_write_acknowledgement_failure_is_also_an_unknown_save(dashboard, monkeypatch):
+    import finassist.dashboard as module
+
+    state, _, request = dashboard
+    config = request("GET", "/api/config")[1]
+    preview = request(
+        "POST", "/api/config/preview", {"revision": config["revision"], "changes": {"daily_budget_usd": 7}}
+    )[1]
+    original = module.write_private
+
+    def write(path, data, **kwargs):
+        original(path, data, **kwargs)
+        if path == state.config_path:
+            raise OSError("synthetic acknowledgement failure after replacement")
+
+    monkeypatch.setattr(module, "write_private", write)
+    result = request("POST", "/api/config/confirm", {"proposal_id": preview["proposal_id"], "confirm": True})
+    assert result[1]["code"] == "configuration_saved_audit_unknown_reload"
+    assert json.loads(state.config_path.read_bytes())["daily_budget_usd"] == 7
+    with Ledger(state.ledger_path) as ledger:
+        assert len(ledger.incomplete_runs()) == 1
