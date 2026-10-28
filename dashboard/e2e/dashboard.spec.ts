@@ -48,7 +48,7 @@ test.afterAll(async () => {
 test("offline configuration, confirmation, statistics and health work end to end", async ({page}) => {
   const external: string[] = [];
   const errors: string[] = [];
-  page.on("request", request => {if (!request.url().startsWith(origin)) external.push(request.url());});
+  page.on("request", request => {if (new URL(request.url()).origin !== origin) external.push(request.url());});
   page.on("pageerror", error => errors.push(error.message));
   await page.goto(origin);
   await expect(page.getByRole("heading", {name: "Configuration", exact: true})).toBeVisible();
