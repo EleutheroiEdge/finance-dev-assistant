@@ -45,10 +45,21 @@ def inspect_github(repository: str, branch: str, config: Config, *, network_appr
         "TMP",
         "WSL_INTEROP",
         "WSL_DISTRO_NAME",
-        "GH_TOKEN",
-        "GITHUB_TOKEN",
+    )
+    names += (
+        ("GH_TOKEN", "GITHUB_TOKEN")
+        if config.github_host == "github.com"
+        else ("GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
     )
     environment = {name: os.environ[name] for name in names if name in os.environ}
+    if config.github_host.endswith(".ghe.com"):
+        # gh uses the cloud token variable for ghe.com. Only an explicitly
+        # supplied Enterprise credential may populate it for another tenant.
+        enterprise = environment.pop("GH_ENTERPRISE_TOKEN", None) or environment.pop(
+            "GITHUB_ENTERPRISE_TOKEN", None
+        )
+        if enterprise:
+            environment["GH_TOKEN"] = enterprise
     environment.update(GH_PROMPT_DISABLED="1", GH_NO_UPDATE_NOTIFIER="1")
 
     def get(suffix: str, *, missing_ok: bool = False):
@@ -56,7 +67,7 @@ def inspect_github(repository: str, branch: str, config: Config, *, network_appr
         requests.append(digest(endpoint.encode()))
         try:
             result = subprocess.run(
-                [executable, "api", endpoint, "--hostname", "github.com"],
+                [executable, "api", endpoint, "--hostname", config.github_host],
                 capture_output=True,
                 text=True,
                 timeout=min(config.timeout_seconds, 120),
@@ -138,6 +149,7 @@ def inspect_github(repository: str, branch: str, config: Config, *, network_appr
             observations.append("formal_approvals_not_required")
     report = {
         "repository": repository,
+        "host": config.github_host,
         "branch": branch,
         "observed_head": observed_head,
         "recorded_at": datetime.now(timezone.utc).isoformat(),

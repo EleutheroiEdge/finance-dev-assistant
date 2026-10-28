@@ -5,7 +5,7 @@ from pathlib import Path
 from .config import Config
 from .errors import AssistantError
 from .scope import git, read_entry, resolve
-from .security import check_path, check_text, digest
+from .security import PUBLIC_ASSETS, check_text, digest
 
 
 def export_snapshot(repo: Path, ref: str, destination: Path, config: Config) -> dict:
@@ -18,8 +18,12 @@ def export_snapshot(repo: Path, ref: str, destination: Path, config: Config) -> 
     for path in paths:
         if not path or not config.allows(path):
             continue
-        check_path(path)
-        data, mode = read_entry(repo, sha, path, config.max_file_bytes)
+        config.check_path(path, source_only=False, metadata_only=True)
+        check_text(path, extra_patterns=config.extra_sensitive_patterns)
+        if Path(path).suffix.lower() in PUBLIC_ASSETS:
+            continue
+        config.check_path(path)
+        data, mode = read_entry(repo, sha, path, config.max_file_bytes, config)
         if data is None:
             raise AssistantError("snapshot_blob_missing")
         try:

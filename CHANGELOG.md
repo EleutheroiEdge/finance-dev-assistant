@@ -1,6 +1,23 @@
 # Changelog
 
+## Next
+
+- Configure private path components, source suffixes, review profile registries
+  and GitHub Enterprise hostnames while retaining conservative defaults.
+- Load custom profile checklists from bounded user JSON files, bind their
+  content to configuration hashes, and apply path policy through the full workflow.
+- Add a complete configuration reference and a synthetic fork example.
+
 ## 0.2.0 — Unreleased
+
+- Confine custom-profile files to screened, regular relative JSON files; reject
+  duplicate/empty definitions and preserve inline/file provenance across saves.
+  Portable init copies materialize their loaded profiles.
+- Bind packets to active source/profile policy, apply content patterns during
+  verification, align public-asset omission in snapshots, and enforce the active
+  rollback policy. Prevent public GitHub tokens from reaching other tenants.
+- Add before-fix regressions and propagation checks, LF test fixtures, credential
+  assignment screening, and usable examples in exported configuration guides.
 
 - Context packets now use `schema_version: 2` and include before/after Git modes.
   Legacy schema1 packets remain inspectable but must be rebuilt for readiness.

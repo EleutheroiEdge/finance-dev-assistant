@@ -16,7 +16,7 @@ def verify_gate(
     packet: dict, review: dict, checks: list[dict], config: Config, head: str, state: Path
 ) -> dict:
     config.validate()
-    verify_packet(packet)
+    verify_packet(packet, config)
     if not isinstance(review, dict) or any(
         not isinstance(value, dict)
         or not isinstance(value.get("receipt"), dict)
@@ -45,7 +45,9 @@ def verify_gate(
         blockers.add("model_review_absent")
     else:
         try:
-            validate_review(review.get("review"), packet, extra_patterns=config.extra_sensitive_patterns)
+            validate_review(
+                review.get("review"), packet, extra_patterns=config.extra_sensitive_patterns, config=config
+            )
         except AssistantError as exc:
             blockers.add(exc.code)
         else:
