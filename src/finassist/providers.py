@@ -22,7 +22,7 @@ class ModelResult:
 
 
 def _usage(value) -> int | None:
-    return value if type(value) is int and value >= 0 else None
+    return value if type(value) is int and 0 < value <= 2_000_000 else None
 
 
 def request_shape(config: Config, system: str, packet: dict, schema: dict) -> tuple[str, dict, dict]:
@@ -109,23 +109,24 @@ def parse_response(provider: str, data: dict) -> ModelResult:
                 for part in item.get("content", [])
                 if part.get("type") == "output_text"
             )
-            usage = data.get("usage", {})
+            usage = data.get("usage") or {}
             return ModelResult(text, _usage(usage.get("input_tokens")), _usage(usage.get("output_tokens")))
         if provider == "anthropic":
             if data.get("stop_reason") != "end_turn":
                 raise AssistantError("provider_incomplete")
             text = "".join(item["text"] for item in data["content"] if item.get("type") == "text")
-            usage = data.get("usage", {})
+            usage = data.get("usage") or {}
             return ModelResult(text, _usage(usage.get("input_tokens")), _usage(usage.get("output_tokens")))
         if provider == "google":
             candidate = data["candidates"][0]
             if candidate.get("finishReason") != "STOP":
                 raise AssistantError("provider_incomplete")
             text = "".join(p["text"] for p in candidate["content"]["parts"] if not p.get("thought"))
-            usage = data.get("usageMetadata", {})
+            usage = data.get("usageMetadata") or {}
             # Include thought tokens when supplied; missing usage remains unreconciled.
             output = _usage(usage.get("candidatesTokenCount"))
-            thoughts = _usage(usage.get("thoughtsTokenCount", 0))
+            thoughts_raw = usage.get("thoughtsTokenCount", 0)
+            thoughts = 0 if thoughts_raw == 0 and type(thoughts_raw) is int else _usage(thoughts_raw)
             return ModelResult(
                 text,
                 _usage(usage.get("promptTokenCount")),
@@ -142,7 +143,7 @@ def parse_response(provider: str, data: dict) -> ModelResult:
         choice = data["choices"][0]
         if choice.get("finish_reason") != "stop":
             raise AssistantError("provider_incomplete")
-        usage = data.get("usage", {})
+        usage = data.get("usage") or {}
         return ModelResult(
             choice["message"]["content"],
             _usage(usage.get("prompt_tokens")),
@@ -184,6 +185,8 @@ def invoke(
                     chunks.append(block)
         data = json.loads(b"".join(chunks))
         result = parse_response(config.provider, data)
+        if result.output_tokens is not None and result.output_tokens > config.max_output_tokens:
+            raise AssistantError("provider_usage_exceeds_limit")
         if not isinstance(result.text, str) or not result.text.strip():
             raise AssistantError("provider_empty_output")
         return result

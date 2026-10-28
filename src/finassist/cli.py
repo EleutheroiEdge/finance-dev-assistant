@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
-from decimal import Decimal
+from dataclasses import asdict, replace
+from decimal import Decimal, InvalidOperation
 import json
 import os
 from pathlib import Path
@@ -16,7 +16,8 @@ import tempfile
 import time
 
 from . import __version__
-from .config import PROVIDERS, PROFILES, load_config, save_config
+from .auditing import command_audit
+from .config import Config, PROVIDERS, PROFILES, load_config, save_config
 from .demo import run_demo
 from .errors import AssistantError
 from .evaluation import evaluate, score
@@ -24,9 +25,11 @@ from .evidence_store import EvidenceStore
 from .finance import cash_check, observation_check, tax_estimate, weights_check
 from .ledger import Ledger
 from .integrations import export_kit
+from .github_audit import inspect_github
 from .patching import apply_patch_artifact, rollback_patch
 from .proposal import propose
 from .render import report_html
+from .readiness import verify_gate
 from .review import review_packet
 from .runner import run_recipe
 from .scope import build_packet, git, resolve, triage
@@ -38,7 +41,10 @@ def _read_json(path: str) -> dict:
     file = regular_path(Path(path))
     if file.stat().st_size > 2_000_000:
         raise AssistantError("input_limit_exceeded")
-    return json.loads(file.read_text())
+    value = json.loads(file.read_text())
+    if not isinstance(value, dict):
+        raise AssistantError("input_object_required")
+    return value
 
 
 def _emit(value, output: str | None = None) -> None:
@@ -55,6 +61,11 @@ def parser() -> argparse.ArgumentParser:
     )
     root.add_argument("--version", action="version", version=__version__)
     root.add_argument("--config", type=Path, help="Explicit reviewed JSON configuration; default is offline")
+    root.add_argument(
+        "--audit-dir",
+        type=Path,
+        help="Private command audit directory; default is the operation state directory",
+    )
     commands = root.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init", help="Create offline-by-default configuration")
     init.add_argument("--output", default="finassist.json")
@@ -109,6 +120,9 @@ def parser() -> argparse.ArgumentParser:
     finance.add_argument("--output")
     audit = commands.add_parser("audit", help="Verify audit-chain integrity or list unreconciled spend")
     audit.add_argument("--state-dir", type=Path, default=Path(".finassist"))
+    audit.add_argument("--export", help="Export verified metadata events as private JSON Lines")
+    audit.add_argument("--after", type=int, default=0)
+    audit.add_argument("--limit", type=int, default=1000)
     settle = commands.add_parser(
         "reconcile-budget", help="Record operator-verified spend for one unresolved call"
     )
@@ -154,11 +168,37 @@ def parser() -> argparse.ArgumentParser:
         "export-kit", help="Export portable skill and native role templates without installation"
     )
     export.add_argument("--output", type=Path, required=True)
+    gate = commands.add_parser(
+        "verify-gate",
+        help="Check source-bound review/test evidence without authorizing a merge or deployment",
+    )
+    gate.add_argument("--repo", type=Path, default=Path.cwd())
+    gate.add_argument("--expected-head", required=True)
+    gate.add_argument("--packet", required=True)
+    gate.add_argument("--review", required=True)
+    gate.add_argument("--receipt", action="append", default=[])
+    gate.add_argument("--state-dir", type=Path)
+    gate.add_argument("--output")
+    github = commands.add_parser(
+        "github-audit", help="Inspect GitHub branch controls using metadata GETs only"
+    )
+    github.add_argument("--repository", required=True)
+    github.add_argument("--branch", default="main")
+    github.add_argument("--allow-network", action="store_true")
+    github.add_argument("--output")
     return root
 
 
-def execute(args) -> int:
-    config = load_config(args.config)
+def audit_directory(args) -> Path:
+    return (
+        args.audit_dir
+        or getattr(args, "state_dir", None)
+        or (getattr(args, "repo", Path.cwd()) / ".finassist")
+    )
+
+
+def execute(args, config: Config | None = None) -> int:
+    config = config or load_config(args.config)
     if args.command == "init":
         save_config(
             Path(args.output), replace(config, provider=args.provider, model=args.model, profile=args.profile)
@@ -207,7 +247,7 @@ def execute(args) -> int:
         result = method(
             packet,
             config,
-            args.state_dir / "audit.sqlite",
+            audit_directory(args) / "audit.sqlite",
             network_approved=args.allow_network,
             approved_packet_hash=args.approve_packet,
         )
@@ -216,9 +256,23 @@ def execute(args) -> int:
     elif args.command == "apply":
         data = _read_json(args.proposal)
         artifact = data.get("artifact", data)
-        _emit(apply_patch_artifact(args.repo, artifact, args.approve_hash, config))
+        receipt = apply_patch_artifact(args.repo, artifact, args.approve_hash, config)
+        with Ledger(audit_directory(args) / "audit.sqlite") as ledger:
+            ledger.append(
+                {"event": "patch_applied", "head": receipt["head"], "patch_hash": receipt["patch_hash"]}
+            )
+        _emit(receipt)
     elif args.command == "rollback":
-        _emit(rollback_patch(args.repo, args.patch_hash))
+        receipt = rollback_patch(args.repo, args.patch_hash)
+        with Ledger(audit_directory(args) / "audit.sqlite") as ledger:
+            ledger.append(
+                {
+                    "event": "patch_rolled_back",
+                    "head": resolve(args.repo, "HEAD"),
+                    "patch_hash": args.patch_hash,
+                }
+            )
+        _emit(receipt)
     elif args.command == "check":
         with tempfile.TemporaryDirectory(prefix="finassist-check-") as temporary:
             snapshot = Path(temporary) / "source"
@@ -227,6 +281,20 @@ def execute(args) -> int:
                 config, args.recipe, snapshot, backend=args.backend, approve_local=args.approve_local
             )
             result["snapshot"] = manifest
+            result["receipt"].update(
+                head=manifest["head"],
+                snapshot_hash=digest(canonical(manifest)),
+                config_hash=digest(canonical(asdict(config))),
+            )
+            with Ledger(audit_directory(args) / "audit.sqlite") as ledger:
+                ledger.append(
+                    {
+                        "event": "check_completed",
+                        "head": manifest["head"],
+                        "receipt_hash": digest(canonical(result["receipt"])),
+                        "config_hash": result["receipt"]["config_hash"],
+                    }
+                )
             _emit(result, args.output)
             _emit(result["receipt"])
             return 0 if result["receipt"]["passed"] else 1
@@ -241,10 +309,21 @@ def execute(args) -> int:
         _emit(result, args.output)
         return 0 if result.get("passed", True) else 1
     elif args.command in {"audit", "reconcile-budget"}:
-        with Ledger(args.state_dir / "audit.sqlite") as ledger:
+        with Ledger(audit_directory(args) / "audit.sqlite") as ledger:
             if args.command == "reconcile-budget":
                 ledger.settle(args.reservation, Decimal(args.actual_usd))
-            _emit({"events_verified": ledger.verify(), "unresolved": ledger.open_reservations()})
+            if args.command == "audit" and args.export:
+                events = ledger.events(after=args.after, limit=args.limit)
+                data = b"".join(canonical(event) + b"\n" for event in events)
+                check_text(data.decode(), extra_patterns=config.extra_sensitive_patterns)
+                write_private(Path(args.export), data)
+            _emit(
+                {
+                    "events_verified": ledger.verify(),
+                    "unresolved": ledger.open_reservations(),
+                    "incomplete_runs": ledger.incomplete_runs(),
+                }
+            )
     elif args.command == "render":
         write_private(Path(args.output), report_html(_read_json(args.input)).encode())
         _emit({"output": args.output})
@@ -257,15 +336,15 @@ def execute(args) -> int:
             except AssistantError as exc:
                 findings.append({"path": name, "code": exc.code})
                 continue
-            path = regular_path(args.repo / name)
-            if not path.is_file():
-                raise AssistantError("publication_file_missing")
-            if path.stat().st_size > 2_000_000:
-                findings.append({"path": name, "code": "publication_file_too_large"})
-                continue
             try:
+                path = regular_path(args.repo / name)
+                if not path.is_file():
+                    raise AssistantError("publication_file_missing")
+                if path.stat().st_size > 2_000_000:
+                    findings.append({"path": name, "code": "publication_file_too_large"})
+                    continue
                 content = path.read_text()
-                check_text(content)
+                check_text(content, extra_patterns=config.extra_sensitive_patterns)
                 if any(value.casefold() in (name + "\n" + content).casefold() for value in args.forbid):
                     findings.append({"path": name, "code": "forbidden_publication_text"})
             except AssistantError as exc:
@@ -287,7 +366,7 @@ def execute(args) -> int:
         result = evaluate(
             suite,
             config,
-            args.state_dir,
+            audit_directory(args),
             approved_suite_hash=args.approve_suite,
             network_approved=args.allow_network,
         )
@@ -296,7 +375,10 @@ def execute(args) -> int:
     elif args.command == "score":
         _emit(score(_read_json(args.evaluation), _read_json(args.labels)), args.output)
     elif args.command == "evidence":
-        with EvidenceStore(args.state_dir / "evidence.sqlite") as store:
+        with EvidenceStore(
+            audit_directory(args) / "evidence.sqlite",
+            extra_sensitive_patterns=config.extra_sensitive_patterns,
+        ) as store:
             if args.action == "add":
                 if not args.input:
                     raise AssistantError("evidence_input_required")
@@ -326,16 +408,51 @@ def execute(args) -> int:
                 )
     elif args.command == "export-kit":
         _emit(export_kit(args.output))
+    elif args.command == "verify-gate":
+        head = resolve(args.repo, "HEAD")
+        if args.expected_head != head:
+            raise AssistantError("readiness_head_changed")
+        dirty_before = git(
+            args.repo, "status", "--porcelain", "--untracked-files=normal", "--", ".", ":(exclude).finassist"
+        )
+        report = verify_gate(
+            _read_json(args.packet),
+            _read_json(args.review),
+            [_read_json(path) for path in args.receipt],
+            config,
+            head,
+            audit_directory(args) / "audit.sqlite",
+        )
+        if resolve(args.repo, "HEAD") != head:
+            raise AssistantError("readiness_head_changed")
+        if dirty_before or git(
+            args.repo, "status", "--porcelain", "--untracked-files=normal", "--", ".", ":(exclude).finassist"
+        ):
+            report["status"] = "blocked"
+            report["blocking_reasons"] = sorted(set(report["blocking_reasons"]) | {"clean_worktree_required"})
+        _emit(report, args.output)
+        return 1 if report["blocking_reasons"] else 0
+    elif args.command == "github-audit":
+        report = inspect_github(args.repository, args.branch, config, network_approved=args.allow_network)
+        _emit(report, args.output)
+        return 1 if report["issues"] else 0
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     try:
-        return execute(parser().parse_args(argv))
+        args = parser().parse_args(argv)
+        config = load_config(args.config)
+        if args.command in {"doctor", "demo", "audit", "scan", "render"}:
+            return execute(args, config)
+        state = audit_directory(args)
+        with command_audit(state / "audit.sqlite", args.command, config) as outcome:
+            outcome["exit_code"] = execute(args, config)
+            return outcome["exit_code"]
     except AssistantError as exc:
         print(json.dumps({"status": "error", "code": exc.code}), file=sys.stderr)
         return 2
-    except (OSError, ValueError, TypeError, KeyError, sqlite3.Error) as exc:
+    except (OSError, ValueError, TypeError, KeyError, InvalidOperation, sqlite3.Error) as exc:
         # Report a stable class, never raw provider errors, source or private paths.
         print(
             json.dumps({"status": "error", "code": "invalid_input", "kind": type(exc).__name__}),

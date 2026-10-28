@@ -4,7 +4,7 @@ from pathlib import Path
 
 from .config import Config
 from .errors import AssistantError
-from .scope import git, read_blob, resolve
+from .scope import git, read_entry, resolve
 from .security import check_path, check_text, digest
 
 
@@ -19,7 +19,7 @@ def export_snapshot(repo: Path, ref: str, destination: Path, config: Config) -> 
         if not path or not config.allows(path):
             continue
         check_path(path)
-        data = read_blob(repo, sha, path, config.max_file_bytes)
+        data, mode = read_entry(repo, sha, path, config.max_file_bytes)
         if data is None:
             raise AssistantError("snapshot_blob_missing")
         try:
@@ -29,8 +29,8 @@ def export_snapshot(repo: Path, ref: str, destination: Path, config: Config) -> 
         target = destination / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
-        target.chmod(0o444)
-        manifest.append({"path": path, "sha256": digest(data)})
+        target.chmod(0o555 if mode == "100755" else 0o444)
+        manifest.append({"path": path, "sha256": digest(data), "mode": mode})
     if not manifest:
         raise AssistantError("empty_snapshot")
     for directory in sorted((p for p in destination.rglob("*") if p.is_dir()), reverse=True):

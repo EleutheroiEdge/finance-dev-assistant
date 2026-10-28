@@ -3,7 +3,7 @@
 The CLI works independently of a coding-agent product. Optional adapters are
 provided for supported hosts:
 
-The installed wheel includes all three templates and the workflow/provider guides.
+The installed wheel includes all three templates and the workflow/provider/readiness guides.
 Export them to a new directory:
 
 ```sh

@@ -1,0 +1,52 @@
+{
+  "repository": "OWNER/REPOSITORY",
+  "branch": "main",
+  "requires_owner_approval": true,
+  "applied": false,
+  "scope": "Template only. Replace repository/branch and verify the target's actual checks and app IDs. No setting is applied by this file.",
+  "approval_count_decision": "Choose the formal approval count with the repository owner. Zero allows a sole-author workflow; one or more needs an eligible independent reviewer. Model comments are not formal approvals.",
+  "method": "PUT",
+  "endpoint": "repos/OWNER/REPOSITORY/branches/main/protection",
+  "body": {
+    "required_status_checks": {
+      "strict": true,
+      "checks": [
+        {
+          "context": "test (3.11)",
+          "app_id": 15368
+        },
+        {
+          "context": "test (3.12)",
+          "app_id": 15368
+        },
+        {
+          "context": "test (3.13)",
+          "app_id": 15368
+        },
+        {
+          "context": "isolation",
+          "app_id": 15368
+        }
+      ]
+    },
+    "enforce_admins": true,
+    "required_pull_request_reviews": {
+      "dismiss_stale_reviews": true,
+      "require_code_owner_reviews": false,
+      "required_approving_review_count": 0,
+      "require_last_push_approval": false
+    },
+    "restrictions": null,
+    "required_linear_history": true,
+    "allow_force_pushes": false,
+    "allow_deletions": false,
+    "required_conversation_resolution": true
+  },
+  "preconditions": [
+    "verify current owner and exact repository id",
+    "verify current main head and absent existing protection/rulesets",
+    "verify all named GitHub Actions checks exist and passed at reviewed head",
+    "apply only after explicit owner approval",
+    "verify exact effective policy after write; do not automatically retry unknown outcomes"
+  ]
+}

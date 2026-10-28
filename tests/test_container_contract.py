@@ -17,6 +17,7 @@ def test_container_flags_and_cleanup_on_supervisor_failure(tmp_path, monkeypatch
         assert "--network=none" in argv and "--read-only" in argv and "--cap-drop=ALL" in argv
         assert "--pull=never" in argv and "--user=65534:65534" in argv
         assert "--security-opt=no-new-privileges" in argv
+        assert argv[argv.index(config.runner_image) - 1] == "--"
         assert "OPENAI_API_KEY" not in kwargs["env"]
         if raises:
             raise RuntimeError("fictional supervisor failure")
