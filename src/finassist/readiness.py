@@ -29,6 +29,8 @@ def verify_gate(
         blockers.add("packet_mode_evidence_missing")
     if packet["head"] != head or review.get("head") != head:
         blockers.add("revision_mismatch")
+    if review.get("base") != packet["base"]:
+        blockers.add("base_revision_mismatch")
     if packet["omitted"] or review.get("omitted"):
         blockers.add("coverage_incomplete")
     if (
@@ -42,16 +44,20 @@ def verify_gate(
     if review.get("provider") in {None, "offline"}:
         blockers.add("model_review_absent")
     else:
-        validate_review(review.get("review"), packet, extra_patterns=config.extra_sensitive_patterns)
-        if any(f["severity"] in config.blocking_severities for f in review["review"]["findings"]):
-            blockers.add("blocking_findings")
+        try:
+            validate_review(review.get("review"), packet, extra_patterns=config.extra_sensitive_patterns)
+        except AssistantError as exc:
+            blockers.add(exc.code)
+        else:
+            if any(f["severity"] in config.blocking_severities for f in review["review"]["findings"]):
+                blockers.add("blocking_findings")
     if review.get("packet_hash") != packet["packet_hash"]:
         blockers.add("review_packet_mismatch")
     if not config.required_recipes:
         blockers.add("required_recipes_unconfigured")
     if not state.is_file():
         raise AssistantError("audit_evidence_missing")
-    with Ledger(state) as ledger:
+    with Ledger(state) as ledger, ledger.transaction():
         ledger.verify()
         if ledger.open_reservations():
             blockers.add("unreconciled_spend")

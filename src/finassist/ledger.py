@@ -190,28 +190,30 @@ class Ledger:
     def events(self, *, after: int = 0, limit: int = 1000) -> list[dict]:
         if type(after) is not int or after < 0 or type(limit) is not int or not 1 <= limit <= 10_000:
             raise AssistantError("invalid_audit_page")
-        self.verify()
-        return [
-            {"seq": seq, "previous": previous, "payload": json.loads(payload), "hash": value}
-            for seq, previous, payload, value in self.db.execute(
-                "SELECT seq,previous,payload,hash FROM events WHERE seq>? ORDER BY seq LIMIT ?",
-                (after, limit),
-            )
-        ]
+        with nullcontext() if self.db.in_transaction else self.transaction():
+            self.verify()
+            return [
+                {"seq": seq, "previous": previous, "payload": json.loads(payload), "hash": value}
+                for seq, previous, payload, value in self.db.execute(
+                    "SELECT seq,previous,payload,hash FROM events WHERE seq>? ORDER BY seq LIMIT ?",
+                    (after, limit),
+                )
+            ]
 
     def incomplete_runs(self) -> list[dict]:
-        self.verify()
-        pending = {}
-        for (data,) in self.db.execute("SELECT payload FROM events ORDER BY seq"):
-            event = json.loads(data)
-            identifier = event.get("run_id")
-            if identifier and event.get("event") == "command_started":
-                pending[identifier] = {
-                    "run_id": identifier,
-                    "command": event.get("command"),
-                    "started_at": event.get("recorded_at"),
-                    "outcome": "unknown",
-                }
-            elif identifier and event.get("event") in {"command_completed", "command_failed"}:
-                pending.pop(identifier, None)
-        return list(pending.values())
+        with nullcontext() if self.db.in_transaction else self.transaction():
+            self.verify()
+            pending = {}
+            for (data,) in self.db.execute("SELECT payload FROM events ORDER BY seq"):
+                event = json.loads(data)
+                identifier = event.get("run_id")
+                if identifier and event.get("event") == "command_started":
+                    pending[identifier] = {
+                        "run_id": identifier,
+                        "command": event.get("command"),
+                        "started_at": event.get("recorded_at"),
+                        "outcome": "unknown",
+                    }
+                elif identifier and event.get("event") in {"command_completed", "command_failed"}:
+                    pending.pop(identifier, None)
+            return list(pending.values())

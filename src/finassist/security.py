@@ -79,10 +79,12 @@ SECRET_PATTERNS = (
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"\bsk-[A-Za-z0-9_-]{24,}\b"),
     re.compile(
-        r"(?i)\b(?:api[_-]?key|password|secret|access[_-]?token)\b[\"']?\s*[=:]\s*"
+        r"(?i)\b[A-Za-z0-9_-]*(?:api[_-]?key|password|secret|access[_-]?token)\b[\"']?\s*[=:]\s*"
         r"(?:[\"'][^\"'\n]{12,}[\"']|[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
     ),
-    re.compile(r"(?i)\b(?:account[_ -]?(?:number|id)|routing[_ -]?number)\s*[=:]\s*[\"']?\d{6,}"),
+    re.compile(
+        r"(?i)\b[A-Za-z0-9_-]*(?:account[_ -]?(?:number|id)|routing[_ -]?number)[\"']?\s*[=:]\s*[\"']?\d{6,}"
+    ),
     re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
 )
 

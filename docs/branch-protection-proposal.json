@@ -1,12 +1,12 @@
 {
-  "repository": "EleutheroiEdge/finance-dev-assistant",
+  "repository": "OWNER/REPOSITORY",
   "branch": "main",
   "requires_owner_approval": true,
   "applied": false,
-  "scope": "Only classic protection for this main branch. No new credential, collaborator, bypass or deployment.",
-  "approval_count_decision": "Zero formal approvals is proposed for the current single-author account; select one only with an eligible independent reviewer. Model review comments are advisory, not formal approvals.",
+  "scope": "Template only. Replace repository/branch and verify the target's actual checks and app IDs. No setting is applied by this file.",
+  "approval_count_decision": "Choose the formal approval count with the repository owner. Zero allows a sole-author workflow; one or more needs an eligible independent reviewer. Model comments are not formal approvals.",
   "method": "PUT",
-  "endpoint": "repos/EleutheroiEdge/finance-dev-assistant/branches/main/protection",
+  "endpoint": "repos/OWNER/REPOSITORY/branches/main/protection",
   "body": {
     "required_status_checks": {
       "strict": true,
@@ -27,8 +27,7 @@
           "context": "isolation",
           "app_id": 15368
         }
-      ],
-      "contexts": []
+      ]
     },
     "enforce_admins": true,
     "required_pull_request_reviews": {

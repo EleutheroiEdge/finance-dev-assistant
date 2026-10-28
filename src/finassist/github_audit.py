@@ -101,7 +101,7 @@ def inspect_github(repository: str, branch: str, config: Config, *, network_appr
     observed_head = commit.get("sha", "")
     if not re.fullmatch(r"[0-9a-f]{40,64}", observed_head):
         raise AssistantError("github_head_invalid")
-    issues, controls = [], {}
+    issues, controls, observations = [], {}, []
     if before.get("protected") is not True and not rules:
         issues.append("branch_unprotected")
     if protection is None:
@@ -134,6 +134,8 @@ def inspect_github(repository: str, branch: str, config: Config, *, network_appr
         for name, enabled in controls.items():
             if name != "required_approvals" and enabled is not True:
                 issues.append(name + "_missing")
+        if controls["required_approvals"] == 0:
+            observations.append("formal_approvals_not_required")
     report = {
         "repository": repository,
         "branch": branch,
@@ -142,6 +144,7 @@ def inspect_github(repository: str, branch: str, config: Config, *, network_appr
         "protected": before.get("protected") is True,
         "controls": controls,
         "issues": sorted(issues),
+        "observations": observations,
         "effective_rule_count": len(rules),
         "requests": requests,
         "status": "attention-required" if issues else "configuration-observed",

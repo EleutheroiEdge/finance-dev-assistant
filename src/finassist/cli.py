@@ -336,13 +336,13 @@ def execute(args, config: Config | None = None) -> int:
             except AssistantError as exc:
                 findings.append({"path": name, "code": exc.code})
                 continue
-            path = regular_path(args.repo / name)
-            if not path.is_file():
-                raise AssistantError("publication_file_missing")
-            if path.stat().st_size > 2_000_000:
-                findings.append({"path": name, "code": "publication_file_too_large"})
-                continue
             try:
+                path = regular_path(args.repo / name)
+                if not path.is_file():
+                    raise AssistantError("publication_file_missing")
+                if path.stat().st_size > 2_000_000:
+                    findings.append({"path": name, "code": "publication_file_too_large"})
+                    continue
                 content = path.read_text()
                 check_text(content, extra_patterns=config.extra_sensitive_patterns)
                 if any(value.casefold() in (name + "\n" + content).casefold() for value in args.forbid):
@@ -412,6 +412,9 @@ def execute(args, config: Config | None = None) -> int:
         head = resolve(args.repo, "HEAD")
         if args.expected_head != head:
             raise AssistantError("readiness_head_changed")
+        dirty_before = git(
+            args.repo, "status", "--porcelain", "--untracked-files=normal", "--", ".", ":(exclude).finassist"
+        )
         report = verify_gate(
             _read_json(args.packet),
             _read_json(args.review),
@@ -422,6 +425,11 @@ def execute(args, config: Config | None = None) -> int:
         )
         if resolve(args.repo, "HEAD") != head:
             raise AssistantError("readiness_head_changed")
+        if dirty_before or git(
+            args.repo, "status", "--porcelain", "--untracked-files=normal", "--", ".", ":(exclude).finassist"
+        ):
+            report["status"] = "blocked"
+            report["blocking_reasons"] = sorted(set(report["blocking_reasons"]) | {"clean_worktree_required"})
         _emit(report, args.output)
         return 1 if report["blocking_reasons"] else 0
     elif args.command == "github-audit":

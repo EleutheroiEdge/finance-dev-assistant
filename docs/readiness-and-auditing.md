@@ -21,6 +21,9 @@ finassist audit --state-dir YOUR_PRIVATE_STATE --export NEW_PRIVATE_EVENTS.jsonl
 Export pages contain sequence/previous/hash/payload and preserve chain links.
 Advance `--after` to the last exported sequence for another page. Verification
 cross-checks reservation balances against the event history in a transaction.
+Readiness holds that same transaction across verification, open reservations,
+incomplete commands and event reads. Export verification and its page read also
+share a transaction.
 Lifecycle verification rejects duplicate starts, mismatched completion commands
 and caller-supplied envelope fields. Interrupted patch backups block further
 application until reconciled; rollback records a terminal state.
@@ -66,6 +69,9 @@ tested snapshot, passing checks/cleanup and no unknown
 spend. Offline analysis is not a model review. A freely edited success flag or
 self-consistent file hash does not replace the corresponding audited event.
 Local checks are ineligible unless explicitly selected in policy.
+Stale or invalid review reports return `blocked` with stable reason codes.
+The review's base must match the packet base. The CLI checks source cleanliness
+before and after evaluation; private untracked `.finassist` state is excluded.
 
 `eligible-for-human-review` is local evidence eligibility. It grants no merge,
 security-policy, deployment or economic authority. Independently check the live
@@ -87,6 +93,9 @@ with its own authentication. Tokens are not copied into arguments or reports.
 The command checks stable branch identity and reports classic PR/CI/admin/
 force-push/deletion controls. Ruleset equivalence is explicitly left for review;
 a missing classic policy does not claim that all rulesets are ineffective.
+Zero formal approvals produces the observation `formal_approvals_not_required`,
+even when PRs and CI are enforced. It is a visible policy choice, not a claim
+that independent approval is required or has occurred.
 PR approvals/threads and actual deployment outcomes are not inspected by this
 configuration snapshot. No setting or PR is changed.
 

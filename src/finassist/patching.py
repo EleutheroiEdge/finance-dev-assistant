@@ -19,26 +19,45 @@ def patch_paths(patch: str, config: Config) -> list[str]:
     if len(patch.encode()) > config.max_packet_bytes:
         raise AssistantError("patch_limit_exceeded")
     paths = []
-    in_hunk = False
+    remaining_old = remaining_new = 0
+    has_hunk = allow_marker = False
     headers, modes = set(), set()
 
     def complete_section():
         if not paths:
             return
-        if headers == {"---", "+++"} and in_hunk:
+        if remaining_old or remaining_new:
+            raise AssistantError("patch_hunk_invalid")
+        if headers == {"---", "+++"} and has_hunk:
             return
         if (
             not headers
-            and not in_hunk
+            and not has_hunk
             and (modes == {"old mode", "new mode"} or modes in ({"new file mode"}, {"deleted file mode"}))
         ):
             return
         raise AssistantError("patch_header_mismatch")
 
     for line in patch.splitlines():
+        if remaining_old or remaining_new:
+            if line == "\\ No newline at end of file" and allow_marker:
+                allow_marker = False
+                continue
+            if not line or line[0] not in {" ", "+", "-"}:
+                raise AssistantError("patch_hunk_invalid")
+            remaining_old -= line[0] in {" ", "-"}
+            remaining_new -= line[0] in {" ", "+"}
+            if remaining_old < 0 or remaining_new < 0:
+                raise AssistantError("patch_hunk_invalid")
+            allow_marker = True
+            continue
+        if line == "\\ No newline at end of file" and allow_marker:
+            allow_marker = False
+            continue
+        allow_marker = False
         if line.startswith("diff --git "):
             complete_section()
-            in_hunk = False
+            has_hunk = False
             headers, modes = set(), set()
             match = re.fullmatch(r"diff --git a/([^\s]+) b/([^\s]+)", line)
             if not match or match[1] != match[2]:
@@ -50,11 +69,14 @@ def patch_paths(patch: str, config: Config) -> list[str]:
         elif line.startswith("@@ "):
             if not paths or headers != {"---", "+++"}:
                 raise AssistantError("patch_header_mismatch")
-            in_hunk = True
-        elif in_hunk:
-            # Removed SQL comments and added prefix operators can resemble file
-            # headers. Only Git's actual header section defines target paths.
-            continue
+            match = re.fullmatch(r"@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@(?: .*)?", line)
+            if not match:
+                raise AssistantError("patch_hunk_invalid")
+            remaining_old = int(match[1]) if match[1] is not None else 1
+            remaining_new = int(match[2]) if match[2] is not None else 1
+            if not (remaining_old or remaining_new):
+                raise AssistantError("patch_hunk_invalid")
+            has_hunk = True
         elif line.startswith(("new file mode ", "deleted file mode ", "old mode ", "new mode ")):
             if line.split()[-1] not in {"100644", "100755"}:
                 raise AssistantError("patch_special_file")
@@ -62,13 +84,20 @@ def patch_paths(patch: str, config: Config) -> list[str]:
         elif line.startswith(("rename ", "copy ", "GIT binary patch", "Binary files ")):
             raise AssistantError("patch_format_not_supported")
         elif line.startswith(("--- ", "+++ ")):
-            if line[:3] in headers:
+            if not paths or has_hunk or line[:3] in headers:
                 raise AssistantError("patch_header_mismatch")
             headers.add(line[:3])
             value = line[4:]
             if value != "/dev/null":
-                if not paths or not value.startswith(("a/", "b/")) or check_path(value[2:]) != paths[-1]:
+                prefix = "a/" if line.startswith("--- ") else "b/"
+                if not value.startswith(prefix) or check_path(value[2:]) != paths[-1]:
                     raise AssistantError("patch_header_mismatch")
+        elif (
+            not re.fullmatch(r"index [0-9a-f]+\.\.[0-9a-f]+(?: 100(?:644|755))?", line)
+            or not paths
+            or has_hunk
+        ):
+            raise AssistantError("patch_format_not_supported")
     complete_section()
     if not paths or len(set(paths)) != len(paths):
         raise AssistantError("empty_or_duplicate_patch")
@@ -119,6 +148,29 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
             if not valid:
                 raise AssistantError("incomplete_patch_reconciliation_required")
     paths = patch_paths(artifact["patch"], config)
+    # Independently compare Git's complete interpretation, including traditional
+    # sections and mode-only files, before trusting our scope for backups.
+    try:
+        result = subprocess.run(
+            git_command(repo, "apply", "--numstat", "-z", "-"),
+            input=artifact["patch"].encode(),
+            capture_output=True,
+            check=True,
+            env=git_environment(),
+            timeout=30,
+        )
+        parsed_paths = []
+        for row in result.stdout.split(b"\0"):
+            if not row:
+                continue
+            added, removed, path = row.split(b"\t", 2)
+            if not added.isdigit() or not removed.isdigit():
+                raise AssistantError("patch_format_not_supported")
+            parsed_paths.append(check_path(path.decode()))
+    except (OSError, ValueError, UnicodeError, subprocess.SubprocessError) as exc:
+        raise AssistantError("patch_invalid") from exc
+    if len(parsed_paths) != len(paths) or set(parsed_paths) != set(paths):
+        raise AssistantError("patch_scope_mismatch")
     backup, modes = {}, {}
     for name in paths:
         target = regular_path(repo / name)

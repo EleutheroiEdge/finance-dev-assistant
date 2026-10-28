@@ -136,6 +136,9 @@ def call_model(
             actual = (
                 Decimal(result.input_tokens) * price_in + Decimal(result.output_tokens) * price_out
             ) / 1_000_000
+            if result.input_tokens > input_bound or actual > Decimal(str(config.max_run_usd)):
+                ledger.append({"event": "provider_usage_out_of_bounds", "reservation": reservation})
+                raise AssistantError("provider_usage_exceeds_limit")
             ledger.settle(reservation, actual)
         return result, reservation
 
@@ -150,6 +153,8 @@ def review_packet(
     transport=None,
 ) -> dict:
     verify_packet(packet)
+    config.validate()
+    check_text(canonical(packet).decode(), extra_patterns=config.extra_sensitive_patterns)
     triaged = triage(packet)
     if not packet["changed_paths"]:
         raise AssistantError("empty_review_scope")

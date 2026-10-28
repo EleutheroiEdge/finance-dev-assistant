@@ -1,10 +1,8 @@
 # Security and readiness review
 
-Baseline: `7a5cfb8be0e433e7abc461338de6f7fcce358266`.
-Independent reviewer: Cursor CLI, Gemini 4 Argon High, October 28, 2026.
-The model received all public committed files inline in ask mode, with sandbox
-enabled and read/write/shell/MCP tool permissions denied. It performed a static
-review; its findings and severity labels were not execution evidence.
+This document describes durable control checks and limitations. Revision-specific
+reviewer verdicts, execution results and repository settings belong in PR/release
+records. A static review or severity label is not execution evidence.
 
 ## Reproduced findings and hardening in this change
 
@@ -14,7 +12,7 @@ review; its findings and severity labels were not execution evidence.
 | Sensitive content | Quoted keys and unquoted scalar values bypassed assignment screening | Cover JSON/dict/YAML/assignment forms; apply project patterns to scans, reports and evidence |
 | Mixed commits | Unselected lockfiles/assets stopped ordinary source planning | List public assets as omissions without reading bytes; retain strict private-path rejection |
 | Build/patch scope | Build metadata/scripts were editable under the default proposal scope | Protect build/dependency files and scripts; validate/normalize protected prefixes |
-| Patch parsing | A removed SQL comment resembled a file header | Track hunk context and bind each header to its declared current path |
+| Patch parsing | Hunk content and traditional file headers can be confused | Count both hunk sides, reject undeclared sections and compare Git's complete path list before backups/mutation |
 | Provider accounting | Null/zero/implausible usage could discard output or clear spend incorrectly | Keep paid unknown usage reserved; treat explicit zero-rate self-hosted usage separately |
 | Evidence/error handling | Approved observations lacked the oracle's derived status; malformed Decimal escaped CLI handling | Return derived approval status and a fixed error for invalid reconciliation |
 | Git/source identity | Ambient Git overrides and omitted mode metadata weakened source binding | Reduce child environment, disable hooks/fsmonitor, use literal paths and record executable modes |
@@ -25,29 +23,28 @@ Tests use synthetic data, fake transports and actual bounded local Git/process
 operations. CI separately exercises the real OCI isolation/cleanup path. A model
 severity label was not used as the sole reason for a fix or acceptance claim.
 
-## Candidate follow-up
+## Evidence consistency
 
-Argon reviewed the first hardening candidate through the same constrained Cursor
-session. Its follow-up identified a reproducible readiness gap: a check run under
-a narrower configuration could be reused without proving that its snapshot
-contained the reviewed files. Check receipts and audit events now bind the exact
-configuration; the gate verifies reviewed-file hashes and modes in the snapshot.
-Regression tests cover both mismatches.
+A check run under a narrower configuration must not qualify a broader review.
+Receipts and audit events bind the exact configuration; the gate verifies source
+hashes/modes, base/head consistency and complete coverage in the tested snapshot.
+Invalid or stale reviews produce blocked reports. CLI readiness checks clean
+source before and after evaluation, excluding the tool's private state.
 
-The follow-up also led to regression-tested checks for incomplete diff sections,
-interrupted patch backups, lifecycle command mismatches, primary evidence-side
-line bounds, inherited GitHub routing/debug variables and ruleset-only branch
-classification. The suggested timestamp-override defect was already prevented
-by envelope construction; explicit reserved-field rejection now makes that
-contract visible. These are local reproductions and fixes, not a security
-certificate or a claim that the reviewer executed tests.
+Readiness reads verified events, open reservations and incomplete commands in
+one database transaction. Export and incomplete-run queries also bind their
+verification and reads. Regression cases cover interrupted patch backups,
+lifecycle mismatches, primary evidence-side line bounds, inherited routing/debug
+variables and ruleset-only branch classification. These checks are not a
+security certificate or proof of semantic correctness.
 
 ## GitHub and deployment observations
 
-The live baseline inspection found that this repository's main branch was
-unprotected and had no ruleset. This is a server configuration gap; a local
-proposal guard cannot substitute for branch protection. A read-only GitHub
-inspection command now makes the distinction explicit. Proposed owner settings:
+A local proposal guard cannot substitute for server branch protection. The
+read-only inspector distinguishes PR requirements from formal approval counts;
+zero is an explicit observation, not a guarantee of independent approval.
+Fork owners should review the generic [policy template](branch-protection-proposal.json),
+adapt check identities to their own CI and select settings with their operator:
 
 - Require PRs and current successful `test (3.11)`, `test (3.12)`, `test (3.13)`
   and `isolation` checks from GitHub Actions; require the branch to be up to date.
@@ -58,9 +55,9 @@ inspection command now makes the distinction explicit. Proposed owner settings:
   account authoring all work, an approval count of one blocks self-authored PRs;
   any interim zero-approval policy must be an explicit owner decision.
 
-No branch setting was changed by this review. The CLI/skill has no hosted service
-or production deployment target; package/install/OCI checks establish their own
-limited readiness scope. See [audit/readiness contracts](readiness-and-auditing.md).
+The CLI/skill has no settings-write command, hosted service or production target.
+Package/install/OCI checks establish their own limited readiness scope.
+See [audit/readiness contracts](readiness-and-auditing.md).
 
 ## Remaining limitations and disposition
 
@@ -70,8 +67,7 @@ limited readiness scope. See [audit/readiness contracts](readiness-and-auditing.
   are not newly validated. Linux is the tested execution platform.
 - `check` runs committed source. A future approved-patch-in-snapshot adapter could
   test a proposal before committing it; this change does not claim that ability.
-- A model suggested random prompt delimiters and native structured-output modes
-  for every provider. Delimiters do not establish a security boundary, and native
+- Prompt delimiters do not establish a security boundary, and native
   protocol support varies. Existing separate policy/source input, strict result
   validation and explicit adapter compatibility remain the enforced controls.
 - Live vendor/model quality and semantic correctness of findings are not proven

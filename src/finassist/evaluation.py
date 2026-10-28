@@ -15,7 +15,8 @@ from .scope import build_packet
 from .security import canonical, check_path, check_text, digest
 
 
-def validate_suite(suite: dict) -> None:
+def validate_suite(suite: dict, *, extra_patterns: tuple[str, ...] = ()) -> None:
+    check_text(canonical(suite).decode(), extra_patterns=extra_patterns)
     if set(suite) != {"version", "cases"} or suite["version"] != 1:
         raise AssistantError("invalid_eval_suite")
     if not isinstance(suite["cases"], list) or not 1 <= len(suite["cases"]) <= 50:
@@ -36,7 +37,7 @@ def validate_suite(suite: dict) -> None:
         for side in ("before", "after"):
             if not isinstance(case[side], str) or not case[side] or len(case[side].encode()) > 48_000:
                 raise AssistantError("invalid_eval_source")
-            check_text(case[side])
+            check_text(case[side], extra_patterns=extra_patterns)
 
 
 def _fixture_git(repo: Path, *args: str) -> None:
@@ -66,7 +67,8 @@ def evaluate(
     network_approved: bool = False,
     transport=None,
 ) -> dict:
-    validate_suite(suite)
+    config.validate()
+    validate_suite(suite, extra_patterns=config.extra_sensitive_patterns)
     suite_hash = digest(canonical(suite))
     if config.provider != "offline" and approved_suite_hash != suite_hash:
         raise AssistantError("eval_suite_approval_required")

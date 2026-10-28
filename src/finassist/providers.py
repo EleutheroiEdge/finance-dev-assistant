@@ -185,6 +185,8 @@ def invoke(
                     chunks.append(block)
         data = json.loads(b"".join(chunks))
         result = parse_response(config.provider, data)
+        if result.output_tokens is not None and result.output_tokens > config.max_output_tokens:
+            raise AssistantError("provider_usage_exceeds_limit")
         if not isinstance(result.text, str) or not result.text.strip():
             raise AssistantError("provider_empty_output")
         return result
