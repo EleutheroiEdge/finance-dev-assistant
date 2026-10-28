@@ -3,8 +3,28 @@
 import errno
 import os
 import select
+import subprocess
 
 from .errors import AssistantError
+from .platform_support import find_tool, clean_environment
+
+
+def zombie_group_only(pid):
+    """Darwin can refuse signals to zombies. Never ignore a live group member."""
+    try:
+        result = subprocess.run(
+            [find_tool("ps"), "-o", "stat=", "-g", str(pid)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=2,
+            check=False,
+            env=clean_environment(),
+            shell=False,
+        )
+        return result.returncode in {0, 1} and all(row.startswith("Z") for row in result.stdout.split())
+    except (OSError, subprocess.SubprocessError, AssistantError):
+        return False
 
 
 class ExitObserver:

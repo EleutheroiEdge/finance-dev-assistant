@@ -10,6 +10,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
+      fail-fast: false
       matrix:
         include:
           - {os: ubuntu-24.04, python: '3.11', check_name: 'test (3.11)'}

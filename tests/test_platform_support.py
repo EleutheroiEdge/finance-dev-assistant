@@ -18,6 +18,7 @@ from finassist.platform_support import clean_environment, find_tool, read_utf8, 
 from finassist.runner import run_bounded, run_recipe
 from finassist.scope import build_packet
 from finassist.security import canonical, digest
+from finassist.posix_process import zombie_group_only
 
 
 def test_utf8_crlf_config_and_source_hashes(repository, tmp_path):
@@ -134,3 +135,13 @@ def test_docker_desktop_mount_uses_forward_slashes_and_a_literal_argument(tmp_pa
     )
     config = replace(Config(), runner_image="sha256:" + "a" * 64, recipes={"unit": ["python", "-V"]})
     assert run_recipe(config, "unit", tmp_path)["receipt"]["cleanup_verified"]
+
+
+@pytest.mark.parametrize("states,accepted", [("Z\nZ+\n", True), ("Z\nS\n", False), ("R\n", False)])
+def test_zombie_only_signal_exception_never_accepts_a_live_member(monkeypatch, states, accepted):
+    monkeypatch.setattr("finassist.posix_process.find_tool", lambda _: "ps")
+    monkeypatch.setattr(
+        "finassist.posix_process.subprocess.run",
+        lambda argv, **_: subprocess.CompletedProcess(argv, 0, states, ""),
+    )
+    assert zombie_group_only(123) is accepted

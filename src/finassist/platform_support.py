@@ -3,12 +3,13 @@
 import os
 from pathlib import Path
 import shutil
+import sys
 
 from .errors import AssistantError
 
 
 def find_tool(name: str) -> str:
-    if name not in {"git", "gh", "docker", "podman"}:
+    if name not in {"git", "gh", "docker", "podman", "ps"}:
         raise AssistantError("unsupported_tool")
     executable = shutil.which(name)
     if executable is None:
@@ -23,6 +24,16 @@ def read_utf8(path) -> str:
     """Universal-newline input; source blob hashes still use original Git bytes."""
     with path.open("r", encoding="utf-8", newline=None) as stream:
         return stream.read()
+
+
+def canonical_system_path(path: Path) -> Path:
+    """Accept only macOS's fixed OS aliases, never arbitrary user symlinks."""
+    if sys.platform == "darwin" and len(path.parts) > 1 and path.parts[1] in {"var", "tmp", "etc"}:
+        alias = Path("/") / path.parts[1]
+        expected = Path("/private") / path.parts[1]
+        if alias.is_symlink() and alias.resolve() == expected:
+            return expected.joinpath(*path.parts[2:])
+    return path
 
 
 def clean_environment() -> dict[str, str]:

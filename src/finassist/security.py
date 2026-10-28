@@ -10,6 +10,7 @@ import re
 import tempfile
 
 from .errors import AssistantError
+from .platform_support import canonical_system_path
 
 DENIED_PARTS = {
     ".finassist",
@@ -153,7 +154,7 @@ def check_text(text: str, *, extra_patterns: tuple[str, ...] = ()) -> None:
 
 def regular_path(path: Path) -> Path:
     """Reject symlink ancestors before resolving, including not-yet-created files."""
-    path = Path(path).expanduser().absolute()
+    path = canonical_system_path(Path(path).expanduser().absolute())
     for item in (path, *path.parents):
         if item.is_symlink() or (hasattr(item, "is_junction") and item.is_junction()):
             raise AssistantError("linked_path")

@@ -11,12 +11,13 @@ import subprocess
 import tempfile
 import time
 import uuid
+import sys
 
 from .config import Config
 from .errors import AssistantError
 from .security import canonical, digest, pinned_image, regular_path
 from .platform_support import clean_environment, find_tool
-from .posix_process import ExitObserver
+from .posix_process import ExitObserver, zombie_group_only
 
 
 def run_bounded(argv: list[str], *, cwd: Path, env: dict, timeout: float, max_bytes: int = 1_000_000) -> dict:
@@ -83,6 +84,14 @@ def run_bounded(argv: list[str], *, cwd: Path, env: dict, timeout: float, max_by
                 os.killpg(process.pid, sig)
             except ProcessLookupError:
                 pass
+            except PermissionError:
+                if not (
+                    sys.platform == "darwin"
+                    and observer is not None
+                    and observer.poll()
+                    and zombie_group_only(process.pid)
+                ):
+                    raise
             if sig == signal.SIGTERM:
                 time.sleep(0.1)
         try:
