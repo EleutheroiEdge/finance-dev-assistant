@@ -21,6 +21,7 @@ with `unknown_config_option`; no provider is selected from an existing key.
 | `allow_network` | Enable potential network use. Each command still needs its own explicit network approval. |
 | `allow_partial_review` | Permit model calls with explicitly accounted-for omissions. Readiness still requires complete coverage. |
 | `allowed_hosts` | Additional approved MODEL endpoint hostnames; distinct from github_host. |
+| `generated_paths` | Exact relative files or directory prefixes excluded from review and snapshot source. Defaults to src/finassist/resources/dashboard/. No globs; rebuild/integrity CI must verify these artifacts. |
 | `allow_paths` | Exact source paths or prefixes ending in /. Denied components still apply. |
 | `protected_paths` | Proposal-protected paths or directories. Source may still be inspected if allowed. |
 | `protected_branches` | Glob patterns where local patch application is prohibited. |
@@ -30,6 +31,7 @@ with `unknown_config_option`; no provider is selected from an existing key.
 | `max_output_tokens` | Requested output token ceiling. Anomalous reported usage stays unreconciled. |
 | `timeout_seconds` | Bounded provider and recipe timeout; remote cancellation is separate. |
 | `max_run_usd` | Local per-call spend admission limit in USD; not a provider-enforced cap. |
+| `monthly_budget_usd` | Local UTC booking-month admission budget (default USD 100); includes all unresolved reservations from earlier periods. Not a provider billing cap. |
 | `daily_budget_usd` | Local UTC daily admission budget, including unresolved reservations from prior days. |
 | `input_usd_per_million` | Operator-supplied input token price in USD per million. |
 | `output_usd_per_million` | Operator-supplied output token price in USD per million. |
@@ -51,6 +53,10 @@ active review/readiness requires an exact match and re-screens custom content
 patterns. Rebuild older packets lacking scope-policy evidence before active use.
 The approved path policy is saved in patch backups; CLI rollback also enforces
 the active configuration before writing any file.
+Generated exclusions are captured in packet policy, are accounted for explicitly,
+and do not count as incomplete review coverage. Other omissions still do. Generated
+bytes remain subject to publication scans and build-integrity CI. `.gitattributes`
+is reviewable and protected by default.
 Runtime/Git internals, environment files, private profile filenames, credential
 formats and binary restrictions remain intrinsic protections. There is no bypass switch.
 
@@ -72,6 +78,7 @@ file references enter the configuration digest. Changing a checklist invalidates
 old review/readiness evidence on reload. Saving preserves references and only the
 original inline definitions, so deleting a file definition removes it on reload.
 A save checks the destination's referenced files against the captured snapshot.
+The dashboard and CLI share the same persistence representation.
 `init --output` materializes resolved definitions and clears file references, making
 copies portable across directories. Library callers supply `profiles` directly or
 use `load_config` for files; a raw `Config(profile_files=...)` fails explicitly with

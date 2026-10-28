@@ -60,9 +60,19 @@ class Config:
     allow_network: bool = False
     allow_partial_review: bool = False
     allowed_hosts: tuple[str, ...] = ()
-    allow_paths: tuple[str, ...] = ("src/", "tests/", "docs/", "scripts/", "README.md", "pyproject.toml")
+    allow_paths: tuple[str, ...] = (
+        "src/",
+        "tests/",
+        "docs/",
+        "scripts/",
+        "README.md",
+        "pyproject.toml",
+        ".gitattributes",
+    )
+    generated_paths: tuple[str, ...] = ("src/finassist/resources/dashboard/",)
     protected_paths: tuple[str, ...] = (
         ".github/",
+        ".gitattributes",
         "LICENSE",
         "AGENTS.md",
         "finassist.json",
@@ -78,6 +88,7 @@ class Config:
     timeout_seconds: int = 60
     max_run_usd: float = 1.0
     daily_budget_usd: float = 5.0
+    monthly_budget_usd: float = 100.0
     input_usd_per_million: float = 0.0
     output_usd_per_million: float = 0.0
     recipes: dict = field(default_factory=dict)
@@ -189,16 +200,26 @@ class Config:
             "max_packet_bytes",
             "max_output_tokens",
             "timeout_seconds",
-            "readiness_max_age_seconds",
         ):
             if type(getattr(self, key)) is not int or not 0 < getattr(self, key) <= 2_000_000:
                 raise AssistantError("invalid_limit")
+        if (
+            type(self.readiness_max_age_seconds) is not int
+            or not 1 <= self.readiness_max_age_seconds <= 2_000_000
+        ):
+            raise AssistantError("invalid_evidence_age")
         if any(
             type(getattr(self, key)) is not bool
             for key in ("allow_network", "allow_partial_review", "allow_local_readiness")
         ):
             raise AssistantError("invalid_network_permission")
-        for key in ("max_run_usd", "daily_budget_usd", "input_usd_per_million", "output_usd_per_million"):
+        for key in (
+            "max_run_usd",
+            "daily_budget_usd",
+            "monthly_budget_usd",
+            "input_usd_per_million",
+            "output_usd_per_million",
+        ):
             value = getattr(self, key)
             if (
                 isinstance(value, bool)
@@ -209,6 +230,7 @@ class Config:
                 raise AssistantError("invalid_cost_limit")
         for key in (
             "allow_paths",
+            "generated_paths",
             "protected_paths",
             "protected_branches",
             "extra_sensitive_patterns",
@@ -220,6 +242,12 @@ class Config:
                 not isinstance(x, str) for x in getattr(self, key)
             ):
                 raise AssistantError("invalid_list")
+        if len(self.generated_paths) > 128 or len(set(self.generated_paths)) != len(self.generated_paths):
+            raise AssistantError("invalid_generated_paths")
+        for prefix in self.generated_paths:
+            if any(character in prefix for character in "*?[]"):
+                raise AssistantError("invalid_generated_paths")
+            self.check_path(prefix.rstrip("/"), source_only=False)
         for prefix in self.allow_paths:
             self.check_path(prefix.rstrip("/"), source_only=False)
         for prefix in self.protected_paths:
@@ -286,6 +314,12 @@ class Config:
     def allows(self, path: str) -> bool:
         return any(path.startswith(p) if p.endswith("/") else path == p for p in self.allow_paths)
 
+    def generated(self, path: str) -> bool:
+        return any(
+            path.startswith(prefix) if prefix.endswith("/") else path == prefix
+            for prefix in self.generated_paths
+        )
+
     def check_path(self, path: str, **kwargs) -> str:
         return check_path(path, denied_parts=self.denied_parts, text_suffixes=self.text_suffixes, **kwargs)
 
@@ -304,20 +338,21 @@ class Config:
         return any(fnmatchcase(branch, pattern) for pattern in self.protected_branches)
 
 
-def load_config(path: Path | None = None) -> Config:
+def load_config(path: Path | None = None, *, content: bytes | None = None) -> Config:
     if path is None:
         return Config().validate()
     try:
         path = regular_path(path)
-        if path.stat().st_size > 2_000_000:
+        if (len(content) if content is not None else path.stat().st_size) > 2_000_000:
             raise AssistantError("config_file_too_large")
-        raw = json.loads(read_utf8(path))
+        raw = json.loads(content.decode("utf-8") if content is not None else read_utf8(path))
         if not isinstance(raw, dict) or set(raw) - {
             item.name for item in fields(Config) if not item.metadata.get("internal")
         }:
             raise AssistantError("unknown_config_option")
         for key in (
             "allow_paths",
+            "generated_paths",
             "protected_paths",
             "protected_branches",
             "extra_sensitive_patterns",
@@ -377,9 +412,18 @@ def _load_profile_files(config: Config, directory: Path) -> Config:
     return replace(config, profiles=LoadedProfiles(profiles, inline=inline)).validate()
 
 
-def save_config(path: Path, config: Config) -> None:
+def config_document(config: Config) -> dict:
+    """Persistence form; resolved file checklists remain snapshot-only metadata."""
     config.validate()
     document = asdict(config)
+    if config.profile_files:
+        document["profiles"] = deepcopy(config.profiles.inline)
+    return document
+
+
+def save_config(path: Path, config: Config) -> None:
+    config.validate()
+    document = config_document(config)
     inline = config.profiles.inline if isinstance(config.profiles, LoadedProfiles) else None
     if config.profile_files:
         document["profiles"] = inline

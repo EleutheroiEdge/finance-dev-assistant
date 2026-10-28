@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from .platform_support import tool_present, read_utf8
+from .platform_support import read_utf8
 
 import argparse
 from dataclasses import asdict, replace
 from decimal import Decimal, InvalidOperation
 import json
-import os
 from pathlib import Path
-import platform
 import sqlite3
 import sys
 import tempfile
@@ -18,9 +16,9 @@ import time
 
 from . import __version__
 from .auditing import command_audit
-from .platform_support import private_state_protection
 from .config import Config, PROVIDERS, load_config, save_config
 from .demo import run_demo
+from .health import doctor_report
 from .errors import AssistantError
 from .evaluation import evaluate, score
 from .evidence_store import EvidenceStore
@@ -188,6 +186,9 @@ def parser() -> argparse.ArgumentParser:
     github.add_argument("--branch", default="main")
     github.add_argument("--allow-network", action="store_true")
     github.add_argument("--output")
+    dashboard = commands.add_parser("dashboard", help="Serve the offline local configuration/audit dashboard")
+    dashboard.add_argument("--state-dir", type=Path)
+    dashboard.add_argument("--port", type=int, default=0)
     return root
 
 
@@ -215,23 +216,7 @@ def execute(args, config: Config | None = None) -> int:
         )
         _emit({"created": args.output, "network_enabled": False})
     elif args.command == "doctor":
-        _emit(
-            {
-                "version": __version__,
-                "private_state_protection": private_state_protection(),
-                "python": platform.python_version(),
-                "provider": config.provider,
-                "model_configured": bool(config.model),
-                "network_enabled": config.allow_network,
-                "key_present": bool(os.environ.get(config.key_name)) if config.key_name else None,
-                "docker_binary_present": tool_present("docker"),
-                "podman_binary_present": tool_present("podman"),
-                "container_daemon_checked": False,
-                "recipes": sorted(config.recipes),
-                "profile": config.profile,
-                "next_step": "inspect a plan packet before enabling any provider or running a recipe",
-            }
-        )
+        _emit(doctor_report(config))
     elif args.command == "demo":
         result = run_demo()
         _emit(result, args.output)
@@ -262,6 +247,9 @@ def execute(args, config: Config | None = None) -> int:
             network_approved=args.allow_network,
             approved_packet_hash=args.approve_packet,
         )
+        if args.command == "review" and config.provider == "offline":
+            with Ledger(audit_directory(args) / "audit.sqlite") as ledger:
+                ledger.append({"event": "offline_review_completed", "profile": config.profile})
         _emit(result, args.output)
         _emit({"output": args.output, "status": result.get("status", "proposal-only")})
     elif args.command == "apply":
@@ -304,6 +292,8 @@ def execute(args, config: Config | None = None) -> int:
                         "head": manifest["head"],
                         "receipt_hash": digest(canonical(result["receipt"])),
                         "config_hash": result["receipt"]["config_hash"],
+                        "recipe": args.recipe,
+                        "passed": result["receipt"]["passed"],
                     }
                 )
             _emit(result, args.output)
@@ -451,6 +441,15 @@ def execute(args, config: Config | None = None) -> int:
         ):
             report["status"] = "blocked"
             report["blocking_reasons"] = sorted(set(report["blocking_reasons"]) | {"clean_worktree_required"})
+        with Ledger(audit_directory(args) / "audit.sqlite") as ledger:
+            ledger.append(
+                {
+                    "event": "readiness_evaluated",
+                    "head": head,
+                    "status": report["status"],
+                    "reasons": report["blocking_reasons"],
+                }
+            )
         _emit(report, args.output)
         return 1 if report["blocking_reasons"] else 0
     elif args.command == "github-audit":
@@ -463,6 +462,10 @@ def execute(args, config: Config | None = None) -> int:
 def main(argv: list[str] | None = None) -> int:
     try:
         args = parser().parse_args(argv)
+        if args.command == "dashboard":
+            from .dashboard import serve_dashboard
+
+            return serve_dashboard(args.config or Path("finassist.json"), audit_directory(args), args.port)
         config = load_config(args.config)
         if args.command in {"doctor", "demo", "audit", "scan", "render"}:
             return execute(args, config)

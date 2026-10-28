@@ -17,6 +17,21 @@
 
 ## 0.2.0 — Unreleased
 
+- Exclude configurable, policy-bound generated paths from review/snapshot source,
+  retain build-integrity CI checks, and test plan/check on this repository itself.
+- Retain open/unknown audit runs after uncertain configuration saves, block
+  readiness on them, and capture one consistent pre-save backup byte snapshot.
+- Make .gitattributes reviewable and protected; show typed configuration failures
+  on every dashboard tab, clear stale data, distinguish nonzero exits, and improve
+  evidence-age and token-header errors. Extend the protection proposal only.
+
+- Add an offline, loopback-only React dashboard, shipped prebuilt in the Python
+  package. Configuration uses shared validation, preview and explicit confirmation;
+  statistics verify reduced audit metadata, and health shares the CLI doctor.
+- Enforce a configurable monthly review budget (default USD 100), retain unknown
+  reservations across periods, and record token, finding and readiness outcomes.
+- Test dashboard APIs, components, browser flows and installed wheels on Windows,
+  macOS and Linux, including no-Node runtime and external-request checks.
 - Harden native supervision: require positive nonempty zombie-only observations,
   launch Windows children suspended before Job assignment, and always clean up
   pipes/readers while draining completed output before deadline decisions.

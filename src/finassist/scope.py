@@ -182,6 +182,9 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
         changed.append(path)
         config.check_path(path, source_only=False, metadata_only=True)
         check_text(path, extra_patterns=config.extra_sensitive_patterns)
+        if config.generated(path):
+            omitted.append({"path": path, "reason": "generated_artifact_excluded"})
+            continue
         if Path(path).suffix.lower() in PUBLIC_ASSETS:
             omitted.append({"path": path, "reason": "binary_asset_excluded"})
             continue
@@ -218,6 +221,7 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
         "head": head_sha,
         "merge_base": ancestor,
         "profile": config.profile,
+        "generated_paths": list(config.generated_paths),
         "allow_paths": list(config.allow_paths),
         "changed_paths": changed,
         "files": files,
@@ -245,6 +249,7 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
         "omitted",
         "data_class",
         "classification_limit",
+        "generated_paths",
         "packet_hash",
     }
     if isinstance(packet, dict) and "allow_paths" in packet:
@@ -266,6 +271,8 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
     changed = packet["changed_paths"]
     if any(not isinstance(path, str) for path in changed) or len(set(changed)) != len(changed):
         raise AssistantError("packet_coverage_invalid")
+    if packet["generated_paths"] != list(config.generated_paths):
+        raise AssistantError("packet_generated_paths_mismatch")
     if "allow_paths" not in packet:
         if active_config:
             raise AssistantError("packet_allow_paths_missing")
@@ -284,6 +291,8 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
         ):
             raise AssistantError("packet_schema_invalid")
         accounted.append(config.check_path(item["path"], source_only=False, metadata_only=True))
+        if item["reason"] == "generated_artifact_excluded" and not config.generated(item["path"]):
+            raise AssistantError("generated_omission_invalid")
     for item in packet["files"]:
         file_keys = {"path", "status", "before", "after", "before_hash", "after_hash"}
         if packet["schema_version"] == 2:
@@ -293,6 +302,8 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
         accounted.append(config.check_path(item["path"]))
         if not config.allows(item["path"]):
             raise AssistantError("packet_outside_allowlist")
+        if config.generated(item["path"]):
+            raise AssistantError("generated_source_in_packet")
         if item["before"] is None and item["after"] is None:
             raise AssistantError("packet_schema_invalid")
         for side in ("before", "after"):
@@ -334,7 +345,12 @@ def triage(packet: dict, config: Config | None = None) -> dict:
     return {
         "risks": sorted(risks),
         "recommended_checks": ["baseline-vs-candidate", "failure-paths", "output-reconciliation"],
-        "coverage_complete": not packet["omitted"],
+        "coverage_complete": not review_omissions(packet),
         "changes_present": bool(packet["changed_paths"]),
         "next_action": "inspect context, select test recipes, reproduce material findings",
     }
+
+
+def review_omissions(packet: dict) -> list[dict]:
+    """Call after verification: configured generated artifacts are outside scope."""
+    return [row for row in packet["omitted"] if row["reason"] != "generated_artifact_excluded"]

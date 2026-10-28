@@ -7,6 +7,11 @@ graft scripts
 graft .claude/agents
 graft .codex/agents
 graft .github/workflows
+graft dashboard
+prune dashboard/node_modules
+prune dashboard/test-results
+prune dashboard/playwright-report
+prune dashboard/.cache
 global-exclude __pycache__ *.py[cod]
 prune .finassist
 prune .venv

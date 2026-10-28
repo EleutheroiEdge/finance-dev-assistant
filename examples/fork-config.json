@@ -98,7 +98,8 @@
     "docs/",
     "scripts/",
     "README.md",
-    "pyproject.toml"
+    "pyproject.toml",
+    ".gitattributes"
   ],
   "protected_paths": [
     ".github/",
@@ -107,7 +108,8 @@
     "finassist.json",
     "pyproject.toml",
     "scripts/",
-    "requirements-dev.lock"
+    "requirements-dev.lock",
+    ".gitattributes"
   ],
   "protected_branches": [
     "main",
@@ -134,5 +136,9 @@
     "high"
   ],
   "readiness_max_age_seconds": 86400,
-  "allow_local_readiness": false
+  "allow_local_readiness": false,
+  "generated_paths": [
+    "src/finassist/resources/dashboard/"
+  ],
+  "monthly_budget_usd": 100.0
 }

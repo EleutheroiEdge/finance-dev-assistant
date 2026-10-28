@@ -20,7 +20,7 @@ def export_snapshot(repo: Path, ref: str, destination: Path, config: Config) -> 
             continue
         config.check_path(path, source_only=False, metadata_only=True)
         check_text(path, extra_patterns=config.extra_sensitive_patterns)
-        if Path(path).suffix.lower() in PUBLIC_ASSETS:
+        if config.generated(path) or Path(path).suffix.lower() in PUBLIC_ASSETS:
             continue
         config.check_path(path)
         data, mode = read_entry(repo, sha, path, config.max_file_bytes, config)

@@ -102,7 +102,9 @@ def test_source_bound_review_receipt_and_usage_settlement(repository, tmp_path, 
     assert report["status"] == "findings" and not report["merge_authority"]
     assert len(calls) == 1
     with Ledger(tmp_path / "audit.db") as ledger:
-        assert ledger.verify() == 4
+        assert ledger.verify() == 5
+        usage = next(row["payload"] for row in ledger.events() if row["payload"]["event"] == "model_usage")
+        assert usage["input_tokens"] == 100 and usage["output_tokens"] == 100
         assert ledger.open_reservations() == []
 
 

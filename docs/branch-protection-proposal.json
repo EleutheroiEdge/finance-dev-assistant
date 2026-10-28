@@ -50,6 +50,18 @@
         {
           "context": "platform (macOS)",
           "app_id": 15368
+        },
+        {
+          "context": "dashboard (ubuntu-24.04)",
+          "app_id": 15368
+        },
+        {
+          "context": "dashboard (windows-latest)",
+          "app_id": 15368
+        },
+        {
+          "context": "dashboard (macos-latest)",
+          "app_id": 15368
         }
       ]
     },

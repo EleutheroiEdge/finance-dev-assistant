@@ -8,7 +8,7 @@ from .config import Config
 from .errors import AssistantError
 from .ledger import CURRENT_RUN, Ledger
 from .review import validate_review
-from .scope import verify_packet
+from .scope import verify_packet, review_omissions
 from .security import canonical, digest
 
 
@@ -31,7 +31,7 @@ def verify_gate(
         blockers.add("revision_mismatch")
     if review.get("base") != packet["base"]:
         blockers.add("base_revision_mismatch")
-    if packet["omitted"] or review.get("omitted"):
+    if review_omissions(packet) or review_omissions({"omitted": review.get("omitted", [])}):
         blockers.add("coverage_incomplete")
     if (
         packet["profile"] != config.profile

@@ -8,7 +8,7 @@ import time
 import uuid
 
 from .config import Config
-from .errors import AssistantError
+from .errors import AssistantError, OperationOutcomeUnknown
 from .ledger import CURRENT_RUN, Ledger
 from .security import canonical, digest
 
@@ -34,6 +34,8 @@ def command_audit(path: Path, command: str, config: Config):
         try:
             yield outcome
         except BaseException as exc:
+            if isinstance(exc, OperationOutcomeUnknown):
+                raise
             code = exc.code if isinstance(exc, AssistantError) else "operation_failed"
             if not isinstance(code, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,80}", code):
                 code = "operation_failed"

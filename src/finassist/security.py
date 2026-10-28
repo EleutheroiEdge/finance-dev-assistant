@@ -148,7 +148,8 @@ def check_path(
     if (
         source_only
         and suffix not in suffixes
-        and parts[-1] not in {"LICENSE", "Dockerfile", "Makefile", ".gitignore", ".dockerignore"}
+        and parts[-1]
+        not in {"LICENSE", "Dockerfile", "Makefile", ".gitignore", ".dockerignore", ".gitattributes"}
     ):
         raise AssistantError("unsupported_file_type")
     return name
