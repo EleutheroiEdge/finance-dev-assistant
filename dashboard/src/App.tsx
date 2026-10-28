@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { explain, request, type Configuration, type Health, type Preview, type Statistics, type Values } from "./api";
 import { Chart } from "./Chart";
 
-const labels: Record<keyof Values, string> = {provider: "Provider", model: "Model", daily_budget_usd: "Daily spend limit (USD)", monthly_budget_usd: "Monthly spend limit (USD)", allow_paths: "Allowed paths", protected_paths: "Protected paths", extra_sensitive_patterns: "Sensitive patterns", profile: "Review profile", required_recipes: "Required recipes", blocking_severities: "Blocking severities", readiness_max_age_seconds: "Evidence age (seconds)"};
+const labels: Record<keyof Values, string> = {provider: "Provider", model: "Model", daily_budget_usd: "Daily spend limit (USD)", monthly_budget_usd: "Monthly spend limit (USD)", allow_paths: "Allowed paths", generated_paths: "Generated paths", protected_paths: "Protected paths", extra_sensitive_patterns: "Sensitive patterns", profile: "Review profile", required_recipes: "Required recipes", blocking_severities: "Blocking severities", readiness_max_age_seconds: "Evidence age (seconds)"};
 const money = (value: string) => new Intl.NumberFormat("en-US", {style: "currency", currency: "USD", maximumFractionDigits: 4}).format(Number(value));
 const entries = (value: Record<string, number>) => Object.entries(value);
 
@@ -24,11 +24,12 @@ export function App() {
     const results = await Promise.allSettled([
       request<Configuration>("/api/config", active), request<Statistics>("/api/statistics", active), request<Health>("/api/health", active),
     ]);
-    if (results[0].status === "fulfilled") { setConfig(results[0].value); setValues(results[0].value.values); setListDrafts({}); }
-    if (results[1].status === "fulfilled") setStats(results[1].value);
-    if (results[2].status === "fulfilled") setHealth(results[2].value);
+    if (results[0].status === "fulfilled") { setConfig(results[0].value); setValues(results[0].value.values); setListDrafts({}); } else {setConfig(null); setValues(null); setListDrafts({});}
+    if (results[1].status === "fulfilled") setStats(results[1].value); else setStats(null);
+    if (results[2].status === "fulfilled") setHealth(results[2].value); else setHealth(null);
     const failure = results.find(result => result.status === "rejected");
-    if (failure?.status === "rejected") setError(explain(failure.reason));
+    if (failure?.status === "rejected") setError(explain(failure.reason)); else setError("");
+    return !failure;
   }
   useEffect(() => { request<{token: string}>("/api/session").then(session => {setToken(session.token); return load(session.token);}).catch(error => setError(explain(error))); }, []);
 
@@ -50,9 +51,9 @@ export function App() {
     } catch (error) {setError(explain(error)); setPreview(null);}
     finally {setBusy(false);}
   }
-  async function reload() {setBusy(true); setError(""); setPreview(null); try {await load(token); setNotice("Local data refreshed.");} finally {setBusy(false);}}
+  async function reload() {setBusy(true); setError(""); setPreview(null); try {const success = await load(token); setNotice(success ? "Local data refreshed." : "");} finally {setBusy(false);}}
 
-  function list(key: "allow_paths" | "protected_paths" | "extra_sensitive_patterns" | "required_recipes", help: string) {
+  function list(key: "allow_paths" | "generated_paths" | "protected_paths" | "extra_sensitive_patterns" | "required_recipes", help: string) {
     return <label className="field" htmlFor={key}>{labels[key]}<textarea id={key} rows={4} aria-label={labels[key]} value={listDrafts[key] ?? values![key].join("\n")} aria-describedby={key+"-help"}
       onChange={event => {setListDrafts(current => ({...current, [key]: event.target.value})); edit(key, event.target.value.split("\n").map(line => key === "extra_sensitive_patterns" ? line : line.trim()).filter(Boolean));}} /><span id={key+"-help"} className="help">{help}</span></label>;
   }
@@ -60,7 +61,7 @@ export function App() {
   return <div className="layout"><a className="skip" href="#main">Skip to content</a>
     <aside><div className="brand"><span className="brand-icon" aria-hidden="true">F</span><div>Finance Assistant<small>Developer workspace</small></div></div>
       <nav aria-label="Dashboard sections">{["Configuration", "Statistics", "Health"].map(name => <button key={name} aria-current={page === name ? "page" : undefined}
-        onClick={() => {setPage(name); setError(""); setNotice(""); main.current?.focus({preventScroll: true}); window.scrollTo({top: 0});}}>{name}<span aria-hidden="true">→</span></button>)}</nav>
+        onClick={() => {setPage(name); setNotice(""); main.current?.focus({preventScroll: true}); window.scrollTo({top: 0});}}>{name}<span aria-hidden="true">→</span></button>)}</nav>
       <div className="local"><span aria-hidden="true" className="dot" />Local session<p>Offline dashboard · Loopback only</p><p>Reviews and deployments stay under your normal project controls.</p></div>
     </aside>
     <main id="main" ref={main} tabIndex={-1}><header><div><p className="eyebrow">YOUR DEVELOPER WORKSPACE</p><h1>{page}</h1><p className="subtitle">{page === "Configuration" ? "Review your settings. Preview every change before saving." : page === "Statistics" ? "Understand activity from your verified local audit trail." : "Check local capabilities and configuration status."}</p></div><button className="secondary" disabled={busy || !token} onClick={reload}>Refresh local data</button></header>
@@ -76,11 +77,12 @@ export function App() {
         </div></section>
         <section className="card"><div className="section-title"><span className="number">03</span><div><h2>Source & privacy</h2><p>Keep review scope explicit and private material excluded.</p></div></div><div className="grid">
           {list("allow_paths", "One path per line. End directory prefixes with /.")}{list("protected_paths", "Paths that proposed patches must not change.")}
+          {list("generated_paths", "One exact path or directory prefix per line. Excluded from reviews and snapshots; verify build integrity in CI.")}
           {list("extra_sensitive_patterns", "One case-insensitive regular expression per line. Matching content is blocked.")}
         </div></section>
         <section className="card"><div className="section-title"><span className="number">04</span><div><h2>Readiness policy</h2><p>Set evidence requirements for human review.</p></div></div><div className="grid">
           {list("required_recipes", config.options.recipes.length ? `Configured recipes: ${config.options.recipes.join(", ")}.` : "No recipes defined. Add recipe definitions in your configuration file first.")}
-          <label className="field" htmlFor="readiness_max_age_seconds">Evidence age (seconds)<input aria-label="Evidence age (seconds)" id="readiness_max_age_seconds" type="number" min="1" step="1" value={values.readiness_max_age_seconds} onChange={event => edit("readiness_max_age_seconds", Number(event.target.value))} /><span className="help">Older audit evidence blocks readiness.</span></label>
+          <label className="field" htmlFor="readiness_max_age_seconds">Evidence age (seconds)<input aria-label="Evidence age (seconds)" id="readiness_max_age_seconds" type="number" min="1" step="1" value={values.readiness_max_age_seconds} onChange={event => edit("readiness_max_age_seconds", Number(event.target.value))} /><span className="help">Use 1 to 2,000,000 seconds. Older audit evidence blocks readiness.</span></label>
           <fieldset className="field"><legend>Blocking severities</legend>{["critical", "high", "medium", "low", "info"].map(severity => <label className="checkbox" key={severity}><input type="checkbox" checked={values.blocking_severities.includes(severity)} onChange={event => edit("blocking_severities", event.target.checked ? [...values.blocking_severities, severity] : values.blocking_severities.filter(item => item !== severity))} />{severity}</label>)}</fieldset>
         </div></section>
         <div className="actions"><p>Nothing saves automatically.</p><button type="submit" disabled={busy}>Preview changes</button></div>
@@ -93,7 +95,7 @@ export function App() {
         <section className="card"><h2>Readiness</h2><p>{stats.readiness.eligible} eligible for human review · {stats.readiness.blocked} blocked</p><Counts title="Blocking reasons" values={stats.readiness.reasons} /><p className="help">{stats.readiness.unclassified} older or failed evaluations lack result metadata. Eligibility grants no merge or deployment authority.</p></section>
         <section className="card"><h2>Check recipes</h2>{stats.recipes.length ? <table><thead><tr><th>Recipe</th><th>Passed</th><th>Pass rate</th></tr></thead><tbody>{stats.recipes.map(row => <tr key={row.name}><td>{row.name}</td><td>{row.passed} / {row.total}</td><td>{Math.round(100 * row.passed / row.total)}%</td></tr>)}</tbody></table> : <p>No classified recipe results yet.</p>}<p className="help">{stats.legacy_checks} older checks lack result metadata.</p></section>
         <section className="card"><h2>Open or unknown reservations</h2>{stats.open_reservations.length ? <table><thead><tr><th>Reservation</th><th>Amount</th><th>Booked (UTC)</th></tr></thead><tbody>{stats.open_reservations.map(row => <tr key={row.id}><td>{row.id.slice(0, 8)}</td><td>{money(row.reserved)}</td><td>{row.day}</td></tr>)}</tbody></table> : <p>No open reservations.</p>}</section>
-        <section className="card"><h2>Recent runs</h2>{stats.recent_runs.length ? <table><thead><tr><th>Command</th><th>Started (UTC)</th><th>Outcome</th></tr></thead><tbody>{stats.recent_runs.map(run => <tr key={run.id}><td>{run.command}</td><td>{run.started_at}</td><td>{run.status === "unknown" ? "Open / unknown" : run.status}</td></tr>)}</tbody></table> : <p>No audited runs yet.</p>}</section><p className="help">{stats.qualification}</p>
+        <section className="card"><h2>Recent runs</h2>{stats.recent_runs.length ? <table><thead><tr><th>Command</th><th>Started (UTC)</th><th>Outcome</th></tr></thead><tbody>{stats.recent_runs.map(run => <tr key={run.id}><td>{run.command}</td><td>{run.started_at}</td><td>{run.status === "unknown" ? "Open / unknown" : run.status === "blocked-or-failed" ? `Blocked / failed (exit ${run.exit_code})` : run.status}</td></tr>)}</tbody></table> : <p>No audited runs yet.</p>}</section><p className="help">{stats.qualification}</p>
       </>}
       {page === "Health" && health && <><section className="card"><h2>Configuration status</h2><p className={health.configuration.valid ? "healthy" : "alert"}>{health.configuration.valid ? "Configuration is valid" : "Configuration needs attention"}</p></section><section className="card"><h2>Local capabilities</h2><dl className="health">{Object.entries(health.doctor).map(([key, value]) => <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{Array.isArray(value) ? value.join(", ") || "None" : typeof value === "boolean" ? (value ? "Yes" : "No") : value === null ? "Not applicable" : value}</dd></div>)}</dl><p className="help">This page inspects local metadata. It does not call a model or test a container daemon.</p></section></>}
       {((page === "Configuration" && !config) || (page === "Statistics" && !stats) || (page === "Health" && !health)) && !error && <p>Loading local data…</p>}

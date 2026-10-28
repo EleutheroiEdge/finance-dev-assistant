@@ -4,3 +4,7 @@ class AssistantError(Exception):
     def __init__(self, code: str):
         self.code = code
         super().__init__(code)
+
+
+class OperationOutcomeUnknown(AssistantError):
+    """A mutation may have completed; retain the open audit run for reconciliation."""

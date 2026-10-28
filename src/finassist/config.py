@@ -34,9 +34,19 @@ class Config:
     allow_network: bool = False
     allow_partial_review: bool = False
     allowed_hosts: tuple[str, ...] = ()
-    allow_paths: tuple[str, ...] = ("src/", "tests/", "docs/", "scripts/", "README.md", "pyproject.toml")
+    allow_paths: tuple[str, ...] = (
+        "src/",
+        "tests/",
+        "docs/",
+        "scripts/",
+        "README.md",
+        "pyproject.toml",
+        ".gitattributes",
+    )
+    generated_paths: tuple[str, ...] = ("src/finassist/resources/dashboard/",)
     protected_paths: tuple[str, ...] = (
         ".github/",
+        ".gitattributes",
         "LICENSE",
         "AGENTS.md",
         "finassist.json",
@@ -91,10 +101,14 @@ class Config:
             "max_packet_bytes",
             "max_output_tokens",
             "timeout_seconds",
-            "readiness_max_age_seconds",
         ):
             if type(getattr(self, key)) is not int or not 0 < getattr(self, key) <= 2_000_000:
                 raise AssistantError("invalid_limit")
+        if (
+            type(self.readiness_max_age_seconds) is not int
+            or not 1 <= self.readiness_max_age_seconds <= 2_000_000
+        ):
+            raise AssistantError("invalid_evidence_age")
         if any(
             type(getattr(self, key)) is not bool
             for key in ("allow_network", "allow_partial_review", "allow_local_readiness")
@@ -117,6 +131,7 @@ class Config:
                 raise AssistantError("invalid_cost_limit")
         for key in (
             "allow_paths",
+            "generated_paths",
             "protected_paths",
             "protected_branches",
             "extra_sensitive_patterns",
@@ -128,6 +143,12 @@ class Config:
                 not isinstance(x, str) for x in getattr(self, key)
             ):
                 raise AssistantError("invalid_list")
+        if len(self.generated_paths) > 128 or len(set(self.generated_paths)) != len(self.generated_paths):
+            raise AssistantError("invalid_generated_paths")
+        for prefix in self.generated_paths:
+            if any(character in prefix for character in "*?[]"):
+                raise AssistantError("invalid_generated_paths")
+            check_path(prefix.rstrip("/"), source_only=False)
         for prefix in self.allow_paths:
             check_path(prefix.rstrip("/"), source_only=False)
         for prefix in self.protected_paths:
@@ -193,6 +214,12 @@ class Config:
     def allows(self, path: str) -> bool:
         return any(path.startswith(p) if p.endswith("/") else path == p for p in self.allow_paths)
 
+    def generated(self, path: str) -> bool:
+        return any(
+            path.startswith(prefix) if prefix.endswith("/") else path == prefix
+            for prefix in self.generated_paths
+        )
+
     def protected(self, path: str) -> bool:
         return any(
             path == p.rstrip("/") or path.startswith(p.rstrip("/") + "/") for p in self.protected_paths
@@ -202,13 +229,19 @@ class Config:
         return any(fnmatchcase(branch, pattern) for pattern in self.protected_branches)
 
 
-def load_config(path: Path | None = None) -> Config:
+def load_config(path: Path | None = None, *, content: bytes | None = None) -> Config:
     if path is None:
         return Config().validate()
     try:
-        raw = json.loads(regular_path(path).read_text(encoding="utf-8"))
+        source = regular_path(path)
+        if content is not None and len(content) > 2_000_000:
+            raise AssistantError("config_file_too_large")
+        raw = json.loads(
+            content.decode("utf-8") if content is not None else source.read_text(encoding="utf-8")
+        )
         for key in (
             "allow_paths",
+            "generated_paths",
             "protected_paths",
             "protected_branches",
             "extra_sensitive_patterns",

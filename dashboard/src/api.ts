@@ -1,6 +1,6 @@
 export type Values = {
   provider: string; model: string; daily_budget_usd: number; monthly_budget_usd: number;
-  allow_paths: string[]; protected_paths: string[]; extra_sensitive_patterns: string[];
+  allow_paths: string[]; generated_paths: string[]; protected_paths: string[]; extra_sensitive_patterns: string[];
   profile: string; required_recipes: string[]; blocking_severities: string[];
   readiness_max_age_seconds: number;
 };
@@ -15,10 +15,15 @@ export type Statistics = {
   usage: {known_calls: number; unknown_calls: number; qualification: string};
   readiness: {eligible: number; blocked: number; unclassified: number; reasons: Record<string, number>};
   recipes: {name: string; passed: number; total: number}[]; legacy_checks: number;
-  recent_runs: {id: string; command: string; status: string; started_at: string; duration_ms?: number}[];
+  recent_runs: {id: string; command: string; status: string; started_at: string; duration_ms?: number; exit_code?: number}[];
   qualification: string;
 };
 export type Health = {configuration: {valid: boolean; code: string | null}; doctor: Record<string, string | number | boolean | string[] | null>};
+
+export type ErrorKind = "configuration" | "request";
+export class ApiError extends Error {
+  constructor(public code: string, public kind: ErrorKind = "request") {super(code);}
+}
 
 export async function request<T>(path: string, token?: string, body?: unknown): Promise<T> {
   const response = await fetch(path, {
@@ -27,12 +32,14 @@ export async function request<T>(path: string, token?: string, body?: unknown): 
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const value = await response.json();
-  if (!response.ok) throw new Error(value.code || "request_failed");
+  if (!response.ok) throw new ApiError(value.code || "request_failed", value.kind === "configuration" ? "configuration" : "request");
   return value as T;
 }
 export function explain(error: unknown): string {
   const code = error instanceof Error ? error.message : "request_failed";
   const messages: Record<string, string> = {
+    configuration_invalid: "Configuration is invalid. Fix the JSON file, then refresh local data.",
+    invalid_evidence_age: "Evidence age must be a whole number from 1 to 2,000,000 seconds.",
     configuration_changed_reload: "The configuration changed elsewhere. Reload settings and preview again.",
     explicit_confirmation_required: "Review the proposed changes and explicitly confirm saving.",
     invalid_required_recipes: "Required recipes must already have definitions in your configuration file.",

@@ -15,7 +15,7 @@ from .errors import AssistantError
 from .ledger import Ledger
 from .profiles import instructions
 from .providers import invoke, request_shape
-from .scope import triage, verify_packet
+from .scope import triage, verify_packet, review_omissions
 from .security import canonical, check_text, digest
 
 
@@ -23,8 +23,10 @@ def review_schema() -> dict:
     return json.loads(files("finassist").joinpath("resources/review.schema.json").read_text())
 
 
-def validate_review(result: dict, packet: dict, *, extra_patterns: tuple[str, ...] = ()) -> None:
-    verify_packet(packet)
+def validate_review(
+    result: dict, packet: dict, *, extra_patterns: tuple[str, ...] = (), config: Config | None = None
+) -> None:
+    verify_packet(packet, config)
     try:
         jsonschema.Draft202012Validator(review_schema()).validate(result)
     except jsonschema.ValidationError as exc:
@@ -74,7 +76,7 @@ def call_model(
     approved_packet_hash: str | None,
     transport=None,
 ):
-    verify_packet(packet)
+    verify_packet(packet, config)
     config.validate()
     check_text(canonical(packet).decode(), extra_patterns=config.extra_sensitive_patterns)
     if approved_packet_hash != packet["packet_hash"]:
@@ -95,7 +97,7 @@ def call_model(
                 check_text(file[side], extra_patterns=config.extra_sensitive_patterns)
     if not packet["changed_paths"]:
         raise AssistantError("empty_review_scope")
-    if packet["omitted"] and not config.allow_partial_review:
+    if review_omissions(packet) and not config.allow_partial_review:
         raise AssistantError("scope_incomplete")
     if not packet["files"]:
         raise AssistantError("empty_model_context")
@@ -164,10 +166,10 @@ def review_packet(
     approved_packet_hash: str | None = None,
     transport=None,
 ) -> dict:
-    verify_packet(packet)
+    verify_packet(packet, config)
     config.validate()
     check_text(canonical(packet).decode(), extra_patterns=config.extra_sensitive_patterns)
-    triaged = triage(packet)
+    triaged = triage(packet, config)
     if not packet["changed_paths"]:
         raise AssistantError("empty_review_scope")
     if config.provider == "offline":
@@ -195,10 +197,10 @@ def review_packet(
         data = json.loads(result.text)
     except ValueError as exc:
         raise AssistantError("review_json_invalid") from exc
-    validate_review(data, packet, extra_patterns=config.extra_sensitive_patterns)
+    validate_review(data, packet, extra_patterns=config.extra_sensitive_patterns, config=config)
     report = {
         "status": "partial-review"
-        if packet["omitted"]
+        if review_omissions(packet)
         else ("findings" if data["findings"] else "no-findings-reported"),
         "packet_hash": packet["packet_hash"],
         "head": packet["head"],

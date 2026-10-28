@@ -4,7 +4,7 @@ import { App } from "./App";
 
 vi.mock("./Chart", () => ({Chart: ({label}: {label: string}) => <div aria-label={label} />}));
 const values = {provider: "offline", model: "", daily_budget_usd: 5, monthly_budget_usd: 100,
-  allow_paths: ["src/"], protected_paths: [".github/"], extra_sensitive_patterns: [], profile: "general",
+  allow_paths: ["src/"], generated_paths: ["src/finassist/resources/dashboard/"], protected_paths: [".github/"], extra_sensitive_patterns: [], profile: "general",
   required_recipes: [], blocking_severities: ["critical", "high"], readiness_max_age_seconds: 86400};
 const configuration = {revision: "revision", values, options: {providers: ["offline", "openai"], profiles: ["general"], recipes: []}, key_presence: {openai: true}};
 const statistics = {limits: {daily_usd: "5", monthly_usd: "100"}, spend: {today_usd: "1", month_usd: "2", open_reserved_usd: "0.5", available_today_usd: "3.5", available_month_usd: "97.5"}, daily: [], open_reservations: [],
@@ -74,4 +74,30 @@ it("preserves newlines while editing path lists and sensitive patterns", async (
   fireEvent.click(screen.getByRole("button", {name: "Preview changes"}));
   await screen.findByRole("heading", {name: "Proposed changes"});
   expect(calls.find(call => call.path.endsWith("preview"))!.body!.changes).toMatchObject({allow_paths: ["src/", "tests/"], extra_sensitive_patterns: ["internal phrase"]});
+});
+
+it("keeps a typed configuration error visible on every tab instead of loading forever", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (path: string) => {
+    if (path === "/api/session") return new Response(JSON.stringify({token: "synthetic"}));
+    if (path === "/api/health") return new Response(JSON.stringify({configuration: {valid: false}, doctor: {provider: "offline"}}));
+    return new Response(JSON.stringify({kind: "configuration", code: "configuration_invalid"}), {status: 409});
+  }));
+  render(<App />);
+  await screen.findByRole("alert");
+  for (const name of ["Statistics", "Health", "Configuration"]) {
+    fireEvent.click(screen.getByRole("button", {name: new RegExp("^" + name)}));
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByText("Loading local data…")).toBeNull();
+  }
+});
+
+it("removes stale settings when a refresh discovers an invalid configuration", async () => {
+  render(<App />);
+  await screen.findByLabelText("Model");
+  vi.stubGlobal("fetch", vi.fn(async (path: string) => path === "/api/health" ?
+    new Response(JSON.stringify({configuration: {valid: false}, doctor: {provider: "offline"}})) :
+    new Response(JSON.stringify({kind: "configuration", code: "configuration_invalid"}), {status: 409})));
+  fireEvent.click(screen.getByRole("button", {name: "Refresh local data"}));
+  await screen.findByRole("alert");
+  expect(screen.queryByLabelText("Model")).toBeNull();
 });

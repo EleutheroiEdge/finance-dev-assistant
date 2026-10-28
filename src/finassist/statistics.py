@@ -77,7 +77,9 @@ def statistics(path: Path, config: Config, *, now: datetime | None = None) -> di
                     }
                 elif kind in {"command_completed", "command_failed"} and event.get("run_id") in runs:
                     runs[event["run_id"]].update(
-                        status="completed" if kind == "command_completed" else "failed",
+                        status=("completed" if event.get("exit_code") == 0 else "blocked-or-failed")
+                        if kind == "command_completed"
+                        else "failed",
                         exit_code=event.get("exit_code"),
                         duration_ms=event.get("duration_ms"),
                     )

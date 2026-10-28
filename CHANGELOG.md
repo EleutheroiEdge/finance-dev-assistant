@@ -2,6 +2,14 @@
 
 ## 0.2.0 — Unreleased
 
+- Exclude configurable, policy-bound generated paths from review/snapshot source,
+  retain build-integrity CI checks, and test plan/check on this repository itself.
+- Retain open/unknown audit runs after uncertain configuration saves, block
+  readiness on them, and capture one consistent pre-save backup byte snapshot.
+- Make .gitattributes reviewable and protected; show typed configuration failures
+  on every dashboard tab, clear stale data, distinguish nonzero exits, and improve
+  evidence-age and token-header errors. Extend the protection proposal only.
+
 - Add an offline, loopback-only React dashboard, shipped prebuilt in the Python
   package. Configuration uses shared validation, preview and explicit confirmation;
   statistics verify reduced audit metadata, and health shares the CLI doctor.

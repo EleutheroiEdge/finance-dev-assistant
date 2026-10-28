@@ -214,7 +214,7 @@ def execute(args, config: Config | None = None) -> int:
     elif args.command == "plan":
         packet = build_packet(args.repo, args.base, args.head, config)
         _emit(packet, args.output)
-        _emit({"packet_hash": packet["packet_hash"], "output": args.output, "triage": triage(packet)})
+        _emit({"packet_hash": packet["packet_hash"], "output": args.output, "triage": triage(packet, config)})
     elif args.command == "watch":
         if not 1 <= args.iterations <= 1000 or not 0.1 <= args.interval <= 300:
             raise AssistantError("invalid_watch_bounds")
@@ -223,7 +223,7 @@ def execute(args, config: Config | None = None) -> int:
             current = resolve(args.repo, args.head)
             if current != last:
                 packet = build_packet(args.repo, args.base, current, config)
-                _emit({"head": current, "triage": triage(packet), "network_called": False})
+                _emit({"head": current, "triage": triage(packet, config), "network_called": False})
                 last = current
             if index + 1 < args.iterations:
                 time.sleep(args.interval)

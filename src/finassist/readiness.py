@@ -8,7 +8,7 @@ from .config import Config
 from .errors import AssistantError
 from .ledger import CURRENT_RUN, Ledger
 from .review import validate_review
-from .scope import verify_packet
+from .scope import verify_packet, review_omissions
 from .security import canonical, digest
 
 
@@ -16,7 +16,7 @@ def verify_gate(
     packet: dict, review: dict, checks: list[dict], config: Config, head: str, state: Path
 ) -> dict:
     config.validate()
-    verify_packet(packet)
+    verify_packet(packet, config)
     if not isinstance(review, dict) or any(
         not isinstance(value, dict)
         or not isinstance(value.get("receipt"), dict)
@@ -31,7 +31,7 @@ def verify_gate(
         blockers.add("revision_mismatch")
     if review.get("base") != packet["base"]:
         blockers.add("base_revision_mismatch")
-    if packet["omitted"] or review.get("omitted"):
+    if review_omissions(packet) or review_omissions({"omitted": review.get("omitted", [])}):
         blockers.add("coverage_incomplete")
     if (
         packet["profile"] != config.profile
@@ -45,7 +45,9 @@ def verify_gate(
         blockers.add("model_review_absent")
     else:
         try:
-            validate_review(review.get("review"), packet, extra_patterns=config.extra_sensitive_patterns)
+            validate_review(
+                review.get("review"), packet, extra_patterns=config.extra_sensitive_patterns, config=config
+            )
         except AssistantError as exc:
             blockers.add(exc.code)
         else:

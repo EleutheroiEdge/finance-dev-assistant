@@ -15,7 +15,7 @@ from urllib.parse import urlsplit, unquote
 
 from .auditing import command_audit
 from .config import Config, DEFAULT_KEYS, PROVIDERS, load_config
-from .errors import AssistantError
+from .errors import AssistantError, OperationOutcomeUnknown
 from .health import doctor_report
 from .ledger import Ledger
 from .profiles import PROFILES
@@ -29,6 +29,7 @@ EDITABLE = frozenset(
         "daily_budget_usd",
         "monthly_budget_usd",
         "allow_paths",
+        "generated_paths",
         "protected_paths",
         "extra_sensitive_patterns",
         "profile",
@@ -47,13 +48,20 @@ class DashboardState:
         self.lock = threading.Lock()
         self.pending = {}
 
+    def _configuration_snapshot(self):
+        try:
+            if self.config_path.exists() and self.config_path.stat().st_size > 2_000_000:
+                raise AssistantError("config_file_too_large")
+            raw = self.config_path.read_bytes() if self.config_path.exists() else None
+            config = load_config(self.config_path, content=raw) if raw is not None else Config().validate()
+            check_text(canonical(asdict(config)).decode())
+            revision = digest((raw or b"") + canonical(asdict(config)))
+            return config, revision, raw
+        except (AssistantError, OSError, ValueError, TypeError) as exc:
+            raise AssistantError("configuration_invalid") from exc
+
     def configuration(self):
-        config = load_config(self.config_path) if self.config_path.exists() else Config().validate()
-        # Config stores variable names, never key values. Reject common inline
-        # credentials anywhere before normalizing/saving a configuration.
-        check_text(canonical(asdict(config)).decode())
-        raw = self.config_path.read_bytes() if self.config_path.exists() else b""
-        revision = digest(raw + canonical(asdict(config)))
+        config, revision, _ = self._configuration_snapshot()
         return config, revision
 
     def public_config(self):
@@ -89,7 +97,7 @@ class DashboardState:
             diff = [
                 {"field": key, "before": before[key], "after": after[key]}
                 for key in sorted(EDITABLE)
-                if before[key] != after[key]
+                if canonical(before[key]) != canonical(after[key])
             ]
             identifier = secrets.token_urlsafe(24)
             if len(self.pending) >= 16:
@@ -112,7 +120,7 @@ class DashboardState:
             if proposal is None:
                 raise AssistantError("proposal_missing_or_consumed")
             revision, candidate, diff = proposal
-            _, current = self.configuration()
+            _, current, before_bytes = self._configuration_snapshot()
             if current != revision:
                 raise AssistantError("configuration_changed_reload")
             payload = canonical(asdict(candidate)) + b"\n"
@@ -128,29 +136,32 @@ class DashboardState:
                                 "fields": [item["field"] for item in diff],
                             }
                         )
-                    # Preserve a private recovery copy before replacement. No
-                    # source/arguments/environment values enter the audit trail.
-                    if self.config_path.exists():
-                        backup = (
-                            self.ledger_path.parent
-                            / "config-backups"
-                            / (digest(self.config_path.read_bytes()) + ".json")
-                        )
+                    # Reuse one captured byte snapshot for both backup digest
+                    # and backup content, without rereading a concurrent writer.
+                    if before_bytes is not None:
+                        backup = self.ledger_path.parent / "config-backups" / (digest(before_bytes) + ".json")
                         if not backup.exists():
-                            write_private(backup, self.config_path.read_bytes())
-                    write_private(self.config_path, payload, replace=self.config_path.exists())
-                    saved = True
-                    with Ledger(self.ledger_path) as ledger:
-                        ledger.append(
-                            {
-                                "event": "configuration_saved",
-                                "after_hash": digest(payload),
-                                "fields": [item["field"] for item in diff],
-                            }
-                        )
+                            write_private(backup, before_bytes)
+                    try:
+                        write_private(self.config_path, payload, replace=before_bytes is not None)
+                        saved = True
+                        with Ledger(self.ledger_path) as ledger:
+                            ledger.append(
+                                {
+                                    "event": "configuration_saved",
+                                    "after_hash": digest(payload),
+                                    "fields": [item["field"] for item in diff],
+                                }
+                            )
+                    except Exception as exc:
+                        if saved:
+                            # Raise inside command_audit so it retains the open
+                            # run rather than recording a false terminal failure.
+                            raise OperationOutcomeUnknown("configuration_saved_audit_unknown_reload") from exc
+                        raise
             except Exception as exc:
                 if saved:
-                    raise AssistantError("configuration_saved_audit_unknown_reload") from exc
+                    raise OperationOutcomeUnknown("configuration_saved_audit_unknown_reload") from exc
                 raise
             return self.public_config()
 
@@ -229,7 +240,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             raise AssistantError("origin_rejected")
         if token:
             values = self.headers.get_all("X-Finassist-Token", [])
-            if len(values) != 1 or not hmac.compare_digest(values[0], self.server.state.token):
+            if (
+                len(values) != 1
+                or not values[0].isascii()
+                or not hmac.compare_digest(values[0], self.server.state.token)
+            ):
                 raise AssistantError("session_token_required")
 
     def respond(self, status, body, content_type="application/json; charset=utf-8"):
@@ -296,6 +311,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return self.respond(200, self.server.assets[asset], kind)
             return self.respond(200, result)
         except AssistantError as exc:
+            if exc.code == "configuration_invalid":
+                return self.respond(409, {"kind": "configuration", "code": exc.code})
             return self.respond(
                 403 if exc.code in {"origin_rejected", "session_token_required"} else 409, {"code": exc.code}
             )

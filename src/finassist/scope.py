@@ -122,6 +122,9 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
         changed.append(path)
         check_path(path, source_only=False, metadata_only=True)
         check_text(path, extra_patterns=config.extra_sensitive_patterns)
+        if config.generated(path):
+            omitted.append({"path": path, "reason": "generated_artifact_excluded"})
+            continue
         if Path(path).suffix.lower() in PUBLIC_ASSETS:
             omitted.append({"path": path, "reason": "binary_asset_excluded"})
             continue
@@ -158,6 +161,7 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
         "head": head_sha,
         "merge_base": ancestor,
         "profile": config.profile,
+        "generated_paths": list(config.generated_paths),
         "changed_paths": changed,
         "files": files,
         "omitted": omitted,
@@ -170,7 +174,8 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
     return {**packet, "packet_hash": digest(encoded)}
 
 
-def verify_packet(packet: dict) -> None:
+def verify_packet(packet: dict, config: Config | None = None) -> None:
+    config = (config or Config()).validate()
     keys = {
         "schema_version",
         "base",
@@ -182,6 +187,7 @@ def verify_packet(packet: dict) -> None:
         "omitted",
         "data_class",
         "classification_limit",
+        "generated_paths",
         "packet_hash",
     }
     if (
@@ -201,6 +207,8 @@ def verify_packet(packet: dict) -> None:
     changed = packet["changed_paths"]
     if any(not isinstance(path, str) for path in changed) or len(set(changed)) != len(changed):
         raise AssistantError("packet_coverage_invalid")
+    if packet["generated_paths"] != list(config.generated_paths):
+        raise AssistantError("packet_generated_paths_mismatch")
     accounted = []
     for item in packet["omitted"]:
         if (
@@ -210,6 +218,8 @@ def verify_packet(packet: dict) -> None:
         ):
             raise AssistantError("packet_schema_invalid")
         accounted.append(check_path(item["path"], source_only=False, metadata_only=True))
+        if item["reason"] == "generated_artifact_excluded" and not config.generated(item["path"]):
+            raise AssistantError("generated_omission_invalid")
     for item in packet["files"]:
         file_keys = {"path", "status", "before", "after", "before_hash", "after_hash"}
         if packet["schema_version"] == 2:
@@ -217,6 +227,8 @@ def verify_packet(packet: dict) -> None:
         if not isinstance(item, dict) or set(item) != file_keys or item["status"] not in {"A", "D", "M", "T"}:
             raise AssistantError("packet_schema_invalid")
         accounted.append(check_path(item["path"]))
+        if config.generated(item["path"]):
+            raise AssistantError("generated_source_in_packet")
         if item["before"] is None and item["after"] is None:
             raise AssistantError("packet_schema_invalid")
         for side in ("before", "after"):
@@ -241,8 +253,8 @@ def verify_packet(packet: dict) -> None:
                 check_text(data)
 
 
-def triage(packet: dict) -> dict:
-    verify_packet(packet)
+def triage(packet: dict, config: Config | None = None) -> dict:
+    verify_packet(packet, config)
     risks = set()
     for path in packet["changed_paths"]:
         lower = path.lower()
@@ -258,7 +270,12 @@ def triage(packet: dict) -> dict:
     return {
         "risks": sorted(risks),
         "recommended_checks": ["baseline-vs-candidate", "failure-paths", "output-reconciliation"],
-        "coverage_complete": not packet["omitted"],
+        "coverage_complete": not review_omissions(packet),
         "changes_present": bool(packet["changed_paths"]),
         "next_action": "inspect context, select test recipes, reproduce material findings",
     }
+
+
+def review_omissions(packet: dict) -> list[dict]:
+    """Call after verification: configured generated artifacts are outside scope."""
+    return [row for row in packet["omitted"] if row["reason"] != "generated_artifact_excluded"]
