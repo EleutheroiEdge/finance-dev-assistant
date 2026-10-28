@@ -146,7 +146,7 @@ def test_github_inspection_uses_only_fixed_gets_and_identifies_missing_protectio
             value = {"full_name": "example/repository"}
         return subprocess.CompletedProcess(argv, 0, json.dumps(value), "")
 
-    monkeypatch.setattr("finassist.github_audit.shutil.which", lambda _: "/trusted/gh")
+    monkeypatch.setattr("finassist.platform_support.shutil.which", lambda _: "/trusted/gh")
     monkeypatch.setattr("finassist.github_audit.subprocess.run", execute)
     config = replace(Config(), allow_network=True)
     report = inspect_github("example/repository", "main", config, network_approved=True)

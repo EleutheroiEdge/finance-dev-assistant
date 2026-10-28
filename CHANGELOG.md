@@ -1,5 +1,14 @@
 # Changelog
 
+## Next
+
+- Add Windows and macOS native CI alongside Linux, retaining required check names.
+- Standardize UTF-8/universal-newline reads and LF writes; lint missing encodings.
+- Discover native tools, supervise Windows commands with job cleanup, support
+  macOS non-reaping exit observation, and use Docker Desktop-compatible mounts.
+- Test portable SQLite/temp cleanup and Git object modes/links; document Windows
+  inherited ACLs and explicit refusal of unrepresentable executable-bit patches.
+
 ## 0.2.0 — Unreleased
 
 - Context packets now use `schema_version: 2` and include before/after Git modes.

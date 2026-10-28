@@ -153,7 +153,7 @@ def check_text(text: str, *, extra_patterns: tuple[str, ...] = ()) -> None:
 
 def regular_path(path: Path) -> Path:
     """Reject symlink ancestors before resolving, including not-yet-created files."""
-    path = Path(os.path.abspath(path.expanduser()))
+    path = Path(path).expanduser().absolute()
     for item in (path, *path.parents):
         if item.is_symlink() or (hasattr(item, "is_junction") and item.is_junction()):
             raise AssistantError("linked_path")
@@ -174,11 +174,11 @@ def write_private(path: Path, data: bytes, *, replace: bool = False) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         if replace:
-            os.replace(name, path)
+            Path(name).replace(path)
         else:
             # An exclusive hard-link prevents silently overwriting concurrent output.
             try:
-                os.link(name, path)
+                path.hardlink_to(Path(name))
             except FileExistsError as exc:
                 raise AssistantError("output_exists") from exc
     finally:

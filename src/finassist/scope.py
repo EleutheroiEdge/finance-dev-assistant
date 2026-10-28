@@ -9,12 +9,14 @@ import re
 import subprocess
 
 from .config import Config
+from .platform_support import find_tool, clean_environment
 from .errors import AssistantError
 from .security import PUBLIC_ASSETS, canonical, check_path, check_text, digest
 
 
 def git_environment() -> dict[str, str]:
     environment = {
+        **clean_environment(),
         "PATH": os.environ.get("PATH", os.defpath),
         "LANG": "C.UTF-8",
         "GIT_CONFIG_NOSYSTEM": "1",
@@ -28,7 +30,7 @@ def git_environment() -> dict[str, str]:
 
 def git_command(repo: Path, *args: str) -> list[str]:
     return [
-        "git",
+        find_tool("git"),
         "--no-optional-locks",
         "-c",
         "core.fsmonitor=false",

@@ -1,13 +1,14 @@
 """Synthetic regressions for independent review of the security/readiness change."""
 
 from dataclasses import replace
+import os
 import json
 import sqlite3
 import subprocess
 
 import pytest
 
-from conftest import command
+from conftest import command, synthetic_symlink
 from finassist.cli import main
 from finassist.config import Config, save_config
 from finassist.errors import AssistantError
@@ -30,7 +31,7 @@ gate_bundle = _gate_bundle
 def hidden_section(repo, head):
     workflow = repo / ".github/workflows/ci.yml"
     workflow.parent.mkdir(parents=True)
-    workflow.write_text("name: original\n")
+    workflow.write_text("name: original\n", encoding="utf-8", newline="\n")
     command(repo, "add", ".github/workflows/ci.yml")
     command(repo, "commit", "-m", "Synthetic protected file")
     proposal = artifact(repo, command(repo, "rev-parse", "HEAD"))
@@ -50,7 +51,7 @@ def test_traditional_section_cannot_escape_approved_paths(repository):
     assert b".github/workflows/ci.yml\0" in parsed
     with pytest.raises(AssistantError):
         patch_paths(proposal["patch"], Config())
-    assert workflow.read_text() == "name: original\n"
+    assert workflow.read_text(encoding="utf-8") == "name: original\n"
 
 
 def test_git_parser_backstop_refuses_scope_mismatch_before_backup_or_mutation(repository, monkeypatch):
@@ -59,7 +60,7 @@ def test_git_parser_backstop_refuses_scope_mismatch_before_backup_or_mutation(re
     monkeypatch.setattr("finassist.patching.patch_paths", lambda *_: ["src/cash.py"])
     with pytest.raises(AssistantError, match="patch_scope_mismatch"):
         apply_patch_artifact(repo, proposal, digest(canonical(proposal)), Config())
-    assert workflow.read_text() == "name: original\n"
+    assert workflow.read_text(encoding="utf-8") == "name: original\n"
     assert not (repo / ".finassist/patches").exists()
 
 
@@ -147,7 +148,7 @@ def test_github_reports_absence_of_formal_approvals_even_when_prs_are_required(m
             value = {"full_name": "example/repository"}
         return subprocess.CompletedProcess(argv, 0, json.dumps(value), "")
 
-    monkeypatch.setattr("finassist.github_audit.shutil.which", lambda _: "/trusted/gh")
+    monkeypatch.setattr("finassist.platform_support.shutil.which", lambda _: "/trusted/gh")
     monkeypatch.setattr("finassist.github_audit.subprocess.run", get)
     report = inspect_github(
         "example/repository", "main", replace(Config(), allow_network=True), network_approved=True
@@ -166,7 +167,7 @@ def test_gate_cli_blocks_dirty_source_or_stale_review(gate_bundle, repository, t
         review["head"] = review["review"]["head"] = "b" * 40
         reason = "revision_mismatch"
     else:
-        (repo / "src/cash.py").write_text("unreviewed local edit\n")
+        (repo / "src/cash.py").write_text("unreviewed local edit\n", encoding="utf-8", newline="\n")
         reason = "clean_worktree_required"
     config_path = tmp_path / "config.json"
     save_config(config_path, config)
@@ -174,7 +175,7 @@ def test_gate_cli_blocks_dirty_source_or_stale_review(gate_bundle, repository, t
         tmp_path / name for name in ("packet.json", "review.json", "check.json")
     ]
     for path, value in ((packet_path, packet), (review_path, review), (check_path, checks[0])):
-        path.write_text(json.dumps(value))
+        path.write_text(json.dumps(value), encoding="utf-8", newline="\n")
     assert (
         main(
             [
@@ -223,23 +224,34 @@ def test_hunk_line_counts_and_prefixes_are_enforced(body):
 def test_valid_git_patch_forms_still_apply_and_restore(repository, change):
     from finassist.patching import rollback_patch
 
+    if change == "mode" and os.name == "nt":
+        pytest.skip("Windows cannot apply a POSIX mode-only worktree patch; rejection is tested separately")
+
     repo, _, _ = repository
     file = repo / "src/example.py"
     if change != "new":
-        file.write_text("\n".join(str(n) for n in range(30)) + ("" if change == "no-newline" else "\n"))
+        file.write_text(
+            "\n".join(str(n) for n in range(30)) + ("" if change == "no-newline" else "\n"),
+            encoding="utf-8",
+            newline="\n",
+        )
         command(repo, "add", "src/example.py")
         command(repo, "commit", "-m", "Synthetic source")
     head = command(repo, "rev-parse", "HEAD")
     before = file.read_bytes() if file.exists() else None
     if change == "new":
-        file.write_text("new source\n")
+        file.write_text("new source\n", encoding="utf-8", newline="\n")
         command(repo, "add", "-N", "src/example.py")
     elif change == "delete":
         file.unlink()
     elif change == "mode":
         file.chmod(0o755)
     else:
-        file.write_text(file.read_text().replace("0\n", "changed\n").replace("28\n", "changed again\n"))
+        file.write_text(
+            file.read_text(encoding="utf-8").replace("0\n", "changed\n").replace("28\n", "changed again\n"),
+            encoding="utf-8",
+            newline="\n",
+        )
     patch = command(repo, "diff", "--no-ext-diff", "--no-textconv") + "\n"
     if change == "new":
         command(repo, "reset", "--", "src/example.py")
@@ -273,8 +285,8 @@ def test_offline_review_and_eval_screen_custom_patterns_before_work(repository, 
 
 def test_scan_records_tracked_link_and_continues(repository, capsys):
     repo, _, _ = repository
-    (repo / "src/link.py").symlink_to("cash.py")
-    (repo / "src/synthetic.py").write_text("api" + '_key="' + "x" * 24 + '"')
+    synthetic_symlink(repo / "src/link.py", "cash.py")
+    (repo / "src/synthetic.py").write_text("api" + '_key="' + "x" * 24 + '"', encoding="utf-8", newline="\n")
     command(repo, "add", "src/link.py", "src/synthetic.py")
     assert main(["scan", "--repo", str(repo)]) == 1
     report = json.loads(capsys.readouterr().out)

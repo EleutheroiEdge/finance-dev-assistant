@@ -4,11 +4,11 @@ from datetime import datetime, timezone
 import json
 import os
 import re
-import shutil
 import subprocess
 from urllib.parse import quote
 
 from .config import Config
+from .platform_support import find_tool
 from .errors import AssistantError
 from .security import canonical, digest
 
@@ -25,9 +25,7 @@ def inspect_github(repository: str, branch: str, config: Config, *, network_appr
         or ".." in branch
     ):
         raise AssistantError("github_branch_invalid")
-    executable = shutil.which("gh")
-    if executable is None:
-        raise AssistantError("github_cli_missing")
+    executable = find_tool("gh")
     requests = []
     # Retain only the existing CLI's required OS/auth inputs. Do not inherit
     # unrelated provider keys, proxy/debug routing or GH host/repo/config overrides.
@@ -59,6 +57,7 @@ def inspect_github(repository: str, branch: str, config: Config, *, network_appr
                 [executable, "api", endpoint, "--hostname", "github.com"],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=min(config.timeout_seconds, 120),
                 check=False,
                 env=environment,

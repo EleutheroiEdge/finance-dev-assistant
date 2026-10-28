@@ -2,6 +2,7 @@ from dataclasses import asdict, replace
 from datetime import datetime
 from decimal import Decimal
 import json
+import os
 
 import httpx
 import pytest
@@ -52,7 +53,7 @@ def test_untrusted_git_environment_cannot_redirect_source(repository, monkeypatc
 
 def test_mixed_commit_retains_excluded_assets_and_lockfile_metadata(repository):
     repo, base, _ = repository
-    (repo / "requirements.lock").write_text("example==1\n")
+    (repo / "requirements.lock").write_text("example==1\n", encoding="utf-8", newline="\n")
     (repo / "diagram.png").write_bytes(b"fictional-binary\x00")
     command(repo, "add", "requirements.lock", "diagram.png")
     command(repo, "commit", "-m", "Synthetic mixed source and assets")
@@ -65,18 +66,18 @@ def test_mixed_commit_retains_excluded_assets_and_lockfile_metadata(repository):
 def test_sql_comment_hunks_apply_and_rollback_without_header_confusion(repository):
     repo, _, _ = repository
     path = repo / "src/query.sql"
-    path.write_text("-- cash\nselect 1;\n")
+    path.write_text("-- cash\nselect 1;\n", encoding="utf-8", newline="\n")
     command(repo, "add", "src/query.sql")
     command(repo, "commit", "-m", "Synthetic SQL source")
     head = command(repo, "rev-parse", "HEAD")
-    original = path.read_text()
-    path.write_text("-- balance\nselect 1;\n")
+    original = path.read_text(encoding="utf-8")
+    path.write_text("-- balance\nselect 1;\n", encoding="utf-8", newline="\n")
     patch = command(repo, "diff") + "\n"
-    path.write_text(original)
+    path.write_text(original, encoding="utf-8", newline="\n")
     artifact = {"head": head, "patch": patch, "summary": "Change synthetic comment"}
     approved = digest(canonical(artifact))
     apply_patch_artifact(repo, artifact, approved, Config())
-    assert path.read_text().startswith("-- balance")
+    assert path.read_text(encoding="utf-8").startswith("-- balance")
     rollback_patch(repo, approved)
     assert command(repo, "status", "--porcelain") == ""
 
@@ -141,7 +142,7 @@ def test_command_audit_records_denial_and_exports_only_metadata(tmp_path, capsys
     assert main(arguments) == 2
     assert "output_exists" in capsys.readouterr().err
     assert main(["audit", "--state-dir", str(state), "--export", str(exported)]) == 0
-    rows = [json.loads(line) for line in exported.read_text().splitlines()]
+    rows = [json.loads(line) for line in exported.read_text(encoding="utf-8").splitlines()]
     assert [r["payload"]["event"] for r in rows] == [
         "command_started",
         "command_completed",
@@ -149,7 +150,7 @@ def test_command_audit_records_denial_and_exports_only_metadata(tmp_path, capsys
         "command_failed",
     ]
     assert len({r["payload"]["run_id"] for r in rows}) == 2
-    assert "private-label" not in exported.read_text()
+    assert "private-label" not in exported.read_text(encoding="utf-8")
     assert all(datetime.fromisoformat(r["payload"]["recorded_at"]).tzinfo is not None for r in rows)
 
 
@@ -200,9 +201,13 @@ def test_invalid_reconciliation_has_a_fixed_error_and_audit_record(tmp_path, cap
 
 def test_configured_sensitive_patterns_apply_to_publication_scan(repository, tmp_path, capsys):
     repo, _, _ = repository
-    (repo / "src/cash.py").write_text("internal_marker = 1\n")
+    (repo / "src/cash.py").write_text("internal_marker = 1\n", encoding="utf-8", newline="\n")
     cfg = tmp_path / "config.json"
-    cfg.write_text(json.dumps(asdict(replace(Config(), extra_sensitive_patterns=("internal_marker",)))))
+    cfg.write_text(
+        json.dumps(asdict(replace(Config(), extra_sensitive_patterns=("internal_marker",)))),
+        encoding="utf-8",
+        newline="\n",
+    )
     assert main(["--config", str(cfg), "scan", "--repo", str(repo)]) == 1
     assert json.loads(capsys.readouterr().out)["findings"][0]["code"] == "project_content_blocked"
 
@@ -212,9 +217,10 @@ def test_mode_only_changes_and_literal_git_paths_remain_visible(repository, tmp_
 
     repo, _, baseline = repository
     (repo / "src/cash.py").chmod(0o755)
-    (repo / "src/data[1].py").write_text("literal = True\n")
-    (repo / "src/data1.py").write_text("other = True\n")
+    (repo / "src/data[1].py").write_text("literal = True\n", encoding="utf-8", newline="\n")
+    (repo / "src/data1.py").write_text("other = True\n", encoding="utf-8", newline="\n")
     command(repo, "add", "src/cash.py", "src/data[1].py", "src/data1.py")
+    command(repo, "update-index", "--chmod=+x", "src/cash.py")
     command(repo, "commit", "-m", "Synthetic modes and literal paths")
     packet = build_packet(repo, baseline, "HEAD", Config())
     files = {file["path"]: file for file in packet["files"]}
@@ -223,7 +229,9 @@ def test_mode_only_changes_and_literal_git_paths_remain_visible(repository, tmp_
     assert (files["src/cash.py"]["before_mode"], files["src/cash.py"]["after_mode"]) == ("100644", "100755")
     assert files["src/data[1].py"]["after"] == "literal = True\n"
     snapshot = export_snapshot(repo, "HEAD", tmp_path / "snapshot", Config())
-    assert (tmp_path / "snapshot/src/cash.py").stat().st_mode & 0o111
+    if os.name == "posix":
+        assert (tmp_path / "snapshot/src/cash.py").stat().st_mode & 0o111
+    assert next(row for row in snapshot["files"] if row["path"] == "src/cash.py")["mode"] == "100755"
     assert next(file for file in snapshot["files"] if file["path"] == "src/cash.py")["mode"] == "100755"
 
 
@@ -231,7 +239,7 @@ def test_local_check_receipt_binds_source_and_image_policy(repository, tmp_path)
     repo, _, head = repository
     cfg, output = tmp_path / "config.json", tmp_path / "check.json"
     config = replace(Config(), recipes={"unit": ["python", "-c", "print('fictional')"]})
-    cfg.write_text(json.dumps(asdict(config)))
+    cfg.write_text(json.dumps(asdict(config)), encoding="utf-8", newline="\n")
     assert (
         main(
             [
@@ -251,7 +259,7 @@ def test_local_check_receipt_binds_source_and_image_policy(repository, tmp_path)
         )
         == 0
     )
-    document = json.loads(output.read_text())
+    document = json.loads(output.read_text(encoding="utf-8"))
     assert document["receipt"]["head"] == head
     assert document["receipt"]["snapshot_hash"] == digest(canonical(document["snapshot"]))
     assert document["receipt"]["runner_image"] is None
@@ -270,7 +278,7 @@ def test_default_auditing_does_not_make_a_clean_unignored_repo_dirty_for_apply(r
     proposal = artifact(repo, head)
     approved = digest(canonical(proposal))
     path = tmp_path / "proposal.json"
-    path.write_text(json.dumps(proposal))
+    path.write_text(json.dumps(proposal), encoding="utf-8", newline="\n")
     assert main(["apply", "--repo", str(repo), "--proposal", str(path), "--approve-hash", approved]) == 0
     assert main(["rollback", "--repo", str(repo), "--patch-hash", approved]) == 0
     assert command(repo, "status", "--porcelain", "--", ".", ":(exclude).finassist") == ""
@@ -278,7 +286,7 @@ def test_default_auditing_does_not_make_a_clean_unignored_repo_dirty_for_apply(r
 
 def test_json_array_artifacts_return_a_fixed_cli_error(tmp_path, capsys):
     path = tmp_path / "artifact.json"
-    path.write_text("[]")
+    path.write_text("[]", encoding="utf-8", newline="\n")
     assert main(["render", "--input", str(path), "--output", str(tmp_path / "report.html")]) == 2
     assert "input_object_required" in capsys.readouterr().err
 
@@ -295,7 +303,7 @@ def test_completion_logging_failure_preserves_unknown_operation_state(tmp_path, 
     monkeypatch.setattr(Ledger, "append", fail_completion)
     with pytest.raises(AssistantError, match="operation_finished_audit_completion_failed"):
         with command_audit(path, "apply", Config()):
-            marker.write_text("performed")
+            marker.write_text("performed", encoding="utf-8", newline="\n")
     assert marker.exists()
     with Ledger(path) as ledger:
         assert len(ledger.incomplete_runs()) == 1
@@ -346,10 +354,10 @@ def test_orphaned_patch_backup_stops_subsequent_application(repository):
     proposal = artifact(repo, head)
     directory = repo / ".finassist/patches"
     directory.mkdir(parents=True)
-    (directory / "interrupted.json").write_text("{}")
+    (directory / "interrupted.json").write_text("{}", encoding="utf-8", newline="\n")
     with pytest.raises(AssistantError, match="incomplete_patch_reconciliation_required"):
         apply_patch_artifact(repo, proposal, digest(canonical(proposal)), Config())
-    assert "- deposits" in (repo / "src/cash.py").read_text()
+    assert "- deposits" in (repo / "src/cash.py").read_text(encoding="utf-8")
 
 
 def test_finding_line_must_exist_on_the_primary_evidence_side(repository):
@@ -357,11 +365,11 @@ def test_finding_line_must_exist_on_the_primary_evidence_side(repository):
 
     repo, _, _ = repository
     file = repo / "src/cash.py"
-    file.write_text("line\n" * 20)
+    file.write_text("line\n" * 20, encoding="utf-8", newline="\n")
     command(repo, "add", "src/cash.py")
     command(repo, "commit", "-m", "Synthetic long source")
     base = command(repo, "rev-parse", "HEAD")
-    file.write_text("short\nsource\n")
+    file.write_text("short\nsource\n", encoding="utf-8", newline="\n")
     command(repo, "add", "src/cash.py")
     command(repo, "commit", "-m", "Synthetic reduced source")
     packet = build_packet(repo, base, "HEAD", Config())

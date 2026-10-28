@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .platform_support import read_utf8
+
 from dataclasses import asdict, dataclass, field
 import json
 from fnmatch import fnmatchcase
@@ -199,7 +201,7 @@ def load_config(path: Path | None = None) -> Config:
     if path is None:
         return Config().validate()
     try:
-        raw = json.loads(regular_path(path).read_text())
+        raw = json.loads(read_utf8(regular_path(path)))
         for key in (
             "allow_paths",
             "protected_paths",

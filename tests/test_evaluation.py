@@ -11,7 +11,7 @@ from finassist.security import canonical, digest
 
 
 def suite():
-    return json.loads((Path(__file__).parents[1] / "examples/review-cases.json").read_text())
+    return json.loads((Path(__file__).parents[1] / "examples/review-cases.json").read_text(encoding="utf-8"))
 
 
 def test_suite_constructs_reproducible_source_without_model_calls(tmp_path):

@@ -63,8 +63,9 @@ See [audit/readiness contracts](readiness-and-auditing.md).
 
 - Complete dependency artifact-hash locking/attestations and independent log
   anchoring remain improvements; version pins and local hash chains are limited.
-- Native macOS path aliases and rootless Podman helper/environment configurations
-  are not newly validated. Linux is the tested execution platform.
+- Native Windows/macOS/Linux tests cover source workflows and supervision.
+  Actual OCI isolation is exercised on Linux; Docker Desktop/Podman host sharing
+  and context configuration still depend on the operator's runtime setup.
 - `check` runs committed source. A future approved-patch-in-snapshot adapter could
   test a proposal before committing it; this change does not claim that ability.
 - Prompt delimiters do not establish a security boundary, and native

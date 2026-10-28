@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .platform_support import read_utf8
+
 import argparse
 from dataclasses import asdict, replace
 from decimal import Decimal, InvalidOperation
@@ -17,6 +19,7 @@ import time
 
 from . import __version__
 from .auditing import command_audit
+from .platform_support import private_state_protection
 from .config import Config, PROVIDERS, PROFILES, load_config, save_config
 from .demo import run_demo
 from .errors import AssistantError
@@ -41,7 +44,7 @@ def _read_json(path: str) -> dict:
     file = regular_path(Path(path))
     if file.stat().st_size > 2_000_000:
         raise AssistantError("input_limit_exceeded")
-    value = json.loads(file.read_text())
+    value = json.loads(read_utf8(file))
     if not isinstance(value, dict):
         raise AssistantError("input_object_required")
     return value
@@ -208,6 +211,7 @@ def execute(args, config: Config | None = None) -> int:
         _emit(
             {
                 "version": __version__,
+                "private_state_protection": private_state_protection(),
                 "python": platform.python_version(),
                 "provider": config.provider,
                 "model_configured": bool(config.model),
@@ -343,7 +347,7 @@ def execute(args, config: Config | None = None) -> int:
                 if path.stat().st_size > 2_000_000:
                     findings.append({"path": name, "code": "publication_file_too_large"})
                     continue
-                content = path.read_text()
+                content = read_utf8(path)
                 check_text(content, extra_patterns=config.extra_sensitive_patterns)
                 if any(value.casefold() in (name + "\n" + content).casefold() for value in args.forbid):
                     findings.append({"path": name, "code": "forbidden_publication_text"})
