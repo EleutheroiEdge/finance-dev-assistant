@@ -24,6 +24,7 @@ def test_packaged_asset_bytes_survive_crlf_git_checkout(tmp_path):
     source = Path(__file__).resolve().parent.parent
     paths = [
         Path(".gitattributes"),
+        Path("dashboard/index.html"),
         *[
             path.relative_to(source)
             for path in (source / "src/finassist/resources/dashboard").rglob("*")
