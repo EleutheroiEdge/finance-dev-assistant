@@ -86,6 +86,20 @@ def test_unapproved_stale_dirty_and_main_patches_fail(repository):
         apply_patch_artifact(repo, proposal, approved, Config())
 
 
+def test_custom_remote_default_and_configured_branch_patterns_are_protected(repository):
+    repo, _, head = repository
+    proposal = artifact(repo, head)
+    approved = digest(canonical(proposal))
+    command(repo, "branch", "-m", "integration")
+    command(repo, "update-ref", "refs/remotes/origin/integration", head)
+    command(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/integration")
+    with pytest.raises(AssistantError, match="feature_branch_required"):
+        apply_patch_artifact(repo, proposal, approved, Config())
+    command(repo, "branch", "-m", "stable/current")
+    with pytest.raises(AssistantError, match="feature_branch_required"):
+        apply_patch_artifact(repo, proposal, approved, replace(Config(), protected_branches=("stable/*",)))
+
+
 @pytest.mark.parametrize(
     "path", ["../escape.py", ".github/workflows/check.yml", "LICENSE", "src/credentials/key.py"]
 )

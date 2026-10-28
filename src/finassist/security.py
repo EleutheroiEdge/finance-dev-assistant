@@ -67,14 +67,21 @@ TEXT_SUFFIXES = {
     ".rs",
     ".go",
     ".java",
+    ".lock",
+    ".in",
+    ".dockerfile",
 }
+PUBLIC_ASSETS = {".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif", ".ico"}
 SECRET_PATTERNS = (
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
     re.compile(r"\bgithub_pat_[A-Za-z0-9_]{40,}\b"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"\bsk-[A-Za-z0-9_-]{24,}\b"),
-    re.compile(r"(?i)(?:api[_-]?key|password|secret|access[_-]?token)\s*[=:]\s*[\"']([^\"'\n]{12,})[\"']"),
+    re.compile(
+        r"(?i)\b(?:api[_-]?key|password|secret|access[_-]?token)\b[\"']?\s*[=:]\s*"
+        r"(?:[\"'][^\"'\n]{12,}[\"']|[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
+    ),
     re.compile(r"(?i)\b(?:account[_ -]?(?:number|id)|routing[_ -]?number)\s*[=:]\s*[\"']?\d{6,}"),
     re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
 )
@@ -82,6 +89,14 @@ SECRET_PATTERNS = (
 
 def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def pinned_image(value: str) -> str:
+    if not isinstance(value, str) or not re.fullmatch(
+        r"(?:[A-Za-z0-9][A-Za-z0-9._/:+-]*@)?sha256:[0-9a-f]{64}", value
+    ):
+        raise AssistantError("pinned_runner_image_required")
+    return value
 
 
 def canonical(value: object) -> bytes:
@@ -102,20 +117,21 @@ def safe_relative(value: str) -> str:
     return str(path)
 
 
-def check_path(value: str, *, source_only: bool = True) -> str:
+def check_path(value: str, *, source_only: bool = True, metadata_only: bool = False) -> str:
     name = safe_relative(value)
+    check_text(name)
     parts = PurePosixPath(name).parts
     if parts[-1].lower() in {"auth.json", "user.md", "memory.md", "session.md"}:
         raise AssistantError("private_profile_path")
     if any(p.lower() in DENIED_PARTS or p.lower().startswith(".env") for p in parts):
         raise AssistantError("private_path")
     suffix = PurePosixPath(name).suffix.lower()
-    if suffix in DENIED_SUFFIXES:
+    if suffix in DENIED_SUFFIXES and not (metadata_only and suffix in PUBLIC_ASSETS):
         raise AssistantError("private_or_binary_path")
     if (
         source_only
         and suffix not in TEXT_SUFFIXES
-        and parts[-1] not in {"LICENSE", "Dockerfile", ".gitignore"}
+        and parts[-1] not in {"LICENSE", "Dockerfile", "Makefile", ".gitignore", ".dockerignore"}
     ):
         raise AssistantError("unsupported_file_type")
     return name

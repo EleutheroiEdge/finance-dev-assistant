@@ -23,7 +23,18 @@
     ".github/",
     "LICENSE",
     "AGENTS.md",
-    "finassist.json"
+    "finassist.json",
+    "pyproject.toml",
+    "scripts/",
+    "requirements-dev.lock"
+  ],
+  "protected_branches": [
+    "main",
+    "master",
+    "trunk",
+    "production",
+    "release",
+    "release/*"
   ],
   "extra_sensitive_patterns": [],
   "max_file_bytes": 48000,
@@ -35,5 +46,12 @@
   "input_usd_per_million": 0.0,
   "output_usd_per_million": 0.0,
   "recipes": {},
-  "runner_image": ""
+  "runner_image": "",
+  "required_recipes": [],
+  "blocking_severities": [
+    "critical",
+    "high"
+  ],
+  "readiness_max_age_seconds": 86400,
+  "allow_local_readiness": false
 }

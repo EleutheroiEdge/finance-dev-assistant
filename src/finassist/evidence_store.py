@@ -12,7 +12,8 @@ from .security import canonical, check_text, digest, regular_path
 
 
 class EvidenceStore:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, *, extra_sensitive_patterns: tuple[str, ...] = ()):
+        self.extra_sensitive_patterns = extra_sensitive_patterns
         path = regular_path(path)
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.db = sqlite3.connect(path, timeout=15)
@@ -56,7 +57,7 @@ class EvidenceStore:
         )
         if not checked["passed"]:
             raise AssistantError("invalid_evidence_metadata")
-        check_text(canonical(observation).decode())
+        check_text(canonical(observation).decode(), extra_patterns=self.extra_sensitive_patterns)
         encoded, value_hash = canonical(observation).decode(), digest(canonical(observation))
         try:
             self.db.execute("BEGIN IMMEDIATE")
@@ -140,4 +141,9 @@ class EvidenceStore:
         if len({self._identity(data) for _, data in eligible}) != 1:
             raise AssistantError("evidence_scope_ambiguous")
         row, data = eligible[0]
-        return {"id": row[0], "observation": data, "hash": row[2], "status": "approved"}
+        return {
+            "id": row[0],
+            "observation": {**data, "status": "approved"},
+            "hash": row[2],
+            "status": "approved",
+        }

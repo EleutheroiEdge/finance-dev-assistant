@@ -70,6 +70,25 @@ unchanged post-apply bytes; later operator work stops rollback. An interrupted
 apply without its receipt requires manual reconciliation from the saved backup.
 The assistant does not force history, stage, commit or push.
 
+Build/dependency files and `scripts/` are protected from proposals by default.
+Configure `protected_paths` deliberately for your project; entries also protect
+descendants without a trailing slash. `protected_branches` accepts glob patterns.
+The local branches named by fetched remote default-HEAD references are always
+excluded from patch application. Fetch/current server policy remains an operator check.
+
+New context packets use schema2 and carry executable-mode metadata. Schema1
+packets remain inspectable but cannot pass `verify-gate`; rebuild old packets.
+Public image assets are listed as omissions without reading their bytes.
+Sensitive data/key paths still fail closed even outside the source allowlist.
+
+Each check receipt carries its committed head, snapshot digest, recipe digest,
+runtime image and cleanup result. `check` tests committed source; it does not
+validate uncommitted applied patches. Commit a candidate on an isolated feature
+branch before testing it, or use a separately reviewed project adapter.
+
+Read [auditing/readiness](readiness-and-auditing.md) for event export, required
+recipes, blocking severities and the explicit GitHub metadata inspection command.
+
 ## Proactive operation
 
 `watch` is a bounded foreground observer of committed-head changes. It emits

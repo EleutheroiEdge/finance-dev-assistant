@@ -15,7 +15,7 @@ import uuid
 
 from .config import Config
 from .errors import AssistantError
-from .security import canonical, digest, regular_path
+from .security import canonical, digest, pinned_image, regular_path
 
 
 def run_bounded(argv: list[str], *, cwd: Path, env: dict, timeout: float, max_bytes: int = 1_000_000) -> dict:
@@ -79,9 +79,11 @@ def run_bounded(argv: list[str], *, cwd: Path, env: dict, timeout: float, max_by
                 pass
             if sig == signal.SIGTERM:
                 time.sleep(0.1)
-        process.wait(timeout=2)
-        selector.close()
-        process.stdout.close()
+        try:
+            process.wait(timeout=2)
+        finally:
+            selector.close()
+            process.stdout.close()
     return {
         "exit_code": process.returncode,
         "timed_out": timed_out,
@@ -113,10 +115,7 @@ def run_recipe(
         argv, cwd = ([sys.executable, *recipe[1:]] if recipe[0] == "python" else recipe), source
         isolation = "none: trusted local execution explicitly approved"
     else:
-        import re
-
-        if not re.fullmatch(r"(?:[A-Za-z0-9._/:+-]+@)?sha256:[0-9a-f]{64}", config.runner_image):
-            raise AssistantError("pinned_runner_image_required")
+        pinned_image(config.runner_image)
         executable = shutil.which(backend)
         if executable is None:
             raise AssistantError("container_runtime_missing")
@@ -142,6 +141,7 @@ def run_recipe(
             "--workdir=/workspace",
             "--env=HOME=/tmp",
             "--env=PYTHONDONTWRITEBYTECODE=1",
+            "--",
             config.runner_image,
             *recipe,
         ]
@@ -183,6 +183,7 @@ def run_recipe(
     receipt = {
         "recipe": name,
         "argv_hash": digest(canonical(recipe)),
+        "runner_image": config.runner_image if backend != "local" else None,
         "isolation": isolation,
         **{k: v for k, v in result.items() if k != "output"},
         "cleanup_verified": cleanup_verified,

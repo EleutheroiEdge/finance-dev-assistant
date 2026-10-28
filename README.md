@@ -44,6 +44,8 @@ If your Linux distribution omits the standard venv bootstrap, use an existing
   over later work. No automatic commit, push, merge, deployment or trading.
 - **Audit:** private concurrent budget reservations, usage reconciliation and a
   hash-linked event trail. Unknown billing remains reserved, including across days.
+- **Readiness:** inspect GitHub branch controls with GETs and check review/test
+  evidence against a configurable local policy. Results grant no merge/deployment authority.
 - **Finance profiles:** SaaS tenant boundaries, ledger reconciliation, quantitative
   invariants, source authority, as-filed evidence and approved analyst inputs.
 - **Evidence lineage:** immutable fact revisions with content-hash approval;
@@ -121,6 +123,13 @@ See [workflow contracts](docs/workflows.md), [security boundaries](SECURITY.md),
 the portable [evidence-review skill](skills/evidence-review/SKILL.md).
 Optional native reviewer roles are described in [agent integration](docs/integrations.md).
 The local analyst-input store is described in [research inputs](docs/research-inputs.md).
+See [auditing and readiness](docs/readiness-and-auditing.md), the
+[industry design review](docs/production-design.md) and [security review](docs/security-review.md).
+
+Keep `.finassist/` out of Git, or select a private state directory with the global
+`--audit-dir` flag. Operational commands record start/outcome events, UTC times,
+run IDs and hashes; source, command arguments, keys and test logs are excluded.
+Export verified metadata with `finassist audit --export NEW_PRIVATE_EVENTS.jsonl`.
 
 ## Safety and limits
 

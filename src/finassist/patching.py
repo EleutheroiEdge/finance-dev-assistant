@@ -10,7 +10,7 @@ import subprocess
 
 from .config import Config
 from .errors import AssistantError
-from .scope import git, resolve
+from .scope import git, git_command, git_environment, resolve
 from .security import canonical, check_path, check_text, digest, regular_path, write_private
 
 
@@ -19,8 +19,10 @@ def patch_paths(patch: str, config: Config) -> list[str]:
     if len(patch.encode()) > config.max_packet_bytes:
         raise AssistantError("patch_limit_exceeded")
     paths = []
+    in_hunk = False
     for line in patch.splitlines():
         if line.startswith("diff --git "):
+            in_hunk = False
             match = re.fullmatch(r"diff --git a/([^\s]+) b/([^\s]+)", line)
             if not match or match[1] != match[2]:
                 raise AssistantError("patch_rename_or_path_invalid")
@@ -28,6 +30,14 @@ def patch_paths(patch: str, config: Config) -> list[str]:
             if not config.allows(name) or config.protected(name):
                 raise AssistantError("patch_path_not_approved")
             paths.append(name)
+        elif line.startswith("@@ "):
+            if not paths:
+                raise AssistantError("patch_header_mismatch")
+            in_hunk = True
+        elif in_hunk:
+            # Removed SQL comments and added prefix operators can resemble file
+            # headers. Only Git's actual header section defines target paths.
+            continue
         elif line.startswith(("new file mode ", "deleted file mode ", "old mode ", "new mode ")):
             if line.split()[-1] not in {"100644", "100755"}:
                 raise AssistantError("patch_special_file")
@@ -36,7 +46,7 @@ def patch_paths(patch: str, config: Config) -> list[str]:
         elif line.startswith(("--- ", "+++ ")):
             value = line[4:]
             if value != "/dev/null":
-                if not value.startswith(("a/", "b/")) or check_path(value[2:]) not in paths:
+                if not paths or not value.startswith(("a/", "b/")) or check_path(value[2:]) != paths[-1]:
                     raise AssistantError("patch_header_mismatch")
     if not paths or len(set(paths)) != len(paths):
         raise AssistantError("empty_or_duplicate_patch")
@@ -44,6 +54,7 @@ def patch_paths(patch: str, config: Config) -> list[str]:
 
 
 def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config: Config) -> dict:
+    config.validate()
     if digest(canonical(artifact)) != approved_hash:
         raise AssistantError("patch_approval_mismatch")
     if set(artifact) != {"head", "patch", "summary"} or not all(
@@ -53,9 +64,19 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
     if resolve(repo, "HEAD") != artifact["head"]:
         raise AssistantError("patch_head_changed")
     branch = git(repo, "symbolic-ref", "--short", "HEAD")
-    if branch in {"main", "master", "trunk", "production", "release"}:
+    remote_defaults = set()
+    for row in git(repo, "for-each-ref", "--format=%(refname) %(symref)", "refs/remotes").splitlines():
+        ref, _, target = row.partition(" ")
+        if ref.endswith("/HEAD") and target:
+            prefix = ref.removesuffix("HEAD")
+            if not target.startswith(prefix):
+                raise AssistantError("remote_default_invalid")
+            remote_defaults.add(target.removeprefix(prefix))
+    if config.protected_branch(branch) or branch in remote_defaults:
         raise AssistantError("feature_branch_required")
-    if git(repo, "status", "--porcelain", "--untracked-files=normal"):
+    if git(repo, "ls-files", "--", ".finassist"):
+        raise AssistantError("private_state_tracked")
+    if git(repo, "status", "--porcelain", "--untracked-files=normal", "--", ".", ":(exclude).finassist"):
         raise AssistantError("clean_worktree_required")
     paths = patch_paths(artifact["patch"], config)
     backup, modes = {}, {}
@@ -66,13 +87,14 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
         backup[name] = base64.b64encode(target.read_bytes()).decode() if target.exists() else None
         modes[name] = target.stat().st_mode & 0o777 if target.exists() else None
     # Git parses the entire patch before any mutation; --check is not an execution hook.
-    command = ["git", "-C", str(repo), "apply", "--whitespace=error"]
+    command = git_command(repo, "apply", "--whitespace=error")
     try:
         subprocess.run(
             command + ["--check", "-"],
             input=artifact["patch"].encode(),
             capture_output=True,
             timeout=15,
+            env=git_environment(),
             check=True,
         )
     except subprocess.SubprocessError as exc:
@@ -82,7 +104,12 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
     write_private(backup_path, backup_data)
     try:
         subprocess.run(
-            command + ["-"], input=artifact["patch"].encode(), capture_output=True, timeout=15, check=True
+            command + ["-"],
+            input=artifact["patch"].encode(),
+            capture_output=True,
+            timeout=15,
+            env=git_environment(),
+            check=True,
         )
     except subprocess.SubprocessError as exc:
         raise AssistantError("patch_apply_failed_inspect_backup") from exc

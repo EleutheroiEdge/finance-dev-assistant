@@ -4,18 +4,47 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
+import os
 import re
 import subprocess
 
 from .config import Config
 from .errors import AssistantError
-from .security import canonical, check_path, check_text, digest
+from .security import PUBLIC_ASSETS, canonical, check_path, check_text, digest
+
+
+def git_environment() -> dict[str, str]:
+    environment = {
+        "PATH": os.environ.get("PATH", os.defpath),
+        "LANG": "C.UTF-8",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_TERMINAL_PROMPT": "0",
+    }
+    if os.name == "nt" and "SYSTEMROOT" in os.environ:
+        environment["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
+    return environment
+
+
+def git_command(repo: Path, *args: str) -> list[str]:
+    return [
+        "git",
+        "--no-optional-locks",
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "core.hooksPath=" + os.devnull,
+        "-C",
+        str(repo),
+        *args,
+    ]
 
 
 def git(repo: Path, *args: str, binary: bool = False):
     try:
         done = subprocess.run(
-            ["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", str(repo), *args],
+            git_command(repo, *args),
+            env=git_environment(),
             capture_output=True,
             timeout=30,
             check=True,
@@ -34,11 +63,11 @@ def resolve(repo: Path, ref: str) -> str:
     return sha
 
 
-def read_blob(repo: Path, sha: str, path: str, max_bytes: int) -> bytes | None:
+def read_entry(repo: Path, sha: str, path: str, max_bytes: int) -> tuple[bytes | None, str | None]:
     safe_relative = check_path(path)
-    entries = git(repo, "ls-tree", "-z", sha, "--", safe_relative, binary=True)
+    entries = git(repo, "--literal-pathspecs", "ls-tree", "-z", sha, "--", safe_relative, binary=True)
     if not entries:
-        return None
+        return None, None
     header = entries.split(b"\t", 1)[0].decode()
     mode, kind, oid = header.split()
     if kind != "blob" or mode not in {"100644", "100755"}:
@@ -49,7 +78,11 @@ def read_blob(repo: Path, sha: str, path: str, max_bytes: int) -> bytes | None:
     data = git(repo, "cat-file", "blob", oid, binary=True)
     if len(data) != size:
         raise AssistantError("blob_changed")
-    return data
+    return data, mode
+
+
+def read_blob(repo: Path, sha: str, path: str, max_bytes: int) -> bytes | None:
+    return read_entry(repo, sha, path, max_bytes)[0]
 
 
 @dataclass(frozen=True)
@@ -60,6 +93,8 @@ class ContextFile:
     after: str | None
     before_hash: str | None
     after_hash: str | None
+    before_mode: str | None
+    after_mode: str | None
 
 
 def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
@@ -85,12 +120,16 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
     for pos in range(0, len(tokens) - 1, 2):
         status, path = tokens[pos : pos + 2]
         changed.append(path)
-        check_path(path)
+        check_path(path, source_only=False, metadata_only=True)
+        check_text(path, extra_patterns=config.extra_sensitive_patterns)
+        if Path(path).suffix.lower() in PUBLIC_ASSETS:
+            omitted.append({"path": path, "reason": "binary_asset_excluded"})
+            continue
         if not config.allows(path):
             omitted.append({"path": path, "reason": "outside_allowlist"})
             continue
-        before = read_blob(repo, ancestor, path, config.max_file_bytes)
-        after = read_blob(repo, head_sha, path, config.max_file_bytes)
+        before, before_mode = read_entry(repo, ancestor, path, config.max_file_bytes)
+        after, after_mode = read_entry(repo, head_sha, path, config.max_file_bytes)
         decoded = []
         for data in (before, after):
             try:
@@ -108,11 +147,13 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
                     *decoded,
                     digest(before) if before is not None else None,
                     digest(after) if after is not None else None,
+                    before_mode,
+                    after_mode,
                 )
             )
         )
     packet = {
-        "schema_version": 1,
+        "schema_version": 2,
         "base": base_sha,
         "head": head_sha,
         "merge_base": ancestor,
@@ -143,7 +184,12 @@ def verify_packet(packet: dict) -> None:
         "classification_limit",
         "packet_hash",
     }
-    if not isinstance(packet, dict) or set(packet) != keys or packet["schema_version"] != 1:
+    if (
+        not isinstance(packet, dict)
+        or set(packet) != keys
+        or type(packet["schema_version"]) is not int
+        or packet["schema_version"] not in {1, 2}
+    ):
         raise AssistantError("packet_schema_invalid")
     for key in ("base", "head", "merge_base"):
         if not isinstance(packet[key], str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", packet[key]):
@@ -163,13 +209,12 @@ def verify_packet(packet: dict) -> None:
             or not isinstance(item["reason"], str)
         ):
             raise AssistantError("packet_schema_invalid")
-        accounted.append(check_path(item["path"]))
+        accounted.append(check_path(item["path"], source_only=False, metadata_only=True))
     for item in packet["files"]:
-        if (
-            not isinstance(item, dict)
-            or set(item) != {"path", "status", "before", "after", "before_hash", "after_hash"}
-            or item["status"] not in {"A", "D", "M", "T"}
-        ):
+        file_keys = {"path", "status", "before", "after", "before_hash", "after_hash"}
+        if packet["schema_version"] == 2:
+            file_keys |= {"before_mode", "after_mode"}
+        if not isinstance(item, dict) or set(item) != file_keys or item["status"] not in {"A", "D", "M", "T"}:
             raise AssistantError("packet_schema_invalid")
         accounted.append(check_path(item["path"]))
         if item["before"] is None and item["after"] is None:
@@ -177,6 +222,10 @@ def verify_packet(packet: dict) -> None:
         for side in ("before", "after"):
             if item[side] is not None and not isinstance(item[side], str):
                 raise AssistantError("packet_schema_invalid")
+            if packet["schema_version"] == 2:
+                expected_modes = {None} if item[side] is None else {"100644", "100755"}
+                if item[side + "_mode"] not in expected_modes:
+                    raise AssistantError("packet_mode_invalid")
     if len(set(accounted)) != len(accounted) or set(accounted) != set(changed):
         raise AssistantError("packet_coverage_invalid")
     expected = packet.get("packet_hash")

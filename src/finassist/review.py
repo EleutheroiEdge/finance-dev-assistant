@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from dataclasses import asdict
 from importlib.resources import files
 import json
 from pathlib import Path
@@ -22,7 +23,7 @@ def review_schema() -> dict:
     return json.loads(files("finassist").joinpath("resources/review.schema.json").read_text())
 
 
-def validate_review(result: dict, packet: dict) -> None:
+def validate_review(result: dict, packet: dict, *, extra_patterns: tuple[str, ...] = ()) -> None:
     verify_packet(packet)
     try:
         jsonschema.Draft202012Validator(review_schema()).validate(result)
@@ -37,18 +38,22 @@ def validate_review(result: dict, packet: dict) -> None:
         if finding["path"] not in source:
             raise AssistantError("finding_outside_scope")
         current = source[finding["path"]]
-        if finding["line"] > max(len((current[side] or "").splitlines()) for side in ("before", "after")):
+        if finding["line"] > max(
+            1, *(len((current[side] or "").splitlines()) for side in ("before", "after"))
+        ):
             raise AssistantError("finding_line_invalid")
+        if not any(e["path"] == finding["path"] for e in finding["evidence"]):
+            raise AssistantError("finding_evidence_invalid")
         for evidence in finding["evidence"]:
             file = source.get(evidence["path"])
             if (
                 file is None
                 or file[evidence["side"] + "_hash"] != evidence["sha256"]
                 or file[evidence["side"]] is None
-                or evidence["line"] > len(file[evidence["side"]].splitlines())
+                or evidence["line"] > max(1, len(file[evidence["side"]].splitlines()))
             ):
                 raise AssistantError("finding_evidence_invalid")
-    check_text(canonical(result).decode())
+    check_text(canonical(result).decode(), extra_patterns=extra_patterns)
 
 
 def call_model(
@@ -64,6 +69,7 @@ def call_model(
 ):
     verify_packet(packet)
     config.validate()
+    check_text(canonical(packet).decode(), extra_patterns=config.extra_sensitive_patterns)
     if approved_packet_hash != packet["packet_hash"]:
         raise AssistantError("packet_approval_required")
     if not config.allow_network or not network_approved:
@@ -112,11 +118,14 @@ def call_model(
                 "packet_hash": packet["packet_hash"],
                 "provider": config.provider,
                 "model": config.model,
+                "config_hash": digest(canonical(asdict(config))),
             }
         )
         result = invoke(config, system, packet, schema, network_approved=True, transport=transport)
         # Settle usage before validating semantics, including refused/malformed output.
-        if result.input_tokens is not None and result.output_tokens is not None:
+        if price_in == price_out == 0:
+            ledger.settle(reservation, Decimal(0))
+        elif result.input_tokens is not None and result.output_tokens is not None:
             actual = (
                 Decimal(result.input_tokens) * price_in + Decimal(result.output_tokens) * price_out
             ) / 1_000_000
@@ -162,7 +171,7 @@ def review_packet(
         data = json.loads(result.text)
     except ValueError as exc:
         raise AssistantError("review_json_invalid") from exc
-    validate_review(data, packet)
+    validate_review(data, packet, extra_patterns=config.extra_sensitive_patterns)
     report = {
         "status": "partial-review"
         if packet["omitted"]
@@ -172,6 +181,7 @@ def review_packet(
         "base": packet["base"],
         "provider": config.provider,
         "model": config.model,
+        "config_hash": digest(canonical(asdict(config))),
         "review": data,
         "triage": triaged,
         "reservation": reservation,

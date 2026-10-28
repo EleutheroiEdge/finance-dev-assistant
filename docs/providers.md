@@ -30,7 +30,9 @@ no redirects and no environment-proxy trust. HTTP phase timeouts can each consum
 time; the streaming deadline is checked between chunks. Remote service work may
 continue after a client disconnects. Failed or unknown billable attempts remain
 reserved until `reconcile-budget --reservation ID --actual-usd AMOUNT` records
-operator-verified cost. Missing usage also remains reserved.
+operator-verified cost. Missing, zero or implausibly large usage also remains
+reserved. Self-hosted Ollama with zero configured rates settles at zero; that is
+an operator cost assumption, not a promise that hosting is free.
 
 Examples in `examples` are templates with model placeholders, not live credentials.
 For Azure-style deployments, configure the appropriate deployment endpoint,

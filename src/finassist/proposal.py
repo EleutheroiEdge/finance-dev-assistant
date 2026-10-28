@@ -8,6 +8,7 @@ import jsonschema
 from .config import Config
 from .errors import AssistantError
 from .patching import patch_paths
+from .ledger import Ledger
 from .profiles import instructions
 from .review import call_model
 from .security import canonical, check_text, digest
@@ -60,9 +61,19 @@ def propose(
     paths = patch_paths(artifact["patch"], config)
     if not set(paths) <= {file["path"] for file in packet["files"]}:
         raise AssistantError("proposal_outside_review_scope")
-    return {
+    proposal = {
         "artifact": artifact,
         "approval_hash": digest(canonical(artifact)),
         "reservation": reservation,
         "applied": False,
     }
+    with Ledger(ledger_path) as ledger:
+        proposal["audit_receipt"] = ledger.append(
+            {
+                "event": "proposal_completed",
+                "head": artifact["head"],
+                "packet_hash": packet["packet_hash"],
+                "proposal_hash": proposal["approval_hash"],
+            }
+        )
+    return proposal
