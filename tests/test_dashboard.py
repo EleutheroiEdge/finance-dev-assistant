@@ -3,6 +3,9 @@ from datetime import datetime, timezone
 from decimal import Decimal
 import http.client
 import json
+import os
+from pathlib import Path
+import subprocess
 import threading
 
 import pytest
@@ -14,6 +17,51 @@ from finassist.errors import AssistantError
 from finassist.health import doctor_report
 from finassist.ledger import Ledger
 from finassist.statistics import statistics
+
+
+def test_packaged_asset_bytes_survive_crlf_git_checkout(tmp_path):
+    root = tmp_path.resolve()
+    source = Path(__file__).resolve().parent.parent
+    paths = [
+        Path(".gitattributes"),
+        *[
+            path.relative_to(source)
+            for path in (source / "src/finassist/resources/dashboard").rglob("*")
+            if path.is_file()
+        ],
+    ]
+    expected = {}
+    for path in paths:
+        expected[path] = (source / path).read_bytes()
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_bytes(expected[path])
+
+    def git(*args):
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "core.hooksPath=" + os.devnull,
+                "-c",
+                "core.attributesFile=" + os.devnull,
+                "-c",
+                "core.autocrlf=true",
+                "-C",
+                str(root),
+                *args,
+            ],
+            check=True,
+            capture_output=True,
+        )
+
+    git("init")
+    git("add", "--", *[path.as_posix() for path in paths])
+    for path in paths:
+        (root / path).unlink()
+    git("checkout-index", "--all", "--force")
+    # The attributes file itself can use native line endings. Hashed assets cannot.
+    for path in paths[1:]:
+        assert (root / path).read_bytes() == expected[path]
 
 
 @pytest.fixture

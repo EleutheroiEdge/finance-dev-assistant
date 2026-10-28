@@ -1,0 +1,2 @@
+# Packaged assets are hashed as bytes and must survive Windows Git checkouts.
+src/finassist/resources/dashboard/** text eol=lf
