@@ -96,7 +96,7 @@ def test_coverage_omissions_are_explicit(repository):
     repo, base, head = repository
     packet = build_packet(repo, base, head, replace(Config(), allow_paths=("docs/",)))
     assert packet["omitted"] == [{"path": "src/cash.py", "reason": "outside_allowlist"}]
-    assert not triage(packet)["coverage_complete"]
+    assert not triage(packet, replace(Config(), allow_paths=("docs/",)))["coverage_complete"]
 
 
 def test_git_symlink_is_never_followed(repository):
@@ -141,7 +141,7 @@ def test_config_is_explicit_and_keys_do_not_choose_provider(tmp_path, monkeypatc
     save_config(path, Config())
     assert load_config(path) == Config()
     path.write_text(canonical({"unknown_field": True}).decode(), encoding="utf-8", newline="\n")
-    with pytest.raises(AssistantError, match="invalid_config"):
+    with pytest.raises(AssistantError, match="unknown_config_option"):
         load_config(path)
 
 

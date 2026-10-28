@@ -33,6 +33,7 @@ def test_export_is_explicit_and_never_overwrites_host_configuration(tmp_path):
         ("docs/providers.md", "provider-guide.md"),
         ("docs/readiness-and-auditing.md", "readiness-guide.md"),
         ("docs/platforms.md", "platform-guide.md"),
+        ("docs/configuration.md", "configuration-guide.md"),
     ],
 )
 def test_installed_templates_match_reviewed_source(original, resource):

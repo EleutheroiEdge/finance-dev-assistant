@@ -15,7 +15,6 @@ import jsonschema
 from .config import Config
 from .errors import AssistantError
 from .ledger import Ledger
-from .profiles import instructions
 from .providers import invoke, request_shape
 from .scope import triage, verify_packet
 from .security import canonical, check_text, digest
@@ -25,8 +24,10 @@ def review_schema() -> dict:
     return json.loads(read_utf8(files("finassist").joinpath("resources/review.schema.json")))
 
 
-def validate_review(result: dict, packet: dict, *, extra_patterns: tuple[str, ...] = ()) -> None:
-    verify_packet(packet)
+def validate_review(
+    result: dict, packet: dict, *, extra_patterns: tuple[str, ...] = (), config: Config | None = None
+) -> None:
+    verify_packet(packet, config)
     try:
         jsonschema.Draft202012Validator(review_schema()).validate(result)
     except jsonschema.ValidationError as exc:
@@ -76,7 +77,7 @@ def call_model(
     approved_packet_hash: str | None,
     transport=None,
 ):
-    verify_packet(packet)
+    verify_packet(packet, config)
     config.validate()
     check_text(canonical(packet).decode(), extra_patterns=config.extra_sensitive_patterns)
     if approved_packet_hash != packet["packet_hash"]:
@@ -154,10 +155,10 @@ def review_packet(
     approved_packet_hash: str | None = None,
     transport=None,
 ) -> dict:
-    verify_packet(packet)
+    verify_packet(packet, config)
     config.validate()
     check_text(canonical(packet).decode(), extra_patterns=config.extra_sensitive_patterns)
-    triaged = triage(packet)
+    triaged = triage(packet, config)
     if not packet["changed_paths"]:
         raise AssistantError("empty_review_scope")
     if config.provider == "offline":
@@ -176,7 +177,7 @@ def review_packet(
         config,
         ledger_path,
         review_schema(),
-        instructions(config.profile),
+        config.instructions(),
         network_approved=network_approved,
         approved_packet_hash=approved_packet_hash,
         transport=transport,
@@ -185,7 +186,7 @@ def review_packet(
         data = json.loads(result.text)
     except ValueError as exc:
         raise AssistantError("review_json_invalid") from exc
-    validate_review(data, packet, extra_patterns=config.extra_sensitive_patterns)
+    validate_review(data, packet, extra_patterns=config.extra_sensitive_patterns, config=config)
     report = {
         "status": "partial-review"
         if packet["omitted"]

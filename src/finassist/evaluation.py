@@ -13,10 +13,12 @@ from .platform_support import find_tool
 from .errors import AssistantError
 from .review import review_packet
 from .scope import build_packet
-from .security import canonical, check_path, check_text, digest
+from .security import canonical, check_text, digest
 
 
-def validate_suite(suite: dict, *, extra_patterns: tuple[str, ...] = ()) -> None:
+def validate_suite(
+    suite: dict, *, extra_patterns: tuple[str, ...] = (), config: Config | None = None
+) -> None:
     check_text(canonical(suite).decode(), extra_patterns=extra_patterns)
     if set(suite) != {"version", "cases"} or suite["version"] != 1:
         raise AssistantError("invalid_eval_suite")
@@ -34,7 +36,7 @@ def validate_suite(suite: dict, *, extra_patterns: tuple[str, ...] = ()) -> None
         ):
             raise AssistantError("invalid_eval_identity")
         identifiers.add(case["id"])
-        check_path(case["path"])
+        (config or Config()).check_path(case["path"])
         for side in ("before", "after"):
             if not isinstance(case[side], str) or not case[side] or len(case[side].encode()) > 48_000:
                 raise AssistantError("invalid_eval_source")
@@ -71,7 +73,7 @@ def evaluate(
     transport=None,
 ) -> dict:
     config.validate()
-    validate_suite(suite, extra_patterns=config.extra_sensitive_patterns)
+    validate_suite(suite, extra_patterns=config.extra_sensitive_patterns, config=config)
     suite_hash = digest(canonical(suite))
     if config.provider != "offline" and approved_suite_hash != suite_hash:
         raise AssistantError("eval_suite_approval_required")

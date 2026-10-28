@@ -82,7 +82,7 @@ SECRET_PATTERNS = (
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"\bsk-[A-Za-z0-9_-]{24,}\b"),
     re.compile(
-        r"(?i)\b[A-Za-z0-9_-]*(?:api[_-]?key|password|secret|access[_-]?token)\b[\"']?\s*[=:]\s*"
+        r"(?i)\b[A-Za-z0-9_-]*(?:api[_-]?key|password|secret|access[_-]?token|gh[_-]?token|github[_-](?:enterprise[_-])?token)\b[\"']?\s*[=:]\s*"
         r"(?:[\"'][^\"'\n]{12,}[\"']|[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
     ),
     re.compile(
@@ -122,20 +122,32 @@ def safe_relative(value: str) -> str:
     return str(path)
 
 
-def check_path(value: str, *, source_only: bool = True, metadata_only: bool = False) -> str:
+def check_path(
+    value: str,
+    *,
+    source_only: bool = True,
+    metadata_only: bool = False,
+    denied_parts=None,
+    text_suffixes=None,
+) -> str:
     name = safe_relative(value)
     check_text(name)
     parts = PurePosixPath(name).parts
     if parts[-1].lower() in {"auth.json", "user.md", "memory.md", "session.md"}:
         raise AssistantError("private_profile_path")
-    if any(p.lower() in DENIED_PARTS or p.lower().startswith(".env") for p in parts):
+    denied = DENIED_PARTS if denied_parts is None else denied_parts
+    suffixes = TEXT_SUFFIXES if text_suffixes is None else text_suffixes
+    if any(
+        p.lower() in denied or p.lower().startswith(".env") or p.lower() in {".git", ".finassist"}
+        for p in parts
+    ):
         raise AssistantError("private_path")
     suffix = PurePosixPath(name).suffix.lower()
     if suffix in DENIED_SUFFIXES and not (metadata_only and suffix in PUBLIC_ASSETS):
         raise AssistantError("private_or_binary_path")
     if (
         source_only
-        and suffix not in TEXT_SUFFIXES
+        and suffix not in suffixes
         and parts[-1] not in {"LICENSE", "Dockerfile", "Makefile", ".gitignore", ".dockerignore"}
     ):
         raise AssistantError("unsupported_file_type")

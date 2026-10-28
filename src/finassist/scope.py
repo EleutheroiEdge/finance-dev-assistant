@@ -11,7 +11,7 @@ import subprocess
 from .config import Config
 from .platform_support import find_tool, clean_environment
 from .errors import AssistantError
-from .security import PUBLIC_ASSETS, canonical, check_path, check_text, digest
+from .security import PUBLIC_ASSETS, canonical, check_text, digest
 
 
 def git_environment() -> dict[str, str]:
@@ -121,8 +121,10 @@ def resolve(repo: Path, ref: str) -> str:
     return sha
 
 
-def read_entry(repo: Path, sha: str, path: str, max_bytes: int) -> tuple[bytes | None, str | None]:
-    safe_relative = check_path(path)
+def read_entry(
+    repo: Path, sha: str, path: str, max_bytes: int, config: Config | None = None
+) -> tuple[bytes | None, str | None]:
+    safe_relative = (config or Config()).check_path(path)
     entries = git(repo, "--literal-pathspecs", "ls-tree", "-z", sha, "--", safe_relative, binary=True)
     if not entries:
         return None, None
@@ -139,8 +141,8 @@ def read_entry(repo: Path, sha: str, path: str, max_bytes: int) -> tuple[bytes |
     return data, mode
 
 
-def read_blob(repo: Path, sha: str, path: str, max_bytes: int) -> bytes | None:
-    return read_entry(repo, sha, path, max_bytes)[0]
+def read_blob(repo: Path, sha: str, path: str, max_bytes: int, config: Config | None = None) -> bytes | None:
+    return read_entry(repo, sha, path, max_bytes, config)[0]
 
 
 @dataclass(frozen=True)
@@ -178,7 +180,7 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
     for pos in range(0, len(tokens) - 1, 2):
         status, path = tokens[pos : pos + 2]
         changed.append(path)
-        check_path(path, source_only=False, metadata_only=True)
+        config.check_path(path, source_only=False, metadata_only=True)
         check_text(path, extra_patterns=config.extra_sensitive_patterns)
         if Path(path).suffix.lower() in PUBLIC_ASSETS:
             omitted.append({"path": path, "reason": "binary_asset_excluded"})
@@ -186,8 +188,8 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
         if not config.allows(path):
             omitted.append({"path": path, "reason": "outside_allowlist"})
             continue
-        before, before_mode = read_entry(repo, ancestor, path, config.max_file_bytes)
-        after, after_mode = read_entry(repo, head_sha, path, config.max_file_bytes)
+        before, before_mode = read_entry(repo, ancestor, path, config.max_file_bytes, config)
+        after, after_mode = read_entry(repo, head_sha, path, config.max_file_bytes, config)
         decoded = []
         for data in (before, after):
             try:
@@ -216,6 +218,7 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
         "head": head_sha,
         "merge_base": ancestor,
         "profile": config.profile,
+        "allow_paths": list(config.allow_paths),
         "changed_paths": changed,
         "files": files,
         "omitted": omitted,
@@ -228,7 +231,9 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
     return {**packet, "packet_hash": digest(encoded)}
 
 
-def verify_packet(packet: dict) -> None:
+def verify_packet(packet: dict, config: Config | None = None) -> None:
+    active_config = config is not None
+    config = (config or Config()).validate()
     keys = {
         "schema_version",
         "base",
@@ -242,6 +247,8 @@ def verify_packet(packet: dict) -> None:
         "classification_limit",
         "packet_hash",
     }
+    if isinstance(packet, dict) and "allow_paths" in packet:
+        keys.add("allow_paths")
     if (
         not isinstance(packet, dict)
         or set(packet) != keys
@@ -259,6 +266,15 @@ def verify_packet(packet: dict) -> None:
     changed = packet["changed_paths"]
     if any(not isinstance(path, str) for path in changed) or len(set(changed)) != len(changed):
         raise AssistantError("packet_coverage_invalid")
+    if "allow_paths" not in packet:
+        if active_config:
+            raise AssistantError("packet_allow_paths_missing")
+    elif not isinstance(packet["allow_paths"], list) or packet["allow_paths"] != list(config.allow_paths):
+        raise AssistantError("packet_allow_paths_mismatch")
+    if packet["profile"] != config.profile:
+        raise AssistantError("packet_profile_mismatch")
+    for name in changed:
+        check_text(name, extra_patterns=config.extra_sensitive_patterns)
     accounted = []
     for item in packet["omitted"]:
         if (
@@ -267,14 +283,16 @@ def verify_packet(packet: dict) -> None:
             or not isinstance(item["reason"], str)
         ):
             raise AssistantError("packet_schema_invalid")
-        accounted.append(check_path(item["path"], source_only=False, metadata_only=True))
+        accounted.append(config.check_path(item["path"], source_only=False, metadata_only=True))
     for item in packet["files"]:
         file_keys = {"path", "status", "before", "after", "before_hash", "after_hash"}
         if packet["schema_version"] == 2:
             file_keys |= {"before_mode", "after_mode"}
         if not isinstance(item, dict) or set(item) != file_keys or item["status"] not in {"A", "D", "M", "T"}:
             raise AssistantError("packet_schema_invalid")
-        accounted.append(check_path(item["path"]))
+        accounted.append(config.check_path(item["path"]))
+        if not config.allows(item["path"]):
+            raise AssistantError("packet_outside_allowlist")
         if item["before"] is None and item["after"] is None:
             raise AssistantError("packet_schema_invalid")
         for side in ("before", "after"):
@@ -290,17 +308,17 @@ def verify_packet(packet: dict) -> None:
     if digest(canonical({k: v for k, v in packet.items() if k != "packet_hash"})) != expected:
         raise AssistantError("packet_integrity_failed")
     for file in packet["files"]:
-        check_path(file["path"])
+        config.check_path(file["path"])
         for side in ("before", "after"):
             data = file[side]
             if (digest(data.encode()) if data is not None else None) != file[side + "_hash"]:
                 raise AssistantError("file_integrity_failed")
             if data is not None:
-                check_text(data)
+                check_text(data, extra_patterns=config.extra_sensitive_patterns)
 
 
-def triage(packet: dict) -> dict:
-    verify_packet(packet)
+def triage(packet: dict, config: Config | None = None) -> dict:
+    verify_packet(packet, config)
     risks = set()
     for path in packet["changed_paths"]:
         lower = path.lower()

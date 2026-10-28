@@ -128,10 +128,11 @@ finassist --config finassist.json propose --packet .finassist/context.json \
 # On a clean feature branch, explicitly apply only the inspected artifact
 finassist --config finassist.json apply --repo . --proposal .finassist/proposal.json \
   --approve-hash YOUR_INSPECTED_PROPOSAL_HASH
-finassist rollback --repo . --patch-hash YOUR_INSPECTED_PROPOSAL_HASH
+finassist --config finassist.json rollback --repo . --patch-hash YOUR_INSPECTED_PROPOSAL_HASH
 ```
 
 See [workflow contracts](docs/workflows.md), [security boundaries](SECURITY.md),
+[all configuration options](docs/configuration.md),
 [configuration examples](examples), [evaluation](docs/evaluation.md) and
 the portable [evidence-review skill](skills/evidence-review/SKILL.md).
 Optional native reviewer roles are described in [agent integration](docs/integrations.md).

@@ -67,8 +67,14 @@ def test_partial_review_cannot_propose_changes_to_omitted_source(repository, tmp
         "patch": "diff --git a/src/other.py b/src/other.py\n--- a/src/other.py\n+++ b/src/other.py\n@@ -1 +1 @@\n-value = 1\n+value = 2\n",
     }
     assert packet["omitted"] == [{"path": "src/other.py", "reason": "outside_allowlist"}]
-    with pytest.raises(AssistantError, match="proposal_outside_review_scope"):
-        generate(packet, replace(model_config(), allow_partial_review=True), tmp_path, candidate, monkeypatch)
+    with pytest.raises(AssistantError, match="patch_path_not_approved"):
+        generate(
+            packet,
+            replace(model_config(), allow_partial_review=True, allow_paths=("src/cash.py",)),
+            tmp_path,
+            candidate,
+            monkeypatch,
+        )
     assert (repo / "src/other.py").read_text(encoding="utf-8") == "value = 1\n"
 
 

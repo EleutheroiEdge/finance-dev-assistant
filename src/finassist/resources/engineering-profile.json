@@ -1,0 +1,6 @@
+{
+  "engineering": [
+    "Check infrastructure and application changes against the project specification.",
+    "Use synthetic inputs to reproduce boundary and concurrency defects."
+  ]
+}

@@ -19,7 +19,7 @@ import time
 from . import __version__
 from .auditing import command_audit
 from .platform_support import private_state_protection
-from .config import Config, PROVIDERS, PROFILES, load_config, save_config
+from .config import Config, PROVIDERS, load_config, save_config
 from .demo import run_demo
 from .errors import AssistantError
 from .evaluation import evaluate, score
@@ -35,7 +35,7 @@ from .readiness import verify_gate
 from .review import review_packet
 from .runner import run_recipe
 from .scope import build_packet, git, resolve, triage
-from .security import canonical, check_path, check_text, digest, regular_path, write_private
+from .security import canonical, check_text, digest, regular_path, write_private
 from .workspace import export_snapshot
 
 
@@ -73,7 +73,7 @@ def parser() -> argparse.ArgumentParser:
     init.add_argument("--output", default="finassist.json")
     init.add_argument("--provider", choices=sorted(PROVIDERS), default="offline")
     init.add_argument("--model", default="")
-    init.add_argument("--profile", choices=sorted(PROFILES), default="finance-saas")
+    init.add_argument("--profile", help="Name in the configured profile registry")
     commands.add_parser(
         "doctor", help="Check runtime, provider setup and container availability without network"
     )
@@ -203,7 +203,15 @@ def execute(args, config: Config | None = None) -> int:
     config = config or load_config(args.config)
     if args.command == "init":
         save_config(
-            Path(args.output), replace(config, provider=args.provider, model=args.model, profile=args.profile)
+            Path(args.output),
+            replace(
+                config,
+                provider=args.provider,
+                model=args.model,
+                profile=args.profile or config.profile,
+                profile_files=(),
+                profiles=dict(config.profiles),
+            ),
         )
         _emit({"created": args.output, "network_enabled": False})
     elif args.command == "doctor":
@@ -231,7 +239,7 @@ def execute(args, config: Config | None = None) -> int:
     elif args.command == "plan":
         packet = build_packet(args.repo, args.base, args.head, config)
         _emit(packet, args.output)
-        _emit({"packet_hash": packet["packet_hash"], "output": args.output, "triage": triage(packet)})
+        _emit({"packet_hash": packet["packet_hash"], "output": args.output, "triage": triage(packet, config)})
     elif args.command == "watch":
         if not 1 <= args.iterations <= 1000 or not 0.1 <= args.interval <= 300:
             raise AssistantError("invalid_watch_bounds")
@@ -240,7 +248,7 @@ def execute(args, config: Config | None = None) -> int:
             current = resolve(args.repo, args.head)
             if current != last:
                 packet = build_packet(args.repo, args.base, current, config)
-                _emit({"head": current, "triage": triage(packet), "network_called": False})
+                _emit({"head": current, "triage": triage(packet, config), "network_called": False})
                 last = current
             if index + 1 < args.iterations:
                 time.sleep(args.interval)
@@ -266,7 +274,7 @@ def execute(args, config: Config | None = None) -> int:
             )
         _emit(receipt)
     elif args.command == "rollback":
-        receipt = rollback_patch(args.repo, args.patch_hash)
+        receipt = rollback_patch(args.repo, args.patch_hash, config)
         with Ledger(audit_directory(args) / "audit.sqlite") as ledger:
             ledger.append(
                 {
@@ -345,7 +353,7 @@ def execute(args, config: Config | None = None) -> int:
             try:
                 if modes[name] not in {"100644", "100755"}:
                     raise AssistantError("linked_or_special_git_object")
-                check_path(name, source_only=False)
+                config.check_path(name, source_only=False)
             except AssistantError as exc:
                 findings.append({"path": name, "code": exc.code})
                 continue
