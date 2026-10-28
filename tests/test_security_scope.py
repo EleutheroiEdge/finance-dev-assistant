@@ -94,7 +94,7 @@ def test_coverage_omissions_are_explicit(repository):
     repo, base, head = repository
     packet = build_packet(repo, base, head, replace(Config(), allow_paths=("docs/",)))
     assert packet["omitted"] == [{"path": "src/cash.py", "reason": "outside_allowlist"}]
-    assert not triage(packet)["coverage_complete"]
+    assert not triage(packet, replace(Config(), allow_paths=("docs/",)))["coverage_complete"]
 
 
 def test_git_symlink_is_never_followed(repository):

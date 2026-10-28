@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, field, fields, replace
 from copy import deepcopy
 import json
+import ipaddress
 from fnmatch import fnmatchcase
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -30,6 +31,14 @@ DEFAULT_ENDPOINTS = {
     "ollama": "http://127.0.0.1:11434/api/chat",
 }
 DEFAULT_KEYS = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "google": "GEMINI_API_KEY"}
+
+
+class LoadedProfiles(dict):
+    """Resolved snapshot with non-serialized inline-definition provenance."""
+
+    def __init__(self, *args, inline=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.inline = deepcopy(inline)
 
 
 @dataclass(frozen=True)
@@ -121,11 +130,18 @@ class Config:
         if (
             not isinstance(self.github_host, str)
             or len(self.github_host) > 253
+            or "." not in self.github_host
             or not all(
                 re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
                 for label in self.github_host.split(".")
             )
         ):
+            raise AssistantError("invalid_github_host")
+        try:
+            ipaddress.ip_address(self.github_host)
+        except ValueError:
+            pass
+        else:
             raise AssistantError("invalid_github_host")
         if (
             not isinstance(self.profiles, dict)
@@ -146,14 +162,24 @@ class Config:
                 raise AssistantError("invalid_profile_checklist")
             for item in checklist:
                 check_text(item)
-        if self.profile not in self.profiles:
-            raise AssistantError("unknown_profile")
         if (
             not isinstance(self.profile_files, (list, tuple))
             or len(self.profile_files) > 16
             or any(not isinstance(item, str) or not item or "\0" in item for item in self.profile_files)
         ):
             raise AssistantError("invalid_profile_files")
+        if len(set(self.profile_files)) != len(self.profile_files):
+            raise AssistantError("duplicate_or_invalid_profile_file")
+        for filename in self.profile_files:
+            if filename.startswith("~") or not filename.endswith(".json"):
+                raise AssistantError("invalid_profile_files")
+            self.check_path(filename, source_only=False)
+        if self.profile_files and (
+            not isinstance(self.profiles, LoadedProfiles) or not isinstance(self.profiles.inline, dict)
+        ):
+            raise AssistantError("profile_files_require_load_config")
+        if self.profile not in self.profiles:
+            raise AssistantError("unknown_profile")
         if self.auth_header not in {"Authorization", "api-key", "x-api-key"}:
             raise AssistantError("unsupported_auth_header")
         for key in (
@@ -284,7 +310,9 @@ def load_config(path: Path | None = None) -> Config:
         if path.stat().st_size > 2_000_000:
             raise AssistantError("config_file_too_large")
         raw = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(raw, dict) or set(raw) - {item.name for item in fields(Config)}:
+        if not isinstance(raw, dict) or set(raw) - {
+            item.name for item in fields(Config) if not item.metadata.get("internal")
+        }:
             raise AssistantError("unknown_config_option")
         for key in (
             "allow_paths",
@@ -301,34 +329,61 @@ def load_config(path: Path | None = None) -> Config:
             if key in raw and isinstance(raw[key], list):
                 raw[key] = tuple(raw[key])
         config = Config(**raw)
-        if not isinstance(config.profile_files, (list, tuple)) or len(config.profile_files) > 16:
-            raise AssistantError("invalid_profile_files")
-        profiles = deepcopy(config.profiles)
-        if not isinstance(profiles, dict):
-            raise AssistantError("invalid_profiles")
-        loaded = set()
-        for filename in config.profile_files:
-            if not isinstance(filename, str) or not filename or "\0" in filename:
-                raise AssistantError("invalid_profile_files")
-            try:
-                source = regular_path(path.parent / filename)
-                if source.stat().st_size > 128_000:
-                    raise AssistantError("profile_file_too_large")
-                definitions = json.loads(source.read_text(encoding="utf-8"))
-            except OSError as exc:
-                raise AssistantError("profile_file_unavailable") from exc
-            except ValueError as exc:
-                raise AssistantError("profile_file_invalid") from exc
-            if not isinstance(definitions, dict) or loaded.intersection(definitions):
-                raise AssistantError("duplicate_or_invalid_profile_file")
-            loaded.update(definitions)
-            profiles.update(definitions)
-        from dataclasses import replace
-
-        return replace(config, profiles=profiles).validate()
+        return _load_profile_files(config, path.parent)
     except (ValueError, TypeError, OSError) as exc:
         raise AssistantError("invalid_config") from exc
 
 
+def _unique_profile_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise AssistantError("duplicate_or_invalid_profile_file")
+        result[key] = value
+    return result
+
+
+def _load_profile_files(config: Config, directory: Path) -> Config:
+    if not config.profile_files:
+        return config.validate()
+    # Validate all policies and raw references before opening any referenced file.
+    # The sentinel carries only inline definitions, never a machine-specific path.
+    inline = deepcopy(dict(config.profiles))
+    config = replace(config, profiles=LoadedProfiles(config.profiles, inline=inline))
+    replace(config, profile="general").validate()
+    profiles, loaded = deepcopy(config.profiles), set()
+    for filename in config.profile_files:
+        source = regular_path(directory / filename)
+        if not source.is_file():
+            raise AssistantError(
+                "profile_file_not_regular" if source.exists() else "profile_file_unavailable"
+            )
+        try:
+            if source.stat().st_size > 128_000:
+                raise AssistantError("profile_file_too_large")
+            definitions = json.loads(
+                source.read_text(encoding="utf-8"), object_pairs_hook=_unique_profile_object
+            )
+        except OSError as exc:
+            raise AssistantError("profile_file_unavailable") from exc
+        except ValueError as exc:
+            raise AssistantError("profile_file_invalid") from exc
+        if not isinstance(definitions, dict) or not definitions or loaded.intersection(definitions):
+            raise AssistantError("duplicate_or_invalid_profile_file")
+        loaded.update(definitions)
+        profiles.update(definitions)
+    return replace(config, profiles=LoadedProfiles(profiles, inline=inline)).validate()
+
+
 def save_config(path: Path, config: Config) -> None:
-    write_private(path, canonical(asdict(config.validate())) + b"\n")
+    config.validate()
+    document = asdict(config)
+    inline = config.profiles.inline if isinstance(config.profiles, LoadedProfiles) else None
+    if config.profile_files:
+        document["profiles"] = inline
+        # Saving relative references into another directory cannot silently bind
+        # to missing or different files. CLI init explicitly materializes a copy.
+        reloaded = _load_profile_files(replace(config, profiles=inline), regular_path(path).parent)
+        if reloaded.profiles != config.profiles:
+            raise AssistantError("profile_files_changed_reload")
+    write_private(path, canonical(document) + b"\n")

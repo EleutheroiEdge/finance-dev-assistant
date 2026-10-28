@@ -202,7 +202,14 @@ def execute(args, config: Config | None = None) -> int:
     if args.command == "init":
         save_config(
             Path(args.output),
-            replace(config, provider=args.provider, model=args.model, profile=args.profile or config.profile),
+            replace(
+                config,
+                provider=args.provider,
+                model=args.model,
+                profile=args.profile or config.profile,
+                profile_files=(),
+                profiles=dict(config.profiles),
+            ),
         )
         _emit({"created": args.output, "network_enabled": False})
     elif args.command == "doctor":
@@ -264,7 +271,7 @@ def execute(args, config: Config | None = None) -> int:
             )
         _emit(receipt)
     elif args.command == "rollback":
-        receipt = rollback_patch(args.repo, args.patch_hash)
+        receipt = rollback_patch(args.repo, args.patch_hash, config)
         with Ledger(audit_directory(args) / "audit.sqlite") as ledger:
             ledger.append(
                 {

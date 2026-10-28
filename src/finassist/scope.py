@@ -160,6 +160,7 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
         "head": head_sha,
         "merge_base": ancestor,
         "profile": config.profile,
+        "allow_paths": list(config.allow_paths),
         "changed_paths": changed,
         "files": files,
         "omitted": omitted,
@@ -173,7 +174,8 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
 
 
 def verify_packet(packet: dict, config: Config | None = None) -> None:
-    config = config or Config()
+    active_config = config is not None
+    config = (config or Config()).validate()
     keys = {
         "schema_version",
         "base",
@@ -187,6 +189,8 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
         "classification_limit",
         "packet_hash",
     }
+    if isinstance(packet, dict) and "allow_paths" in packet:
+        keys.add("allow_paths")
     if (
         not isinstance(packet, dict)
         or set(packet) != keys
@@ -204,6 +208,15 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
     changed = packet["changed_paths"]
     if any(not isinstance(path, str) for path in changed) or len(set(changed)) != len(changed):
         raise AssistantError("packet_coverage_invalid")
+    if "allow_paths" not in packet:
+        if active_config:
+            raise AssistantError("packet_allow_paths_missing")
+    elif not isinstance(packet["allow_paths"], list) or packet["allow_paths"] != list(config.allow_paths):
+        raise AssistantError("packet_allow_paths_mismatch")
+    if packet["profile"] != config.profile:
+        raise AssistantError("packet_profile_mismatch")
+    for name in changed:
+        check_text(name, extra_patterns=config.extra_sensitive_patterns)
     accounted = []
     for item in packet["omitted"]:
         if (
@@ -220,6 +233,8 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
         if not isinstance(item, dict) or set(item) != file_keys or item["status"] not in {"A", "D", "M", "T"}:
             raise AssistantError("packet_schema_invalid")
         accounted.append(config.check_path(item["path"]))
+        if not config.allows(item["path"]):
+            raise AssistantError("packet_outside_allowlist")
         if item["before"] is None and item["after"] is None:
             raise AssistantError("packet_schema_invalid")
         for side in ("before", "after"):
@@ -241,7 +256,7 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
             if (digest(data.encode()) if data is not None else None) != file[side + "_hash"]:
                 raise AssistantError("file_integrity_failed")
             if data is not None:
-                check_text(data)
+                check_text(data, extra_patterns=config.extra_sensitive_patterns)
 
 
 def triage(packet: dict, config: Config | None = None) -> dict:

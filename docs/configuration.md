@@ -14,8 +14,8 @@ with `unknown_config_option`; no provider is selected from an existing key.
 | `auth_header` | Authorization, api-key or x-api-key for the selected endpoint. |
 | `profile` | Selected name from the resolved profiles registry. |
 | `profiles` | Registry of names to nonempty checklist arrays. Replaces built-ins when supplied; general is required. |
-| `profile_files` | JSON registry files, loaded relative to this config file (or explicit absolute paths). Definitions overlay profiles; duplicates across files fail. |
-| `denied_parts` | Case-insensitive private path components. Remove portfolios only for approved source code; .git and .finassist remain required. |
+| `profile_files` | JSON registry files, strict relative POSIX .json paths inside this config directory. Definitions overlay profiles; duplicate paths, names and empty files fail. |
+| `denied_parts` | Lowercase private path component names (matched case-insensitively). Remove portfolios only for approved source code; .git and .finassist remain required. |
 | `text_suffixes` | Lowercase source suffixes including the dot. Add .tf/.cs explicitly. Binary/credential file restrictions remain. |
 | `github_host` | GitHub DNS hostname, without scheme, path or port. Defaults to github.com; Enterprise uses existing gh auth. |
 | `allow_network` | Enable potential network use. Each command still needs its own explicit network approval. |
@@ -46,7 +46,11 @@ Today’s denied component names and source suffixes remain the defaults. A path
 under `src/portfolios/` needs both an allowed source prefix and explicit removal
 of `portfolios` from `denied_parts`. Paths stay relative, reject traversal and
 links, and are rechecked throughout planning, verification, export, evaluation,
-proposals and rollback. The approved path policy is saved in patch backups.
+proposals and rollback. Packets capture `allow_paths` and the selected profile;
+active review/readiness requires an exact match and re-screens custom content
+patterns. Rebuild older packets lacking scope-policy evidence before active use.
+The approved path policy is saved in patch backups; CLI rollback also enforces
+the active configuration before writing any file.
 Runtime/Git internals, environment files, private profile filenames, credential
 formats and binary restrictions remain intrinsic protections. There is no bypass switch.
 
@@ -58,13 +62,20 @@ are data, never Python/plugins or executable templates. File paths resolve from
 the config file directory, not the shell working directory. Missing, malformed,
 linked or oversized files fail before model work. Names are lowercase slugs;
 checklists have 1–64 nonempty entries of at most 2,000 characters. At most 16
-files of 128,000 bytes each are loaded. Duplicate names across files fail.
+files of 128,000 bytes each are loaded. References must pass the configured denied
+path policy and cannot contain absolute paths, home expansion, traversal or links.
+Directories and FIFOs are rejected before opening. Duplicate JSON keys and names
+across files fail.
 
 The loaded registry is captured once per `load_config` call. Its content and
 file references enter the configuration digest. Changing a checklist invalidates
-old review/readiness evidence on reload. Saving preserves references and writes
-resolved checklists inline; referenced files overlay those values when reloaded.
-Library callers can provide `profiles` directly or use `load_config` for files.
+old review/readiness evidence on reload. Saving preserves references and only the
+original inline definitions, so deleting a file definition removes it on reload.
+A save checks the destination's referenced files against the captured snapshot.
+`init --output` materializes resolved definitions and clears file references, making
+copies portable across directories. Library callers supply `profiles` directly or
+use `load_config` for files; a raw `Config(profile_files=...)` fails explicitly with
+`profile_files_require_load_config` instead of silently ignoring references.
 The fixed authority instructions remain outside all custom checklist content.
 
 ## GitHub Enterprise
@@ -74,7 +85,11 @@ fixed metadata GETs pass it as a literal `gh api --hostname` argument. The GitHu
 CLI selects the Enterprise API prefix and consumes its existing authentication;
 the assistant does not log in, extract a token, change TLS verification or follow
 model-selected URLs. Reports include the host so public and Enterprise snapshots
-cannot be confused. `allow_network` and `--allow-network` are still both required.
+cannot be confused. IP literals and single-label hosts are rejected. Public
+`GH_TOKEN`/`GITHUB_TOKEN` values are used only for github.com. Other hosts use
+existing per-host CLI authentication or explicitly supplied Enterprise token
+variables; for .ghe.com the selected Enterprise credential is mapped to gh's cloud
+variable, without forwarding the public token. `allow_network` and `--allow-network` are still both required.
 See the [GitHub CLI API reference](https://cli.github.com/manual/gh_api).
 
 ## Validation errors

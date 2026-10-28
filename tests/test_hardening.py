@@ -57,7 +57,7 @@ def test_mixed_commit_retains_excluded_assets_and_lockfile_metadata(repository):
     command(repo, "add", "requirements.lock", "diagram.png")
     command(repo, "commit", "-m", "Synthetic mixed source and assets")
     packet = build_packet(repo, base, "HEAD", replace(Config(), allow_paths=("src/",)))
-    verify_packet(packet)
+    verify_packet(packet, replace(Config(), allow_paths=("src/",)))
     assert {item["path"] for item in packet["omitted"]} == {"requirements.lock", "diagram.png"}
     assert "fictional-binary" not in json.dumps(packet)
 

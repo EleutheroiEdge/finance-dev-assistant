@@ -231,7 +231,7 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
     return receipt
 
 
-def rollback_patch(repo: Path, patch_hash: str) -> dict:
+def rollback_patch(repo: Path, patch_hash: str, config: Config | None = None) -> dict:
     if not re.fullmatch(r"[0-9a-f]{64}", patch_hash):
         raise AssistantError("invalid_patch_hash")
     path = regular_path(repo / ".finassist" / "patches" / (patch_hash + ".json"))
@@ -256,6 +256,21 @@ def rollback_patch(repo: Path, patch_hash: str) -> dict:
     if not isinstance(selected_policy, dict) or set(selected_policy) - {"denied_parts", "text_suffixes"}:
         raise AssistantError("patch_backup_integrity_failed")
     policy = Config(allow_paths=(), protected_paths=(), **selected_policy).validate()
+    if config is not None:
+        config.validate()
+        for name in saved["before"]:
+            config.check_path(name)
+            if not config.allows(name) or config.protected(name):
+                raise AssistantError("rollback_outside_active_policy")
+            for encoded in (saved["before"][name],):
+                if encoded is not None:
+                    check_text(
+                        base64.b64decode(encoded, validate=True).decode("utf-8"),
+                        extra_patterns=config.extra_sensitive_patterns,
+                    )
+            target = regular_path(repo / name)
+            if target.is_file():
+                check_text(target.read_text(encoding="utf-8"), extra_patterns=config.extra_sensitive_patterns)
     for name, expected in receipt["after"].items():
         target = regular_path(repo / policy.check_path(name))
         actual = digest(target.read_bytes()) if target.exists() else None

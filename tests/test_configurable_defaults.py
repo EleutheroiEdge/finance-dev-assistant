@@ -24,11 +24,11 @@ def test_fork_path_policy_reaches_plan_review_snapshot_patch_and_rollback(reposi
     repo, _, _ = repository
     path = repo / ("src/portfolios/model" + suffix)
     path.parent.mkdir()
-    path.write_text("value = 1\n", encoding="utf-8")
+    path.write_text("value = 1\n", encoding="utf-8", newline="\n")
     command(repo, "add", "src/portfolios")
     command(repo, "commit", "-m", "Synthetic fork baseline")
     base = command(repo, "rev-parse", "HEAD")
-    path.write_text("value = 2\n", encoding="utf-8")
+    path.write_text("value = 2\n", encoding="utf-8", newline="\n")
     command(repo, "add", "src/portfolios")
     command(repo, "commit", "-m", "Synthetic fork candidate")
     config = replace(
@@ -54,9 +54,9 @@ def test_fork_path_policy_reaches_plan_review_snapshot_patch_and_rollback(reposi
     )
     manifest = export_snapshot(repo, "HEAD", tmp_path / "snapshot", config)
     assert any(row["path"] == path.relative_to(repo).as_posix() for row in manifest["files"])
-    path.write_text("value = 3\n", encoding="utf-8")
+    path.write_text("value = 3\n", encoding="utf-8", newline="\n")
     patch = command(repo, "diff") + "\n"
-    path.write_text("value = 2\n", encoding="utf-8")
+    path.write_text("value = 2\n", encoding="utf-8", newline="\n")
     artifact = {"head": packet["head"], "patch": patch, "summary": "Synthetic change"}
     approved = digest(canonical(artifact))
     apply_patch_artifact(repo, artifact, approved, config)
@@ -81,10 +81,14 @@ def test_fork_path_policy_reaches_plan_review_snapshot_patch_and_rollback(reposi
 def test_profile_files_are_relative_data_and_content_bound(tmp_path, monkeypatch, repository):
     source = tmp_path / "profiles/custom.json"
     source.parent.mkdir()
-    source.write_text(json.dumps({"custom": ["Inspect synthetic invariant Ω."]}), encoding="utf-8")
+    source.write_text(
+        json.dumps({"custom": ["Inspect synthetic invariant Ω."]}), encoding="utf-8", newline="\n"
+    )
     path = tmp_path / "config.json"
     path.write_text(
-        json.dumps({"profile": "custom", "profile_files": ["profiles/custom.json"]}), encoding="utf-8"
+        json.dumps({"profile": "custom", "profile_files": ["profiles/custom.json"]}),
+        encoding="utf-8",
+        newline="\n",
     )
     monkeypatch.chdir(repository[0])
     config = load_config(path)
@@ -92,7 +96,9 @@ def test_profile_files_are_relative_data_and_content_bound(tmp_path, monkeypatch
     assert "cannot execute tools" in config.instructions()
     before = digest(canonical(asdict(config)))
     save_config(tmp_path / "saved.json", config)
-    source.write_text(json.dumps({"custom": ["Inspect a changed invariant."]}), encoding="utf-8")
+    source.write_text(
+        json.dumps({"custom": ["Inspect a changed invariant."]}), encoding="utf-8", newline="\n"
+    )
     loaded = load_config(tmp_path / "saved.json")
     assert digest(canonical(asdict(loaded))) != before
     assert "changed invariant" in loaded.instructions()
@@ -191,16 +197,18 @@ def test_invalid_configuration_has_specific_errors(field, value, code):
 
 def test_profile_file_failures_are_bounded_and_do_not_execute(tmp_path):
     path = tmp_path / "config.json"
-    path.write_text(json.dumps({"profile_files": ["missing.json"]}), encoding="utf-8")
+    path.write_text(json.dumps({"profile_files": ["missing.json"]}), encoding="utf-8", newline="\n")
     with pytest.raises(AssistantError, match="profile_file_unavailable"):
         load_config(path)
     source = tmp_path / "profile.json"
-    source.write_text("[]", encoding="utf-8")
-    path.write_text(json.dumps({"profile_files": ["profile.json"]}), encoding="utf-8")
+    source.write_text("[]", encoding="utf-8", newline="\n")
+    path.write_text(json.dumps({"profile_files": ["profile.json"]}), encoding="utf-8", newline="\n")
     with pytest.raises(AssistantError, match="duplicate_or_invalid_profile_file"):
         load_config(path)
-    source.write_text(json.dumps({"custom": ["Bounded data"]}), encoding="utf-8")
-    path.write_text(json.dumps({"profile_files": ["profile.json", "profile.json"]}), encoding="utf-8")
+    source.write_text(json.dumps({"custom": ["Bounded data"]}), encoding="utf-8", newline="\n")
+    path.write_text(
+        json.dumps({"profile_files": ["profile.json", "profile.json"]}), encoding="utf-8", newline="\n"
+    )
     with pytest.raises(AssistantError, match="duplicate_or_invalid_profile_file"):
         load_config(path)
 
