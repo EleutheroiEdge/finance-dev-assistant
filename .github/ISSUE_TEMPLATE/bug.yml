@@ -1,0 +1,24 @@
+name: Bug report
+description: Report a reproducible defect using synthetic inputs.
+title: '[Bug] '
+body:
+  - type: markdown
+    attributes:
+      value: 'For security concerns, read SECURITY.md instead. Never include keys, private source, account data, personal identifiers or full private logs.'
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Synthetic reproduction
+      description: Minimal commands and fictional inputs, expected result and observed result.
+    validations: {required: true}
+  - type: input
+    id: version
+    attributes:
+      label: Version and platform
+      description: Package version, Python version and operating system; omit usernames and local paths.
+    validations: {required: true}
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized evidence
+      description: Relevant error codes or small redacted output only.

@@ -1,0 +1,7 @@
+name: Python and dashboard source
+paths-ignore:
+  - src/finassist/resources/dashboard
+  - dashboard/node_modules
+  - dashboard/test-results
+  - dist
+  - build

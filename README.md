@@ -1,5 +1,7 @@
 # Finance Developer Assistant
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/EleutheroiEdge/finance-dev-assistant/badge)](https://scorecard.dev/viewer/?uri=github.com/EleutheroiEdge/finance-dev-assistant)
+
 An evidence-first, model-neutral developer assistant for finance software.
 Inspect committed changes, challenge their assumptions, reproduce findings,
 and propose small fixes while preserving project authority and private data.

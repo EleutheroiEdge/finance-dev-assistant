@@ -1,0 +1,20 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule: {interval: weekly, day: monday, time: '08:00', timezone: Etc/UTC}
+    groups:
+      python-dependencies: {patterns: ['*']}
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /dashboard
+    schedule: {interval: weekly, day: monday, time: '08:00', timezone: Etc/UTC}
+    groups:
+      dashboard-dependencies: {patterns: ['*']}
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly, day: monday, time: '08:00', timezone: Etc/UTC}
+    groups:
+      action-dependencies: {patterns: ['*']}
+    open-pull-requests-limit: 5

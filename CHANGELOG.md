@@ -2,6 +2,11 @@
 
 ## Next
 
+- Add grouped weekly dependency updates, Python/JavaScript CodeQL and OpenSSF
+  Scorecard configuration, with pinned actions and explicit fork limitations.
+- Add issue/PR templates, code ownership, a Contributor Covenant conduct policy
+  and an owner-only repository security-settings checklist.
+
 - Add Windows and macOS native CI alongside Linux, retaining required check names.
 - Standardize UTF-8/universal-newline reads and LF writes; lint missing encodings.
 - Discover native tools, supervise Windows commands with job cleanup, support
