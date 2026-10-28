@@ -1,4 +1,5 @@
 {
+  "$schema": "../schemas/finassist.schema.json",
   "schema_version": 1,
   "provider": "anthropic",
   "model": "YOUR_MODEL",

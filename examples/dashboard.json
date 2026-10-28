@@ -1,4 +1,5 @@
 {
+  "$schema": "../schemas/finassist.schema.json",
   "provider": "offline",
   "model": "",
   "daily_budget_usd": 5.0,

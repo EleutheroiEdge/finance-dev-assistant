@@ -19,6 +19,10 @@ Earlier 0.2.0 entries below describe development milestones, not a PyPI release.
 
 ## Next
 
+- Publish a generated configuration JSON Schema, editor-enabled examples and
+  schema/CLI regression checks without fetching editor hints at runtime.
+- Document trust boundaries, a fictional firm customization walkthrough and
+  command exit codes/JSON output contracts for users and integrations.
 - Add grouped weekly dependency updates, Python/JavaScript CodeQL and OpenSSF
   Scorecard configuration, with pinned actions and explicit fork limitations.
 - Add issue/PR templates, code ownership, a Contributor Covenant conduct policy

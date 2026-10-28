@@ -15,6 +15,7 @@ def export_kit(destination: Path) -> dict:
         raise AssistantError("integration_destination_exists")
     destination.mkdir(mode=0o700, parents=True)
     mapping = {
+        "schemas/finassist.schema.json": "finassist.schema.json",
         "evidence-review/SKILL.md": "skill.md",
         "roles/claude-reviewer.md": "claude-reviewer.md",
         "roles/codex-reviewer.toml": "codex-reviewer.toml",

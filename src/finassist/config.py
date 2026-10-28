@@ -45,12 +45,12 @@ class LoadedProfiles(dict):
 
 @dataclass(frozen=True)
 class Config:
-    schema_version: int = 1
-    provider: str = "offline"
+    schema_version: int = field(default=1, metadata={"json_schema": {"const": 1}})
+    provider: str = field(default="offline", metadata={"json_schema": {"enum": sorted(PROVIDERS)}})
     model: str = ""
     endpoint: str = ""
     api_key_env: str = ""
-    auth_header: str = "Authorization"
+    auth_header: str = field(default="Authorization", metadata={"json_schema": {"enum": ["Authorization", "api-key", "x-api-key"]}})
     profile: str = "finance-saas"
     profiles: dict = field(default_factory=lambda: deepcopy(DEFAULT_PROFILES))
     profile_files: tuple[str, ...] = ()
@@ -82,20 +82,20 @@ class Config:
     )
     protected_branches: tuple[str, ...] = ("main", "master", "trunk", "production", "release", "release/*")
     extra_sensitive_patterns: tuple[str, ...] = ()
-    max_file_bytes: int = 48_000
-    max_packet_bytes: int = 120_000
-    max_output_tokens: int = 4096
-    timeout_seconds: int = 60
-    max_run_usd: float = 1.0
-    daily_budget_usd: float = 5.0
-    monthly_budget_usd: float = 100.0
-    input_usd_per_million: float = 0.0
-    output_usd_per_million: float = 0.0
+    max_file_bytes: int = field(default=48_000, metadata={"json_schema": {"minimum": 1, "maximum": 2_000_000}})
+    max_packet_bytes: int = field(default=120_000, metadata={"json_schema": {"minimum": 1, "maximum": 2_000_000}})
+    max_output_tokens: int = field(default=4096, metadata={"json_schema": {"minimum": 1, "maximum": 2_000_000}})
+    timeout_seconds: int = field(default=60, metadata={"json_schema": {"minimum": 1, "maximum": 2_000_000}})
+    max_run_usd: float = field(default=1.0, metadata={"json_schema": {"minimum": 0}})
+    daily_budget_usd: float = field(default=5.0, metadata={"json_schema": {"minimum": 0}})
+    monthly_budget_usd: float = field(default=100.0, metadata={"json_schema": {"minimum": 0}})
+    input_usd_per_million: float = field(default=0.0, metadata={"json_schema": {"minimum": 0}})
+    output_usd_per_million: float = field(default=0.0, metadata={"json_schema": {"minimum": 0}})
     recipes: dict = field(default_factory=dict)
     runner_image: str = ""
     required_recipes: tuple[str, ...] = ()
     blocking_severities: tuple[str, ...] = ("critical", "high")
-    readiness_max_age_seconds: int = 86400
+    readiness_max_age_seconds: int = field(default=86400, metadata={"json_schema": {"minimum": 1, "maximum": 2_000_000}})
     allow_local_readiness: bool = False
 
     def validate(self) -> Config:
@@ -346,6 +346,11 @@ def load_config(path: Path | None = None, *, content: bytes | None = None) -> Co
         if (len(content) if content is not None else path.stat().st_size) > 2_000_000:
             raise AssistantError("config_file_too_large")
         raw = json.loads(content.decode("utf-8") if content is not None else read_utf8(path))
+        if isinstance(raw, dict) and "$schema" in raw:
+            schema_hint = raw.pop("$schema")
+            if not isinstance(schema_hint, str) or len(schema_hint) > 2048:
+                raise AssistantError("invalid_schema_hint")
+            # Editor metadata only: never fetch or execute the referenced document.
         if not isinstance(raw, dict) or set(raw) - {
             item.name for item in fields(Config) if not item.metadata.get("internal")
         }:
