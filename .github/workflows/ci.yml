@@ -60,7 +60,13 @@ jobs:
         run: git diff --exit-code -- src/finassist/resources/dashboard
       - run: pnpm run test
         working-directory: dashboard
-      - run: pnpm exec playwright install --with-deps chromium
+      - name: Install Chromium and Linux system libraries
+        if: runner.os == 'Linux'
+        run: pnpm exec playwright install --with-deps chromium
+        working-directory: dashboard
+      - name: Install Chromium on Windows and macOS
+        if: runner.os != 'Linux'
+        run: pnpm exec playwright install chromium
         working-directory: dashboard
       - run: pnpm run e2e
         working-directory: dashboard
