@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "images": {
+    "docs/images/dashboard-configuration.png": "8cbe04f9178d09dc053efca7fcf27b2ab6b7b2dcd0170f33893719821c05682d",
+    "docs/images/dashboard-health.png": "cc436d817e8bcbce6f776bb233b86e062645b7b1be1fb5f33fd8d105689963a2",
+    "docs/images/dashboard-statistics.png": "69fb7569d82631d0ab3e0704e69e072cd3546b6675576b1f0abef40ac05a2561"
+  }
+}

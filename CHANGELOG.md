@@ -2,6 +2,11 @@
 
 ## Next
 
+- Simplify the README with local-first privacy guidance, installation paths,
+  badges, a real offline terminal recording and three synthetic dashboard captures.
+- Add reproducible media tooling and tightly catalogued public PNG verification
+  while retaining private/binary publication refusals outside reviewed docs images.
+
 - Add Windows and macOS native CI alongside Linux, retaining required check names.
 - Standardize UTF-8/universal-newline reads and LF writes; lint missing encodings.
 - Discover native tools, supervise Windows commands with job cleanup, support
