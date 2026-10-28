@@ -59,8 +59,8 @@ for UTF-8, permissions, Git modes and Docker Desktop details.
 
 The demo uses fictional finance checks and needs no key, model download or
 container. It demonstrates deterministic oracles, not model review quality.
-[Download the short terminal recording](docs/images/demo.cast) and play it locally
-with `asciinema play docs/images/demo.cast`; no hosting account is needed.
+[Download the short terminal recording](docs/images/demo.cast.txt) and play it locally
+with `asciinema play docs/images/demo.cast.txt`; no hosting account is needed.
 
 ## Dashboard preview
 

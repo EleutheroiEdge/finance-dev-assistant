@@ -76,7 +76,7 @@ def test_publication_scan_accepts_only_explicitly_catalogued_png(repository, cap
 
 
 def test_recording_contains_real_synthetic_demo_json_without_host_identity():
-    rows = [json.loads(line) for line in (ROOT / "docs/images/demo.cast").read_text(encoding="utf-8").splitlines()]
+    rows = [json.loads(line) for line in (ROOT / "docs/images/demo.cast.txt").read_text(encoding="utf-8").splitlines()]
     assert rows[0]["version"] == 2
     assert set(rows[0]) == {"version", "width", "height", "title", "env"}
     assert rows[0]["env"] == {"TERM": "xterm-256color"}

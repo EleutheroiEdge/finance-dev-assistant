@@ -7,7 +7,8 @@ small OS/path environment allowlist, excluding provider keys. External browser
 requests are refused. These images were captured against the 0.3.0 release-candidate
 wheel; the seed script creates synthetic metadata, not measured provider results.
 
-The asciinema v2 recording contains the actual `finassist demo` JSON, formatted for
+The recording uses a `.cast.txt` filename so the existing text-source policy can
+inspect it without adding another allowed suffix. The asciinema v2 recording contains the actual `finassist demo` JSON, formatted for
 reading. It includes no shell history, usernames, local paths, timestamp header,
 credentials or environment dump. Play it locally; no account/upload is required.
 

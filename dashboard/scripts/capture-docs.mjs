@@ -23,7 +23,7 @@ try {
     child.stdout.on('data', block => {text += block.toString('utf8'); const m = text.match(/Dashboard: (http:\/\/127\.0\.0\.1:\d+)/); if (m) {clearTimeout(timer); resolve(m[1]);}});
     child.once('exit', () => { clearTimeout(timer); reject(new Error('Dashboard exited')); });
   });
-  browser = await chromium.launch();
+  browser = await chromium.launch({env});
   const page = await browser.newPage({ viewport: {width: 1280, height: 900}, deviceScaleFactor: 1 });
   const external = [];
   await page.route('**/*', route => {
