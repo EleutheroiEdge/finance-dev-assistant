@@ -3,7 +3,7 @@ requires = ["setuptools==80.9.0", "wheel==0.45.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "finassist"
+name = "finledgerpoli"
 version = "0.3.0"
 description = "Evidence-first, model-neutral developer assistance for finance software"
 requires-python = ">=3.11"
@@ -16,6 +16,7 @@ dev = ["pytest==8.4.2", "ruff==0.14.3", "PyYAML==6.0.3"]
 
 [project.scripts]
 finassist = "finassist.cli:main"
+finledgerpoli = "finassist.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

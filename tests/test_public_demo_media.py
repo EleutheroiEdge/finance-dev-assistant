@@ -90,7 +90,8 @@ def test_recording_contains_real_synthetic_demo_json_without_host_identity():
 
 def test_readme_keeps_release_and_media_claims_honest():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert "Local-first, no telemetry" in readme and "pipx install finassist" in readme
+    assert "Local-first, no telemetry" in readme and "pipx install finledgerpoli" in readme
+    assert "pip install finledgerpoli" in readme
     assert "After the first PyPI" in readme and "PyPI badge will be added after" in readme
     assert readme.count("](docs/images/dashboard-") == 3
     assert "All displayed spend" in readme and "fictional" in readme

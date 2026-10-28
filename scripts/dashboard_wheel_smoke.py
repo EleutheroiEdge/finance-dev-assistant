@@ -21,6 +21,6 @@ with tempfile.TemporaryDirectory(prefix="dashboard-install-") as directory:
     environment = temporary / "venv"
     venv.EnvBuilder(with_pip=True).create(environment)
     python = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
-    wheel = next(wheels.glob("finassist-*.whl"))
+    wheel = next(wheels.glob("finledgerpoli-*.whl"))
     run(python, "-m", "pip", "install", "-c", root / "requirements-dev.lock", wheel)
     run(python, root / "scripts/dashboard_smoke.py")

@@ -12,12 +12,14 @@ First public release, consolidating the work in #1 and #3–#5.
   process cleanup and Docker Desktop-compatible checks.
 - Dashboard: offline configuration previews, explicit saves, audit statistics and
   health checks, shipped prebuilt with no Node requirement at runtime.
-- Packaging: the distribution is named `finassist`; the command/import name remains
+- Packaging: the distribution is named `finledgerpoli`; the command/import name remains
   `finassist`. Add tag-only builds, SBOMs, provenance and approval-gated PyPI publishing.
 
 Earlier 0.2.0 entries below describe development milestones, not a PyPI release.
 
 ## Next
+
+- Rename the PyPI distribution to `finledgerpoli`, add its command alias and use its installed metadata while retaining the `finassist` import, command and state paths.
 
 - Simplify the README with local-first privacy guidance, installation paths,
   badges, a real offline terminal recording and three synthetic dashboard captures.

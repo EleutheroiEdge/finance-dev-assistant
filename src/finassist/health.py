@@ -3,14 +3,14 @@
 import os
 import platform
 
-from . import __version__
+from . import installed_version
 from .config import Config
 from .platform_support import tool_present, private_state_protection
 
 
 def doctor_report(config: Config) -> dict:
     return {
-        "version": __version__,
+        "version": installed_version(),
         "python": platform.python_version(),
         "platform": platform.system(),
         "provider": config.provider,

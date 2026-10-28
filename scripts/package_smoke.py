@@ -1,5 +1,6 @@
 """Exercise the installed wheel from an isolated temporary project, without model calls."""
 
+from importlib import metadata
 import json
 import os
 from pathlib import Path
@@ -14,6 +15,9 @@ from finassist.scope import git_environment
 assert "site-packages" in str(Path(finassist.__file__).resolve()), finassist.__file__
 if len(sys.argv) != 2:
     raise SystemExit("usage: python scripts/package_smoke.py EXAMPLES_DIRECTORY")
+distribution = metadata.distribution("finledgerpoli")
+assert distribution.metadata["Name"] == "finledgerpoli"
+assert finassist.installed_version() == distribution.version
 examples = Path(sys.argv[1]).resolve()
 with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
     root = Path(directory)
@@ -40,8 +44,16 @@ with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
             encoding="utf-8",
         ).strip()
 
+    for command in ("finassist", "finledgerpoli"):
+        executable = Path(sys.executable).with_name(command + (".exe" if sys.platform == "win32" else ""))
+        result = subprocess.run(
+            [str(executable), "--version"], cwd=root, capture_output=True,
+            text=True, encoding="utf-8", check=True, shell=False,
+        )
+        assert result.stdout.strip() == distribution.version, command
     assert cli("demo")[0]["status"] == "PASS"
     doctor = cli("doctor")[0]
+    assert doctor["version"] == distribution.version
     assert doctor["provider"] == "offline" and not doctor["container_daemon_checked"]
     cli("init", "--output", root / "config.json")
     kit = cli("export-kit", "--output", root / "kit")[0]

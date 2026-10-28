@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory(prefix="finassist-install-") as directory:
     environment = root / "environment"
     venv.EnvBuilder(with_pip=True).create(environment)
     python = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
-    wheel = next(wheels.glob("*.whl"))
+    wheel = next(wheels.glob("finledgerpoli-*.whl"))
     subprocess.run(
         [str(python), "-m", "pip", "install", "-c", "requirements-dev.lock", str(wheel)],
         check=True,

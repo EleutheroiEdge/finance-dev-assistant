@@ -29,10 +29,14 @@ binds only to `127.0.0.1`; Node is needed only for frontend development.
 ## Start in one minute
 
 Python 3.11+ is required; Git is needed for source workflows. After the first PyPI
-release is published, install the command with [pipx](https://pipx.pypa.io/):
+release is published, install with pip or [pipx](https://pipx.pypa.io/).
+The distribution is `finledgerpoli`; the command and import package remain
+`finassist`, with `finledgerpoli` also available as a command alias.
 
 ```sh
-pipx install finassist
+pip install finledgerpoli
+# Alternatively, use an isolated command environment:
+pipx install finledgerpoli
 finassist demo
 finassist doctor
 finassist init --output finassist.json
