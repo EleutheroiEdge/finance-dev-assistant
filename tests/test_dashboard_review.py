@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 import json
+import subprocess
 from pathlib import Path
 import sys
 
@@ -28,7 +29,29 @@ gate_bundle = test_readiness.gate_bundle
 @pytest.mark.parametrize("operation", ["plan", "check"])
 def test_plan_and_check_the_assistants_own_committed_tree(tmp_path, operation):
     root = Path(__file__).resolve().parents[1]
-    base = command(root, "rev-list", "--max-parents=0", "HEAD").splitlines()[0]
+    from finassist.scope import git_command, git_environment
+
+    # Preserve the exact committed tree, including the real large bundle, while
+    # supporting shallow/single-commit checkouts. Only unreachable Git objects
+    # are created; no source, index or branch reference is changed.
+    head = command(root, "rev-parse", "HEAD")
+    tree = command(root, "rev-parse", "HEAD^{tree}")
+    empty = (
+        subprocess.run(
+            git_command(root, "hash-object", "-t", "tree", "-w", "--stdin"),
+            input=b"",
+            capture_output=True,
+            env=git_environment(),
+            timeout=30,
+            check=True,
+        )
+        .stdout.decode("ascii")
+        .strip()
+    )
+    identity = ["-c", "user.name=Synthetic Scope", "-c", "user.email=scope@example.invalid"]
+    base = command(root, *identity, "commit-tree", empty, "-p", head, "-m", "Synthetic empty comparison")
+    candidate = command(root, *identity, "commit-tree", tree, "-p", base, "-m", "Exact committed source tree")
+    assert command(root, "rev-parse", candidate + "^{tree}") == tree
     script = "from pathlib import Path; assert Path('src/finassist/config.py').is_file(); assert not Path('src/finassist/resources/dashboard/assets').exists(); print('Synthetic scope check: PASS')"
     # Retain the 48 KB file ceiling. A whole-repository change needs a larger
     # packet ceiling, independently of the generated bundle exclusion.
@@ -47,7 +70,7 @@ def test_plan_and_check_the_assistants_own_committed_tree(tmp_path, operation):
         str(output),
     ]
     args += (
-        ["--base", base]
+        ["--base", base, "--head", candidate]
         if operation == "plan"
         else ["--recipe", "scope", "--backend", "local", "--approve-local"]
     )

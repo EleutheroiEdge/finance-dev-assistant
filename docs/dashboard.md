@@ -117,7 +117,9 @@ reviewable and protected by default.
 
 Regression checks run `plan` and an explicitly approved synthetic local `check`
 against this repository's actual committed tree. They retain the 48 KB file limit;
-the whole-repository plan uses an explicit larger packet limit. A generated file
+the whole-repository plan uses an explicit larger packet limit. A bounded synthetic
+comparison ancestry preserves the exact committed tree without changing source,
+index or branch references, and works in shallow or single-commit forks. A generated file
 outside a configured exclusion still fails the file limit.
 
 ## HTTP boundary
