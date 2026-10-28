@@ -65,6 +65,19 @@ def test_packaged_asset_bytes_survive_crlf_git_checkout(tmp_path):
         assert (root / path).read_bytes() == expected[path]
 
 
+def test_startup_never_performs_hostname_resolution(tmp_path, monkeypatch):
+    def forbidden(*_args):
+        raise AssertionError("Dashboard startup must not use a DNS resolver")
+
+    monkeypatch.setattr("socket.getfqdn", forbidden)
+    monkeypatch.setattr("socket.gethostbyaddr", forbidden)
+    monkeypatch.setattr("socket.getaddrinfo", forbidden)
+    with DashboardServer(
+        DashboardState(tmp_path.resolve() / "config.json", tmp_path.resolve() / "state")
+    ) as server:
+        assert server.server_address[0] == "127.0.0.1"
+
+
 @pytest.fixture
 def dashboard(tmp_path):
     path = tmp_path.resolve() / "configuration.json"

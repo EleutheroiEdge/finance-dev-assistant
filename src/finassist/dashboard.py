@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import secrets
+from socketserver import TCPServer
 import sqlite3
 import threading
 from urllib.parse import urlsplit, unquote
@@ -193,6 +194,13 @@ class DashboardServer(ThreadingHTTPServer):
             raise AssistantError("dashboard_assets_missing")
         super().__init__(("127.0.0.1", port), DashboardHandler)
         self.origin = "http://127.0.0.1:" + str(self.server_port)
+
+    def server_bind(self):
+        # HTTPServer normally calls socket.getfqdn() here. A fixed loopback
+        # listener needs no DNS, which can block on offline macOS hosts.
+        TCPServer.server_bind(self)
+        self.server_name = "127.0.0.1"
+        self.server_port = self.server_address[1]
 
     def get_request(self):
         connection, address = super().get_request()
