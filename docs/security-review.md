@@ -25,6 +25,23 @@ Tests use synthetic data, fake transports and actual bounded local Git/process
 operations. CI separately exercises the real OCI isolation/cleanup path. A model
 severity label was not used as the sole reason for a fix or acceptance claim.
 
+## Candidate follow-up
+
+Argon reviewed the first hardening candidate through the same constrained Cursor
+session. Its follow-up identified a reproducible readiness gap: a check run under
+a narrower configuration could be reused without proving that its snapshot
+contained the reviewed files. Check receipts and audit events now bind the exact
+configuration; the gate verifies reviewed-file hashes and modes in the snapshot.
+Regression tests cover both mismatches.
+
+The follow-up also led to regression-tested checks for incomplete diff sections,
+interrupted patch backups, lifecycle command mismatches, primary evidence-side
+line bounds, inherited GitHub routing/debug variables and ruleset-only branch
+classification. The suggested timestamp-override defect was already prevented
+by envelope construction; explicit reserved-field rejection now makes that
+contract visible. These are local reproductions and fixes, not a security
+certificate or a claim that the reviewer executed tests.
+
 ## GitHub and deployment observations
 
 The live baseline inspection found that this repository's main branch was

@@ -20,9 +20,26 @@ def patch_paths(patch: str, config: Config) -> list[str]:
         raise AssistantError("patch_limit_exceeded")
     paths = []
     in_hunk = False
+    headers, modes = set(), set()
+
+    def complete_section():
+        if not paths:
+            return
+        if headers == {"---", "+++"} and in_hunk:
+            return
+        if (
+            not headers
+            and not in_hunk
+            and (modes == {"old mode", "new mode"} or modes in ({"new file mode"}, {"deleted file mode"}))
+        ):
+            return
+        raise AssistantError("patch_header_mismatch")
+
     for line in patch.splitlines():
         if line.startswith("diff --git "):
+            complete_section()
             in_hunk = False
+            headers, modes = set(), set()
             match = re.fullmatch(r"diff --git a/([^\s]+) b/([^\s]+)", line)
             if not match or match[1] != match[2]:
                 raise AssistantError("patch_rename_or_path_invalid")
@@ -31,7 +48,7 @@ def patch_paths(patch: str, config: Config) -> list[str]:
                 raise AssistantError("patch_path_not_approved")
             paths.append(name)
         elif line.startswith("@@ "):
-            if not paths:
+            if not paths or headers != {"---", "+++"}:
                 raise AssistantError("patch_header_mismatch")
             in_hunk = True
         elif in_hunk:
@@ -41,13 +58,18 @@ def patch_paths(patch: str, config: Config) -> list[str]:
         elif line.startswith(("new file mode ", "deleted file mode ", "old mode ", "new mode ")):
             if line.split()[-1] not in {"100644", "100755"}:
                 raise AssistantError("patch_special_file")
+            modes.add(line.rsplit(" ", 1)[0])
         elif line.startswith(("rename ", "copy ", "GIT binary patch", "Binary files ")):
             raise AssistantError("patch_format_not_supported")
         elif line.startswith(("--- ", "+++ ")):
+            if line[:3] in headers:
+                raise AssistantError("patch_header_mismatch")
+            headers.add(line[:3])
             value = line[4:]
             if value != "/dev/null":
                 if not paths or not value.startswith(("a/", "b/")) or check_path(value[2:]) != paths[-1]:
                     raise AssistantError("patch_header_mismatch")
+    complete_section()
     if not paths or len(set(paths)) != len(paths):
         raise AssistantError("empty_or_duplicate_patch")
     return paths
@@ -78,6 +100,24 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
         raise AssistantError("private_state_tracked")
     if git(repo, "status", "--porcelain", "--untracked-files=normal", "--", ".", ":(exclude).finassist"):
         raise AssistantError("clean_worktree_required")
+    prior_patches = regular_path(repo / ".finassist" / "patches")
+    if prior_patches.exists():
+        for prior in prior_patches.glob("*.json"):
+            regular_path(prior)
+            if prior.name.endswith(".receipt.json"):
+                continue
+            try:
+                previous_receipt = json.loads(regular_path(prior.with_suffix(".receipt.json")).read_text())
+                valid = (
+                    isinstance(previous_receipt, dict)
+                    and previous_receipt.get("backup_hash") == digest(prior.read_bytes())
+                    and previous_receipt.get("patch_hash") == prior.stem
+                    and previous_receipt.get("state", "applied") in {"applied", "rolled_back"}
+                )
+            except (OSError, ValueError):
+                valid = False
+            if not valid:
+                raise AssistantError("incomplete_patch_reconciliation_required")
     paths = patch_paths(artifact["patch"], config)
     backup, modes = {}, {}
     for name in paths:
@@ -126,6 +166,7 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
         "paths": paths,
         "committed": False,
         "tests_executed": False,
+        "state": "applied",
     }
     write_private(backup_path.with_suffix(".receipt.json"), canonical(receipt))
     return receipt
@@ -150,6 +191,8 @@ def rollback_patch(repo: Path, patch_hash: str) -> dict:
         raise AssistantError("patch_backup_integrity_failed")
     if resolve(repo, "HEAD") != saved["head"]:
         raise AssistantError("rollback_head_changed")
+    if receipt.get("state", "applied") != "applied":
+        raise AssistantError("patch_not_applied")
     for name, expected in receipt["after"].items():
         target = regular_path(repo / check_path(name))
         actual = digest(target.read_bytes()) if target.exists() else None
@@ -163,4 +206,6 @@ def rollback_patch(repo: Path, patch_hash: str) -> dict:
         else:
             write_private(target, base64.b64decode(before, validate=True), replace=True)
             target.chmod(saved["modes"][name])
+    receipt["state"] = "rolled_back"
+    write_private(path.with_suffix(".receipt.json"), canonical(receipt), replace=True)
     return {"rolled_back": patch_hash, "paths": list(saved["before"])}

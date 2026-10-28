@@ -44,6 +44,13 @@ def validate_review(result: dict, packet: dict, *, extra_patterns: tuple[str, ..
             raise AssistantError("finding_line_invalid")
         if not any(e["path"] == finding["path"] for e in finding["evidence"]):
             raise AssistantError("finding_evidence_invalid")
+        if not any(
+            e["path"] == finding["path"]
+            and current[e["side"]] is not None
+            and finding["line"] <= max(1, len(current[e["side"]].splitlines()))
+            for e in finding["evidence"]
+        ):
+            raise AssistantError("finding_line_invalid")
         for evidence in finding["evidence"]:
             file = source.get(evidence["path"])
             if (

@@ -1,5 +1,5 @@
 from copy import deepcopy
-from dataclasses import replace
+from dataclasses import asdict, replace
 from decimal import Decimal
 import json
 import subprocess
@@ -42,7 +42,10 @@ def gate_bundle(repository, tmp_path, monkeypatch):
     )
     snapshot = {
         "head": head,
-        "files": [{"path": file["path"], "sha256": file["after_hash"]} for file in packet["files"]],
+        "files": [
+            {"path": file["path"], "sha256": file["after_hash"], "mode": file["after_mode"]}
+            for file in packet["files"]
+        ],
     }
     receipt = {
         "head": head,
@@ -53,9 +56,17 @@ def gate_bundle(repository, tmp_path, monkeypatch):
         "passed": True,
         "cleanup_verified": True,
         "isolation": "network-disabled container",
+        "config_hash": digest(canonical(asdict(config))),
     }
     with Ledger(state) as ledger:
-        ledger.append({"event": "check_completed", "head": head, "receipt_hash": digest(canonical(receipt))})
+        ledger.append(
+            {
+                "event": "check_completed",
+                "head": head,
+                "receipt_hash": digest(canonical(receipt)),
+                "config_hash": receipt["config_hash"],
+            }
+        )
     return packet, review, [{"receipt": receipt, "snapshot": snapshot}], config, head, state
 
 
@@ -109,18 +120,26 @@ def test_gate_rejects_fabricated_receipts_even_when_hashes_are_self_consistent(g
     )
 
 
-def test_github_inspection_uses_only_fixed_gets_and_identifies_missing_protection(monkeypatch):
+@pytest.mark.parametrize("rules", [[], [{"type": "pull_request"}]])
+def test_github_inspection_uses_only_fixed_gets_and_identifies_missing_protection(monkeypatch, rules):
     calls = []
+    for name in ("GH_HOST", "GH_REPO", "GH_DEBUG", "GH_CONFIG_DIR", "HTTPS_PROXY", "OPENAI_API_KEY"):
+        monkeypatch.setenv(name, "synthetic-override")
 
     def execute(argv, **kwargs):
         calls.append(argv)
         assert argv[1] == "api" and argv[-2:] == ["--hostname", "github.com"]
         assert not any(v in argv for v in ("--method", "--input", "--field", "-X"))
+        assert not any(
+            name in kwargs["env"]
+            for name in ("GH_HOST", "GH_REPO", "GH_DEBUG", "GH_CONFIG_DIR", "HTTPS_PROXY", "OPENAI_API_KEY")
+        )
+        assert kwargs["env"]["GH_PROMPT_DISABLED"] == "1"
         endpoint = argv[2]
         if endpoint.endswith("/protection"):
             return subprocess.CompletedProcess(argv, 1, json.dumps({"status": "404"}), "ignored diagnostic")
         if "/rules/" in endpoint:
-            value = []
+            value = rules
         elif "/branches/" in endpoint:
             value = {"name": "main", "protected": False, "commit": {"sha": "a" * 40}}
         else:
@@ -131,7 +150,9 @@ def test_github_inspection_uses_only_fixed_gets_and_identifies_missing_protectio
     monkeypatch.setattr("finassist.github_audit.subprocess.run", execute)
     config = replace(Config(), allow_network=True)
     report = inspect_github("example/repository", "main", config, network_approved=True)
-    assert "branch_unprotected" in report["issues"] and not report["merge_authority"]
+    assert ("branch_unprotected" in report["issues"]) is (not bool(rules))
+    assert ("ruleset_equivalence_requires_review" in report["issues"]) is bool(rules)
+    assert not report["merge_authority"] and report["status"] == "attention-required"
     assert len(calls) == 5
     with pytest.raises(AssistantError, match="network_not_approved"):
         inspect_github("example/repository", "main", config, network_approved=False)
@@ -143,14 +164,19 @@ def test_github_inspection_uses_only_fixed_gets_and_identifies_missing_protectio
 
 def test_gate_distinguishes_its_own_run_from_an_unfinished_operation(gate_bundle):
     from finassist.auditing import command_audit
+    from finassist.ledger import CURRENT_RUN
 
     packet, review, checks, config, head, state = gate_bundle
     with command_audit(state, "verify-gate", config):
         assert (
             verify_gate(packet, review, checks, config, head, state)["status"] == "eligible-for-human-review"
         )
-    with Ledger(state) as ledger:
-        ledger.append({"event": "command_started", "command": "apply", "run_id": "b" * 32})
+    token = CURRENT_RUN.set("b" * 32)
+    try:
+        with Ledger(state) as ledger:
+            ledger.append({"event": "command_started", "command": "apply"})
+    finally:
+        CURRENT_RUN.reset(token)
     assert (
         "unfinished_operation" in verify_gate(packet, review, checks, config, head, state)["blocking_reasons"]
     )
@@ -184,5 +210,44 @@ def test_legacy_packets_are_inspectable_but_not_readiness_evidence(gate_bundle):
     verify_packet(packet)
     assert (
         "packet_mode_evidence_missing"
+        in verify_gate(packet, review, checks, config, head, state)["blocking_reasons"]
+    )
+
+
+def test_gate_rejects_even_audited_snapshots_missing_reviewed_source(gate_bundle):
+    packet, review, checks, config, head, state = gate_bundle
+    checks[0]["snapshot"]["files"] = []
+    checks[0]["receipt"]["snapshot_hash"] = digest(canonical(checks[0]["snapshot"]))
+    with Ledger(state) as ledger:
+        ledger.append(
+            {
+                "event": "check_completed",
+                "head": head,
+                "receipt_hash": digest(canonical(checks[0]["receipt"])),
+                "config_hash": checks[0]["receipt"]["config_hash"],
+            }
+        )
+    assert (
+        "snapshot_scope_mismatch"
+        in verify_gate(packet, review, checks, config, head, state)["blocking_reasons"]
+    )
+
+
+def test_gate_rejects_tests_run_under_a_different_configuration(gate_bundle):
+    packet, review, checks, config, head, state = gate_bundle
+    checks[0]["receipt"]["config_hash"] = digest(
+        canonical(asdict(replace(config, allow_paths=("README.md",))))
+    )
+    with Ledger(state) as ledger:
+        ledger.append(
+            {
+                "event": "check_completed",
+                "head": head,
+                "receipt_hash": digest(canonical(checks[0]["receipt"])),
+                "config_hash": checks[0]["receipt"]["config_hash"],
+            }
+        )
+    assert (
+        "check_configuration_changed"
         in verify_gate(packet, review, checks, config, head, state)["blocking_reasons"]
     )

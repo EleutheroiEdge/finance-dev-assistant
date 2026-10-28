@@ -98,6 +98,26 @@ def verify_gate(
             blockers.add("check_revision_mismatch")
         if receipt.get("snapshot_hash") != digest(canonical(snapshot)):
             blockers.add("snapshot_integrity_failed")
+        config_hash = digest(canonical(asdict(config)))
+        if receipt.get("config_hash") != config_hash:
+            blockers.add("check_configuration_changed")
+        entries = snapshot.get("files")
+        if not isinstance(entries, list) or any(
+            not isinstance(item, dict) or not isinstance(item.get("path"), str) for item in entries
+        ):
+            blockers.add("snapshot_scope_mismatch")
+        else:
+            files = {item["path"]: item for item in entries}
+            if len(files) != len(entries) or any(not config.allows(path) for path in files):
+                blockers.add("snapshot_scope_mismatch")
+            for file in packet["files"]:
+                if file["after"] is None:
+                    if file["path"] in files:
+                        blockers.add("snapshot_scope_mismatch")
+                elif files.get(file["path"], {}).get("sha256") != file["after_hash"] or files.get(
+                    file["path"], {}
+                ).get("mode") != file.get("after_mode"):
+                    blockers.add("snapshot_scope_mismatch")
         if receipt.get("argv_hash") != digest(canonical(config.recipes[name])):
             blockers.add("recipe_changed")
         if receipt.get("passed") is not True or receipt.get("cleanup_verified") is not True:
@@ -113,6 +133,7 @@ def verify_gate(
             p.get("event") == "check_completed"
             and p.get("head") == head
             and p.get("receipt_hash") == receipt_hash
+            and p.get("config_hash") == config_hash
             and fresh(p)
             for p, _ in events
         ):

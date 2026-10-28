@@ -299,3 +299,73 @@ def test_completion_logging_failure_preserves_unknown_operation_state(tmp_path, 
     assert marker.exists()
     with Ledger(path) as ledger:
         assert len(ledger.incomplete_runs()) == 1
+
+
+@pytest.mark.parametrize("field", ["run_id", "recorded_at", "event_schema"])
+def test_audit_envelope_fields_cannot_be_supplied_as_event_data(tmp_path, field):
+    with Ledger(tmp_path / "audit.db") as ledger:
+        with pytest.raises(AssistantError, match="audit_reserved_field"):
+            ledger.append({"event": "synthetic", field: "forged"})
+        assert ledger.verify() == 0
+
+
+def test_mismatched_lifecycle_completion_is_rejected_without_corrupting_log(tmp_path):
+    path = tmp_path / "audit.db"
+    with command_audit(path, "review", Config()):
+        with Ledger(path) as ledger:
+            with pytest.raises(AssistantError, match="audit_lifecycle_invalid"):
+                ledger.append({"event": "command_completed", "command": "apply"})
+    with Ledger(path) as ledger:
+        assert ledger.verify() == 2 and ledger.incomplete_runs() == []
+        previous = ledger.events()[-1]
+        invalid = {**previous["payload"], "command": "apply"}
+        payload = canonical(invalid).decode()
+        ledger.db.execute(
+            "INSERT INTO events(previous,payload,hash) VALUES(?,?,?)",
+            (previous["hash"], payload, digest(previous["hash"].encode() + payload.encode())),
+        )
+        with pytest.raises(AssistantError, match="audit_integrity_failed"):
+            ledger.verify()
+
+
+def test_phantom_diff_sections_are_refused_but_mode_only_changes_are_supported():
+    with pytest.raises(AssistantError, match="patch_header_mismatch"):
+        patch_paths(
+            "diff --git a/src/a.py b/src/a.py\ndiff --git a/src/b.py b/src/b.py\n--- a/src/b.py\n+++ b/src/b.py\n@@ -1 +1 @@\n-a\n+b\n",
+            Config(),
+        )
+    assert patch_paths("diff --git a/src/a.py b/src/a.py\nold mode 100644\nnew mode 100755\n", Config()) == [
+        "src/a.py"
+    ]
+
+
+def test_orphaned_patch_backup_stops_subsequent_application(repository):
+    from test_patching_runner import artifact
+
+    repo, _, head = repository
+    proposal = artifact(repo, head)
+    directory = repo / ".finassist/patches"
+    directory.mkdir(parents=True)
+    (directory / "interrupted.json").write_text("{}")
+    with pytest.raises(AssistantError, match="incomplete_patch_reconciliation_required"):
+        apply_patch_artifact(repo, proposal, digest(canonical(proposal)), Config())
+    assert "- deposits" in (repo / "src/cash.py").read_text()
+
+
+def test_finding_line_must_exist_on_the_primary_evidence_side(repository):
+    from finassist.review import validate_review
+
+    repo, _, _ = repository
+    file = repo / "src/cash.py"
+    file.write_text("line\n" * 20)
+    command(repo, "add", "src/cash.py")
+    command(repo, "commit", "-m", "Synthetic long source")
+    base = command(repo, "rev-parse", "HEAD")
+    file.write_text("short\nsource\n")
+    command(repo, "add", "src/cash.py")
+    command(repo, "commit", "-m", "Synthetic reduced source")
+    packet = build_packet(repo, base, "HEAD", Config())
+    result = response(packet)
+    result["findings"][0]["line"] = 15
+    with pytest.raises(AssistantError, match="finding_line_invalid"):
+        validate_review(result, packet)

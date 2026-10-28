@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
+from dataclasses import asdict, replace
 from decimal import Decimal, InvalidOperation
 import json
 import os
@@ -281,13 +281,18 @@ def execute(args, config: Config | None = None) -> int:
                 config, args.recipe, snapshot, backend=args.backend, approve_local=args.approve_local
             )
             result["snapshot"] = manifest
-            result["receipt"].update(head=manifest["head"], snapshot_hash=digest(canonical(manifest)))
+            result["receipt"].update(
+                head=manifest["head"],
+                snapshot_hash=digest(canonical(manifest)),
+                config_hash=digest(canonical(asdict(config))),
+            )
             with Ledger(audit_directory(args) / "audit.sqlite") as ledger:
                 ledger.append(
                     {
                         "event": "check_completed",
                         "head": manifest["head"],
                         "receipt_hash": digest(canonical(result["receipt"])),
+                        "config_hash": result["receipt"]["config_hash"],
                     }
                 )
             _emit(result, args.output)

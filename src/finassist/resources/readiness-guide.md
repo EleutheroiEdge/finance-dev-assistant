@@ -21,6 +21,9 @@ finassist audit --state-dir YOUR_PRIVATE_STATE --export NEW_PRIVATE_EVENTS.jsonl
 Export pages contain sequence/previous/hash/payload and preserve chain links.
 Advance `--after` to the last exported sequence for another page. Verification
 cross-checks reservation balances against the event history in a transaction.
+Lifecycle verification rejects duplicate starts, mismatched completion commands
+and caller-supplied envelope fields. Interrupted patch backups block further
+application until reconciled; rollback records a terminal state.
 Corrupt/unavailable auditing stops operational commands before work begins.
 A failure recording completion can happen after an operation; reconcile from
 its start event and artifacts before retrying. An unfinished start is unknown,
@@ -47,7 +50,7 @@ Add named recipes to your reviewed provider configuration and set:
 Required recipe names must exist in `recipes`; an empty requirement set blocks
 readiness. Configure an approved immutable `runner_image` and dependencies.
 Generate the review and checks under the same configuration and state root.
-Changing configuration invalidates the review's configuration digest.
+Changing configuration invalidates both review and check configuration digests.
 
 ```sh
 finassist --config finassist.json --audit-dir YOUR_PRIVATE_STATE verify-gate \
@@ -58,7 +61,8 @@ finassist --config finassist.json --audit-dir YOUR_PRIVATE_STATE verify-gate \
 
 The gate requires schema2 mode metadata, complete source coverage, a model review
 with no configured blocking findings, fresh hash-matching audit receipts,
-head/snapshot/image/recipe consistency, passing checks/cleanup and no unknown
+head/snapshot/image/recipe consistency, reviewed-file hash/mode coverage in the
+tested snapshot, passing checks/cleanup and no unknown
 spend. Offline analysis is not a model review. A freely edited success flag or
 self-consistent file hash does not replace the corresponding audited event.
 Local checks are ineligible unless explicitly selected in policy.

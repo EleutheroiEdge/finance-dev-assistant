@@ -7,6 +7,7 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from decimal import Decimal
 import json
+import re
 from pathlib import Path
 import sqlite3
 import uuid
@@ -49,6 +50,35 @@ class Ledger:
 
     def _append(self, payload: dict) -> str:
         # Only the caller's reduced metadata belongs here, never prompts or keys.
+        if {"recorded_at", "event_schema", "run_id"}.intersection(payload):
+            raise AssistantError("audit_reserved_field")
+        identifier = CURRENT_RUN.get()
+        if identifier is not None and (
+            not isinstance(identifier, str) or not re.fullmatch(r"[0-9a-f]{32}", identifier)
+        ):
+            raise AssistantError("audit_context_invalid")
+        lifecycle = {"command_started", "command_completed", "command_failed"}
+        if payload.get("event") in lifecycle:
+            command = payload.get("command")
+            if (
+                identifier is None
+                or not isinstance(command, str)
+                or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", command)
+            ):
+                raise AssistantError("audit_context_required")
+            history = []
+            for (value,) in self.db.execute(
+                "SELECT payload FROM events WHERE payload LIKE ? ORDER BY seq",
+                ('%"run_id":"' + identifier + '"%',),
+            ):
+                event = json.loads(value)
+                if event.get("run_id") == identifier and event.get("event") in lifecycle:
+                    history.append((event["event"], event.get("command")))
+            if (payload["event"] == "command_started" and history) or (
+                payload["event"] != "command_started"
+                and (not history or history[-1] != ("command_started", command))
+            ):
+                raise AssistantError("audit_lifecycle_invalid")
         last = self.db.execute("SELECT hash FROM events ORDER BY seq DESC LIMIT 1").fetchone()
         previous = last[0] if last else "ROOT"
         metadata = {**payload, "recorded_at": datetime.now(timezone.utc).isoformat(), "event_schema": 1}
@@ -67,7 +97,7 @@ class Ledger:
         # Read event history and balances in one snapshot; concurrent writers
         # cannot create a transient mismatch during verification.
         with nullcontext() if self.db.in_transaction else self.transaction():
-            previous, count, balances = "ROOT", 0, {}
+            previous, count, balances, runs = "ROOT", 0, {}, {}
             for seq, prior, data, value in self.db.execute(
                 "SELECT seq,previous,payload,hash FROM events ORDER BY seq"
             ):
@@ -77,6 +107,23 @@ class Ledger:
                     payload = json.loads(data)
                     if not isinstance(payload, dict):
                         raise ValueError("event must be an object")
+                    event = payload.get("event")
+                    if event in {"command_started", "command_completed", "command_failed"}:
+                        identifier, command = payload.get("run_id"), payload.get("command")
+                        if (
+                            not isinstance(identifier, str)
+                            or not re.fullmatch(r"[0-9a-f]{32}", identifier)
+                            or not isinstance(command, str)
+                        ):
+                            raise ValueError("invalid command identity")
+                        if event == "command_started":
+                            if identifier in runs:
+                                raise ValueError("duplicate command start")
+                            runs[identifier] = (command, "started")
+                        elif runs.get(identifier) != (command, "started"):
+                            raise ValueError("unmatched command completion")
+                        else:
+                            runs[identifier] = (command, "closed")
                     if payload.get("event") == "reserved":
                         identifier = payload["id"]
                         if identifier in balances:

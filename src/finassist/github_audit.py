@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -28,6 +29,27 @@ def inspect_github(repository: str, branch: str, config: Config, *, network_appr
     if executable is None:
         raise AssistantError("github_cli_missing")
     requests = []
+    # Retain only the existing CLI's required OS/auth inputs. Do not inherit
+    # unrelated provider keys, proxy/debug routing or GH host/repo/config overrides.
+    names = (
+        "PATH",
+        "HOME",
+        "LANG",
+        "SYSTEMROOT",
+        "SystemRoot",
+        "WINDIR",
+        "USERPROFILE",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "TEMP",
+        "TMP",
+        "WSL_INTEROP",
+        "WSL_DISTRO_NAME",
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+    )
+    environment = {name: os.environ[name] for name in names if name in os.environ}
+    environment.update(GH_PROMPT_DISABLED="1", GH_NO_UPDATE_NOTIFIER="1")
 
     def get(suffix: str, *, missing_ok: bool = False):
         endpoint = "repos/" + repository + suffix
@@ -39,6 +61,7 @@ def inspect_github(repository: str, branch: str, config: Config, *, network_appr
                 text=True,
                 timeout=min(config.timeout_seconds, 120),
                 check=False,
+                env=environment,
             )
             if len(result.stdout.encode()) > 1_000_000:
                 raise AssistantError("github_metadata_limit")
@@ -79,7 +102,7 @@ def inspect_github(repository: str, branch: str, config: Config, *, network_appr
     if not re.fullmatch(r"[0-9a-f]{40,64}", observed_head):
         raise AssistantError("github_head_invalid")
     issues, controls = [], {}
-    if before.get("protected") is not True:
+    if before.get("protected") is not True and not rules:
         issues.append("branch_unprotected")
     if protection is None:
         issues.append("classic_protection_absent")
