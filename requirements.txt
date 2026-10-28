@@ -1,0 +1,2 @@
+# Dependabot pip discovery entry point for the exact development/test environment.
+-r requirements-dev.lock

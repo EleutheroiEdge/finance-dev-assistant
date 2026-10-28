@@ -1,0 +1,424 @@
+{
+  "$id": "https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/main/schemas/finassist.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "provider": {
+            "not": {
+              "const": "offline"
+            }
+          }
+        },
+        "required": [
+          "provider"
+        ]
+      },
+      "then": {
+        "properties": {
+          "model": {
+            "minLength": 1
+          }
+        },
+        "required": [
+          "model"
+        ]
+      }
+    }
+  ],
+  "description": "Editor structure and limits. CLI validation additionally enforces sensitive paths/content, provider approval and file/cross-field policies.",
+  "properties": {
+    "$schema": {
+      "description": "Editor hint only; never fetched by finassist.",
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "allow_local_readiness": {
+      "default": false,
+      "title": "Allow local readiness",
+      "type": "boolean"
+    },
+    "allow_network": {
+      "default": false,
+      "title": "Allow network",
+      "type": "boolean"
+    },
+    "allow_partial_review": {
+      "default": false,
+      "title": "Allow partial review",
+      "type": "boolean"
+    },
+    "allow_paths": {
+      "default": [
+        "src/",
+        "tests/",
+        "docs/",
+        "scripts/",
+        "README.md",
+        "pyproject.toml",
+        ".gitattributes"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "title": "Allow paths",
+      "type": "array"
+    },
+    "allowed_hosts": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Allowed hosts",
+      "type": "array"
+    },
+    "api_key_env": {
+      "default": "",
+      "title": "Api key env",
+      "type": "string"
+    },
+    "auth_header": {
+      "default": "Authorization",
+      "enum": [
+        "Authorization",
+        "api-key",
+        "x-api-key"
+      ],
+      "title": "Auth header",
+      "type": "string"
+    },
+    "blocking_severities": {
+      "default": [
+        "critical",
+        "high"
+      ],
+      "items": {
+        "enum": [
+          "critical",
+          "high",
+          "medium",
+          "low",
+          "info"
+        ]
+      },
+      "title": "Blocking severities",
+      "type": "array"
+    },
+    "daily_budget_usd": {
+      "default": 5.0,
+      "minimum": 0,
+      "title": "Daily budget usd",
+      "type": "number"
+    },
+    "denied_parts": {
+      "default": [
+        ".aws",
+        ".azure",
+        ".env",
+        ".finassist",
+        ".git",
+        ".ssh",
+        ".venv",
+        "credentials",
+        "holdings",
+        "memory",
+        "node_modules",
+        "portfolios",
+        "secrets",
+        "sessions",
+        "uploads"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 128,
+      "title": "Denied parts",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "endpoint": {
+      "default": "",
+      "title": "Endpoint",
+      "type": "string"
+    },
+    "extra_sensitive_patterns": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Extra sensitive patterns",
+      "type": "array"
+    },
+    "generated_paths": {
+      "default": [
+        "src/finassist/resources/dashboard/"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 128,
+      "title": "Generated paths",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "github_host": {
+      "default": "github.com",
+      "title": "Github host",
+      "type": "string"
+    },
+    "input_usd_per_million": {
+      "default": 0.0,
+      "minimum": 0,
+      "title": "Input usd per million",
+      "type": "number"
+    },
+    "max_file_bytes": {
+      "default": 48000,
+      "maximum": 2000000,
+      "minimum": 1,
+      "title": "Max file bytes",
+      "type": "integer"
+    },
+    "max_output_tokens": {
+      "default": 4096,
+      "maximum": 2000000,
+      "minimum": 1,
+      "title": "Max output tokens",
+      "type": "integer"
+    },
+    "max_packet_bytes": {
+      "default": 120000,
+      "maximum": 2000000,
+      "minimum": 1,
+      "title": "Max packet bytes",
+      "type": "integer"
+    },
+    "max_run_usd": {
+      "default": 1.0,
+      "minimum": 0,
+      "title": "Max run usd",
+      "type": "number"
+    },
+    "model": {
+      "default": "",
+      "title": "Model",
+      "type": "string"
+    },
+    "monthly_budget_usd": {
+      "default": 100.0,
+      "minimum": 0,
+      "title": "Monthly budget usd",
+      "type": "number"
+    },
+    "output_usd_per_million": {
+      "default": 0.0,
+      "minimum": 0,
+      "title": "Output usd per million",
+      "type": "number"
+    },
+    "profile": {
+      "default": "finance-saas",
+      "title": "Profile",
+      "type": "string"
+    },
+    "profile_files": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Profile files",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "profiles": {
+      "additionalProperties": {
+        "items": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxItems": 64,
+        "minItems": 1,
+        "type": "array"
+      },
+      "default": {
+        "finance-saas": [
+          "Prove tenant scope at every route, background job, cache key and artifact lookup.",
+          "Use exact money/unit representations and reconcile final ledgers, cash and disclosures.",
+          "Test idempotency, retries, duplicate callbacks, concurrent writers and interrupted transactions.",
+          "Keep credentials, client information and licensed data outside model packets and logs.",
+          "Check entitlements, approval state, audit integrity, retention and migration recovery."
+        ],
+        "general": [
+          "Trace inputs through serialization, persisted state, decisions and final outputs.",
+          "Check boundary conditions, failure paths, concurrency, migrations and rollback.",
+          "Prefer a small reproducible counterexample to a speculative architectural claim.",
+          "Identify missing tests, dead assertions and assertions that mirror the implementation."
+        ],
+        "investment-research": [
+          "Bind each metric to entity, period, units, source, filing time and retrieval time.",
+          "Use as-filed point-in-time inputs; test restatement leakage and look-ahead bias.",
+          "Prefer explicit candidate-tag resolution with provenance to a single financial-statement tag.",
+          "Distinguish annual, quarter, year-to-date, trailing and annual-stub observations.",
+          "Score only approved analyst inputs; revisions append and supersede, never rewrite history.",
+          "Treat missing and stale evidence explicitly, not as zero; no invented prices or probabilities.",
+          "Separate fundamentals, market prices and licensed enrichment with distinct source authority."
+        ],
+        "quant-review": [
+          "Run immutable baseline and candidate on the same synthetic inputs with frozen prices.",
+          "Test zero cash/budget, fractional lots, cent boundaries and mixed gain characters.",
+          "Check permutation, lot-split and identity invariance where the governing spec requires it.",
+          "Compare preview, booking and final disclosures; every numerical difference needs explanation.",
+          "Check objective/constraint holds at every optimization stage and fallback feasibility.",
+          "Do not invent tax, wash, holding-period, execution or portfolio policy; escalate missing canon."
+        ]
+      },
+      "maxProperties": 64,
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]{0,63}$"
+      },
+      "required": [
+        "general"
+      ],
+      "title": "Profiles",
+      "type": "object"
+    },
+    "protected_branches": {
+      "default": [
+        "main",
+        "master",
+        "trunk",
+        "production",
+        "release",
+        "release/*"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Protected branches",
+      "type": "array"
+    },
+    "protected_paths": {
+      "default": [
+        ".github/",
+        ".gitattributes",
+        "LICENSE",
+        "AGENTS.md",
+        "finassist.json",
+        "pyproject.toml",
+        "scripts/",
+        "requirements-dev.lock"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "title": "Protected paths",
+      "type": "array"
+    },
+    "provider": {
+      "default": "offline",
+      "enum": [
+        "anthropic",
+        "compatible",
+        "google",
+        "offline",
+        "ollama",
+        "openai"
+      ],
+      "title": "Provider",
+      "type": "string"
+    },
+    "readiness_max_age_seconds": {
+      "default": 86400,
+      "maximum": 2000000,
+      "minimum": 1,
+      "title": "Readiness max age seconds",
+      "type": "integer"
+    },
+    "recipes": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "minItems": 1,
+        "type": "array"
+      },
+      "default": {},
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+      },
+      "title": "Recipes",
+      "type": "object"
+    },
+    "required_recipes": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Required recipes",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "runner_image": {
+      "default": "",
+      "title": "Runner image",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema version",
+      "type": "integer"
+    },
+    "text_suffixes": {
+      "default": [
+        ".css",
+        ".dockerfile",
+        ".go",
+        ".html",
+        ".in",
+        ".java",
+        ".js",
+        ".json",
+        ".jsx",
+        ".lock",
+        ".md",
+        ".mjs",
+        ".py",
+        ".rs",
+        ".rst",
+        ".sh",
+        ".sql",
+        ".toml",
+        ".ts",
+        ".tsx",
+        ".txt",
+        ".yaml",
+        ".yml"
+      ],
+      "items": {
+        "pattern": "^\\.[a-z][a-z0-9]{0,15}$",
+        "type": "string"
+      },
+      "maxItems": 128,
+      "minItems": 1,
+      "title": "Text suffixes",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "timeout_seconds": {
+      "default": 60,
+      "maximum": 2000000,
+      "minimum": 1,
+      "title": "Timeout seconds",
+      "type": "integer"
+    }
+  },
+  "title": "finassist configuration",
+  "type": "object"
+}

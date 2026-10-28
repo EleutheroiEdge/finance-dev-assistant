@@ -1,0 +1,16 @@
+name: Feature request
+description: Suggest an improvement to the advisory developer workflow.
+title: '[Feature] '
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and intended user
+      description: Describe the workflow using fictional examples and public information.
+    validations: {required: true}
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior and alternatives
+      description: Include privacy, authority, budget and offline behavior where relevant.
+    validations: {required: true}

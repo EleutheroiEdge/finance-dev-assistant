@@ -1,11 +1,36 @@
 # Changelog
 
+## 0.3.0 — Unreleased
+
+First public release, consolidating the work in #1 and #3–#5.
+
+- Security: explicit packet and patch approvals, protected paths, private audit
+  records, budget reservations and readiness checks that fail closed on unknown outcomes.
+- Configuration: customize source paths/types, review profiles, provider settings
+  and GitHub Enterprise hosts without editing the core.
+- Platforms: native Windows, macOS and Linux support, UTF-8/LF handling, portable
+  process cleanup and Docker Desktop-compatible checks.
+- Dashboard: offline configuration previews, explicit saves, audit statistics and
+  health checks, shipped prebuilt with no Node requirement at runtime.
+- Packaging: the distribution is named `finassist`; the command/import name remains
+  `finassist`. Add tag-only builds, SBOMs, provenance and approval-gated PyPI publishing.
+
+Earlier 0.2.0 entries below describe development milestones, not a PyPI release.
+
 ## Next
 
 - Simplify the README with local-first privacy guidance, installation paths,
   badges, a real offline terminal recording and three synthetic dashboard captures.
 - Add reproducible media tooling and tightly catalogued public PNG verification
   while retaining private/binary publication refusals outside reviewed docs images.
+- Publish a generated configuration JSON Schema, editor-enabled examples and
+  schema/CLI regression checks without fetching editor hints at runtime.
+- Document trust boundaries, a fictional firm customization walkthrough and
+  command exit codes/JSON output contracts for users and integrations.
+- Add grouped weekly dependency updates, Python/JavaScript CodeQL and OpenSSF
+  Scorecard configuration, with pinned actions and explicit fork limitations.
+- Add issue/PR templates, code ownership, a Contributor Covenant conduct policy
+  and an owner-only repository security-settings checklist.
 
 - Add Windows and macOS native CI alongside Linux, retaining required check names.
 - Standardize UTF-8/universal-newline reads and LF writes; lint missing encodings.
