@@ -1,0 +1,12 @@
+include LICENSE README.md SECURITY.md CONTRIBUTING.md AGENTS.md requirements-dev.lock
+include .gitignore .dockerignore
+graft docs
+graft examples
+graft skills
+graft scripts
+graft .claude/agents
+graft .codex/agents
+graft .github/workflows
+global-exclude __pycache__ *.py[cod]
+prune .finassist
+prune .venv

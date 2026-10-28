@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "cash-sign",
+      "path": "src/cash.py",
+      "before": "def balance(opening, deposit):\n    return opening + deposit\n",
+      "after": "def balance(opening, deposit):\n    return opening - deposit\n",
+      "expected_defect": true
+    },
+    {
+      "id": "tenant-scope",
+      "path": "src/access.py",
+      "before": "def visible_rows(rows, tenant):\n    return [row for row in rows if row['tenant'] == tenant]\n",
+      "after": "def visible_rows(rows, tenant):\n    return list(rows)\n",
+      "expected_defect": true
+    },
+    {
+      "id": "point-in-time",
+      "path": "src/research.py",
+      "before": "def eligible(filings, decision):\n    return [row for row in filings if row['published_at'] <= decision]\n",
+      "after": "def eligible(filings, decision):\n    return list(filings)\n",
+      "expected_defect": true
+    },
+    {
+      "id": "negative-control",
+      "path": "src/identity.py",
+      "before": "def identity(value):\n    return value\n",
+      "after": "def identity(value):\n    # Preserve the caller's value.\n    return value\n",
+      "expected_defect": false
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "entity": "Fictional Example",
+  "metric": "revenue",
+  "value": "1000.00",
+  "unit": "USD",
+  "period_start": "2025-01-01T00:00:00Z",
+  "period_end": "2025-12-31T00:00:00Z",
+  "published_at": "2026-02-01T00:00:00Z",
+  "retrieved_at": "2026-02-02T00:00:00Z",
+  "source": "fictional-filing",
+  "period_kind": "annual"
+}

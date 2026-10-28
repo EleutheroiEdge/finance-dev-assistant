@@ -1,0 +1,51 @@
+name: checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -r requirements-dev.lock
+      - run: python -m pip install --no-deps --no-build-isolation -e .
+      - run: python -m pytest -q
+      - run: ruff check src tests scripts
+      - run: finassist demo
+      - run: finassist scan --repo .
+      - name: Verify a clean wheel installation
+        shell: bash
+        run: |
+          python -m pip wheel --no-deps --no-build-isolation . --wheel-dir /tmp/finassist-wheels
+          python -m venv /tmp/finassist-install
+          /tmp/finassist-install/bin/python -m pip install -c requirements-dev.lock /tmp/finassist-wheels/*.whl
+          /tmp/finassist-install/bin/python scripts/package_smoke.py examples
+  isolation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r requirements-dev.lock
+      - run: python -m pip install --no-deps --no-build-isolation -e .
+      - run: docker build -f examples/runner.Dockerfile -t finassist-test-runner .
+      - name: Verify real container isolation and cleanup
+        shell: bash
+        run: |
+          image_id="$(docker image inspect finassist-test-runner --format '{{.Id}}')"
+          python scripts/container_smoke.py "$image_id"

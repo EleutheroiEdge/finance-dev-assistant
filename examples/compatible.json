@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "provider": "compatible",
+  "model": "YOUR_MODEL",
+  "endpoint": "https://model-service.example/v1/chat/completions",
+  "api_key_env": "MODEL_API_KEY",
+  "auth_header": "Authorization",
+  "profile": "finance-saas",
+  "allow_network": false,
+  "allow_partial_review": false,
+  "allowed_hosts": [
+    "model-service.example"
+  ],
+  "allow_paths": [
+    "src/",
+    "tests/",
+    "docs/",
+    "scripts/",
+    "README.md",
+    "pyproject.toml"
+  ],
+  "protected_paths": [
+    ".github/",
+    "LICENSE",
+    "AGENTS.md",
+    "finassist.json"
+  ],
+  "extra_sensitive_patterns": [],
+  "max_file_bytes": 48000,
+  "max_packet_bytes": 120000,
+  "max_output_tokens": 4096,
+  "timeout_seconds": 60,
+  "max_run_usd": 1.0,
+  "daily_budget_usd": 5.0,
+  "input_usd_per_million": 0.0,
+  "output_usd_per_million": 0.0,
+  "recipes": {},
+  "runner_image": ""
+}
