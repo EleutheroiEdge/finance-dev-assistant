@@ -2,6 +2,11 @@
 
 ## Next
 
+- Publish a generated configuration JSON Schema, editor-enabled examples and
+  schema/CLI regression checks without fetching editor hints at runtime.
+- Document trust boundaries, a fictional firm customization walkthrough and
+  command exit codes/JSON output contracts for users and integrations.
+
 - Add Windows and macOS native CI alongside Linux, retaining required check names.
 - Standardize UTF-8/universal-newline reads and LF writes; lint missing encodings.
 - Discover native tools, supervise Windows commands with job cleanup, support

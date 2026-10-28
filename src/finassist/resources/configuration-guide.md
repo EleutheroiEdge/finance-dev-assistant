@@ -110,3 +110,16 @@ loading problems. Errors never print file contents, credentials or private paths
 An allowed/protected prefix must also satisfy the configured path policy.
 Configuration files are bounded to 2 MB. Budget values must be finite and nonnegative;
 limits must be positive integers. Unknown configuration keys are rejected.
+
+## Editor schema
+
+The [published JSON Schema](../schemas/finassist.schema.json) is generated from
+`Config` fields, type annotations, defaults and field constraint metadata. Regenerate
+it with `python scripts/generate_config_schema.py`; CI tests compare both public
+and packaged copies and validate the examples. `$schema` in config is an optional
+editor hint, ignored after parsing and never fetched by the CLI. Editors may fetch
+schemas under their own settings. The schema checks structure and documented basic
+limits; runtime validation additionally checks private paths/content, endpoint
+approval, profile files and cross-field policy. Schema validation alone is not
+approval to send source or run a recipe. Forks can use a local schema copy and
+change its `$id` when publishing their own version.
