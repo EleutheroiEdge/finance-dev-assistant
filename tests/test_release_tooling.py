@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_release_versions_and_tag_gate():
-    assert validate_tag(ROOT, "v0.3.0") == "0.3.0"
-    for tag in ["main", "v0.2.0", "v0.3.0rc1", "v0.3.0; echo unsafe"]:
+    assert validate_tag(ROOT, "v0.3.1") == "0.3.1"
+    for tag in ["main", "v0.2.0", "v0.3.0", "v0.3.1rc1", "v0.3.1; echo unsafe"]:
         with pytest.raises(ValueError):
             validate_tag(ROOT, tag)
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
@@ -54,7 +54,8 @@ def test_release_workflow_is_tag_only_and_least_privilege():
 
 
 def test_release_notes_only_include_requested_version():
-    notes = release_notes(ROOT, "0.3.0")
-    assert notes.startswith("# finledgerpoli 0.3.0\n")
-    assert "#1 and #3–#5" in notes
+    notes = release_notes(ROOT, "0.3.1")
+    assert notes.startswith("# finledgerpoli 0.3.1\n")
+    assert "PyPI page: absolute links and images, project URLs, badge" in notes
+    assert "#1 and #3–#5" not in notes
     assert "## Next" not in notes and "Unreleased" not in notes

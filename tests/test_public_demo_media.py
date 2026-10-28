@@ -92,6 +92,7 @@ def test_readme_keeps_release_and_media_claims_honest():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "Local-first, no telemetry" in readme and "pipx install finledgerpoli" in readme
     assert "pip install finledgerpoli" in readme
-    assert "After the first PyPI" in readme and "PyPI badge will be added after" in readme
-    assert readme.count("](docs/images/dashboard-") == 3
+    assert "After the first PyPI" not in readme and "PyPI badge will be added after" not in readme
+    assert "https://img.shields.io/pypi/v/finledgerpoli" in readme
+    assert "<h3>From source</h3>" in readme and "from a source checkout with `asciinema play" in readme
     assert "All displayed spend" in readme and "fictional" in readme
