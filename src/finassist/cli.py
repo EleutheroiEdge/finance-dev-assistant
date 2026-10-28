@@ -338,12 +338,15 @@ def execute(args, config: Config | None = None) -> int:
                 raise AssistantError("publication_index_unmerged")
             modes[name] = mode
         names = list(modes)
+        from .publication import public_images, verify_public_png
+
+        images = public_images(args.repo, set(names))
         findings = []
         for name in filter(None, names):
             try:
                 if modes[name] not in {"100644", "100755"}:
                     raise AssistantError("linked_or_special_git_object")
-                config.check_path(name, source_only=False)
+                config.check_path(name, source_only=False, metadata_only=name in images)
             except AssistantError as exc:
                 findings.append({"path": name, "code": exc.code})
                 continue
@@ -353,6 +356,11 @@ def execute(args, config: Config | None = None) -> int:
                     raise AssistantError("publication_file_missing")
                 if path.stat().st_size > 2_000_000:
                     findings.append({"path": name, "code": "publication_file_too_large"})
+                    continue
+                if name in images:
+                    if args.forbid and any(value.casefold() in name.casefold() for value in args.forbid):
+                        raise AssistantError("forbidden_publication_text")
+                    verify_public_png(path, images[name])
                     continue
                 content = read_utf8(path)
                 check_text(content, extra_patterns=config.extra_sensitive_patterns)

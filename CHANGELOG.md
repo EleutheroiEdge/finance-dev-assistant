@@ -19,6 +19,10 @@ Earlier 0.2.0 entries below describe development milestones, not a PyPI release.
 
 ## Next
 
+- Simplify the README with local-first privacy guidance, installation paths,
+  badges, a real offline terminal recording and three synthetic dashboard captures.
+- Add reproducible media tooling and tightly catalogued public PNG verification
+  while retaining private/binary publication refusals outside reviewed docs images.
 - Publish a generated configuration JSON Schema, editor-enabled examples and
   schema/CLI regression checks without fetching editor hints at runtime.
 - Document trust boundaries, a fictional firm customization walkthrough and
