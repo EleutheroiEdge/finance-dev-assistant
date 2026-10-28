@@ -145,7 +145,9 @@ class Ledger:
                 raise AssistantError("audit_integrity_failed")
             return count
 
-    def reserve(self, amount: Decimal, daily_limit: Decimal, run_limit: Decimal) -> str:
+    def reserve(
+        self, amount: Decimal, daily_limit: Decimal, run_limit: Decimal, monthly_limit: Decimal | None = None
+    ) -> str:
         if not amount.is_finite() or amount < 0 or amount > run_limit:
             raise AssistantError("run_budget_exceeded")
         day = datetime.now(timezone.utc).date().isoformat()
@@ -162,6 +164,19 @@ class Ledger:
             )
             if used + amount > daily_limit:
                 raise AssistantError("daily_budget_exceeded")
+            if monthly_limit is not None:
+                if not monthly_limit.is_finite() or monthly_limit < 0:
+                    raise AssistantError("invalid_monthly_budget")
+                monthly_used = sum(
+                    (
+                        Decimal(actual if state == "settled" else reserved)
+                        for reserved, actual, state, booked in rows
+                        if booked[:7] == day[:7] or state == "reserved"
+                    ),
+                    Decimal(0),
+                )
+                if monthly_used + amount > monthly_limit:
+                    raise AssistantError("monthly_budget_exceeded")
             identifier = uuid.uuid4().hex
             self.db.execute(
                 "INSERT INTO reservations VALUES (?,?,?,NULL,'reserved')", (identifier, day, str(amount))

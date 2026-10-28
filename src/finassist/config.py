@@ -52,6 +52,7 @@ class Config:
     timeout_seconds: int = 60
     max_run_usd: float = 1.0
     daily_budget_usd: float = 5.0
+    monthly_budget_usd: float = 100.0
     input_usd_per_million: float = 0.0
     output_usd_per_million: float = 0.0
     recipes: dict = field(default_factory=dict)
@@ -99,7 +100,13 @@ class Config:
             for key in ("allow_network", "allow_partial_review", "allow_local_readiness")
         ):
             raise AssistantError("invalid_network_permission")
-        for key in ("max_run_usd", "daily_budget_usd", "input_usd_per_million", "output_usd_per_million"):
+        for key in (
+            "max_run_usd",
+            "daily_budget_usd",
+            "monthly_budget_usd",
+            "input_usd_per_million",
+            "output_usd_per_million",
+        ):
             value = getattr(self, key)
             if (
                 isinstance(value, bool)
@@ -199,7 +206,7 @@ def load_config(path: Path | None = None) -> Config:
     if path is None:
         return Config().validate()
     try:
-        raw = json.loads(regular_path(path).read_text())
+        raw = json.loads(regular_path(path).read_text(encoding="utf-8"))
         for key in (
             "allow_paths",
             "protected_paths",

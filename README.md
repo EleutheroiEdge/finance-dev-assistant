@@ -29,6 +29,12 @@ deliberately broken examples. It is not a model-quality benchmark.
 If your Linux distribution omits the standard venv bootstrap, use an existing
 `uv` installation with `uv venv .venv`, then `uv pip install --python .venv/bin/python .`.
 
+For the local interface, run `finassist --config finassist.json dashboard` and open
+the printed loopback address. It works offline on Windows, macOS and Linux with
+no Node installation. Preview and explicitly confirm configuration changes, inspect
+verified audit statistics, and check health. See the [dashboard guide](docs/dashboard.md)
+for settings, privacy boundaries and contributor checks.
+
 ## What it does
 
 - **Plan:** freeze base/head commits, use their merge base, enumerate all changed

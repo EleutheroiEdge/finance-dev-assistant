@@ -16,3 +16,7 @@ dist/
 *.p12
 *.xlsx
 *.parquet
+dashboard/node_modules/
+dashboard/test-results/
+dashboard/playwright-report/
+dashboard/.cache/

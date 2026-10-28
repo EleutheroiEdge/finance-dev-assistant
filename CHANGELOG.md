@@ -2,6 +2,14 @@
 
 ## 0.2.0 — Unreleased
 
+- Add an offline, loopback-only React dashboard, shipped prebuilt in the Python
+  package. Configuration uses shared validation, preview and explicit confirmation;
+  statistics verify reduced audit metadata, and health shares the CLI doctor.
+- Enforce a configurable monthly review budget (default USD 100), retain unknown
+  reservations across periods, and record token, finding and readiness outcomes.
+- Test dashboard APIs, components, browser flows and installed wheels on Windows,
+  macOS and Linux, including no-Node runtime and external-request checks.
+
 - Context packets now use `schema_version: 2` and include before/after Git modes.
   Legacy schema1 packets remain inspectable but must be rebuilt for readiness.
 - Add configurable readiness requirements, source/configuration-bound review and

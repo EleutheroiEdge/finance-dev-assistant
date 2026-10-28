@@ -21,7 +21,7 @@ finassist = "finassist.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-finassist = ["resources/*.json", "resources/*.md", "resources/*.toml"]
+finassist = ["resources/*.json", "resources/*.md", "resources/*.toml", "resources/dashboard/*", "resources/dashboard/assets/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

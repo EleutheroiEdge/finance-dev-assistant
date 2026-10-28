@@ -16,6 +16,10 @@ not an unbounded autonomous service.
 8. `proposal` / `patching`: propose, inspect, approve, apply and guarded rollback.
 9. `finance`: deterministic arithmetic and evidence-metadata oracles.
 10. `cli`: visible operator actions, static HTML and bounded change watching.
+11. `dashboard` / `statistics` / `health`: prebuilt local React UI, shared
+    configuration validation and reduced, verified audit statistics. A loopback
+    HTTP boundary uses exact origins and per-session tokens; browser actions
+    cannot execute tools or access environment key values. See [dashboard](dashboard.md).
 
 The same user's ability to edit an audit database or approvals is outside the
 integrity guarantee. The chain detects accidental corruption; it is not a signed

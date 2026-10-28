@@ -116,7 +116,10 @@ def call_model(
     with Ledger(ledger_path) as ledger:
         ledger.verify()
         reservation = ledger.reserve(
-            estimate, Decimal(str(config.daily_budget_usd)), Decimal(str(config.max_run_usd))
+            estimate,
+            Decimal(str(config.daily_budget_usd)),
+            Decimal(str(config.max_run_usd)),
+            Decimal(str(config.monthly_budget_usd)),
         )
         ledger.append(
             {
@@ -125,10 +128,19 @@ def call_model(
                 "packet_hash": packet["packet_hash"],
                 "provider": config.provider,
                 "model": config.model,
+                "profile": config.profile,
                 "config_hash": digest(canonical(asdict(config))),
             }
         )
         result = invoke(config, system, packet, schema, network_approved=True, transport=transport)
+        ledger.append(
+            {
+                "event": "model_usage",
+                "reservation": reservation,
+                "input_tokens": result.input_tokens,
+                "output_tokens": result.output_tokens,
+            }
+        )
         # Settle usage before validating semantics, including refused/malformed output.
         if price_in == price_out == 0:
             ledger.settle(reservation, Decimal(0))
@@ -207,6 +219,11 @@ def review_packet(
                 "event": "review_completed",
                 "packet_hash": packet["packet_hash"],
                 "report_hash": digest(canonical(report)),
+                "profile": config.profile,
+                "findings_by_severity": {
+                    severity: sum(f["severity"] == severity for f in data["findings"])
+                    for severity in ("critical", "high", "medium", "low", "info")
+                },
             }
         )
     return report
