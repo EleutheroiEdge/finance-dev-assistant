@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- f-C3 "Green tile": crossbar in the bright accent, attached to the stem, running right
+       to meet the right end of the faint ledger rules — one continuous ledger entry -->
+  <defs>
+    <linearGradient id="t" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#2f7a63"/>
+      <stop offset="1" stop-color="#28634f"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#t)"/>
+  <!-- faint light rules -->
+  <g stroke="#e1ebe4" stroke-opacity="0.25" stroke-width="2.5" stroke-linecap="round">
+    <line x1="13" y1="14" x2="51" y2="14"/>
+    <line x1="13" y1="50" x2="51" y2="50"/>
+  </g>
+  <!-- engineered f in soft paper tone -->
+  <path d="M29 46 V20 H43" fill="none" stroke="#e1ebe4" stroke-width="7.5" stroke-linecap="butt" stroke-linejoin="round"/>
+  <!-- accent crossbar: flush with the stem's left edge, ends aligned with the rules' right ends (x=51) -->
+  <line x1="25.5" y1="33" x2="51" y2="33" stroke="#8fc3ab" stroke-width="6" stroke-linecap="butt"/>
+</svg>
