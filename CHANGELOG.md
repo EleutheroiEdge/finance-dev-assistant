@@ -17,6 +17,10 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 - PyPI page: absolute links and images, project URLs, badge.
 - Clarify user guides and safety limits, add AI coding-agent recipes and offline `finassist guide` topics, and organize maintainer documentation.
 
+### Security
+
+- Update vulnerable build/test tools and hash-verify CI/release dependency installs, including the package-manager bootstrap and pinned runner image.
+
 ## 0.3.0 - 2026-10-28
 
 First public release. The distribution is `finledgerpoli`; the Python import and primary command are `finassist`, with a `finledgerpoli` command alias.
