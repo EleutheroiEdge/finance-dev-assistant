@@ -152,6 +152,12 @@ audit write fails after replacement, the app reports that the configuration may
 already be saved. Its audit run remains open/unknown and blocks readiness.
 Reload and reconcile the ledger and recovery copy before retrying.
 
+Session token and origin checks precede all request-body handling. Payloads over
+65,536 bytes remain rejected. For an authenticated request of at most 131,072
+bytes, rejected-body cleanup discards bytes without parsing them for at most
+0.25 seconds total. This helps Windows clients receive the refusal before the
+connection closes; larger or stalled requests are not drained without bounds.
+
 No external requests, remote fonts, telemetry or CDN assets are used. The session
 token stays in page memory. This is a local same-user tool, not multi-user
 authentication or a sandbox against another process running as your OS user.

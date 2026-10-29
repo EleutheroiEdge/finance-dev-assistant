@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 import http.client
 import json
+import io
 import os
 from pathlib import Path
 import subprocess
@@ -12,7 +13,7 @@ import pytest
 
 from finassist.auditing import command_audit
 from finassist.config import Config, load_config, save_config
-from finassist.dashboard import DashboardServer, DashboardState
+from finassist.dashboard import DashboardHandler, DashboardServer, DashboardState
 from finassist.errors import AssistantError
 from finassist.health import doctor_report
 from finassist.ledger import Ledger
@@ -158,6 +159,56 @@ def test_preflight_and_oversized_bodies_are_rejected(dashboard):
         request("POST", "/api/config/preview", {"padding": "x" * 65536})[1]["code"] == "request_size_invalid"
     )
     assert state.config_path.read_bytes() == before
+
+
+def test_rejected_body_cleanup_is_bounded_and_restores_timeout(monkeypatch):
+    class Connection:
+        timeout = 5
+
+        def gettimeout(self):
+            return self.timeout
+
+        def settimeout(self, timeout):
+            self.timeout = timeout
+
+    handler = object.__new__(DashboardHandler)
+    handler.connection = Connection()
+    handler.rfile = io.BytesIO(b"x" * 70000)
+    handler.discard_oversized_body(70000)
+    assert handler.rfile.tell() == 70000 and handler.connection.timeout == 5
+    handler.rfile.seek(0)
+    handler.discard_oversized_body(131073)
+    assert handler.rfile.tell() == 0
+    # Total deadline expires even when a peer keeps trickling bytes before each
+    # individual socket timeout, rather than restarting the budget per chunk.
+    instants = iter((0.0, 0.1, 0.3))
+    monkeypatch.setattr("finassist.dashboard.time.monotonic", lambda: next(instants))
+    handler.discard_oversized_body(70000)
+    assert handler.rfile.tell() == 16384 and handler.connection.timeout == 5
+
+
+def test_rejected_body_cleanup_handles_stalled_or_truncated_client():
+    class Connection:
+        timeout = 5
+
+        def gettimeout(self):
+            return self.timeout
+
+        def settimeout(self, timeout):
+            self.timeout = timeout
+
+    class Stalled:
+        def read1(self, _size):
+            raise TimeoutError("synthetic stalled rejected payload")
+
+    handler = object.__new__(DashboardHandler)
+    handler.connection = Connection()
+    handler.rfile = Stalled()
+    handler.discard_oversized_body(70000)
+    assert handler.connection.timeout == 5
+    handler.rfile = io.BytesIO(b"short")
+    handler.discard_oversized_body(70000)
+    assert handler.rfile.tell() == 5 and handler.connection.timeout == 5
 
 
 def test_preview_then_explicit_one_use_confirmation_preserves_unrelated_settings(dashboard):
