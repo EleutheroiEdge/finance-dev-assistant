@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .config import Config
 from .errors import AssistantError
+from .guides import GUIDES
 from .security import canonical, regular_path, write_private
 
 
@@ -19,14 +20,12 @@ def export_kit(destination: Path) -> dict:
         "evidence-review/SKILL.md": "skill.md",
         "roles/claude-reviewer.md": "claude-reviewer.md",
         "roles/codex-reviewer.toml": "codex-reviewer.toml",
-        "docs/workflows.md": "workflow-guide.md",
-        "docs/providers.md": "provider-guide.md",
-        "docs/readiness-and-auditing.md": "readiness-guide.md",
-        "docs/platforms.md": "platform-guide.md",
-        "docs/configuration.md": "configuration-guide.md",
         "examples/fork-config.json": "fork-config.json",
+        "examples/dashboard.json": "dashboard-config.json",
         "examples/profiles/engineering.json": "engineering-profile.json",
+        "docs/maintainers/branch-protection-proposal.json": "branch-protection-proposal.json",
     }
+    mapping.update({source: resource for _, source, resource in GUIDES.values()})
     for target, resource in mapping.items():
         content = files("finassist").joinpath("resources/" + resource).read_bytes()
         write_private(destination / target, content)

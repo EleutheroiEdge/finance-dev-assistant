@@ -17,5 +17,5 @@ List relevant checks and any limitations.
 
 ## Review handoff
 
-Record `Ready for Claude at <full commit sha>` after checks pass. Add any specific
+Record `Ready for review at <full commit sha>` after checks pass. Add any specific
 review questions. Review does not authorize publishing, settings changes or deployment.

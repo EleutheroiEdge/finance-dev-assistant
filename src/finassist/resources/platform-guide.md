@@ -1,6 +1,8 @@
 # Windows, macOS and Linux
 
-Use Python 3.11+ and native Git. Install the Python package in a virtual environment;
+Run finledgerpoli on Windows, macOS and Linux with native tools and portable text, state and process handling. Its command is `finassist`; use Python 3.11+ and native Git.
+
+Install the Python package in a virtual environment;
 the README provides commands for PowerShell and POSIX shells without changing
 machine execution policies. Git, GitHub CLI, Docker and Podman are discovered on
 PATH, including native executables on Windows. Batch-file tool shims are refused;
@@ -9,7 +11,7 @@ subprocesses never use `shell=True`. No tool installation or login occurs implic
 ## Text, paths and temporary files
 
 Configuration and report text is UTF-8. Reads accept CRLF through universal
-newlines; new text files use LF. Git source packets and backups preserve original
+newlines; new text files use LF. Outgoing requests and backups preserve original
 bytes, including CRLF, so hashes remain tied to committed blobs. This repository stores text
 and mirrored package resources with an LF `.gitattributes` rule. Application and rollback support both literal
 CRLF blobs and LF blobs in `core.autocrlf=true` worktrees. Git's effective
@@ -29,12 +31,6 @@ tests exercise read-only temporary files and a Unicode database directory.
 
 ## Private state and Git metadata
 
-Private audit/evidence/output files use owner-only modes on POSIX. On Windows,
-permissions inherit from directory ACLs; a numeric chmod is not equivalent.
-**Use a private user-owned directory and review its access list before storing
-private data.** This is also shown by `doctor`. The package does not silently
-alter Windows security settings or claim that inherited ACLs are private.
-
 Committed executable and symlink modes come from Git objects on every OS, even
 when the worktree cannot represent them. Links and reparse/junction paths are
 rejected rather than followed. Reparse attributes are inspected through `lstat`,
@@ -50,14 +46,7 @@ source-byte patches and guarded rollback work without changing the index.
 
 ## Recipe execution and Docker Desktop
 
-Local execution requires explicit trusted-code approval. Linux observes child exit
-without reaping until process-group cleanup; macOS uses its native process-exit
-queue when waitid is unavailable. Windows uses a job object and bounded pipe
-reader. Windows creates the primary thread suspended, assigns the process to a
-kill-on-close Job, then resumes its initial thread using the documented Tool Help
-and ResumeThread APIs. No user code runs before assignment. Output already queued
-is drained before a timeout decision; pipe/thread cleanup runs even if a Job
-operation fails. These remain supervision mechanisms, not untrusted-code sandboxes.
+Use an approved recipe and runtime. Local execution requires explicit trusted-code approval; Docker Desktop must have access to the temporary source directory.
 
 Docker Desktop on Windows/macOS must use Linux containers and a shared native
 source directory. Bind mounts use a literal `--mount` argument with a forward-slash
@@ -75,7 +64,7 @@ present at their approved digest; automatic pulls are disabled.
 
 CI runs native tests, lint, demo and clean installed-wheel smoke on Windows, macOS and Linux
 for each Python 3.11, 3.12 and 3.13 version. The protection proposal lists these
-native checks as a template; this PR does not change server branch protection. Actual container isolation remains a Linux job.
+native checks as a template; this template does not change server branch protection. Actual container isolation remains a Linux job.
 The container smoke prints a clear skip when not on Linux or when the runtime/
 daemon is unavailable; a skip never establishes isolation success. The required
 Linux job uses `--require-runtime`, so missing isolation capability fails CI.
@@ -88,3 +77,22 @@ References: [Docker bind mounts](https://docs.docker.com/engine/storage/bind-mou
 [process creation flags](https://learn.microsoft.com/en-us/windows/win32/procthread/process-creation-flags),
 [ResumeThread](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-resumethread),
 and [Git apply](https://git-scm.com/docs/git-apply).
+
+## Limits
+
+Private audit/evidence/output files use owner-only modes on POSIX. On Windows,
+permissions inherit from directory ACLs; a numeric chmod is not equivalent.
+**Use a private user-owned directory and review its access list before storing
+private data.** This is also shown by `doctor`. The package does not silently
+alter Windows security settings or claim that inherited ACLs are private.
+
+Local execution requires explicit trusted-code approval. Linux observes child exit
+without reaping until process-group cleanup; macOS uses its native process-exit
+queue when waitid is unavailable. Windows uses a job object and bounded pipe
+reader. Windows creates the primary thread suspended, assigns the process to a
+kill-on-close Job, then resumes its initial thread using the documented Tool Help
+and ResumeThread APIs. No user code runs before assignment. Output already queued
+is drained before a timeout decision; pipe/thread cleanup runs even if a Job
+operation fails. These remain supervision mechanisms, not untrusted-code sandboxes.
+
+Container isolation depends on a reviewed image, patched runtime and host kernel. Do not mount credentials, home directories or daemon sockets. Native CI and a Linux OCI test do not establish isolation on every desktop setup. See the [threat model](threat-model.md).

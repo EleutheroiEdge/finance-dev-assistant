@@ -1,14 +1,11 @@
-# Evaluation without self-certification
+# Evaluating review results
 
-The offline demo and unit tests verify deterministic code paths. Fake HTTP
-transports verify protocol parsing and failure behavior. Neither measures a
-model's ability to discover defects. No provider ranking is claimed.
+Compare review results from finledgerpoli against independently reproduced synthetic cases using repeatable evaluation and scoring. Its command is `finassist`.
 
 The versioned synthetic review suite contains cash-sign, tenant-isolation,
 point-in-time and negative-control changes. `evaluate` builds reproducible
 temporary Git fixtures. Only before/after source enters model context;
-expected labels are held out of the prompt. Public cases can be memorized,
-so keep a separate private synthetic holdout for consequential comparisons.
+expected labels are held out of the prompt.
 
 ```sh
 # Validate the fixture construction without any model call
@@ -37,10 +34,17 @@ finassist score --evaluation .finassist/model-evaluation.json \
 
 Scoring rejects changed evaluations, partial labels, label/type conflicts and
 offline runs. It reports case recall, negative-control false-alarm rate and
-unresolved cases. It does not infer semantic correctness from a matching path,
-an impressive explanation, a model vote or a valid JSON schema.
+unresolved cases.
 
 For an adoption decision, also compare severity calibration, reproducible tests,
 coverage gaps, prompt-injection behavior, dollars per confirmed defect and elapsed
 time on identical frozen tasks. Retain failures and repeated trials. A second
 model is worthwhile only if it adds useful verified findings at acceptable cost.
+
+## Limits
+
+The offline demo and unit tests verify deterministic code paths. Fake HTTP
+transports verify protocol parsing and failure behavior. Neither measures a
+model's ability to discover defects. No provider ranking is claimed.
+
+A matching path, fluent explanation, model vote or valid JSON cannot establish semantic correctness. Public cases may be memorized: keep a separate private synthetic holdout. See the [threat model](threat-model.md).

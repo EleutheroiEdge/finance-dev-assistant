@@ -1,9 +1,8 @@
 # Coding-agent integration
 
-The CLI works independently of a coding-agent product. Optional adapters are
-provided for supported hosts:
+Export reviewed finledgerpoli instructions and guides into your preferred coding-agent host. Its command is `finassist`; no host configuration is installed automatically.
 
-The installed wheel includes all three templates and the workflow/provider/readiness guides.
+The installed wheel includes the portable skill, two optional role templates, JSON Schema, examples and offline guides including the agent guide.
 Export them to a new directory:
 
 ```sh
@@ -18,9 +17,12 @@ destination directories are refused. Repository copies are listed below.
 - Codex role: `.codex/agents/finance-reviewer.toml`.
 
 Copy only the desired reviewed role or skill into the host's documented project
-location. Do not replace existing AGENTS.md, tool permissions, personal profiles
-or model routes. Keep the target project's specification authoritative. Resolve
+location. Keep the target project's specification authoritative. Resolve
 the installed skill location when moving role files across projects.
+
+Use `finassist guide` to list bundled topics and `finassist guide agents` to print the agent guide.
+
+## Limits
 
 These role files provide behavioral instructions, not an independent sandbox.
 The Codex role requests read-only mode; execution evidence needs a separately
@@ -32,3 +34,5 @@ Users of other model hosts can use the CLI directly or adapt the portable skill.
 No native-agent SDK, MCP server, browser extension, background service or personal
 login is installed by this package. Direct model adapters and native coding-agent
 roles are distinct integration modes. Both remain subject to project policy.
+
+Never replace existing project rules, personal profiles, credentials, permissions or model routes with a template. See [agent recipes](agents.md) and the [threat model](threat-model.md).

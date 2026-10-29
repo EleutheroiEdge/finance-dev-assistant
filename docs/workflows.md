@@ -1,14 +1,18 @@
 # Workflow contracts
 
+Review committed changes, reproduce numerical behavior and prepare approved patches with finledgerpoli. Its command is `finassist`; follow the target project’s governing methodology throughout.
+
+A receipt is a saved action record bound to exact source, configuration and execution hashes.
+
 ## Source review
 
 Use the project's governing methodology/specification as authority. Open a scoped
-task, resolve its commits, inspect the context packet and identify required
+task, resolve its commits, inspect the outgoing request and identify required
 baseline/candidate cases. A source-only review cannot claim a run was executed.
 Coverage omissions are explicit and block external model review by default.
-Amend the allowlist and rebuild the packet for complete review. An operator may
+Amend the allowlist and rebuild the outgoing request for complete review. You may
 set `allow_partial_review` to true for a scoped review; its report remains labeled
-partial and lists omissions. A packet with no included source never calls a model.
+partial and lists omissions. An outgoing request with no included source never calls a model.
 
 Choose `finance-saas` for tenant authorization, money movement, audit and recovery;
 `investment-research` for as-filed periods, source precedence, approved inputs and
@@ -46,14 +50,10 @@ The image does not bundle a project's engine or private data. Adapt dependencies
 through a reviewed image build for your project. Git-dependent integration tests
 also need Git installed in that project image.
 
-The default container is network-disabled, non-root, capability-dropped, read-only
-with scratch temporary storage and resource limits. It is not a defense against
-a compromised container daemon or host kernel. A test requiring writable project
-files needs an explicit project adapter; do not grant the real checkout write access.
+The default container is network-disabled, non-root, capability-dropped and read-only, with scratch temporary storage and resource limits. A test requiring writable project files needs an explicit reviewed adapter; do not grant the real checkout write access.
 
 `--backend local --approve-local` is for trusted recipes only. It receives a
-minimal environment and temporary HOME, but no OS filesystem isolation. The
-operator owns that decision. Logs stay local; only recipe/exit/hash receipts are
+minimal environment and temporary HOME. Your team owns that decision. Logs stay local; only recipe/exit/hash receipts are
 intended as reduced evidence. Logs are not automatically sent to a provider.
 
 ## Proposed changes
@@ -61,12 +61,10 @@ intended as reduced evidence. Logs are not automatically sent to a provider.
 A proposal is a JSON artifact containing the exact head and a text Git patch.
 Inspect it, create a clean feature branch, then pass its approval hash to `apply`.
 The assistant rejects protected paths, special files, rename/binary patches,
-stale heads, dirty worktrees and common default branch names. Coordinate exclusive
-ownership of the worktree; checks do not make a multi-file apply atomic against
-other same-user writers. Re-run the project's checks and ordinary PR review.
+stale heads, dirty worktrees and common default branch names. Coordinate exclusive ownership of the worktree. Re-run the project's checks and ordinary PR review.
 
 Backups are private under `.finassist`. Rollback requires the original head and
-unchanged post-apply bytes; later operator work stops rollback. An interrupted
+unchanged post-apply bytes; later work stops rollback. An interrupted
 apply without its receipt requires manual reconciliation from the saved backup.
 The assistant does not force history, stage, commit or push.
 
@@ -74,17 +72,12 @@ Build/dependency files and `scripts/` are protected from proposals by default.
 Configure `protected_paths` deliberately for your project; entries also protect
 descendants without a trailing slash. `protected_branches` accepts glob patterns.
 The local branches named by fetched remote default-HEAD references are always
-excluded from patch application. Fetch/current server policy remains an operator check.
+excluded from patch application. Verify fetched references and current server policy yourself.
 
-New context packets use schema2 and carry executable-mode metadata. Schema1
-packets remain inspectable but cannot pass `verify-gate`; rebuild old packets.
+New outgoing requests use schema2 and carry executable-mode metadata. Schema1
+outgoing requests remain inspectable but cannot pass `verify-gate`; rebuild old outgoing requests.
 Public image assets are listed as omissions without reading their bytes.
-Sensitive data/key paths still fail closed even outside the source allowlist.
-
-Each check receipt carries its committed head, snapshot digest, recipe digest,
-runtime image and cleanup result. `check` tests committed source; it does not
-validate uncommitted applied patches. Commit a candidate on an isolated feature
-branch before testing it, or use a separately reviewed project adapter.
+Sensitive data/key paths still block until resolved even outside the source allowlist.
 
 Read [auditing/readiness](readiness-and-auditing.md) for event export, required
 recipes, blocking severities and the explicit GitHub metadata inspection command.
@@ -95,3 +88,12 @@ recipes, blocking severities and the explicit GitHub metadata inspection command
 risk and suggested checks when the head changes and stays quiet otherwise.
 It does not install a timer, create accounts, call a paid model, submit issues
 or restart services. Use its output to dispatch the next authorized task.
+
+## Limits
+
+Each check receipt carries its committed head, snapshot digest, recipe digest,
+runtime image and cleanup result. `check` tests committed source; it does not
+validate uncommitted applied patches. Commit a candidate on an isolated feature
+branch before testing it, or use a separately reviewed project adapter.
+
+Container isolation depends on the image, daemon and host kernel. Local execution has no OS filesystem isolation; process supervision provides cleanup only. Multi-file patch checks are not atomic against other same-user writers. Prompt/source text cannot authorize actions. See the [threat model](threat-model.md).
