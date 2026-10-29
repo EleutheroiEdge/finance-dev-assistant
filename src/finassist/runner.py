@@ -51,9 +51,11 @@ def run_bounded(argv: list[str], *, cwd: Path, env: dict, timeout: float, max_by
     output, timed_out, overflow = bytearray(), False, False
     selector = selectors.DefaultSelector()
     observer = None
+    pipe_nonblocking = False
     try:
         observer = ExitObserver(process.pid)
         os.set_blocking(process.stdout.fileno(), False)
+        pipe_nonblocking = True
         selector.register(process.stdout, selectors.EVENT_READ)
         while True:
             ready = selector.select(0.02)
@@ -96,6 +98,22 @@ def run_bounded(argv: list[str], *, cwd: Path, env: dict, timeout: float, max_by
                 time.sleep(0.1)
         try:
             process.wait(timeout=2)
+            # A process-exit event can arrive before the final pipe-readiness
+            # notification (notably with kqueue). Drain available bytes directly
+            # after group cleanup, without waiting on inherited open handles.
+            if pipe_nonblocking:
+                while True:
+                    try:
+                        block = os.read(process.stdout.fileno(), 65536)
+                    except BlockingIOError:
+                        break
+                    if not block:
+                        break
+                    room = max_bytes - len(output)
+                    output.extend(block[:room])
+                    if len(block) > room:
+                        overflow = True
+                        break
         finally:
             selector.close()
             process.stdout.close()
