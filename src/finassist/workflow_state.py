@@ -185,7 +185,9 @@ def workflow_lock(state_dir: Path, identifier: str):
     path = regular_path(state_dir / "workflow-locks" / (identifier + ".lock"))
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
-    with os.fdopen(fd, "r+b") as stream:
+    # An unbuffered seed cannot retry a rejected Windows locked-byte write
+    # during close and mask the classified workflow_run_busy error.
+    with os.fdopen(fd, "r+b", buffering=0) as stream:
         try:
             if stream.seek(0, os.SEEK_END) == 0:
                 stream.write(b"\0")
