@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_release_versions_and_tag_gate():
-    assert validate_tag(ROOT, "v0.3.0") == "0.3.0"
-    for tag in ["main", "v0.2.0", "v0.3.0rc1", "v0.3.0; echo unsafe"]:
+    assert validate_tag(ROOT, "v0.3.1") == "0.3.1"
+    for tag in ["main", "v0.2.0", "v0.3.0", "v0.3.1rc1", "v0.3.1; echo unsafe"]:
         with pytest.raises(ValueError):
             validate_tag(ROOT, tag)
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
@@ -54,7 +54,25 @@ def test_release_workflow_is_tag_only_and_least_privilege():
 
 
 def test_release_notes_only_include_requested_version():
+    notes = release_notes(ROOT, "0.3.1")
+    assert notes.startswith("# finledgerpoli 0.3.1\n")
+    assert "PyPI page: absolute links and images, project URLs, badge" in notes
+    assert "#1 and #3–#5" not in notes
+    assert "## Next" not in notes and "Unreleased" not in notes
+
+
+def test_dated_first_public_release_notes_extract_cleanly():
     notes = release_notes(ROOT, "0.3.0")
     assert notes.startswith("# finledgerpoli 0.3.0\n")
-    assert "#1 and #3–#5" in notes
-    assert "## Next" not in notes and "Unreleased" not in notes
+    assert "First public release" in notes
+    assert "PyPI page:" not in notes
+    assert "Earlier development" not in notes
+    assert "#1" not in notes and "development milestones" not in notes
+
+
+@pytest.mark.parametrize("headers", ["", "## 0.3.01 - Unreleased\n\nWrong version", "## 0.3.0 - Unreleased\n\n", "## 0.3.0 - Unreleased\n\nOne\n\n## 0.3.0 - 2026-10-28\n\nTwo"])
+def test_release_notes_refuse_missing_empty_or_duplicate_sections(tmp_path, headers):
+    (tmp_path / "CHANGELOG.md").write_text(headers, encoding="utf-8", newline="\n")
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "synthetic"\n', encoding="utf-8", newline="\n")
+    with pytest.raises(ValueError, match="release notes"):
+        release_notes(tmp_path, "0.3.0")

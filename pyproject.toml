@@ -4,15 +4,23 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "finledgerpoli"
-version = "0.3.0"
+version = "0.3.1"
 description = "Evidence-first, model-neutral developer assistance for finance software"
 requires-python = ">=3.11"
 license = "MIT"
 readme = "README.md"
 dependencies = ["httpx==0.28.1", "jsonschema==4.25.1"]
 
+[project.urls]
+Homepage = "https://github.com/EleutheroiEdge/finance-dev-assistant"
+Repository = "https://github.com/EleutheroiEdge/finance-dev-assistant"
+Documentation = "https://github.com/EleutheroiEdge/finance-dev-assistant/tree/main/docs/"
+Issues = "https://github.com/EleutheroiEdge/finance-dev-assistant/issues"
+Changelog = "https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/CHANGELOG.md"
+Security = "https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/SECURITY.md"
+
 [project.optional-dependencies]
-dev = ["pytest==8.4.2", "ruff==0.14.3", "PyYAML==6.0.3"]
+dev = ["pytest==8.4.2", "ruff==0.14.3", "PyYAML==6.0.3", "readme-renderer[md]==46.0"]
 
 [project.scripts]
 finassist = "finassist.cli:main"

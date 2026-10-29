@@ -1,8 +1,6 @@
 # Local dashboard
 
-The dashboard is an offline interface for configuration, verified audit statistics
-and local health. Its React and TypeScript application is prebuilt into the Python
-package. Python 3.11 or newer is sufficient at runtime; Node is a contributor tool.
+Use the finledgerpoli dashboard to preview configuration changes, inspect audit statistics and check local health. Its command is `finassist`; the prebuilt app needs Python 3.11+ and no Node installation at runtime.
 
 ## Start and stop
 
@@ -20,11 +18,6 @@ process with Ctrl+C. The default port is selected by the operating system; use
 audit directory. Use the same directory as your CLI runs to see their statistics.
 There is no host option, background service, browser launcher or telemetry.
 
-Use a private user directory for configuration and state. POSIX files use owner-only
-modes (0600, with private newly created directories). Windows uses inherited ACLs;
-the Health page warns that POSIX modes do not establish a Windows access boundary.
-Review directory permissions, especially on shared machines.
-
 ## Configuration
 
 The form edits only the following settings. Every value is validated by the same
@@ -40,7 +33,7 @@ The form edits only the following settings. Every value is validated by the same
 | `generated_paths` | Literal paths or prefixes excluded from review/snapshot source | `src/finassist/resources/dashboard/` |
 | `allow_paths` | Reviewable path prefixes; one per line | `src/`, `tests/` |
 | `protected_paths` | Paths that patches cannot modify | `.github/` |
-| `extra_sensitive_patterns` | Case-insensitive content regular expressions | `internal project phrase` |
+| `extra_sensitive_patterns` | Case-insensitive content regular expressions | `synthetic-restricted-marker` |
 | `profile` | Active review checklist from the loaded configuration | `general` |
 | `required_recipes` | Names of existing recipe definitions | `unit` |
 | `blocking_severities` | Finding severities that block readiness | `critical`, `high` |
@@ -61,15 +54,7 @@ content-addressed recovery copy under the state directory's `config-backups/`.
 The save captures one byte snapshot for revision and backup identity.
 Only field names and hashes enter save audit events, not setting values.
 
-The revision check detects observed concurrent edits; it is not a filesystem
-compare-and-swap transaction. Avoid two writers to the same configuration. If an
-audit write fails after replacement, the app reports that the configuration may
-already be saved. Its audit run remains open/unknown and blocks readiness.
-Reload and reconcile the ledger and recovery copy before retrying.
-
-API keys stay in environment variables. There is no key entry field or API for key
-values; only whether each supported variable and the configured variable are set
-is returned. Do not paste credentials into model names, path lists or other fields.
+There is no key entry field or API for key values; only whether each supported variable and the configured variable are set is returned.
 Network authorization remains a separate CLI/configuration decision.
 
 ## Statistics and health
@@ -83,17 +68,14 @@ plausible partial totals. Reading an absent ledger does not create fake runs.
   account for all open or unknown reservations, including earlier periods.
 - Reviews show totals, profiles, and findings by severity and profile. Offline
   analyses are counted separately. Older reviews may lack finding metadata.
-- Readiness shows eligibility for human review, blocked results and reasons.
+- Readiness shows satisfied prerequisites, blocked results and reasons.
   Older or failed evaluations without outcome metadata remain unclassified.
   Exit code 1 is displayed distinctly as blocked or failed; an unknown mutation
   never receives a false terminal failure event.
 - Recipe results show recorded pass rates; older checks without result metadata
   are explicitly counted. The last 50 audited commands include unknown outcomes.
 
-Missing historical usage is not zero. These are local estimated costs, booked on
-the reservation's UTC day, not provider invoices or a provider-enforced spend cap.
-The monthly default also applies to model admission through the CLI. Reconciliation
-of uncertain calls remains an explicit operator action. Health shares the
+The monthly default also applies to model admission through the CLI. Health shares the
 `finassist doctor` implementation and checks configuration validity without calling
 a model, GitHub or a container daemon. Invalid configurations return a typed API
 error and a persistent banner on every tab; refresh clears stale data, and Health
@@ -103,7 +85,7 @@ remains available.
 
 `generated_paths` defaults to the packaged dashboard output directory. Entries are
 literal relative POSIX files or directory prefixes ending in `/`, without globs,
-traversal or private-path exceptions. The list is configuration-bound in packets.
+traversal or private-path exceptions. The list is configuration-bound in outgoing requests.
 Planning accounts for these paths as `generated_artifact_excluded` without reading
 large generated bytes; snapshot export excludes them too. Verified generated
 omissions are outside review coverage. Other omissions still block full coverage.
@@ -117,7 +99,7 @@ reviewable and protected by default.
 
 Regression checks run `plan` and an explicitly approved synthetic local `check`
 against this repository's actual committed tree. They retain the 48 KB file limit;
-the whole-repository plan uses an explicit larger packet limit. A bounded synthetic
+the whole-repository plan uses an explicit larger outgoing request limit. A bounded synthetic
 comparison ancestry preserves the exact committed tree without changing source,
 index or branch references, and works in shallow or single-commit forks. A generated file
 outside a configured exclusion still fails the file limit.
@@ -130,13 +112,6 @@ per-process session token; all data APIs require that token. Cross-site fetches,
 CORS preflights, oversized bodies and arbitrary static paths are rejected. A
 restrictive Content Security Policy, no-store responses and no request-body logs
 reduce accidental exposure. Assets are served from a packaged hash manifest.
-
-No external requests, remote fonts, telemetry or CDN assets are used. The session
-token stays in page memory. This is a local same-user tool, not multi-user
-authentication or a sandbox against another process running as your OS user.
-Do not expose it through proxies, tunnels or port forwarding. It cannot run
-recipes, launch reviews, change GitHub protection, merge, deploy or execute shell
-commands from the browser.
 
 ## Contributor checks
 
@@ -163,3 +138,25 @@ Linux also test a clean installed wheel with Node absent from its runtime PATH.
 Design references: [Vite static builds](https://vite.dev/guide/build.html),
 [OWASP CSRF guidance](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html),
 and [uPlot](https://github.com/leeoniya/uPlot).
+
+## Limits
+
+Use a private user directory for configuration and state. POSIX files use owner-only
+modes (0600, with private newly created directories). Windows uses inherited ACLs;
+the Health page warns that POSIX modes do not establish a Windows access boundary.
+Review directory permissions, especially on shared machines.
+
+The revision check detects observed concurrent edits; it is not a filesystem
+compare-and-swap transaction. Avoid two writers to the same configuration. If an
+audit write fails after replacement, the app reports that the configuration may
+already be saved. Its audit run remains open/unknown and blocks readiness.
+Reload and reconcile the ledger and recovery copy before retrying.
+
+No external requests, remote fonts, telemetry or CDN assets are used. The session
+token stays in page memory. This is a local same-user tool, not multi-user
+authentication or a sandbox against another process running as your OS user.
+Do not expose it through proxies, tunnels or port forwarding. It cannot run
+recipes, launch reviews, change GitHub protection, merge, deploy or execute shell
+commands from the browser.
+
+Cost figures are local UTC-booked estimates, not invoices or provider-enforced caps; missing historical usage is not zero. Reconcile uncertain calls from actual billing. Keys stay in environment variables; never paste them into other fields. See the [threat model](threat-model.md).

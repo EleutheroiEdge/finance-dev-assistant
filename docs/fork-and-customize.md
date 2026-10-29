@@ -1,8 +1,6 @@
 # Fork and customize
 
-This walkthrough uses **Cedar Vale Research**, a fictional software team. Names,
-checklists and data are synthetic. Adapt the foundation through reviewed
-configuration before changing the core; the assistant remains advisory.
+Adapt finledgerpoli to your team through profiles, source policy, providers, budgets and the dashboard. Its command is `finassist`; this walkthrough uses Cedar Vale Research, a fictional team with synthetic data.
 
 1. **Create your development copy.** Fork or clone the repository and install in
    a Python 3.11+ virtual environment as shown in the README. Run `finassist demo`
@@ -43,7 +41,7 @@ configuration before changing the core; the assistant remains advisory.
    reviewed. For a remote model, choose provider/model, approve its exact endpoint
    hostname, set rate assumptions and supply the key through the named environment
    variable. Enable `allow_network` only deliberately. Review/propose still require
-   the outgoing packet's approval hash and network flag. An existing key never
+   the outgoing request's approval hash and network flag. An existing key never
    chooses a provider. See [provider setup](providers.md).
 6. **Set budgets.** Choose per-run, daily and monthly admission amounts and review
    input/output prices. Cedar Vale might start with USD 0.25/run, 1/day and 10/month
@@ -69,3 +67,7 @@ Use `finassist export-kit --output assistant-integration` to obtain portable
 profiles, instructions, examples and the schema. Review templates before copying
 any into a host agent. They do not install permissions or configure credentials.
 See [command output contracts](cli-contracts.md) for scripts consuming results.
+
+## Limits
+
+Profiles do not replace your methodology, and configuration does not grant action authority. Budgets are local admission controls; uncertain billing stays reserved. Instructions do not install host permissions. Use synthetic trials and preserve the human approvals in the [agent guide](agents.md). See the [threat model](threat-model.md).

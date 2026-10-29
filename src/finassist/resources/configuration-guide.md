@@ -1,5 +1,7 @@
 # Configuration reference
 
+Configure finledgerpoli source policy, providers, budgets and review requirements in one validated JSON file. Its command is `finassist`.
+
 The CLI and library use the same `Config.validate()` rules. Unknown fields fail
 with `unknown_config_option`; no provider is selected from an existing key.
 [Complete example](../examples/fork-config.json) lists every option. It stays offline.
@@ -8,14 +10,14 @@ with `unknown_config_option`; no provider is selected from an existing key.
 |---|---|
 | `schema_version` | Configuration format version; use 1. |
 | `provider` | offline, openai, anthropic, google, compatible or ollama. No automatic fallback. |
-| `model` | Exact operator-selected model identifier; empty for offline. |
+| `model` | Exact user-selected model identifier; empty for offline. |
 | `endpoint` | Explicit provider API URL, or the built-in protocol default. |
 | `api_key_env` | Environment variable NAME only. Never a key value. |
 | `auth_header` | Authorization, api-key or x-api-key for the selected endpoint. |
 | `profile` | Selected name from the resolved profiles registry. |
 | `profiles` | Registry of names to nonempty checklist arrays. Replaces built-ins when supplied; general is required. |
 | `profile_files` | JSON registry files, strict relative POSIX .json paths inside this config directory. Definitions overlay profiles; duplicate paths, names and empty files fail. |
-| `denied_parts` | Lowercase private path component names (matched case-insensitively). Remove portfolios only for approved source code; .git and .finassist remain required. |
+| `denied_parts` | Lowercase private path component names (matched case-insensitively). Remove portfolios only for approved source code; .git and .finledgerpoli remain required. |
 | `text_suffixes` | Lowercase source suffixes including the dot. Add .tf/.cs explicitly. Binary/credential file restrictions remain. |
 | `github_host` | GitHub DNS hostname, without scheme, path or port. Defaults to github.com; Enterprise uses existing gh auth. |
 | `allow_network` | Enable potential network use. Each command still needs its own explicit network approval. |
@@ -27,7 +29,7 @@ with `unknown_config_option`; no provider is selected from an existing key.
 | `protected_branches` | Glob patterns where local patch application is prohibited. |
 | `extra_sensitive_patterns` | Additional case-insensitive regular expressions. Invalid patterns fail; matches block content. |
 | `max_file_bytes` | Maximum bytes per source file version. |
-| `max_packet_bytes` | Maximum serialized review packet bytes. |
+| `max_packet_bytes` | Maximum serialized outgoing request bytes. |
 | `max_output_tokens` | Requested output token ceiling. Anomalous reported usage stays unreconciled. |
 | `timeout_seconds` | Bounded provider and recipe timeout; remote cancellation is separate. |
 | `max_run_usd` | Local per-call spend admission limit in USD; not a provider-enforced cap. |
@@ -37,23 +39,25 @@ with `unknown_config_option`; no provider is selected from an existing key.
 | `output_usd_per_million` | Operator-supplied output token price in USD per million. |
 | `recipes` | Named arrays of literal executable/argument strings. Never shell command strings. |
 | `runner_image` | Prebuilt digest-pinned OCI image used for isolated recipes. |
-| `required_recipes` | Configured recipe names whose fresh passing receipts readiness requires. |
+| `required_recipes` | Recipe names whose fresh passing check records are required for human review. |
 | `blocking_severities` | Finding severities that block readiness: critical/high/medium/low/info. |
 | `readiness_max_age_seconds` | Maximum age of audited review and check evidence. |
 | `allow_local_readiness` | Explicit trusted-code opt-in for local recipe evidence; false by default. |
 
+A receipt is a saved action record bound to source and configuration hashes. Readiness means satisfying configured prerequisites for human review.
+
 ## Path and file policy
 
-Today’s denied component names and source suffixes remain the defaults. A path
+Conservative denied path components and source suffixes are supplied by default. A path
 under `src/portfolios/` needs both an allowed source prefix and explicit removal
 of `portfolios` from `denied_parts`. Paths stay relative, reject traversal and
 links, and are rechecked throughout planning, verification, export, evaluation,
 proposals and rollback. Packets capture `allow_paths` and the selected profile;
 active review/readiness requires an exact match and re-screens custom content
-patterns. Rebuild older packets lacking scope-policy evidence before active use.
+patterns. Rebuild older outgoing requests lacking scope-policy evidence before active use.
 The approved path policy is saved in patch backups; CLI rollback also enforces
 the active configuration before writing any file.
-Generated exclusions are captured in packet policy, are accounted for explicitly,
+Generated exclusions are captured in outgoing request policy, are accounted for explicitly,
 and do not count as incomplete review coverage. Other omissions still do. Generated
 bytes remain subject to publication scans and build-integrity CI. `.gitattributes`
 is reviewable and protected by default.
@@ -123,3 +127,7 @@ limits; runtime validation additionally checks private paths/content, endpoint
 approval, profile files and cross-field policy. Schema validation alone is not
 approval to send source or run a recipe. Forks can use a local schema copy and
 change its `$id` when publishing their own version.
+
+## Limits
+
+Configuration selects policy; it does not authorize a network request, recipe execution or patch application. Runtime checks remain authoritative after editor validation. Screening cannot prove confidentiality, generated exclusions require independent source/build verification, and local budget admission cannot enforce provider billing. See the [threat model](threat-model.md).

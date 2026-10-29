@@ -1,5 +1,7 @@
 # Contributing
 
+Contribute focused, tested improvements to finledgerpoli while preserving its offline defaults and explicit approvals. The command is `finassist`.
+
 Work on a focused feature branch. Document the problem, scope, governing project
 rules, expected behavior and validation. Keep fixtures synthetic and provider
 tests on fake transports. Do not copy private source histories or datasets into

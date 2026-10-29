@@ -1,11 +1,13 @@
 # Synthetic demo media
 
+Reproduce finledgerpoli demo media using synthetic data and the packaged dashboard. Its command is `finassist`; the recording and screenshots are examples, not measured provider results.
+
 All shown spend, tokens, reviews, findings and readiness are fictional. No model
 provider is called. Screenshots are captured from the actual prebuilt dashboard
 with a fresh temporary config and ledger. The capture process receives only a
 small OS/path environment allowlist, excluding provider keys. External browser
-requests are refused. Screenshots use the current local build in light mode; the seed script creates
-synthetic metadata, not measured provider results.
+requests are refused. Screenshots use the current local build in light mode; the
+seed script creates synthetic metadata, not measured provider results.
 
 The recording uses a `.cast.txt` filename so the existing text-source policy can
 inspect it without adding another allowed suffix. The asciinema v2 recording contains the actual `finassist demo` JSON, formatted for
@@ -39,6 +41,8 @@ python scripts/record_demo.py
 python scripts/catalog_docs_images.py
 finassist scan --repo .
 ```
+
+## Limits
 
 Review and stage the media and `manifest.json` explicitly before the scan. The
 manifest names exact PNGs and the bounded `hero.gif` under `docs/images/` and binds their SHA-256 hashes.
