@@ -12,7 +12,7 @@ from .errors import AssistantError, OperationOutcomeUnknown
 from .runner import run_recipe
 from .security import canonical, digest, pinned_image, write_private
 from .workflow import preflight_workflow, verify_workflow_plan
-from .workflow_state import WorkflowStore, operation_identifier, run_phase, workflow_lock
+from .workflow_state import MAX_WORKFLOW_ARTIFACT_BYTES, WorkflowStore, operation_identifier, run_phase, workflow_lock
 from .workspace import export_snapshot
 
 
@@ -63,7 +63,7 @@ def _validate_result(document: dict, state: dict, plan: dict, step_id: str, conf
         any(receipt.get(key) != value for key, value in expected.items())
         or snapshot.get("head") != state["head"] or digest(canonical(snapshot)) != expected["snapshot_hash"]
         or digest(canonical(asdict(config))) != plan["config_hash"]
-        or len(canonical(document)) > 4_000_000
+        or len(canonical(document)) + 1 > MAX_WORKFLOW_ARTIFACT_BYTES
     ):
         raise AssistantError("workflow_result_invalid")
 
@@ -117,12 +117,18 @@ def inspect_run(store: WorkflowStore, identifier: str) -> dict:
     }
 
 
-def create_run(store: WorkflowStore, plan: dict, packet: dict, repo: Path, config: Config,
-               *, approved_plan: str | None, backend: str = "docker", approve_local: bool = False) -> str:
+def validate_run(plan: dict, packet: dict, repo: Path, config: Config,
+                 *, approved_plan: str | None, backend: str = "docker", approve_local: bool = False) -> None:
+    """Reject invalid inputs and approvals before initializing persistent state."""
     _authorize(plan, config, approved_plan, backend, approve_local)
     preflight = preflight_workflow(plan, packet, repo, config)
     if preflight["blocking_reasons"]:
         raise AssistantError("workflow_preflight_blocked")
+
+
+def create_run(store: WorkflowStore, plan: dict, packet: dict, repo: Path, config: Config,
+               *, approved_plan: str | None, backend: str = "docker", approve_local: bool = False) -> str:
+    validate_run(plan, packet, repo, config, approved_plan=approved_plan, backend=backend, approve_local=approve_local)
     identifier = uuid.uuid4().hex
     descriptor = {
         "schema_version": 1, "workflow_run_id": identifier,
@@ -146,6 +152,14 @@ def execute_run(store: WorkflowStore, identifier: str, repo: Path, config: Confi
         raise AssistantError("workflow_step_limit_invalid")
     with workflow_lock(store.root, identifier):
         state, _descriptor, plan, packet = store.load(identifier)
+        config.validate()
+        if approved_plan != plan["plan_hash"]:
+            raise AssistantError("workflow_plan_approval_required")
+        if digest(canonical(asdict(config))) != plan["config_hash"]:
+            report = inspect_run(store, identifier)
+            report.update(status="blocked", blocking_reasons=sorted(
+                {*report["blocking_reasons"], "workflow_configuration_changed"}))
+            return report
         _authorize(plan, config, approved_plan, state["backend"], approve_local)
         _recover_interruption(store, identifier, state)
         for _index in range(max_steps):

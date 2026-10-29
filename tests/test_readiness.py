@@ -76,6 +76,33 @@ def test_gate_accepts_bound_evidence_but_grants_no_authority(gate_bundle):
     assert not report["merge_authority"] and not report["deployment_authority"]
 
 
+def test_gate_cli_accepts_bounded_json_escaped_check_output(gate_bundle, repository, tmp_path, capsys):
+    from finassist.cli import _read_json, main
+    from finassist.config import save_config
+
+    packet, review, checks, config, head, state = gate_bundle
+    repo, _base, _head = repository
+    checks[0]["output"] = "\x01" * 350_000
+    checks[0]["receipt"]["output_hash"] = digest(checks[0]["output"].encode())
+    with Ledger(state) as ledger:
+        ledger.append({"event": "check_completed", "head": head,
+                       "receipt_hash": digest(canonical(checks[0]["receipt"])),
+                       "config_hash": checks[0]["receipt"]["config_hash"]})
+    state.rename(tmp_path / "audit.sqlite")
+    for name, document in (("packet", packet), ("review", review), ("check", checks[0])):
+        (tmp_path / (name + ".json")).write_bytes(canonical(document) + b"\n")
+    check = tmp_path / "check.json"
+    assert 2_000_000 < check.stat().st_size < 4_000_000
+    with pytest.raises(AssistantError, match="input_limit_exceeded"):
+        _read_json(str(check))
+    save_config(tmp_path / "config.json", config)
+    assert main(["--config", str(tmp_path / "config.json"), "verify-gate", "--repo", str(repo),
+                 "--state-dir", str(tmp_path), "--expected-head", head,
+                 "--packet", str(tmp_path / "packet.json"), "--review", str(tmp_path / "review.json"),
+                 "--receipt", str(check)]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "eligible-for-human-review"
+
+
 def test_workflow_blocks_green_unit_tests_without_financial_evidence(gate_bundle, repository, tmp_path, capsys):
     from finassist.cli import main
     from finassist.config import save_config
