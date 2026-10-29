@@ -213,6 +213,13 @@ def test_profile_file_failures_are_bounded_and_do_not_execute(tmp_path):
         load_config(path)
 
 
+def test_config_bytes_without_path_never_load_relative_profile_files():
+    with pytest.raises(AssistantError, match="profile_files_require_path"):
+        load_config(content=canonical({"profile_files": ["profiles/custom.json"]}))
+    with pytest.raises(AssistantError, match="config_file_too_large"):
+        load_config(content=b" " * 2_000_001)
+
+
 def test_configuration_example_round_trips():
     config = load_config(Path(__file__).parents[1] / "examples/fork-config.json")
     assert (

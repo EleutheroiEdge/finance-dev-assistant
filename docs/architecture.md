@@ -19,6 +19,28 @@ Models produce advisory JSON and proposed patches through bounded requests. They
     configuration validation and reduced, verified audit statistics. A loopback
     HTTP boundary uses exact origins and per-session tokens; browser actions
     cannot execute tools or access environment key values. See [dashboard](dashboard.md).
+12. `workflow`: versioned declarative validation plans, committed methodology
+    and recipe bindings, acyclic dependency contracts and offline preflight.
+    Optional workflow-aware readiness adds evidence obligations through the
+    existing verifier. See [workflow plans](workflow-plans.md).
+13. `workflow_state` / `workflow_execution`: replayable audit transitions,
+    private artifact bindings, process-held execution locks and bounded approved
+    check execution. Unknown outcomes need explicit reconciliation; no model
+    calls or automatic retries. See [durable execution](workflow-execution.md).
+14. `workflow_packs`: pinned local profile/workflow/check/policy composition,
+    restrictive configuration resolution and provenance export. It produces
+    inspectable snapshots without installing code or activating settings.
+    See [workflow packs](workflow-packs.md).
+15. `workflow_inspection`: read-only verified ledger snapshots, bounded workflow
+    timelines and explanations of recorded dependency/recovery blockers. It
+    does not load configuration or confer execution/readiness authority.
+    See [workflow timelines](workflow-timelines.md).
+16. `ci_policy` / `github_context` / `ci_gate`: pinned base-revision CI envelopes,
+    narrow PR identity checks and unattended isolated recipe execution. Required
+    model review remains blocked; existing full readiness is unchanged.
+17. `github_actions`: metadata-only job summaries, outputs and private reports.
+    The composite action bootstraps trusted action source in an isolated environment;
+    it installs no target PR package on the host. See [CI gates](ci-gates.md).
 
 Finance profiles separate source authority, approved analyst judgments and
 algorithmic decisions. Do not replace a project's methodology with generic

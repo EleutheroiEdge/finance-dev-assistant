@@ -8,7 +8,7 @@ jobs:
   test:
     name: ${{ matrix.check_name }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -32,7 +32,7 @@ jobs:
       - run: python scripts/ci_install.py dependencies
       - run: python scripts/ci_install.py project
       - run: python -m pytest -q
-      - run: ruff check src tests scripts
+      - run: ruff check src tests scripts actions
       - run: finassist demo
       - run: finassist scan --repo .
       - name: Verify a clean wheel installation

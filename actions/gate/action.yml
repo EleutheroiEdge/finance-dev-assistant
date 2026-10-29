@@ -1,0 +1,33 @@
+name: finledgerpoli financial check gate
+description: Run isolated financial checks under a pinned policy from the pull request base revision.
+inputs:
+  policy-path:
+    description: Repository-relative policy path, read from the base commit.
+    default: finassist-ci.json
+  policy-sha256:
+    description: Reviewed SHA-256 of the exact base-policy bytes.
+    required: true
+  repository-path:
+    description: Checkout directory relative to GITHUB_WORKSPACE.
+    default: .
+outputs:
+  status:
+    description: passed, blocked or error; only passed produces a successful action.
+    value: ${{ steps.gate.outputs.status }}
+  report-hash:
+    description: Hash of the metadata-only report, excluding its hash field.
+    value: ${{ steps.gate.outputs.report-hash }}
+  report-path:
+    description: Private report path under RUNNER_TEMP; raw artifacts are not uploaded.
+    value: ${{ steps.gate.outputs.report-path }}
+runs:
+  using: composite
+  steps:
+    - name: Evaluate pinned financial check policy
+      id: gate
+      shell: bash
+      env:
+        FINASSIST_CI_POLICY_PATH: ${{ inputs.policy-path }}
+        FINASSIST_CI_POLICY_SHA256: ${{ inputs.policy-sha256 }}
+        FINASSIST_CI_REPOSITORY_PATH: ${{ inputs.repository-path }}
+      run: python -I "$GITHUB_ACTION_PATH/run.py"

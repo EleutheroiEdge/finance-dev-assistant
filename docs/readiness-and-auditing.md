@@ -33,6 +33,11 @@ Corrupt/unavailable auditing stops operational commands before work begins.
 
 ## Configurable evidence gate
 
+Use [workflow audit timelines](workflow-timelines.md) to trace recorded step
+attempts and dependency/recovery blockers through a verified historical ledger
+prefix. The query does not load configuration, open artifacts or assess current
+readiness. Its filtered metadata exports omit raw diagnostic/source/output data.
+
 Add named recipes to your reviewed provider configuration and set:
 
 ```json
@@ -68,6 +73,11 @@ The review's base must match the outgoing request base. The CLI checks source cl
 before and after evaluation; private untracked `.finassist` state is excluded.
 
 ## GitHub control inspection
+
+The [GitHub Actions adapter](ci-gates.md) provides a separate deterministic-check
+gate under pinned CI policy. A passing check gate is not `verify-gate` readiness:
+required model review, freshness and other existing review prerequisites remain
+independent. Unattended model-required CI policies currently return blocked.
 
 Select `allow_network: true` in a reviewed configuration and explicitly approve
 the metadata request. The configured model is never called by this command.

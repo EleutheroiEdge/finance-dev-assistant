@@ -10,13 +10,22 @@ from .ledger import CURRENT_RUN, Ledger
 from .review import validate_review
 from .scope import verify_packet, review_omissions
 from .security import canonical, digest
+from .workflow_state import unfinished_workflows
 
 
 def verify_gate(
-    packet: dict, review: dict, checks: list[dict], config: Config, head: str, state: Path
+    packet: dict, review: dict, checks: list[dict], config: Config, head: str, state: Path,
+    *, additional_recipes: tuple[str, ...] = (),
 ) -> dict:
     config.validate()
     verify_packet(packet, config)
+    if not isinstance(additional_recipes, tuple) or any(
+        not isinstance(name, str) or name not in config.recipes for name in additional_recipes
+    ):
+        raise AssistantError("readiness_additional_recipe_invalid")
+    # Workflow obligations can expand the configured gate, never weaken it.
+    # Keep the original config hash: its existing receipts must remain valid.
+    required_recipes = tuple(dict.fromkeys((*config.required_recipes, *additional_recipes)))
     if not isinstance(review, dict) or any(
         not isinstance(value, dict)
         or not isinstance(value.get("receipt"), dict)
@@ -55,7 +64,7 @@ def verify_gate(
                 blockers.add("blocking_findings")
     if review.get("packet_hash") != packet["packet_hash"]:
         blockers.add("review_packet_mismatch")
-    if not config.required_recipes:
+    if not required_recipes:
         blockers.add("required_recipes_unconfigured")
     if not state.is_file():
         raise AssistantError("audit_evidence_missing")
@@ -71,14 +80,19 @@ def verify_gate(
     import json
 
     events = [(json.loads(payload), value) for payload, value in rows]
+    if unfinished_workflows([(index, payload) for index, (payload, _hash) in enumerate(events, start=1)]):
+        blockers.add("unfinished_workflow")
     now = datetime.now(timezone.utc)
 
     def fresh(payload: dict) -> bool:
         try:
-            instant = datetime.fromisoformat(payload["recorded_at"])
-            return (
+            instants = [datetime.fromisoformat(payload["recorded_at"])]
+            if "evidence_recorded_at" in payload:
+                instants.append(datetime.fromisoformat(payload["evidence_recorded_at"]))
+            return all(
                 instant.tzinfo is not None
                 and 0 <= (now - instant).total_seconds() <= config.readiness_max_age_seconds
+                for instant in instants
             )
         except (KeyError, TypeError, ValueError):
             return False
@@ -97,7 +111,7 @@ def verify_gate(
     for document in checks:
         receipt, snapshot = document.get("receipt", {}), document.get("snapshot", {})
         name = receipt.get("recipe")
-        if name not in config.required_recipes:
+        if name not in required_recipes:
             continue
         if name in seen:
             blockers.add("duplicate_recipe_evidence")
@@ -146,13 +160,13 @@ def verify_gate(
             for p, _ in events
         ):
             blockers.add("check_receipt_missing_or_stale")
-    if seen != set(config.required_recipes):
+    if seen != set(required_recipes):
         blockers.add("required_recipe_evidence_missing")
     return {
         "status": "blocked" if blockers else "eligible-for-human-review",
         "head": head,
         "blocking_reasons": sorted(blockers),
-        "required_recipes": list(config.required_recipes),
+        "required_recipes": list(required_recipes),
         "policy_hash": digest(canonical(asdict(config))),
         "merge_authority": False,
         "deployment_authority": False,

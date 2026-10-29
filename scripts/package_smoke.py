@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 
+from ci_gate_smoke import exercise_ci_gate
 import finassist
 from finassist.platform_support import find_tool
 from finassist.guides import GUIDES
@@ -24,6 +25,7 @@ assert len(images) == 3 and all("finassist/resources/dashboard/assets/" in str(e
 assert sorted(entry.suffix for entry in images) == [".png", ".svg", ".svg"]
 assert finassist.installed_version() == distribution.version
 examples = Path(sys.argv[1]).resolve()
+assert exercise_ci_gate("sha256:" + "a" * 64, run_checks=False)["ci_policy_refusal_smoke"] == "PASS"
 with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
     root = Path(directory)
 
@@ -99,6 +101,49 @@ with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
     )[0]
     assert gate["status"] == "blocked" and "model_review_absent" in gate["blocking_reasons"]
     assert not gate["merge_authority"] and not gate["deployment_authority"]
+    # The installed wheel must carry the declarative template and new commands.
+    # Execution below uses only these synthetic committed-source checks.
+    workflow_config = json.loads((root / "config.json").read_text(encoding="utf-8"))
+    workflow_config.update(
+        recipes={
+            "unit": ["python", "-c", "from cash import cash; assert cash(5, 2) == 3"],
+            "cash": ["python", "-c", "from cash import cash; assert cash(10, 3) == 7"],
+        },
+        required_recipes=["unit"],
+    )
+    config_path = root / "workflow-config.json"
+    config_path.write_text(json.dumps(workflow_config), encoding="utf-8", newline="\n")
+    template = json.loads((root / "kit/examples/cash-workflow.json").read_text(encoding="utf-8"))
+    template["methodology"] = ["src/cash.py"]
+    for requirement in template["requirements"]:
+        requirement["methodology"] = ["src/cash.py"]
+    template_path, plan_path = root / "workflow-template.json", root / "workflow-plan.json"
+    template_path.write_text(json.dumps(template), encoding="utf-8", newline="\n")
+    cli("--config", config_path, "workflow", "plan", "--repo", root, "--packet", packet,
+        "--template", template_path, "--output", plan_path)
+    preflight = cli("--config", config_path, "workflow", "preflight", "--repo", root,
+                    "--packet", packet, "--plan", plan_path)[0]
+    assert preflight["status"] == "preflight-passed" and not preflight["execution_authorized"]
+    plan_hash = json.loads(plan_path.read_text(encoding="utf-8"))["plan_hash"]
+    created, paused = cli("--config", config_path, "workflow", "run", "--repo", root,
+                          "--packet", packet, "--plan", plan_path, "--approve-plan", plan_hash,
+                          "--backend", "local", "--approve-local", "--max-steps", "1")
+    assert paused["status"] == "paused" and paused["steps"][0]["state"] == "succeeded"
+    completed = cli("--config", config_path, "workflow", "resume", "--repo", root,
+                    "--run-id", created["workflow_run_id"], "--approve-plan", plan_hash, "--approve-local")[0]
+    assert completed["status"] == "completed-checks" and len(completed["check_records"]) == 2
+    assert cli("workflow", "status", "--run-id", created["workflow_run_id"])[0]["status"] == "completed-checks"
+    timeline = cli("--config", root / "missing-config.json", "workflow", "timeline", "--repo", root,
+                   "--run-id", created["workflow_run_id"], "--limit", "2")[0]
+    assert timeline["chain_verified"] and timeline["recorded_status"] == "completed-checks"
+    assert timeline["pagination"]["has_more"] and not timeline["artifacts_verified"]
+    # Compose only exported declarative packs; source recipes remain explicit.
+    resolved = root / "resolved-packs"
+    summary = cli("--config", config_path, "workflow", "resolve", "--repo", root / "kit",
+                  "--bundle", root / "kit/examples/workflow-packs/bundle.json", "--output", resolved)[0]
+    assert not summary["execution_authorized"]
+    effective = json.loads((resolved / "config.json").read_text(encoding="utf-8"))
+    assert effective["profile"] == "monetary-review" and not effective["allow_network"]
     refused = cli("github-audit", "--repository", "example/repository", expected_exit=2)
     assert refused["code"] == "network_not_approved"  # Offline refusal; no GitHub request.
     audit = cli("audit", "--export", root / "events.jsonl")[0]
@@ -125,6 +170,11 @@ print(
                 "export-kit",
                 "guide (all bundled topics)",
                 "plan",
+                "workflow plan/preflight",
+                "workflow run/resume/status (synthetic local checks)",
+                "workflow resolve (exported declarative packs)",
+                "workflow timeline (read-only historical snapshot)",
+                "ci gate (required model review refuses without dispatch)",
                 "review",
                 "verify-gate (blocked offline)",
                 "github-audit (network refused)",

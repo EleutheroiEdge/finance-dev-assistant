@@ -2,19 +2,23 @@
 
 from pathlib import Path
 import re
+import subprocess
+import sys
+import tarfile
 import tomllib
 
 import pytest
 import yaml
 
 from scripts.release_checks import release_notes, validate_environment, validate_tag
+from finassist.platform_support import clean_environment
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_release_versions_and_tag_gate():
-    assert validate_tag(ROOT, "v0.3.1") == "0.3.1"
-    for tag in ["main", "v0.2.0", "v0.3.0", "v0.3.1rc1", "v0.3.1; echo unsafe"]:
+    assert validate_tag(ROOT, "v0.4.0") == "0.4.0"
+    for tag in ["main", "v0.2.0", "v0.3.1", "v0.4.0rc1", "v0.4.0; echo unsafe"]:
         with pytest.raises(ValueError):
             validate_tag(ROOT, tag)
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
@@ -68,6 +72,29 @@ def test_dated_first_public_release_notes_extract_cleanly():
     assert "PyPI page:" not in notes
     assert "Earlier development" not in notes
     assert "#1" not in notes and "development milestones" not in notes
+
+
+def test_workflow_release_notes_exclude_already_published_changes():
+    notes = release_notes(ROOT, "0.4.0")
+    assert notes.startswith("# finledgerpoli 0.4.0\n")
+    assert "hash-pinned base policy" in notes and "audit-backed checkpoints" in notes
+    assert "full trusted-source Action bootstrap" in notes
+    assert "PyPI page:" not in notes and "brand artwork" not in notes
+    previous = release_notes(ROOT, "0.3.1")
+    assert "hash-pinned base policy" not in previous and "audit-backed checkpoints" not in previous
+
+
+def test_built_source_distribution_contains_complete_action_bootstrap(tmp_path):
+    subprocess.run([sys.executable, "-m", "build", "--sdist", "--no-isolation", "--outdir", str(tmp_path)],
+                   cwd=ROOT, env=clean_environment(), capture_output=True, check=True, timeout=90, shell=False)
+    archives = list(tmp_path.glob("finledgerpoli-*.tar.gz"))
+    assert len(archives) == 1
+    with tarfile.open(archives[0], "r:gz") as archive:
+        prefix = archive.getmembers()[0].name.split("/")[0] + "/"
+        for relative in ("actions/gate/action.yml", "actions/gate/run.py", "requirements-action.lock"):
+            member = archive.extractfile(prefix + relative)
+            assert member is not None and member.read() == (ROOT / relative).read_bytes()
+        assert not any(".finassist" in Path(member.name).parts for member in archive.getmembers())
 
 
 @pytest.mark.parametrize("headers", ["", "## 0.3.01 - Unreleased\n\nWrong version", "## 0.3.0 - Unreleased\n\n", "## 0.3.0 - Unreleased\n\nOne\n\n## 0.3.0 - 2026-10-28\n\nTwo"])

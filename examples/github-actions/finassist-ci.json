@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "repository": "example/financial-engine",
+  "events": ["pull_request"],
+  "base_branches": ["main"],
+  "forks": "checks-only",
+  "backend": "docker",
+  "review": "not-requested",
+  "guard_paths": ["tests/"],
+  "max_steps": 2,
+  "max_check_seconds": 120,
+  "config": {
+    "provider": "offline",
+    "allow_network": false,
+    "runner_image": "python@sha256:5f55cdf0c5d9dc1a415637a5ccc4a9e18663ad203673173b8cda8f8dcacef689",
+    "timeout_seconds": 30,
+    "allow_paths": ["src/", "tests/", "docs/"],
+    "recipes": {
+      "unit": ["python", "-m", "unittest", "discover", "-s", "tests", "-p", "test_unit.py"],
+      "cash": ["python", "-m", "tests.check_cash"]
+    },
+    "required_recipes": ["unit", "cash"]
+  },
+  "workflow": {
+    "schema_version": 1,
+    "name": "cash-validation",
+    "goal": "Check a fictional cash rule with mandatory cash-conservation evidence",
+    "methodology": ["docs/cash-policy.md"],
+    "requirements": [
+      {"id": "unit", "recipe": "unit", "methodology": ["docs/cash-policy.md"]},
+      {"id": "cash", "recipe": "cash", "methodology": ["docs/cash-policy.md"]}
+    ],
+    "steps": [
+      {"id": "unit", "requirement": "unit", "depends_on": []},
+      {"id": "cash", "requirement": "cash", "depends_on": ["unit"]}
+    ]
+  }
+}

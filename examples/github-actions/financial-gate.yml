@@ -1,0 +1,29 @@
+# TEMPLATE ONLY: substitute the repository/policy and full reviewed action SHA.
+# Protect this workflow and the pinned policy through the target's review rules.
+name: Financial check gate
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+permissions:
+  contents: read
+jobs:
+  financial-gate:
+    name: Financial check gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: '3.13'
+      - name: Prepare the example's reviewed immutable runtime
+        # Replace both this digest and the policy together for another runtime.
+        run: docker pull python@sha256:5f55cdf0c5d9dc1a415637a5ccc4a9e18663ad203673173b8cda8f8dcacef689
+      - uses: EleutheroiEdge/finance-dev-assistant/actions/gate@REPLACE_WITH_FULL_REVIEWED_COMMIT_SHA
+        with:
+          policy-path: finassist-ci.json
+          policy-sha256: REPLACE_WITH_REVIEWED_POLICY_BYTES_SHA256

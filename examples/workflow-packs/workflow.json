@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "name": "cash-workflow",
+  "version": "1.0.0",
+  "kind": "workflow",
+  "compatibility": {"config_schema": 1, "workflow_schema": 1},
+  "data": {
+    "schema_version": 1,
+    "name": "cash-validation",
+    "goal": "Validate the project's approved cash and fee methodology",
+    "methodology": ["docs/cash-policy.md"],
+    "requirements": [{"id": "unit-tests", "recipe": "unit", "methodology": ["docs/cash-policy.md"]}],
+    "steps": [{"id": "unit", "requirement": "unit-tests", "depends_on": []}]
+  }
+}

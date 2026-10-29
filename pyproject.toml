@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "finledgerpoli"
-version = "0.3.1"
+version = "0.4.0"
 description = "AI code review for financial software that keeps your code local and backs every finding with evidence. Works with OpenAI, Anthropic, Gemini or Ollama."
 keywords = ["ai code review", "code review", "llm", "finance", "fintech", "quantitative finance", "portfolio optimization", "rebalancing", "model risk", "audit trail", "reproducibility", "developer tools", "local-first", "offline", "ollama", "ai agents"]
 classifiers = [

@@ -36,11 +36,24 @@ from .runner import run_recipe
 from .scope import build_packet, git, resolve, triage
 from .security import canonical, check_text, digest, regular_path, write_private
 from .workspace import export_snapshot
+from .workflow import build_workflow_plan, preflight_workflow, verify_workflow_gate
+from .workflow_execution import cancel_run, create_run, execute_run, inspect_run, reconcile_run, retry_step, validate_run
+from .workflow_state import MAX_WORKFLOW_ARTIFACT_BYTES, WorkflowStore, run_phase, unfinished_workflows
+from .workflow_packs import export_resolution, read_bundle, resolve_bundle, verify_resolution
+
+WORKFLOW_STATE_ACTIONS = {
+    "run": "Execute approved checks in dependency order with durable checkpoints",
+    "resume": "Resume remaining checks; hold uncertain attempts for reconciliation",
+    "status": "Inspect stored workflow state without executing checks",
+    "reconcile": "Adopt a verified result or confirm cleanup of an uncertain attempt",
+    "retry": "Make an approved failed attempt eligible for a later explicit resume",
+    "cancel": "Close an inactive run while preserving evidence",
+}
 
 
-def _read_json(path: str) -> dict:
+def _read_json(path: str, *, max_bytes: int = 2_000_000) -> dict:
     file = regular_path(Path(path))
-    if file.stat().st_size > 2_000_000:
+    if file.stat().st_size > max_bytes:
         raise AssistantError("input_limit_exceeded")
     value = json.loads(read_utf8(file))
     if not isinstance(value, dict):
@@ -80,6 +93,17 @@ def parser() -> argparse.ArgumentParser:
     )
     demo = commands.add_parser("demo", help="Run fictional finance checks offline")
     demo.add_argument("--output")
+    ci = commands.add_parser("ci", help="Run isolated CI checks under a pinned base-revision policy")
+    ci_actions = ci.add_subparsers(dest="ci_action", required=True)
+    ci_gate_parser = ci_actions.add_parser("gate", help="Evaluate a GitHub PR without calling or approving models")
+    ci_gate_parser.add_argument("--repo", type=Path, default=Path.cwd())
+    ci_gate_parser.add_argument("--event", type=Path, required=True)
+    ci_gate_parser.add_argument("--event-name", required=True)
+    ci_gate_parser.add_argument("--repository", required=True)
+    ci_gate_parser.add_argument("--policy", default="finassist-ci.json")
+    ci_gate_parser.add_argument("--policy-sha256", required=True)
+    ci_gate_parser.add_argument("--state-dir", type=Path)
+    ci_gate_parser.add_argument("--output")
     for command in ("plan", "watch"):
         plan = commands.add_parser(
             command, help="Inspect source changes without running models or candidate code"
@@ -101,6 +125,56 @@ def parser() -> argparse.ArgumentParser:
         request.add_argument("--allow-network", action="store_true")
         request.add_argument("--state-dir", type=Path, default=Path(".finassist"))
         request.add_argument("--output", required=True)
+    workflow = commands.add_parser("workflow", help="Plan, execute approved checks and reconcile durable workflows")
+    actions = workflow.add_subparsers(dest="workflow_action", required=True)
+    resolver = actions.add_parser("resolve", help="Preview pinned local packs as configuration and a workflow template")
+    resolver.add_argument("--repo", type=Path, default=Path.cwd())
+    resolver.add_argument("--bundle", required=True)
+    resolver.add_argument("--output", type=Path, required=True, help="New private output directory")
+    for action in ("plan", "preflight"):
+        operation = actions.add_parser(action)
+        operation.add_argument("--repo", type=Path, default=Path.cwd())
+        operation.add_argument("--packet", required=True)
+        if action == "plan":
+            operation.add_argument("--template", required=True)
+            operation.add_argument("--resolution", help="Bind this pack-resolution provenance to the plan's audit event")
+        else:
+            operation.add_argument("--plan", required=True)
+        operation.add_argument("--output", required=action == "plan")
+    for action in sorted(WORKFLOW_STATE_ACTIONS):
+        operation = actions.add_parser(action, help=WORKFLOW_STATE_ACTIONS[action])
+        operation.add_argument("--state-dir", type=Path)
+        operation.add_argument("--repo", type=Path, default=Path.cwd())
+        operation.add_argument("--output")
+        if action != "run":
+            operation.add_argument("--run-id", required=action != "status")
+        if action in {"run", "resume"}:
+            operation.add_argument("--max-steps", type=int, default=64, help="Maximum checks this invocation (1-64)")
+            operation.add_argument("--approve-local", action="store_true",
+                                   help="Allow trusted local execution without OS isolation")
+        if action in {"run", "resume", "retry", "cancel"}:
+            operation.add_argument("--approve-plan", required=True, help="Exact hash of the inspected workflow plan")
+        if action == "run":
+            operation.add_argument("--packet", required=True)
+            operation.add_argument("--plan", required=True)
+            operation.add_argument("--backend", choices=["docker", "podman", "local"], default="docker")
+        if action in {"reconcile", "retry"}:
+            operation.add_argument("--step-id", required=True)
+            operation.add_argument("--approve-attempt", required=True, help="Exact ID of the attempt being resolved")
+        if action == "reconcile":
+            choice = operation.add_mutually_exclusive_group(required=True)
+            choice.add_argument("--approve-artifact", help="Exact hash of the inspected saved result")
+            choice.add_argument("--confirm-cleanup", action="store_true",
+                                help="Confirm processes are stopped and cleanup is complete; records failure")
+    timeline = actions.add_parser("timeline", help="Inspect verified historical workflow transitions without acting")
+    timeline.add_argument("--repo", type=Path, default=Path.cwd())
+    timeline.add_argument("--state-dir", type=Path)
+    timeline.add_argument("--run-id", required=True)
+    timeline.add_argument("--after", type=int, default=0)
+    timeline.add_argument("--limit", type=int, default=100)
+    timeline.add_argument("--through", type=int, help="Pin the historical ledger prefix; use with --anchor")
+    timeline.add_argument("--anchor", help="Exact ledger hash at --through")
+    timeline.add_argument("--output")
     apply = commands.add_parser("apply", help="Apply an inspected proposal on a clean feature branch")
     apply.add_argument("--repo", type=Path, default=Path.cwd())
     apply.add_argument("--proposal", required=True)
@@ -180,6 +254,7 @@ def parser() -> argparse.ArgumentParser:
     gate.add_argument("--packet", required=True)
     gate.add_argument("--review", required=True)
     gate.add_argument("--receipt", action="append", default=[])
+    gate.add_argument("--workflow-plan", help="Also require this plan's canon, bindings and check evidence")
     gate.add_argument("--state-dir", type=Path)
     gate.add_argument("--output")
     github = commands.add_parser(
@@ -201,6 +276,50 @@ def audit_directory(args) -> Path:
         or getattr(args, "state_dir", None)
         or (getattr(args, "repo", Path.cwd()) / ".finassist")
     )
+
+
+def _execute_workflow(args, config: Config) -> int:
+    action = args.workflow_action
+    if action in {"run", "resume"} and not 1 <= args.max_steps <= 64:
+        raise AssistantError("workflow_step_limit_invalid")
+    if action == "run":
+        plan, packet = _read_json(args.plan), _read_json(args.packet)
+        validate_run(plan, packet, args.repo, config, approved_plan=args.approve_plan,
+                     backend=args.backend, approve_local=args.approve_local)
+    with WorkflowStore(audit_directory(args), create=action == "run") as store:
+        if action == "run":
+            identifier = create_run(
+                store, plan, packet, args.repo, config,
+                approved_plan=args.approve_plan, backend=args.backend, approve_local=args.approve_local,
+            )
+            # Preserve discovery of the new run even if execution is interrupted.
+            _emit({"workflow_run_id": identifier, "status": "created"})
+            result = execute_run(store, identifier, args.repo, config, approved_plan=args.approve_plan,
+                                 approve_local=args.approve_local, max_steps=args.max_steps)
+        elif action == "resume":
+            result = execute_run(store, args.run_id, args.repo, config, approved_plan=args.approve_plan,
+                                 approve_local=args.approve_local, max_steps=args.max_steps)
+        elif action == "status":
+            if args.run_id:
+                result = inspect_run(store, args.run_id)
+            else:
+                result = {"schema_version": 1, "artifacts_verified": False, "workflows": [
+                    {"workflow_run_id": identifier, "status": run_phase(state), "plan_hash": state["plan_hash"]}
+                    for identifier, state in store.states().items()
+                ]}
+        elif action == "reconcile":
+            result = reconcile_run(store, args.run_id, args.step_id, args.approve_attempt, config,
+                                   approved_artifact=args.approve_artifact, confirm_cleanup=args.confirm_cleanup)
+        elif action == "retry":
+            result = retry_step(store, args.run_id, args.step_id, args.approve_attempt,
+                                approved_plan=args.approve_plan)
+        else:
+            result = cancel_run(store, args.run_id, approved_plan=args.approve_plan)
+        _emit(result, args.output)
+        if args.output:
+            _emit({"workflow_run_id": result.get("workflow_run_id"), "status": result.get("status"),
+                   "output": args.output})
+        return 1 if result.get("blocking_reasons") else 0
 
 
 def execute(args, config: Config | None = None) -> int:
@@ -228,6 +347,38 @@ def execute(args, config: Config | None = None) -> int:
         packet = build_packet(args.repo, args.base, args.head, config)
         _emit(packet, args.output)
         _emit({"packet_hash": packet["packet_hash"], "output": args.output, "triage": triage(packet, config)})
+    elif args.command == "workflow" and args.workflow_action in WORKFLOW_STATE_ACTIONS:
+        return _execute_workflow(args, config)
+    elif args.command == "workflow" and args.workflow_action == "resolve":
+        result = resolve_bundle(read_bundle(Path(args.bundle)), args.repo, config)
+        saved = export_resolution(result, args.output)
+        with Ledger(audit_directory(args) / "audit.sqlite") as ledger:
+            ledger.append({"event": "workflow_bundle_resolved", "resolution_hash": saved["resolution_hash"],
+                           "config_hash": saved["config_hash"], "template_hash": saved["template_hash"]})
+        _emit(saved)
+    elif args.command == "workflow":
+        packet = _read_json(args.packet)
+        if args.workflow_action == "plan":
+            template = _read_json(args.template)
+            provenance = {}
+            if args.resolution:
+                provenance["resolution_hash"] = verify_resolution(_read_json(args.resolution), template, config)
+            result = build_workflow_plan(template, packet, args.repo, config)
+            event = {"event": "workflow_plan_bound", "plan_hash": result["plan_hash"]}
+            event.update(provenance)
+        else:
+            result = preflight_workflow(_read_json(args.plan), packet, args.repo, config)
+            event = {
+                "event": "workflow_preflight_evaluated", "plan_hash": result["plan_hash"],
+                "status": result["status"], "reasons": result["blocking_reasons"],
+            }
+        with Ledger(audit_directory(args) / "audit.sqlite") as ledger:
+            ledger.append({**event, "head": result["head"], "config_hash": digest(canonical(asdict(config)))})
+        _emit(result, args.output)
+        if args.output:
+            _emit({"output": args.output, "plan_hash": result.get("plan_hash"),
+                   "status": result.get("status", "plan-bound")})
+        return 1 if result.get("blocking_reasons") else 0
     elif args.command == "watch":
         if not 1 <= args.iterations <= 1000 or not 0.1 <= args.interval <= 300:
             raise AssistantError("invalid_watch_bounds")
@@ -326,6 +477,11 @@ def execute(args, config: Config | None = None) -> int:
                     "events_verified": ledger.verify(),
                     "unresolved": ledger.open_reservations(),
                     "incomplete_runs": ledger.incomplete_runs(),
+                    "unfinished_workflows": unfinished_workflows([
+                        (seq, json.loads(payload)) for seq, payload in ledger.db.execute(
+                            "SELECT seq,payload FROM events ORDER BY seq"
+                        )
+                    ]),
                 }
             )
     elif args.command == "render":
@@ -437,14 +593,15 @@ def execute(args, config: Config | None = None) -> int:
         dirty_before = git(
             args.repo, "status", "--porcelain", "--untracked-files=normal", "--", ".", ":(exclude).finassist"
         )
-        report = verify_gate(
-            _read_json(args.packet),
-            _read_json(args.review),
-            [_read_json(path) for path in args.receipt],
-            config,
-            head,
-            audit_directory(args) / "audit.sqlite",
+        evidence = (
+            _read_json(args.packet), _read_json(args.review),
+            [_read_json(path, max_bytes=MAX_WORKFLOW_ARTIFACT_BYTES) for path in args.receipt],
+            config, head, audit_directory(args) / "audit.sqlite",
         )
+        if args.workflow_plan:
+            report = verify_workflow_gate(_read_json(args.workflow_plan), *evidence, args.repo)
+        else:
+            report = verify_gate(*evidence)
         if resolve(args.repo, "HEAD") != head:
             raise AssistantError("readiness_head_changed")
         if dirty_before or git(
@@ -459,6 +616,7 @@ def execute(args, config: Config | None = None) -> int:
                     "head": head,
                     "status": report["status"],
                     "reasons": report["blocking_reasons"],
+                    **({"workflow_plan_hash": report["workflow_plan_hash"]} if args.workflow_plan else {}),
                 }
             )
         _emit(report, args.output)
@@ -488,7 +646,35 @@ def main(argv: list[str] | None = None) -> int:
             from .dashboard import serve_dashboard
 
             return serve_dashboard(args.config or Path("finassist.json"), audit_directory(args), args.port)
+        if args.command == "workflow" and args.workflow_action == "timeline":
+            from .workflow_inspection import workflow_timeline
+
+            report = workflow_timeline(audit_directory(args) / "audit.sqlite", args.run_id,
+                                       after=args.after, limit=args.limit, through=args.through, anchor=args.anchor)
+            _emit(report, args.output)
+            if args.output:
+                _emit({"output": args.output, "report_hash": report["report_hash"]})
+            return 0
+        if args.command == "ci":
+            from .ci_gate import ci_gate
+            from .ci_policy import read_document
+            from .github_context import pull_request_context
+
+            if args.config:
+                raise AssistantError("ci_configuration_must_come_from_policy")
+            if args.audit_dir is None and args.state_dir is None:
+                raise AssistantError("ci_state_directory_required")
+            context = pull_request_context(read_document(args.event), args.event_name, args.repository)
+            report = ci_gate(args.repo, context, args.policy, args.policy_sha256, audit_directory(args))
+            _emit(report, args.output)
+            if args.output:
+                _emit({"output": args.output, "status": report["status"], "report_hash": report["report_hash"]})
+            return 0 if report["status"] == "passed" else 1
         config = load_config(args.config)
+        if args.command == "workflow" and args.workflow_action in WORKFLOW_STATE_ACTIONS:
+            # These actions have their own replayable workflow lifecycle. A crash
+            # leaves a checkpoint/unknown attempt, not an unclosable generic run.
+            return execute(args, config)
         if args.command in {"doctor", "demo", "audit", "scan", "render"}:
             return execute(args, config)
         state = audit_directory(args)

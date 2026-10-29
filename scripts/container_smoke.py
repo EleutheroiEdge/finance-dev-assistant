@@ -74,7 +74,13 @@ print('non-root; readonly source and root; writable scratch; no network; no prov
         config = replace(Config(), runner_image=args.image, recipes={"isolation": ["python", "case.py"]})
         result = run_recipe(config, "isolation", source)
     print(json.dumps(result["receipt"], sort_keys=True))
-    return 0 if result["receipt"]["passed"] and result["receipt"]["cleanup_verified"] else 1
+    if not result["receipt"]["passed"] or not result["receipt"]["cleanup_verified"]:
+        return 1
+    from ci_gate_smoke import exercise_ci_gate
+
+    print(json.dumps(exercise_ci_gate(args.image, run_checks=True)))
+    print(json.dumps(exercise_ci_gate(args.image, run_checks=True, action_bootstrap=True)))
+    return 0
 
 
 if __name__ == "__main__":

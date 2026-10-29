@@ -14,10 +14,15 @@
 - [JSON Schema](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/schemas/finassist.schema.json): Editor autocomplete; runtime checks remain authoritative.
 - [Providers](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/providers.md): Explicit model, endpoint, disclosure and spend controls.
 - [Workflows](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflows.md): Source review, isolated checks and approved patches.
+- [Workflow plans](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflow-plans.md): Offline methodology/check plans, source bindings and additional readiness evidence obligations.
+- [Durable workflow execution](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflow-execution.md): Approved check execution, checkpoints, resumption and explicit reconciliation of unknown outcomes.
+- [Workflow packs](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflow-packs.md): Pinned local profile/check/workflow/policy composition and inspectable configuration provenance.
 - [Evidence-review skill](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/skills/evidence-review/SKILL.md): Portable instructions exported by `finassist export-kit`.
 
 ## Safety and evidence
 
 - [Threat model](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/threat-model.md): Protections, trust boundaries and limits.
 - [Auditing and readiness](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/readiness-and-auditing.md): Verified records, unknown outcomes and prerequisites for human review.
+- [Workflow audit timelines](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflow-timelines.md): Read-only historical attempts, dependency blockers and snapshot-bound metadata pages.
+- [GitHub Actions check gates](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/ci-gates.md): Pinned base policies, unattended isolated checks, metadata summaries and explicit AI-review limits.
 - [Security design](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/security-design.md): Controls for source, execution, audit and release boundaries.

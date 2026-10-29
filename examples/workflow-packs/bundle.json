@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "name": "cash-validation",
+  "profile": "monetary-review",
+  "packs": [
+    {
+      "path": "examples/workflow-packs/workflow.json",
+      "sha256": "2f6df02cf277c4fc99862071332f0ae07280ac40d4aa20d1d93d74ace982c3a9"
+    },
+    {
+      "path": "examples/workflow-packs/checks.json",
+      "sha256": "2492b72f727e840b5f4440ee809ca5fc284e19eb1f1c14b17ffc612e0c17b489"
+    },
+    {
+      "path": "examples/workflow-packs/profile.json",
+      "sha256": "5c1e012e933f3a2ab5035206fb3e3db41b169a8c67f3102c5291159ad5a60cac"
+    },
+    {
+      "path": "examples/workflow-packs/policy.json",
+      "sha256": "c41c04129719c2bc05b316340468e9c15da073252f6aab110c51ffaa68de0737"
+    }
+  ],
+  "recipe_bindings": {
+    "unit": "unit",
+    "cash": "cash"
+  }
+}

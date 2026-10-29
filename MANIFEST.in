@@ -1,4 +1,6 @@
 include LICENSE README.md SECURITY.md CONTRIBUTING.md AGENTS.md CHANGELOG.md requirements-dev.lock requirements.txt CODE_OF_CONDUCT.md
+include requirements-action.lock
+graft actions
 include .gitignore .dockerignore .gitattributes
 include llms.txt
 graft schemas

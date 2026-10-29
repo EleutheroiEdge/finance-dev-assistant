@@ -17,11 +17,42 @@ from finassist.cli import main
 from finassist.config import Config
 from finassist.errors import AssistantError
 from finassist.patching import apply_patch_artifact, rollback_patch
-from finassist.platform_support import canonical_system_path
+from finassist.platform_support import canonical_system_path, clean_environment
 from finassist.posix_process import zombie_group_only
 from finassist.runner import run_bounded, run_recipe
 from finassist.security import canonical, digest, regular_path
 from finassist import windows_runner
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX pipe supervision")
+@pytest.mark.parametrize("text,limit,passed,expected", [("Ω", 100, True, "Ω\n"), ("x" * 100, 10, False, "x" * 10)])
+def test_posix_output_is_drained_after_exit_without_final_readiness_notification(tmp_path, monkeypatch, text, limit, passed, expected):
+    import finassist.runner as runner
+
+    original = runner.selectors.DefaultSelector
+
+    class DelayedNotification:
+        def __init__(self):
+            self.actual = original()
+
+        def register(self, *args):
+            return self.actual.register(*args)
+
+        def select(self, timeout):
+            self.actual.select(timeout)
+            return []  # Exit notification can precede final pipe readiness.
+
+        def get_map(self):
+            return self.actual.get_map()
+
+        def close(self):
+            self.actual.close()
+
+    monkeypatch.setattr(runner.selectors, "DefaultSelector", DelayedNotification)
+    result = run_bounded([sys.executable, "-c", "print(" + repr(text) + ")"], cwd=tmp_path,
+                         env=clean_environment(), timeout=5, max_bytes=limit)
+    assert result["passed"] == passed and result["output"] == expected
+    assert result["output_limit_exceeded"] is (not passed)
 
 
 @pytest.mark.parametrize("code,output", [(0, ""), (1, "Z\n"), (1, ""), (0, "S\n")])
