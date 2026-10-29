@@ -33,6 +33,11 @@ Corrupt/unavailable auditing stops operational commands before work begins.
 
 ## Configurable evidence gate
 
+Use [workflow audit timelines](workflow-timelines.md) to trace recorded step
+attempts and dependency/recovery blockers through a verified historical ledger
+prefix. The query does not load configuration, open artifacts or assess current
+readiness. Its filtered metadata exports omit raw diagnostic/source/output data.
+
 Add named recipes to your reviewed provider configuration and set:
 
 ```json

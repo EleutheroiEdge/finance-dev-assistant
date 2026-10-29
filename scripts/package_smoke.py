@@ -131,6 +131,10 @@ with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
                     "--run-id", created["workflow_run_id"], "--approve-plan", plan_hash, "--approve-local")[0]
     assert completed["status"] == "completed-checks" and len(completed["check_records"]) == 2
     assert cli("workflow", "status", "--run-id", created["workflow_run_id"])[0]["status"] == "completed-checks"
+    timeline = cli("--config", root / "missing-config.json", "workflow", "timeline", "--repo", root,
+                   "--run-id", created["workflow_run_id"], "--limit", "2")[0]
+    assert timeline["chain_verified"] and timeline["recorded_status"] == "completed-checks"
+    assert timeline["pagination"]["has_more"] and not timeline["artifacts_verified"]
     # Compose only exported declarative packs; source recipes remain explicit.
     resolved = root / "resolved-packs"
     summary = cli("--config", config_path, "workflow", "resolve", "--repo", root / "kit",
@@ -167,6 +171,7 @@ print(
                 "workflow plan/preflight",
                 "workflow run/resume/status (synthetic local checks)",
                 "workflow resolve (exported declarative packs)",
+                "workflow timeline (read-only historical snapshot)",
                 "review",
                 "verify-gate (blocked offline)",
                 "github-audit (network refused)",

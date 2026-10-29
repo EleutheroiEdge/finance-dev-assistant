@@ -155,6 +155,15 @@ def parser() -> argparse.ArgumentParser:
             choice.add_argument("--approve-artifact", help="Exact hash of the inspected saved result")
             choice.add_argument("--confirm-cleanup", action="store_true",
                                 help="Confirm processes are stopped and cleanup is complete; records failure")
+    timeline = actions.add_parser("timeline", help="Inspect verified historical workflow transitions without acting")
+    timeline.add_argument("--repo", type=Path, default=Path.cwd())
+    timeline.add_argument("--state-dir", type=Path)
+    timeline.add_argument("--run-id", required=True)
+    timeline.add_argument("--after", type=int, default=0)
+    timeline.add_argument("--limit", type=int, default=100)
+    timeline.add_argument("--through", type=int, help="Pin the historical ledger prefix; use with --anchor")
+    timeline.add_argument("--anchor", help="Exact ledger hash at --through")
+    timeline.add_argument("--output")
     apply = commands.add_parser("apply", help="Apply an inspected proposal on a clean feature branch")
     apply.add_argument("--repo", type=Path, default=Path.cwd())
     apply.add_argument("--proposal", required=True)
@@ -626,6 +635,15 @@ def main(argv: list[str] | None = None) -> int:
             from .dashboard import serve_dashboard
 
             return serve_dashboard(args.config or Path("finassist.json"), audit_directory(args), args.port)
+        if args.command == "workflow" and args.workflow_action == "timeline":
+            from .workflow_inspection import workflow_timeline
+
+            report = workflow_timeline(audit_directory(args) / "audit.sqlite", args.run_id,
+                                       after=args.after, limit=args.limit, through=args.through, anchor=args.anchor)
+            _emit(report, args.output)
+            if args.output:
+                _emit({"output": args.output, "report_hash": report["report_hash"]})
+            return 0
         config = load_config(args.config)
         if args.command == "workflow" and args.workflow_action in WORKFLOW_STATE_ACTIONS:
             # These actions have their own replayable workflow lifecycle. A crash

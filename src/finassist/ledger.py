@@ -19,8 +19,14 @@ CURRENT_RUN: ContextVar[str | None] = ContextVar("finassist_run", default=None)
 
 
 class Ledger:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, *, read_only: bool = False):
         self.path = regular_path(path)
+        self.read_only = read_only
+        if read_only:
+            if not self.path.is_file():
+                raise AssistantError("audit_evidence_missing")
+            self.db = sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True, timeout=15, isolation_level=None)
+            return
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.db = sqlite3.connect(self.path, timeout=15, isolation_level=None)
         self.path.chmod(0o600)
@@ -40,7 +46,7 @@ class Ledger:
 
     @contextmanager
     def transaction(self):
-        self.db.execute("BEGIN IMMEDIATE")
+        self.db.execute("BEGIN" if self.read_only else "BEGIN IMMEDIATE")
         try:
             yield
             self.db.execute("COMMIT")
@@ -50,6 +56,8 @@ class Ledger:
 
     def _append(self, payload: dict) -> str:
         # Only the caller's reduced metadata belongs here, never prompts or keys.
+        if self.read_only:
+            raise AssistantError("audit_read_only")
         if {"recorded_at", "event_schema", "run_id"}.intersection(payload):
             raise AssistantError("audit_reserved_field")
         identifier = CURRENT_RUN.get()

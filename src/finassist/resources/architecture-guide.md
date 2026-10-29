@@ -31,6 +31,10 @@ Models produce advisory JSON and proposed patches through bounded requests. They
     restrictive configuration resolution and provenance export. It produces
     inspectable snapshots without installing code or activating settings.
     See [workflow packs](workflow-packs.md).
+15. `workflow_inspection`: read-only verified ledger snapshots, bounded workflow
+    timelines and explanations of recorded dependency/recovery blockers. It
+    does not load configuration or confer execution/readiness authority.
+    See [workflow timelines](workflow-timelines.md).
 
 Finance profiles separate source authority, approved analyst judgments and
 algorithmic decisions. Do not replace a project's methodology with generic
