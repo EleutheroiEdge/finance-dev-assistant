@@ -1,6 +1,6 @@
 # Auditing and readiness
 
-Use finledgerpoli audit records and readiness checks to see which review requirements are satisfied and what blocks human review. Its command is `finassist`; a receipt is a hash-bound record of a completed action.
+Use finledgerpoli audit records and readiness checks to see which review requirements are satisfied and what blocks human review. Its command is `finassist`; saved records bind completed actions to hashes.
 
 Operational CLI commands record start/completion/failure events in a private
 SQLite ledger. Events carry UTC timestamps, a run ID, event schema, configuration
@@ -57,7 +57,7 @@ finassist --config finassist.json --audit-dir YOUR_PRIVATE_STATE verify-gate \
 ```
 
 The gate requires schema2 mode metadata, complete source coverage, a model review
-with no configured blocking findings, fresh hash-matching audit receipts,
+with no configured blocking findings, fresh hash-matching saved audit records,
 head/snapshot/image/recipe consistency, reviewed-file hash/mode coverage in the
 tested snapshot, passing checks/cleanup and no unknown
 spend. Offline analysis is not a model review. A freely edited success flag or

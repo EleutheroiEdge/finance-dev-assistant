@@ -2,6 +2,21 @@
 
 Use this finledgerpoli checklist to review repository security, dependency scanning and fork settings. These instructions describe settings to configure; they do not apply them.
 
+## Public product listing
+
+Set these public GitHub About fields when preparing the product listing. This
+checklist documents the intended values; it does not apply repository settings.
+
+- **Description:** AI code review for financial software that keeps your code local and backs every finding with evidence. Works with OpenAI, Anthropic, Gemini or Ollama.
+- **Website:** https://pypi.org/project/finledgerpoli/
+- **Topics (20):** `ai-code-review`, `code-review`, `llm`, `developer-tools`, `fintech`, `quantitative-finance`, `portfolio-optimization`, `rebalancing`, `model-risk-management`, `audit-trail`, `reproducibility`, `local-first`, `privacy`, `ollama`, `openai`, `anthropic`, `gemini`, `python`, `cli`, `finance`.
+
+Under Settings → General → Social preview, upload the reviewed
+`docs/images/social-preview.png` (1280×640, under 1 MB). Regenerate it with
+`node dashboard/scripts/render-marketing.mjs` and review its pixels before upload.
+Use only synthetic public artwork. Forks must substitute their own listing and
+preview; changing these fields requires the repository owner's authorization.
+
 ## Settings for an owner to review and enable
 
 Under Settings → Advanced Security (or Code security, depending on the GitHub UI):

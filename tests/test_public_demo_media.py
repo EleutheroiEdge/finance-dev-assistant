@@ -10,7 +10,7 @@ from conftest import command
 from finassist.cli import main
 from finassist.errors import AssistantError
 from finassist.demo import run_demo
-from finassist.publication import public_images, verify_public_png
+from finassist.publication import public_images, verify_public_image, verify_public_png
 from finassist.security import digest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -29,9 +29,9 @@ def png(metadata=False):
 def test_shipped_screenshots_match_manifest_and_have_no_metadata():
     names = {path.relative_to(ROOT).as_posix() for path in (ROOT / "docs/images").glob("*")}
     images = public_images(ROOT, names)
-    assert set(images) == {f"docs/images/dashboard-{name}.png" for name in ["configuration", "statistics", "health"]}
+    assert set(images) == {f"docs/images/dashboard-{name}.png" for name in ["configuration", "statistics", "health"]} | {"docs/images/hero.gif", "docs/images/how-it-works.png", "docs/images/social-preview.png"}
     for name, expected in images.items():
-        verify_public_png(ROOT / name, expected)
+        verify_public_image(ROOT / name, expected)
 
 
 @pytest.mark.parametrize("variant", ["changed", "unregistered", "metadata", "crc", "private"])
@@ -94,5 +94,54 @@ def test_readme_keeps_release_and_media_claims_honest():
     assert "pip install finledgerpoli" in readme
     assert "After the first PyPI" not in readme and "PyPI badge will be added after" not in readme
     assert "https://img.shields.io/pypi/v/finledgerpoli" in readme
-    assert "<h3>From source</h3>" in readme and "from a source checkout with `asciinema play" in readme
+    assert "### From source" in readme and "asciinema play docs/images/demo.cast.txt" in readme
     assert "All displayed spend" in readme and "fictional" in readme
+
+
+def gif(delay=20):
+    header = b"GIF89a" + struct.pack("<HHBBB", 1, 1, 128, 0, 0) + b"\0\0\0\xff\xff\xff"
+    frame = (b"!\xf9\x04" + struct.pack("<BHB", 0, delay, 0) + b"\0,"
+             + struct.pack("<HHHHB", 0, 0, 1, 1, 0) + b"\x02\x02D\x01\0")
+    return header + frame * 2 + b";"
+
+
+@pytest.mark.parametrize("variant", ["comment", "application", "text", "truncated", "trailing", "duration", "dimensions", "hash"])
+def test_public_gif_rejects_metadata_corruption_and_unbounded_media(tmp_path, variant):
+    data = gif(delay=750 if variant == "duration" else 20)
+    if variant in {"comment", "application", "text"}:
+        extension = {"comment": b"!\xfe\x03bad\0", "application": b"!\xff\x0bPRIVATEINFO\0", "text": b"!\x01\0"}[variant]
+        data = data[:-1] + extension + data[-1:]
+    if variant == "truncated":
+        data = data[:-2]
+    if variant == "trailing":
+        data += b"private"
+    if variant == "dimensions":
+        data = data[:6] + struct.pack("<H", 5000) + data[8:]
+    path = tmp_path / "hero.gif"
+    path.write_bytes(data)
+    with pytest.raises(AssistantError):
+        verify_public_image(path, "0" * 64 if variant == "hash" else digest(data))
+
+
+def test_publication_scan_accepts_only_catalogued_bounded_gif(repository, capsys):
+    root = repository[0]
+    path = root / "docs/images/hero.gif"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(gif())
+    manifest = path.parent / "manifest.json"
+    manifest.write_text(json.dumps({"schema_version": 1, "images": {"docs/images/hero.gif": digest(gif())}}), encoding="utf-8")
+    command(root, "add", "docs")
+    assert main(["scan", "--repo", str(root)]) == 0
+    assert json.loads(capsys.readouterr().out)["passed"]
+    path.write_bytes(gif() + b"private")
+    assert main(["scan", "--repo", str(root)]) == 1
+    assert json.loads(capsys.readouterr().out)["findings"][0]["code"] == "public_image_hash_mismatch"
+
+
+def test_marketing_media_dimensions_and_size():
+    social = (ROOT / "docs/images/social-preview.png").read_bytes()
+    assert struct.unpack(">II", social[16:24]) == (1280, 640)
+    assert len(social) < 1_000_000
+    hero = (ROOT / "docs/images/hero.gif").read_bytes()
+    assert len(hero) < 3_000_000
+    verify_public_image(ROOT / "docs/images/hero.gif", digest(hero))

@@ -23,7 +23,7 @@ Patch proposals protect policy, build, dependency and script paths by default. A
 
 Operational commands record correlated lifecycle events with reduced metadata. Verification checks event envelopes, start/completion correspondence, reservation balances and incomplete runs. Readiness, export and incomplete-run queries verify and read in one SQLite transaction. Corrupt or unavailable audit state blocks operations before work begins. Unknown paid usage stays reserved until explicitly reconciled; zero-rate self-hosted usage is treated separately.
 
-A receipt is a saved, hash-bound action record. Readiness requires matching configuration, base/head, source hashes and modes, complete coverage, fresh audited model review, passing required recipe records and cleanup, and no unknown spend or incomplete commands. Source must be clean before and after the CLI check. Stale or invalid evidence returns a blocked result. Observation checks receive derived approval status; malformed reconciliation values produce a bounded error.
+A saved record binds an action to hashes. Readiness requires matching configuration, base/head, source hashes and modes, complete coverage, fresh audited model review, passing required recipe records and cleanup, and no unknown spend or incomplete commands. Source must be clean before and after the CLI check. Stale or invalid evidence returns a blocked result. Observation checks receive derived approval status; malformed reconciliation values produce a bounded error.
 
 ## Repository and release controls
 

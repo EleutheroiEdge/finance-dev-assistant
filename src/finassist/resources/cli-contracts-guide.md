@@ -16,7 +16,7 @@ unexpected interpreter/host failures are outside this normalized contract; do no
 interpret absence of a result as success. Dashboard exits 0 after a handled
 keyboard shutdown. Starting it is not a readiness check.
 
-A receipt is a saved action record that binds an outcome to hashes. Readiness means the configured prerequisites for human review are satisfied.
+A **receipt** is a saved record that binds an action and its outcome to hashes; this technical term appears in JSON field names and command flags. Readiness means the configured prerequisites for human review are satisfied.
 
 ## Encoding, streams and artifacts
 
@@ -28,7 +28,7 @@ completion. Keys may be added compatibly; consume named keys rather than orderin
 Hash-bound artifact schemas are stricter and carry their own schema/version checks.
 
 `--output` writes the full result privately when that command supports it. Where
-listed below, stdout still contains a receipt/summary. Without `--output`, the
+listed below, stdout still contains a saved record or summary. Without `--output`, the
 full result goes to stdout, followed by any summary. Audit export is JSON Lines;
 render writes escaped HTML. Artifact paths and source-bearing results can contain
 private information: keep them local and do not paste full outputs into public issues.
@@ -60,9 +60,9 @@ means other documented/context-specific fields can exist, not a literal JSON val
 | `watch` | one stdout `{head, triage, network_called: false}` record initially, then one for each observed committed-head change, within configured iteration bounds. | 0, 2 |
 | `review` | full report: `status`, `packet_hash`, `head`, provider, findings and qualification; offline includes triage and no model claim. Remote adds model/review evidence metadata. Stdout summary `{output, status}`. Findings do not change the exit status to 1. | 0, 2 |
 | `propose` | full `{artifact: {head, patch, summary}, approval_hash, reservation, applied: false, audit_receipt}`; stdout `{output, status}`. No patch is applied. | 0, 2 |
-| `apply` | stdout patch receipt with `patch_hash`, head and changed paths/recovery metadata. Exact artifact hash approval required. | 0, 2 |
+| `apply` | stdout saved patch record with `patch_hash`, head and changed paths/recovery metadata. Exact artifact hash approval required. | 0, 2 |
 | `rollback` | stdout `{rolled_back: patch_hash, paths: array}` after guarded restoration. | 0, 2 |
-| `check` | full `{receipt, output, snapshot}`; stdout receipt includes `passed`, exit code, timeout/output/cleanup/isolation metadata, head, config and snapshot hashes. A command failure and cleanup failure both prevent a pass. | 0, 1, 2 |
+| `check` | full `{receipt, output, snapshot}`; stdout saved record includes `passed`, exit code, timeout/output/cleanup/isolation metadata, head, config and snapshot hashes. A command failure and cleanup failure both prevent a pass. | 0, 1, 2 |
 | `finance-check` | kind-specific deterministic result: cash/weights have `passed` and reconciliation fields; observation has `passed`, `issues`, `decision_time` and qualification; tax has estimated arithmetic/rates and qualification, without a `passed` requirement. | 0, 1, 2 |
 | `audit` | stdout `{events_verified: integer, unresolved: array, incomplete_runs: array}`. Optional export writes verified event JSON Lines. Exit 0 does not mean reservations/runs are resolved. | 0, 2 |
 | `reconcile-budget` | same summary shape as audit after settling the named reservation with your actual USD charge. | 0, 2 |

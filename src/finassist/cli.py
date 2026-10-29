@@ -341,7 +341,7 @@ def execute(args, config: Config | None = None) -> int:
                 raise AssistantError("publication_index_unmerged")
             modes[name] = mode
         names = list(modes)
-        from .publication import public_images, verify_public_png
+        from .publication import public_images, verify_public_image
 
         images = public_images(args.repo, set(names))
         findings = []
@@ -357,13 +357,13 @@ def execute(args, config: Config | None = None) -> int:
                 path = regular_path(args.repo / name)
                 if not path.is_file():
                     raise AssistantError("publication_file_missing")
-                if path.stat().st_size > 2_000_000:
+                if path.stat().st_size > (3_000_000 if name == "docs/images/hero.gif" and name in images else 2_000_000):
                     findings.append({"path": name, "code": "publication_file_too_large"})
                     continue
                 if name in images:
                     if args.forbid and any(value.casefold() in name.casefold() for value in args.forbid):
                         raise AssistantError("forbidden_publication_text")
-                    verify_public_png(path, images[name])
+                    verify_public_image(path, images[name])
                     continue
                 content = read_utf8(path)
                 check_text(content, extra_patterns=config.extra_sensitive_patterns)

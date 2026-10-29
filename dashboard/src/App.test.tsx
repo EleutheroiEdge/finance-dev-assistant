@@ -7,7 +7,7 @@ const values = {provider: "offline", model: "", daily_budget_usd: 5, monthly_bud
   allow_paths: ["src/"], generated_paths: ["src/finassist/resources/dashboard/"], protected_paths: [".github/"], extra_sensitive_patterns: [], profile: "general",
   required_recipes: [], blocking_severities: ["critical", "high"], readiness_max_age_seconds: 86400};
 const configuration = {revision: "revision", values, options: {providers: ["offline", "openai"], profiles: ["general"], recipes: []}, key_presence: {openai: true}};
-const statistics = {limits: {daily_usd: "5", monthly_usd: "100"}, spend: {today_usd: "1", month_usd: "2", open_reserved_usd: "0.5", available_today_usd: "3.5", available_month_usd: "97.5"}, daily: [], open_reservations: [],
+const statistics = {as_of: "2026-10-28T00:00:00Z", limits: {daily_usd: "5", monthly_usd: "100"}, spend: {today_usd: "1", month_usd: "2", open_reserved_usd: "0.5", available_today_usd: "3.5", available_month_usd: "97.5"}, daily: [], open_reservations: [],
   reviews: {total: 2, offline: 1, findings: {high: 1}, by_profile: {general: 2}, findings_by_profile: {general: 1}, unknown_findings: 1}, usage: {known_calls: 1, unknown_calls: 1},
   readiness: {eligible: 1, blocked: 1, unclassified: 1, reasons: {stale: 1}}, recipes: [{name: "unit", passed: 1, total: 2}], legacy_checks: 1, recent_runs: [], qualification: "Synthetic audit."};
 let calls: {path: string; body: Record<string, unknown> | undefined; headers: Record<string, string>}[];
@@ -58,6 +58,12 @@ it("shows statistics coverage and health through keyboard-accessible navigation"
   fireEvent.click(screen.getByRole("button", {name: /^Statistics/}));
   expect(await screen.findByRole("heading", {name: "Reviews & findings"})).toBeInTheDocument();
   expect(screen.getByText(/older reviews lack finding metadata/)).toBeInTheDocument();
+  expect(screen.getByRole("heading", {name: "Pending charges (not yet confirmed)"})).toBeInTheDocument();
+  expect(screen.getByRole("heading", {name: "Ready for human review"})).toBeInTheDocument();
+  expect(screen.getByRole("heading", {name: "Checks you've run"})).toBeInTheDocument();
+  expect(screen.getByText(/Eligibility grants no merge or deployment authority/)).toBeInTheDocument();
+  expect(document.querySelector("aside .brand")).toHaveTextContent("finledgerpoli");
+  expect(document.querySelector("footer")).toHaveTextContent("finledgerpoli — local dashboard");
   expect(screen.getByText("50%")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", {name: /^Health/}));
   await waitFor(() => expect(screen.getByText("Configuration is valid")).toBeInTheDocument());
@@ -100,4 +106,46 @@ it("removes stale settings when a refresh discovers an invalid configuration", a
   fireEvent.click(screen.getByRole("button", {name: "Refresh local data"}));
   await screen.findByRole("alert");
   expect(screen.queryByLabelText("Model")).toBeNull();
+});
+
+it("explains what to do next when no activity has been recorded yet", async () => {
+  const empty = {...statistics,
+    spend: {today_usd: "0", month_usd: "0", open_reserved_usd: "0", available_today_usd: "5", available_month_usd: "100"},
+    reviews: {total: 0, offline: 0, findings: {}, by_profile: {}, findings_by_profile: {}, unknown_findings: 0},
+    usage: {known_calls: 0, unknown_calls: 0},
+    readiness: {eligible: 0, blocked: 0, unclassified: 0, reasons: {}}, recipes: [], legacy_checks: 0, recent_runs: []};
+  vi.stubGlobal("fetch", vi.fn(async (path: string, options: RequestInit = {}) => {
+    const result: unknown = path === "/api/session" ? {token: "synthetic-session"} : path === "/api/statistics" ? empty :
+      path === "/api/health" ? {configuration: {valid: true}, doctor: {provider: "offline"}} : configuration;
+    void options;
+    return new Response(JSON.stringify(result), {status: 200, headers: {"Content-Type": "application/json"}});
+  }));
+  render(<App />);
+  await screen.findByLabelText("Model");
+  fireEvent.click(screen.getByRole("button", {name: /^Statistics/}));
+  expect(await screen.findByRole("heading", {name: "No activity recorded yet"})).toBeInTheDocument();
+  expect(screen.getByText("finassist demo")).toBeInTheDocument();
+  expect(screen.getByText("finassist doctor")).toBeInTheDocument();
+  expect(screen.getByRole("heading", {name: "Spent today"})).toBeInTheDocument();
+});
+
+it("keeps the onboarding guide hidden once activity exists", async () => {
+  render(<App />);
+  await screen.findByLabelText("Model");
+  fireEvent.click(screen.getByRole("button", {name: /^Statistics/}));
+  await screen.findByRole("heading", {name: "Reviews & findings"});
+  expect(screen.queryByRole("heading", {name: "No activity recorded yet"})).toBeNull();
+});
+
+it("notes when no provider keys are present without ever accepting one", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (path: string) => {
+    const result: unknown = path === "/api/session" ? {token: "synthetic-session"} : path === "/api/statistics" ? statistics :
+      path === "/api/health" ? {configuration: {valid: true}, doctor: {provider: "offline"}} :
+      {...configuration, key_presence: {openai: false, anthropic: false}};
+    return new Response(JSON.stringify(result), {status: 200, headers: {"Content-Type": "application/json"}});
+  }));
+  render(<App />);
+  expect(await screen.findByText(/No provider keys detected/)).toBeInTheDocument();
+  expect(screen.getByText("openai: Not set")).toBeInTheDocument();
+  expect(document.querySelector('input[type="password"]')).toBeNull();
 });

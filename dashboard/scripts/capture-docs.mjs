@@ -24,7 +24,7 @@ try {
     child.once('exit', () => { clearTimeout(timer); reject(new Error('Dashboard exited')); });
   });
   browser = await chromium.launch({env});
-  const page = await browser.newPage({ viewport: {width: 1280, height: 900}, deviceScaleFactor: 1 });
+  const page = await browser.newPage({ viewport: {width: 1280, height: 900}, deviceScaleFactor: 1, colorScheme: "light" });
   const external = [];
   await page.route('**/*', route => {
     if (new URL(route.request().url()).origin !== origin) {external.push(route.request().url()); return route.abort();}
@@ -34,14 +34,14 @@ try {
   await page.getByRole('heading', {name: 'Configuration', exact: true}).waitFor();
   await page.getByLabel('Provider', {exact: true}).waitFor();
   await mkdir('../docs/images', {recursive: true});
-  await page.screenshot({path: '../docs/images/dashboard-configuration.png'});
+  await page.screenshot({fullPage: true, path: '../docs/images/dashboard-configuration.png'});
   await page.getByRole('button', {name: /^Statistics/}).click();
   await page.getByRole('heading', {name: 'Recent runs'}).waitFor();
   await page.getByRole('img', {name: 'Recorded spend (USD)', exact: true}).waitFor();
-  await page.screenshot({path: '../docs/images/dashboard-statistics.png'});
+  await page.screenshot({fullPage: true, path: '../docs/images/dashboard-statistics.png'});
   await page.getByRole('button', {name: /^Health/}).click();
   await page.getByText('Configuration is valid').waitFor();
-  await page.screenshot({path: '../docs/images/dashboard-health.png'});
+  await page.screenshot({fullPage: true, path: '../docs/images/dashboard-health.png'});
   if (external.length) throw new Error('External requests refused');
 } finally {
   if (browser) await browser.close();

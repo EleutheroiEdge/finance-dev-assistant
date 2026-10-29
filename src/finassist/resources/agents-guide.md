@@ -17,7 +17,7 @@ Use finledgerpoli to give a coding agent screened source, repeatable checks and 
 | Review publication scope | `scan --repo .` screens tracked publication files without uploading them. |
 | Export instructions | `export-kit --output assistant-integration` creates a new private directory of guides, schema, role templates and the portable skill. |
 
-The [CLI contracts](cli-contracts.md) specify every command's JSON fields, streams and exit codes. Parse JSON by line, check the exit code and expected final artifact, and retain unknown outcomes. `guide TOPIC`, help/version and dashboard startup text are human-readable; `render` writes HTML and audit export is JSON Lines. A receipt is a saved record bound to hashes, not a statement that a finding is true.
+The [CLI contracts](cli-contracts.md) specify every command's JSON fields, streams and exit codes. Parse JSON by line, check the exit code and expected final artifact, and retain unknown outcomes. `guide TOPIC`, help/version and dashboard startup text are human-readable; `render` writes HTML and audit export is JSON Lines. A saved record bound to hashes does not establish that a finding is true.
 
 ## Human approvals the agent must show
 

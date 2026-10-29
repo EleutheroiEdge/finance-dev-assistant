@@ -6,8 +6,8 @@ All shown spend, tokens, reviews, findings and readiness are fictional. No model
 provider is called. Screenshots are captured from the actual prebuilt dashboard
 with a fresh temporary config and ledger. The capture process receives only a
 small OS/path environment allowlist, excluding provider keys. External browser
-requests are refused. These images were captured against the 0.3.0
-wheel; the seed script creates synthetic metadata, not measured provider results.
+requests are refused. Screenshots use the current local build in light mode; the
+seed script creates synthetic metadata, not measured provider results.
 
 The recording uses a `.cast.txt` filename so the existing text-source policy can
 inspect it without adding another allowed suffix. The asciinema v2 recording contains the actual `finassist demo` JSON, formatted for
@@ -23,6 +23,8 @@ Install the project's development dependencies in a virtual environment. From
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm exec playwright install chromium
 node scripts/capture-docs.mjs
+# Also needs ffmpeg on PATH; renders artwork and a <15-second demo GIF locally.
+node scripts/render-marketing.mjs
 ```
 
 On Linux without browser libraries, follow Playwright's documented system-dependency
@@ -40,16 +42,18 @@ python scripts/catalog_docs_images.py
 finassist scan --repo .
 ```
 
-After frontend changes, rebuild/compare shipped assets and regenerate affected
-screenshots. No screenshots or recordings should use live account,
-client, portfolio or provider data.
-
 ## Limits
 
 Review and stage the media and `manifest.json` explicitly before the scan. The
-manifest names exact PNGs under `docs/images/` and binds their SHA-256 hashes.
-The scanner still rejects undeclared images, links, oversized/malformed PNGs,
-changed bytes and PNG metadata chunks. This narrow exception does not allow
+manifest names exact PNGs and the bounded `hero.gif` under `docs/images/` and binds their SHA-256 hashes.
+The scanner still rejects undeclared images, links, oversized/malformed images,
+changed bytes, PNG metadata chunks and GIF comment/text/arbitrary application extensions. This narrow exception does not allow
 arbitrary private image formats or exempt text from content screening. Pixel
 privacy is a human review responsibility; a manifest hash cannot classify image
 content. Source planning/snapshots retain their existing binary-asset exclusions.
+
+After frontend changes, rebuild/compare shipped assets and regenerate affected
+screenshots. The hero GIF samples the existing cast at 5 fps and holds its final output for
+two seconds. The flow and 1280×640 social preview are rendered from local HTML;
+no external fonts or image services are requested. No screenshots or recordings should use live account,
+client, portfolio or provider data.

@@ -84,9 +84,9 @@ def test_user_guide_links_and_renamed_documents_resolve():
     assert (ROOT / "docs/design-principles.md").is_file()
     assert not (ROOT / "docs/security-review.md").exists()
     assert not (ROOT / "docs/production-design.md").exists()
-    # Old URLs remain useful while the marketing README is owned separately.
+    # Public links must go straight to the canonical pages.
     for name in ["releasing.md", "repository-settings.md"]:
-        assert f"(maintainers/{name})" in (ROOT / "docs" / name).read_text(encoding="utf-8")
+        assert not (ROOT / "docs" / name).exists()
 
 
 def test_exported_guide_relative_links_resolve_inside_kit(tmp_path):
