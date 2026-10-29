@@ -96,7 +96,9 @@ def dashboard(tmp_path):
             if origin:
                 selected["Origin"] = server.origin
             selected.update(headers or {})
-            connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+            # Audit contention can legitimately wait 15 seconds. Allow CI host
+            # scheduling headroom; this fixture is not a response-time benchmark.
+            connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=20)
             try:
                 connection.request(
                     method, path, body=json.dumps(body) if body is not None else None, headers=selected
