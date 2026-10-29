@@ -3,6 +3,7 @@
 from copy import deepcopy
 from dataclasses import asdict, replace
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -100,6 +101,48 @@ def test_resolution_size_limit_includes_persisted_newline(pack_case):
     # persisted newline is omitted from the resolver's output-size accounting.
     with pytest.raises(AssistantError, match="workflow_resolution_limit_exceeded"):
         resolve_bundle(bundle, repo, config)
+
+
+def test_policy_obligation_cannot_alias_away_an_omitted_check_pack(pack_case):
+    repo, config, bundle, _packet = pack_case
+    bundle["packs"] = [item for item in bundle["packs"] if item["path"] != "packs/checks.json"]
+    bundle["recipe_bindings"] = {"unit": "py-unit", "cash": "py-unit"}
+    with pytest.raises(AssistantError, match="workflow_duplicate_recipe"):
+        resolve_bundle(bundle, repo, config)
+
+
+@pytest.mark.parametrize("kind", ["missing", "directory", "fifo"])
+def test_bundle_rejects_nonfiles_before_opening(tmp_path, monkeypatch, kind):
+    path = tmp_path / "bundle.json"
+    if kind == "directory":
+        path.mkdir()
+    elif kind == "fifo":
+        if not hasattr(os, "mkfifo"):
+            pytest.skip("POSIX named pipe")
+        os.mkfifo(path)
+
+    def refuse_open(*args, **kwargs):
+        pytest.fail("a non-file bundle must be refused before opening it")
+
+    monkeypatch.setattr(Path, "open", refuse_open)
+    with pytest.raises(AssistantError, match="workflow_bundle_unavailable"):
+        read_bundle(path)
+
+
+def test_existing_resolution_destination_has_domain_error(pack_case, tmp_path, capsys):
+    repo, config, bundle, _packet = pack_case
+    save_config(tmp_path / "config.json", config)
+    (tmp_path / "bundle.json").write_bytes(canonical(bundle))
+    output = tmp_path / "existing"
+    output.mkdir()
+    assert main(["--config", str(tmp_path / "config.json"), "workflow", "resolve", "--repo", str(repo),
+                 "--bundle", str(tmp_path / "bundle.json"), "--output", str(output)]) == 2
+    assert json.loads(capsys.readouterr().err)["code"] == "workflow_resolution_destination_exists"
+    assert not list(output.iterdir())
+    with Ledger(repo / ".finassist" / "audit.sqlite") as ledger:
+        failed = [json.loads(row[0]) for row in ledger.db.execute("SELECT payload FROM events")
+                  if json.loads(row[0])["event"] == "command_failed"]
+        assert failed[-1]["code"] == "workflow_resolution_destination_exists"
 
 
 @pytest.mark.parametrize("kind,mutation", [
@@ -261,7 +304,7 @@ def test_export_and_provenance_bind_effective_configuration_without_mutating_it(
     effective = load_config(target / "config.json")
     assert not saved["execution_authorized"]
     assert verify_resolution(result["resolution"], result["template"], effective) == saved["resolution_hash"]
-    with pytest.raises(FileExistsError):
+    with pytest.raises(AssistantError, match="workflow_resolution_destination_exists"):
         export_resolution(result, target)
     with pytest.raises(AssistantError, match="workflow_resolution_inputs_changed"):
         verify_resolution(result["resolution"], result["template"], replace(effective, timeout_seconds=10))

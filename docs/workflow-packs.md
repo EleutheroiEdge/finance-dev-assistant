@@ -50,6 +50,9 @@ An unlisted contract uses its own name. Unknown targets, unused bindings and
 two obligations resolving to one recipe are refused. This mapping never supplies
 arguments or grants execution permission. All base `required_recipes` remain
 required and must appear in the resolved graph.
+Uniqueness covers policy-required contracts as well as graph requirements;
+omitting a check pack cannot satisfy its policy obligation by aliasing it to an
+unrelated existing check.
 
 ```sh
 finassist --config finassist.json workflow resolve --repo . \
@@ -63,6 +66,10 @@ leave partial files; inspect them and use a new directory rather than treating
 partial output as a successful resolution. No existing configuration is edited.
 Each generated document is limited to 2,000,000 encoded bytes including its
 trailing newline, so it remains within the corresponding CLI input limit.
+The bundle must be a regular file; missing files, directories and named pipes
+are refused with `workflow_bundle_unavailable`. An existing output destination
+is refused with `workflow_resolution_destination_exists`, also recorded in
+command-failure audit metadata.
 
 Inspect the resulting settings and provenance before using them:
 

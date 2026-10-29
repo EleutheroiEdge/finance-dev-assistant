@@ -98,6 +98,8 @@ def _invalid_constant(_value):
 
 def read_bundle(path: Path) -> dict:
     file = regular_path(path)
+    if not file.is_file():
+        raise AssistantError("workflow_bundle_unavailable")
     with file.open("rb") as stream:
         content = stream.read(128_001)
     if len(content) > 128_000:
@@ -205,6 +207,9 @@ def resolve_bundle(bundle: dict, repo: Path, config: Config) -> dict:
             raise AssistantError("workflow_recipe_binding_unknown")
         return result
 
+    if len({bound(name) for name in contracts}) != len(contracts):
+        raise AssistantError("workflow_duplicate_recipe")
+
     for requirement in workflow["requirements"]:
         original = requirement["recipe"]
         requirement["recipe"] = bound(original)
@@ -267,7 +272,10 @@ def verify_resolution(resolution: dict, template: dict, config: Config) -> str:
 
 def export_resolution(result: dict, destination: Path) -> dict:
     destination = regular_path(destination)
-    destination.mkdir(mode=0o700, parents=True, exist_ok=False)
+    try:
+        destination.mkdir(mode=0o700, parents=True, exist_ok=False)
+    except FileExistsError as exc:
+        raise AssistantError("workflow_resolution_destination_exists") from exc
     for key, filename in (("config", "config.json"), ("template", "template.json"), ("resolution", "resolution.json")):
         write_private(destination / filename, canonical(result[key]) + b"\n")
     return {
