@@ -49,6 +49,9 @@ def summary_markdown(report: dict) -> str:
 
 def publish_action_report(report: dict, report_path: Path, summary_path: Path, outputs_path: Path) -> None:
     summary = summary_markdown(report)
+    path_value = str(report_path)
+    if any(ord(character) < 32 or ord(character) == 127 for character in path_value):
+        raise AssistantError("ci_output_path_invalid")
     path_value = str(regular_path(report_path))
     if any(ord(character) < 32 or ord(character) == 127 for character in path_value):
         raise AssistantError("ci_output_path_invalid")

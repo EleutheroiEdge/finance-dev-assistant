@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from conftest import command
+from conftest import command, synthetic_symlink
 from finassist.ci_gate import ci_gate
 from finassist.ci_policy import decode_document, load_ci_policy, read_document
 from finassist.cli import main
@@ -132,6 +132,46 @@ def test_pr_policy_changes_cannot_authorize_themselves(ci_case, tmp_path, dispat
     assert not (tmp_path / "state").exists()
     with pytest.raises(AssistantError, match="ci_policy_pin_mismatch"):
         ci_gate(ci_case["repo"], ci_case["context"], "finassist-ci.json", digest(path.read_bytes()), tmp_path / "state")
+
+
+@pytest.mark.parametrize("path", ["docs/cash-policy.md", "tests/check_cash.py"])
+def test_stale_ancestor_cannot_use_superseded_guarded_checks_or_canon(ci_case, tmp_path, dispatch, path):
+    repo = ci_case["repo"]
+    ancestor = ci_case["context"].base_sha
+    target = repo / path
+    target.parent.mkdir(exist_ok=True)
+    target.write_text("# Strengthened governing rule or check at the current base\n", encoding="utf-8")
+    command(repo, "add", path)
+    command(repo, "commit", "-m", "Strengthen base checks or canon")
+    current_base = command(repo, "rev-parse", "HEAD")
+    command(repo, "switch", "--detach", ancestor)
+    source = repo / "src/cash.py"
+    source.write_text(source.read_text(encoding="utf-8") + "# Candidate rooted on stale ancestor\n", encoding="utf-8")
+    command(repo, "add", "src/cash.py")
+    command(repo, "commit", "-m", "Candidate retains old guarded files")
+    ci_case["context"] = replace(ci_case["context"], base_sha=current_base, head_sha=command(repo, "rev-parse", "HEAD"))
+    report = gate(ci_case, tmp_path)
+    assert report["status"] == "blocked" and "ci_guarded_change_requires_review" in report["blocking_reasons"]
+    assert not dispatch and not (tmp_path / "state").exists()
+
+
+def test_policy_config_bytes_do_not_probe_an_unrelated_workspace_file(ci_case, tmp_path, monkeypatch):
+    cwd = tmp_path / "invocation"
+    cwd.mkdir()
+    target = tmp_path / "unrelated.json"
+    target.write_text("not configuration", encoding="utf-8")
+    synthetic_symlink(cwd / "ci-policy-config.json", target)
+    monkeypatch.chdir(cwd)
+    policy = load_ci_policy(ci_case["repo"], ci_case["context"].base_sha, "finassist-ci.json", ci_case["pin"])
+    assert policy.sha256 == ci_case["pin"]
+
+
+def test_direct_context_normalizes_repository_identity_before_policy_checks(ci_case, tmp_path, dispatch):
+    base_policy(ci_case, lambda p: p.update(forks="deny"))
+    ci_case["context"] = replace(ci_case["context"], repository="Example/Financial-Engine",
+                                  head_repository="EXAMPLE/FINANCIAL-ENGINE")
+    assert ci_case["context"].repository == ci_case["context"].head_repository == "example/financial-engine"
+    assert gate(ci_case, tmp_path)["status"] == "passed" and dispatch == ["unit", "cash"]
 
 
 @pytest.mark.parametrize("mutation,code", [

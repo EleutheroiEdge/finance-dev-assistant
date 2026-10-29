@@ -30,8 +30,8 @@ class PullRequestContext:
             or ".." in self.base_branch
         ):
             raise AssistantError("ci_event_invalid")
-        repository_name(self.repository)
-        repository_name(self.head_repository)
+        object.__setattr__(self, "repository", repository_name(self.repository))
+        object.__setattr__(self, "head_repository", repository_name(self.head_repository))
         revision(self.base_sha)
         revision(self.head_sha)
 

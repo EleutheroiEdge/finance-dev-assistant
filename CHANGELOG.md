@@ -16,6 +16,8 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ### Changed
 
+- Compare guarded CI content against both the PR change set and current base tree, refusing stale checks or methodology; parse pinned configuration bytes without workspace file probes and normalize direct repository identities.
+- Reject Actions output-path control characters before filesystem inspection, including invalid Windows filenames.
 - Drain remaining nonblocking process output after POSIX group cleanup so an early exit notification cannot lose final bytes or hide an output-limit failure.
 - Preserve refusal responses for small framed GET and unauthorized request bodies on Windows through bounded raw cleanup, without parsing rejected content or changing authorization.
 - Allow 15 minutes for the platform test job, including native dependency builds and clean-wheel checks; retain the existing matrix, read-only permissions and pinned actions.

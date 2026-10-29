@@ -51,8 +51,15 @@ def ci_gate(repo: Path, context: PullRequestContext, policy_path: str, policy_sh
     packet, plan, identifier, execution = None, None, None, None
     if not blockers:
         packet = build_packet(repo, context.base_sha, context.head_sha, config)
+        # Packets describe merge-base..head. Also compare the current base tree
+        # so an older PR cannot retain superseded guarded checks or methodology.
+        guarded_changes = set(packet["changed_paths"])
+        guarded_changes.update(filter(None, git(
+            repo, "diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--name-only", "-z",
+            context.base_sha, context.head_sha, binary=True,
+        ).decode("utf-8").split("\0")))
         if any(any(path.startswith(guard) if guard.endswith("/") else path == guard
-                   for guard in policy.guarded_paths) for path in packet["changed_paths"]):
+                   for guard in policy.guarded_paths) for path in guarded_changes):
             blockers.add("ci_guarded_change_requires_review")
         if review_omissions(packet):
             blockers.add("ci_coverage_incomplete")

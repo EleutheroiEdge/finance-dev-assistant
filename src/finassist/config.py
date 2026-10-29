@@ -339,10 +339,11 @@ class Config:
 
 
 def load_config(path: Path | None = None, *, content: bytes | None = None) -> Config:
-    if path is None:
+    if path is None and content is None:
         return Config().validate()
     try:
-        path = regular_path(path)
+        if path is not None:
+            path = regular_path(path)
         if (len(content) if content is not None else path.stat().st_size) > 2_000_000:
             raise AssistantError("config_file_too_large")
         raw = json.loads(content.decode("utf-8") if content is not None else read_utf8(path))
@@ -371,6 +372,10 @@ def load_config(path: Path | None = None, *, content: bytes | None = None) -> Co
             if key in raw and isinstance(raw[key], list):
                 raw[key] = tuple(raw[key])
         config = Config(**raw)
+        if path is None:
+            if config.profile_files:
+                raise AssistantError("profile_files_require_path")
+            return config.validate()
         return _load_profile_files(config, path.parent)
     except (ValueError, TypeError, OSError) as exc:
         raise AssistantError("invalid_config") from exc

@@ -29,6 +29,9 @@ merge-queue candidate. Another normal CI job must test integration with the base
 The policy path, `.github/`, methodology references and configured `guard_paths`
 are guarded. Changing them requires review and adoption through the protected
 base; a PR cannot approve its own policy pin or silently change governing rules.
+The guard compares both the PR change set and its tree against the current base.
+A stale PR retaining superseded guarded checks or methodology is blocked until
+those files match the reviewed base, even if the PR did not edit them directly.
 Configure guard paths for trusted check implementations and fixtures as needed.
 Check execution still uses candidate source: passing code can implement an
 inadequate check, so financial semantics require independent review.
@@ -131,6 +134,9 @@ work never passes. Exit 1 means a known blocked result; exit 2 means refused
 input, unavailable auditing/runtime or handled operational error. Reports expose
 status, exact source/policy/configuration/plan hashes, required/completed counts,
 model-review status and stable reason codes. They grant no merge/deploy authority.
+Preflight refusals stop before packet creation or dispatch. A null `packet_hash`
+means source coverage was not assessed; blocking reasons are not an exhaustive
+inventory of problems in a refused candidate.
 
 The action adds a reduced job summary and `status`, `report-hash`, `report-path`
 outputs. Summary/output projection excludes PR bodies, raw source, recipe

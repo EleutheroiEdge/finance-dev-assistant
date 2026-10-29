@@ -131,7 +131,7 @@ def load_ci_policy(repo: Path, base: str, path: str, approved_sha256: str) -> CI
         for key in ("allow_network", "allow_partial_review", "allow_local_readiness")
     ):
         raise AssistantError("ci_policy_capability_forbidden")
-    config = load_config(Path("ci-policy-config.json"), content=canonical(document["config"]))
+    config = load_config(content=canonical(document["config"]))
     if config.provider != "offline" or config.allow_network or config.allow_partial_review or config.allow_local_readiness:
         raise AssistantError("ci_policy_capability_forbidden")
     pinned_image(config.runner_image)

@@ -107,6 +107,22 @@ def test_report_hash_and_output_path_are_checked_before_projection(tmp_path):
         publish_action_report(signed_report(), tmp_path / "bad\nstatus=passed", tmp_path / "summary", tmp_path / "outputs")
 
 
+def test_output_control_characters_are_refused_before_filesystem_access(tmp_path, monkeypatch):
+    def forbidden_path_probe(_):
+        pytest.fail("An invalid output path reached filesystem validation")
+
+    monkeypatch.setattr("finassist.github_actions.regular_path", forbidden_path_probe)
+    with pytest.raises(AssistantError, match="ci_output_path_invalid"):
+        publish_action_report(signed_report(), tmp_path / "bad\nstatus=passed", tmp_path / "summary", tmp_path / "outputs")
+
+
+def test_resolved_output_path_is_also_checked_before_projection(tmp_path, monkeypatch):
+    monkeypatch.setattr("finassist.github_actions.regular_path", lambda _: tmp_path / "bad\nstatus=passed")
+    with pytest.raises(AssistantError, match="ci_output_path_invalid"):
+        publish_action_report(signed_report(), Path("relative-report"), tmp_path / "summary", tmp_path / "outputs")
+    assert not (tmp_path / "summary").exists() and not (tmp_path / "outputs").exists()
+
+
 def load_bootstrap():
     spec = importlib.util.spec_from_file_location("finassist_action_bootstrap", ROOT / "actions/gate/run.py")
     module = importlib.util.module_from_spec(spec)
