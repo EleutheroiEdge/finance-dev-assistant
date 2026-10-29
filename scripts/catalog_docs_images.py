@@ -10,7 +10,10 @@ from finassist.security import digest
 
 root = Path(__file__).resolve().parent.parent
 images = {}
-for path in sorted([*(root / "docs/images").glob("*.png"), *(root / "docs/images").glob("hero.gif")]):
+paths = [*(root / "docs/images").glob("*.png"), *(root / "docs/images").glob("hero.gif"),
+         *(root / "brand").glob("*.png"),
+         *(root / "src/finassist/resources/dashboard/assets").glob("favicon-32-*.png")]
+for path in sorted(paths):
     expected = digest(path.read_bytes())
     verify_public_image(path, expected)
     images[path.relative_to(root).as_posix()] = expected

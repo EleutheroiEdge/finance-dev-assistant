@@ -23,7 +23,7 @@ Install the project's development dependencies in a virtual environment. From
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm exec playwright install chromium
 node scripts/capture-docs.mjs
-# Also needs ffmpeg on PATH; renders artwork and a <15-second demo GIF locally.
+# Also needs ffmpeg on PATH; copies the reviewed brand exports and renders the demo GIF.
 node scripts/render-marketing.mjs
 ```
 
@@ -45,7 +45,8 @@ finassist scan --repo .
 ## Limits
 
 Review and stage the media and `manifest.json` explicitly before the scan. The
-manifest names exact PNGs and the bounded `hero.gif` under `docs/images/` and binds their SHA-256 hashes.
+manifest names exact documentation PNGs, reviewed PNG exports in `brand/`, the
+packaged 32 px favicon and the bounded `hero.gif`, and binds their SHA-256 hashes.
 The scanner still rejects undeclared images, links, oversized/malformed images,
 changed bytes, PNG metadata chunks and GIF comment/text/arbitrary application extensions. This narrow exception does not allow
 arbitrary private image formats or exempt text from content screening. Pixel
@@ -54,6 +55,9 @@ content. Source planning/snapshots retain their existing binary-asset exclusions
 
 After frontend changes, rebuild/compare shipped assets and regenerate affected
 screenshots. The hero GIF samples the existing cast at 5 fps and holds its final output for
-two seconds. The flow and 1280×640 social preview are rendered from local HTML;
-no external fonts or image services are requested. No screenshots or recordings should use live account,
+two seconds. The compatibility paths `how-it-works.png` and `social-preview.png` are copied
+byte-for-byte from `brand/how-it-works-light.png` and `brand/social-dark.png`.
+README and maintainer links use the canonical brand paths directly; no additional
+dark/light copies are kept here. See [brand artwork](../../brand/README.md). No external
+fonts or image services are requested. No screenshots or recordings should use live account,
 client, portfolio or provider data.

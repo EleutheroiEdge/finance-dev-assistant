@@ -257,7 +257,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header(
             "Content-Security-Policy",
-            "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+            "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
         )
         self.end_headers()
         self.wfile.write(data)
@@ -307,6 +307,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     ".js": "text/javascript; charset=utf-8",
                     ".css": "text/css; charset=utf-8",
                     ".txt": "text/plain; charset=utf-8",
+                    ".svg": "image/svg+xml",
+                    ".png": "image/png",
                 }.get(suffix, "application/octet-stream")
                 return self.respond(200, self.server.assets[asset], kind)
             return self.respond(200, result)

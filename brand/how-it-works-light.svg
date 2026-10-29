@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#2f7a63"/>
+      <stop offset="1" stop-color="#28634f"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="640" fill="#edf2ec"/>
+
+  <!-- ledger ruling texture -->
+  <g stroke="#212b26" stroke-opacity="0.05" stroke-width="1">
+    <line x1="0" y1="107" x2="1280" y2="107"/>
+    <line x1="0" y1="214" x2="1280" y2="214"/>
+    <line x1="0" y1="321" x2="1280" y2="321"/>
+    <line x1="0" y1="428" x2="1280" y2="428"/>
+    <line x1="0" y1="535" x2="1280" y2="535"/>
+  </g>
+  <g stroke="#2f7a63" stroke-opacity="0.5" stroke-width="1.5">
+    <line x1="64" y1="0" x2="64" y2="640"/>
+    <line x1="72" y1="0" x2="72" y2="640"/>
+  </g>
+
+  <!-- header -->
+  <text x="110" y="92" font-family="'Ubuntu Sans Mono','SF Mono',Menlo,Consolas,'DejaVu Sans Mono',monospace" font-size="15" letter-spacing="4" fill="#28634f">FINLEDGERPOLI / HOW IT WORKS</text>
+  <text x="110" y="152" font-family="'Ubuntu Sans','Segoe UI',system-ui,'Helvetica Neue',Arial,sans-serif" font-size="44" font-weight="600" letter-spacing="-0.5" fill="#212b26">From change to evidence</text>
+
+  <!-- brand mark, top right: f-C3 green tile -->
+  <g transform="translate(1118,64) scale(0.8125)">
+    <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#tile)"/>
+    <g stroke="#e1ebe4" stroke-opacity="0.25" stroke-width="2.5" stroke-linecap="round">
+      <line x1="13" y1="14" x2="51" y2="14"/>
+      <line x1="13" y1="50" x2="51" y2="50"/>
+    </g>
+    <path d="M29 46 V20 H43" fill="none" stroke="#e1ebe4" stroke-width="7.5" stroke-linecap="butt" stroke-linejoin="round"/>
+    <line x1="25.5" y1="33" x2="51" y2="33" stroke="#8fc3ab" stroke-width="6" stroke-linecap="butt"/>
+  </g>
+
+  <!-- pipeline rail -->
+  <line x1="140" y1="300" x2="1140" y2="300" stroke="#c3cfc6" stroke-width="2.5"/>
+  <g stroke="#28634f" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="261,294 269,300 261,306"/>
+    <polyline points="511,294 519,300 511,306"/>
+    <polyline points="761,294 769,300 761,306"/>
+    <polyline points="1011,294 1019,300 1011,306"/>
+  </g>
+
+  <!-- nodes -->
+  <g font-family="'Ubuntu Sans','Segoe UI',system-ui,'Helvetica Neue',Arial,sans-serif">
+
+    <!-- 01 Plan : pinned commit target -->
+    <text x="140" y="240" text-anchor="middle" font-family="'Ubuntu Sans Mono','SF Mono',Menlo,Consolas,'DejaVu Sans Mono',monospace" font-size="14" letter-spacing="2" fill="#28634f">01</text>
+    <circle cx="140" cy="300" r="30" fill="#fbfcfb" stroke="#2f7a63" stroke-width="2.5"/>
+    <g stroke="#212b26" stroke-width="2" fill="none" stroke-linecap="round">
+      <circle cx="140" cy="300" r="9"/>
+      <line x1="140" y1="286" x2="140" y2="291"/>
+      <line x1="140" y1="309" x2="140" y2="314"/>
+      <line x1="126" y1="300" x2="131" y2="300"/>
+      <line x1="149" y1="300" x2="154" y2="300"/>
+    </g>
+    <circle cx="140" cy="300" r="2.2" fill="#212b26"/>
+    <text x="140" y="372" text-anchor="middle" font-size="21" font-weight="600" fill="#212b26">Plan</text>
+    <text x="140" y="402" text-anchor="middle" font-size="14.5" fill="#55655c">Choose the exact</text>
+    <text x="140" y="424" text-anchor="middle" font-size="14.5" fill="#55655c">code version.</text>
+
+    <!-- 02 Review : magnifier -->
+    <text x="390" y="240" text-anchor="middle" font-family="'Ubuntu Sans Mono','SF Mono',Menlo,Consolas,'DejaVu Sans Mono',monospace" font-size="14" letter-spacing="2" fill="#28634f">02</text>
+    <circle cx="390" cy="300" r="30" fill="#fbfcfb" stroke="#2f7a63" stroke-width="2.5"/>
+    <g stroke="#212b26" stroke-width="2" fill="none" stroke-linecap="round">
+      <circle cx="387" cy="297" r="8"/>
+      <line x1="393" y1="303" x2="400" y2="310" stroke-width="2.5"/>
+    </g>
+    <text x="390" y="372" text-anchor="middle" font-size="21" font-weight="600" fill="#212b26">Review</text>
+    <text x="390" y="402" text-anchor="middle" font-size="14.5" fill="#55655c">Inspect findings with</text>
+    <text x="390" y="424" text-anchor="middle" font-size="14.5" fill="#55655c">your chosen model.</text>
+
+    <!-- 03 Reproduce : rerun arrow -->
+    <text x="640" y="240" text-anchor="middle" font-family="'Ubuntu Sans Mono','SF Mono',Menlo,Consolas,'DejaVu Sans Mono',monospace" font-size="14" letter-spacing="2" fill="#28634f">03</text>
+    <circle cx="640" cy="300" r="30" fill="#fbfcfb" stroke="#2f7a63" stroke-width="2.5"/>
+    <g stroke="#212b26" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 648.5 296 A 9 9 0 1 1 640 291"/>
+      <polyline points="635.5,289.5 640.5,291 639,296"/>
+    </g>
+    <text x="640" y="372" text-anchor="middle" font-size="21" font-weight="600" fill="#212b26">Reproduce</text>
+    <text x="640" y="402" text-anchor="middle" font-size="14.5" fill="#55655c">Run your own</text>
+    <text x="640" y="424" text-anchor="middle" font-size="14.5" fill="#55655c">checks.</text>
+
+    <!-- 04 Propose : patch document -->
+    <text x="890" y="240" text-anchor="middle" font-family="'Ubuntu Sans Mono','SF Mono',Menlo,Consolas,'DejaVu Sans Mono',monospace" font-size="14" letter-spacing="2" fill="#28634f">04</text>
+    <circle cx="890" cy="300" r="30" fill="#fbfcfb" stroke="#2f7a63" stroke-width="2.5"/>
+    <g stroke="#212b26" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="883" y="291" width="14" height="18" rx="2"/>
+      <line x1="887" y1="300" x2="893" y2="300"/>
+      <line x1="890" y1="297" x2="890" y2="303"/>
+    </g>
+    <text x="890" y="372" text-anchor="middle" font-size="21" font-weight="600" fill="#212b26">Propose</text>
+    <text x="890" y="402" text-anchor="middle" font-size="14.5" fill="#55655c">Inspect and approve</text>
+    <text x="890" y="424" text-anchor="middle" font-size="14.5" fill="#55655c">each patch.</text>
+
+    <!-- 05 Audit : evidence seal -->
+    <text x="1140" y="240" text-anchor="middle" font-family="'Ubuntu Sans Mono','SF Mono',Menlo,Consolas,'DejaVu Sans Mono',monospace" font-size="14" letter-spacing="2" fill="#28634f">05</text>
+    <circle cx="1140" cy="300" r="30" fill="#28634f" fill-opacity="0.14" stroke="#2f7a63" stroke-width="2.5"/>
+    <circle cx="1140" cy="300" r="10" fill="none" stroke="#212b26" stroke-width="2"/>
+    <polyline points="1135,300 1138.5,303.5 1145,296" fill="none" stroke="#212b26" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1140" y="372" text-anchor="middle" font-size="21" font-weight="600" fill="#212b26">Audit</text>
+    <text x="1140" y="402" text-anchor="middle" font-size="14.5" fill="#55655c">Save evidence for your</text>
+    <text x="1140" y="424" text-anchor="middle" font-size="14.5" fill="#55655c">change records.</text>
+  </g>
+
+  <!-- footer strip -->
+  <line x1="110" y1="520" x2="1170" y2="520" stroke="#c3cfc6" stroke-width="1.5"/>
+  <polyline points="112,552 117,558 126,546" fill="none" stroke="#28634f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="138" y="558" font-family="'Ubuntu Sans Mono','SF Mono',Menlo,Consolas,'DejaVu Sans Mono',monospace" font-size="15" fill="#55655c">Offline by default. Nothing merges, deploys or trades by itself.</text>
+  <text x="1170" y="558" text-anchor="end" font-family="'Ubuntu Sans Mono','SF Mono',Menlo,Consolas,'DejaVu Sans Mono',monospace" font-size="13" letter-spacing="1.5" fill="#55655c">LOCAL EVIDENCE · HUMAN DECISIONS</text>
+</svg>
