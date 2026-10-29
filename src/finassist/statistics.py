@@ -137,5 +137,5 @@ def statistics(path: Path, config: Config, *, now: datetime | None = None) -> di
         "recipes": [{"name": name, **value} for name, value in sorted(recipes.items())],
         "legacy_checks": legacy_checks,
         "recent_runs": list(runs.values())[-50:][::-1],
-        "qualification": "UTC reservation booking dates; verified local metadata, not provider billing or merge authority.",
+        "qualification": "Spend is grouped by the UTC date when funds were set aside. These verified local records may differ from your provider's bill and do not approve a merge or deployment.",
     }

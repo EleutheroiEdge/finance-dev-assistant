@@ -36,6 +36,8 @@ button:disabled{opacity:.55;cursor:wait}
 aside{
   background:var(--surface);
   border-right:1px solid var(--line);
+}
+.sidebar-content{
   padding:30px 22px;
   position:sticky;
   top:0;
@@ -269,7 +271,8 @@ footer{
 
 @media(max-width:800px){
   .layout{grid-template-columns:1fr}
-  aside{position:static;height:auto;padding:16px 20px;border-bottom:1px solid var(--line);border-right:0}
+  aside{border-bottom:1px solid var(--line);border-right:0}
+  .sidebar-content{position:static;height:auto;padding:16px 20px}
   .local{display:none}
   nav{display:flex;margin-top:16px}
   nav button{padding:9px 12px}

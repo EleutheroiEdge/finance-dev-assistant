@@ -6,6 +6,7 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ### Changed
 
+- Polish the full-height dashboard sidebar, readable UTC times and Statistics labels; rebalance the social preview and refresh screenshots.
 - Explain the finance developer workflow in plain language, with audience examples, current guide links and package metadata for discovery.
 - Brand the dashboard as finledgerpoli, clarify pending charges and human review, and retain explicit configuration confirmation.
 - Add a reproducible synthetic demo GIF, five-step flow and social preview; refresh light-theme screenshots and bind all public media to the catalogue.

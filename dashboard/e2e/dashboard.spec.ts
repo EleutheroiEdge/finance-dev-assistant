@@ -4,6 +4,8 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+test.use({timezoneId: "America/New_York"});
+
 type Server = {child: ChildProcess; root: string; origin: string};
 
 async function startServer(seedAudit: boolean): Promise<Server> {
@@ -73,14 +75,39 @@ test.describe("seeded audit trail", () => {
     expect(JSON.parse(await readFile(path.join(server.root, "configuration.json"), "utf8")).daily_budget_usd).toBe(7);
     await page.getByRole("button", {name: /^Statistics/}).click();
     await expect(page.getByRole("heading", {name: "Recent runs"})).toBeVisible();
-    await expect(page.getByRole("heading", {name: "Pending charges (not yet confirmed)"})).toBeVisible();
+    await expect(page.getByRole("heading", {name: "Pending charges", exact: true})).toHaveCount(2);
     await expect(page.getByRole("heading", {name: "Ready for human review"})).toBeVisible();
     await expect(page.getByRole("heading", {name: "Checks you've run"})).toBeVisible();
-    await expect(page.getByText(/Eligibility grants no merge or deployment authority/)).toBeVisible();
+    await expect(page.getByText(/Ready for review does not approve a merge or deployment/)).toBeVisible();
     await expect(page.getByText("dashboard-save", {exact: true})).toBeVisible();
     await expect(page.getByRole("img", {name: "Recorded spend (USD)", exact: true})).toBeVisible();
     await expect(page.getByRole("heading", {name: "No activity recorded yet"})).toHaveCount(0);
     await expect(page.locator("canvas")).toHaveCount(2);
+    const asof = page.locator(".asof time");
+    await expect(asof).toHaveText(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/);
+    const exact = await asof.getAttribute("title");
+    expect(exact).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    await expect(asof).toHaveAttribute("datetime", exact!);
+    await expect(asof).toHaveText(new Date(exact!).toISOString().slice(0, 16).replace("T", " ") + " UTC");
+    await expect(page.locator("time").last()).toHaveText(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/);
+    await expect(page.getByText(/Spend is grouped by the UTC date when funds were set aside/)).toBeVisible();
+    // The sidebar background spans the long document; its controls stay viewport-height and sticky.
+    const dimensions = await page.evaluate(() => ({
+      sidebar: document.querySelector("aside")!.getBoundingClientRect().height,
+      document: document.documentElement.scrollHeight,
+      controls: document.querySelector(".sidebar-content")!.getBoundingClientRect().height,
+      viewport: window.innerHeight,
+    }));
+    expect(dimensions.document).toBeGreaterThan(dimensions.viewport);
+    expect(dimensions.sidebar).toBeGreaterThanOrEqual(dimensions.document - 1);
+    expect(dimensions.controls).toBe(dimensions.viewport);
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await expect.poll(async () => Math.abs((await page.locator(".sidebar-content").boundingBox())!.y)).toBeLessThan(1);
+    await expect(page.getByRole("button", {name: /^Health/})).toBeInViewport();
+    await page.emulateMedia({colorScheme: "dark"});
+    await expect(page.locator(".sidebar-content")).toHaveCSS("position", "sticky");
+    await page.emulateMedia({colorScheme: "light"});
+    await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({path: "test-results/statistics.png", fullPage: true});
     await page.getByRole("button", {name: /^Health/}).focus();
     await page.keyboard.press("Enter");
@@ -123,6 +150,12 @@ test.describe("empty audit trail", () => {
     await expect(page.getByText("finassist doctor", {exact: true})).toBeVisible();
     await expect(page.getByText("$0.00").first()).toBeVisible();
     await page.screenshot({path: "test-results/statistics-first-run.png", fullPage: true});
+    await page.setViewportSize({width: 390, height: 844});
+    await expect(page.locator(".sidebar-content")).toHaveCSS("position", "static");
+    expect((await page.locator("aside").boundingBox())!.height).toBeLessThan(844);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    await page.getByRole("button", {name: /^Health/}).click();
+    await expect(page.getByRole("heading", {name: "Health", exact: true})).toBeVisible();
     expect(external).toEqual([]);
     expect(errors).toEqual([]);
   });
