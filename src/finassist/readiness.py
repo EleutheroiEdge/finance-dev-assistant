@@ -63,7 +63,7 @@ def verify_gate(
                 blockers.add("blocking_findings")
     if review.get("packet_hash") != packet["packet_hash"]:
         blockers.add("review_packet_mismatch")
-    if not config.required_recipes:
+    if not required_recipes:
         blockers.add("required_recipes_unconfigured")
     if not state.is_file():
         raise AssistantError("audit_evidence_missing")

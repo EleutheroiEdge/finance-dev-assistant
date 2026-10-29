@@ -151,6 +151,51 @@ def test_additional_recipe_api_rejects_unconfigured_checks(gate_bundle):
         verify_gate(*gate_bundle, additional_recipes=("unconfigured",))
 
 
+def test_workflow_can_supply_nonempty_requirements_without_weakening_empty_legacy_gate(gate_bundle, repository):
+    from finassist.workflow import build_workflow_plan, verify_workflow_gate
+
+    packet, review, checks, config, head, state = gate_bundle
+    repo, _base, _head = repository
+    config = replace(config, required_recipes=())
+    config_hash = digest(canonical(asdict(config)))
+    review["config_hash"] = config_hash
+    checks[0]["receipt"]["config_hash"] = config_hash
+    with Ledger(state) as ledger:
+        review["receipt"] = ledger.append({
+            "event": "review_completed", "packet_hash": packet["packet_hash"],
+            "report_hash": digest(canonical({key: value for key, value in review.items() if key != "receipt"})),
+        })
+        ledger.append({"event": "check_completed", "head": head, "config_hash": config_hash,
+                       "receipt_hash": digest(canonical(checks[0]["receipt"]))})
+    assert "required_recipes_unconfigured" in verify_gate(packet, review, checks, config, head, state)["blocking_reasons"]
+    template = {
+        "schema_version": 1, "name": "unit-only", "goal": "Synthetic workflow requirement",
+        "methodology": ["src/cash.py"],
+        "requirements": [{"id": "unit-tests", "recipe": "unit", "methodology": ["src/cash.py"]}],
+        "steps": [{"id": "unit", "requirement": "unit-tests", "depends_on": []}],
+    }
+    plan = build_workflow_plan(template, packet, repo, config)
+    assert verify_workflow_gate(plan, packet, review, checks, config, head, state, repo)["status"] == "eligible-for-human-review"
+
+
+def test_workflow_gate_preserves_and_checks_explicit_requested_head(gate_bundle, repository):
+    from finassist.workflow import build_workflow_plan, verify_workflow_gate
+
+    packet, review, checks, config, _head, state = gate_bundle
+    repo, base, _candidate = repository
+    template = {
+        "schema_version": 1, "name": "unit-only", "goal": "Synthetic head binding",
+        "methodology": ["src/cash.py"],
+        "requirements": [{"id": "unit-tests", "recipe": "unit", "methodology": ["src/cash.py"]}],
+        "steps": [{"id": "unit", "requirement": "unit-tests", "depends_on": []}],
+    }
+    plan = build_workflow_plan(template, packet, repo, config)
+    for active in (config, replace(config, timeout_seconds=config.timeout_seconds + 1)):
+        result = verify_workflow_gate(plan, packet, review, checks, active, base, state, repo)
+        assert result["status"] == "blocked" and result["head"] == base
+        assert "workflow_head_changed" in result["blocking_reasons"]
+
+
 @pytest.mark.parametrize(
     "mutation,code",
     [

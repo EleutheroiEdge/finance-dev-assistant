@@ -189,6 +189,29 @@ def test_legacy_packet_remains_inspectable_but_cannot_supply_workflow_mode_evide
         build_workflow_plan(template, packet, repo, config)
 
 
+def test_imported_plan_cannot_bypass_packet_mode_requirement(workflow_case):
+    repo, config, template, packet = workflow_case
+    plan = build_workflow_plan(template, packet, repo, config)
+    packet["schema_version"] = 1
+    for file in packet["files"]:
+        file.pop("before_mode")
+        file.pop("after_mode")
+    packet["packet_hash"] = digest(canonical({key: value for key, value in packet.items() if key != "packet_hash"}))
+    plan["packet_hash"] = packet["packet_hash"]
+    plan["plan_hash"] = digest(canonical({key: value for key, value in plan.items() if key != "plan_hash"}))
+    with pytest.raises(AssistantError, match="workflow_packet_mode_evidence_missing"):
+        preflight_workflow(plan, packet, repo, config)
+
+
+def test_stale_unavailable_head_reports_blocker_without_reading_old_git_objects(workflow_case):
+    repo, config, template, packet = workflow_case
+    plan = build_workflow_plan(template, packet, repo, config)
+    plan["head"] = "deadbeef" * 5
+    plan["plan_hash"] = digest(canonical({key: value for key, value in plan.items() if key != "plan_hash"}))
+    result = preflight_workflow(plan, packet, repo, config)
+    assert result["status"] == "blocked" and "workflow_head_changed" in result["blocking_reasons"]
+
+
 def test_cli_roundtrip_exit_codes_private_outputs_and_metadata_audit(workflow_case, tmp_path, capsys):
     repo, config, template, packet = workflow_case
     paths = {name: tmp_path / (name + ".json") for name in ("config", "template", "packet", "plan")}
