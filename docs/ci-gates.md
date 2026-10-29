@@ -155,5 +155,9 @@ normal workflow status/timeline and reconciliation commands.
 Local unit tests use fake isolated-runner results. The installed-wheel smoke
 exercises policy refusal without dispatch. The existing hosted container job
 also exercises a passing fictional workflow and a seeded deposit-sign defect
-that ordinary unit tests miss but the mandatory cash invariant blocks. These
+that ordinary unit tests miss but the mandatory cash invariant blocks. It repeats
+both cases through the full Action bootstrap, checking private report hashes,
+job summaries and exit codes after installing the trusted action source. The
+pilot supplies synthetic event metadata and changes no repository settings; it
+does not claim deployment into a consumer repository. These
 are synthetic control checks, not measured live model quality or certification.

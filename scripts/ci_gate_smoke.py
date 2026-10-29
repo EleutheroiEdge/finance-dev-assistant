@@ -8,14 +8,14 @@ import subprocess
 import sys
 import tempfile
 
-from finassist.platform_support import find_tool
+from finassist.platform_support import clean_environment, find_tool
 from finassist.scope import git_environment
 from finassist.security import canonical, digest
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def exercise_ci_gate(image: str, *, run_checks: bool) -> dict:
+def exercise_ci_gate(image: str, *, run_checks: bool, action_bootstrap: bool = False) -> dict:
     with tempfile.TemporaryDirectory(prefix="finassist-ci-smoke-") as temporary:
         outer = Path(temporary)
         repo = outer / "repository"
@@ -52,6 +52,27 @@ def exercise_ci_gate(image: str, *, run_checks: bool) -> dict:
                                                "repo": {"full_name": policy["repository"]}}}}
             event_path = outer / "event.json"
             event_path.write_bytes(canonical(event))
+            if action_bootstrap:
+                attempt = Path(tempfile.mkdtemp(prefix="action-", dir=outer))
+                environment = {**clean_environment(), "GITHUB_ACTIONS": "true", "GITHUB_WORKSPACE": str(repo),
+                               "GITHUB_EVENT_PATH": str(event_path), "GITHUB_EVENT_NAME": "pull_request",
+                               "GITHUB_REPOSITORY": policy["repository"], "RUNNER_TEMP": str(attempt),
+                               "GITHUB_STEP_SUMMARY": str(attempt / "summary.md"), "GITHUB_OUTPUT": str(attempt / "outputs"),
+                               "FINASSIST_CI_POLICY_SHA256": digest(raw)}
+                done = subprocess.run([sys.executable, "-I", str(ROOT / "actions/gate/run.py")],
+                                      cwd=outer, env=environment, capture_output=True, text=True,
+                                      encoding="utf-8", timeout=660, check=False, shell=False)
+                if done.returncode != expected_exit:
+                    raise AssertionError("Synthetic Action bootstrap returned an unexpected exit code")
+                outputs = dict(line.split("=", 1) for line in (attempt / "outputs").read_text(encoding="utf-8").splitlines())
+                report_path = Path(outputs["report-path"])
+                assert report_path.is_relative_to(attempt)
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+                assert outputs["status"] == report["status"]
+                assert outputs["report-hash"] == report["report_hash"] == digest(canonical(
+                    {key: value for key, value in report.items() if key != "report_hash"}))
+                assert "**" + report["status"] + "**" in (attempt / "summary.md").read_text(encoding="utf-8")
+                return report
             done = subprocess.run([
                 sys.executable, "-I", "-m", "finassist", "ci", "gate", "--repo", str(repo), "--event", str(event_path),
                 "--event-name", "pull_request", "--repository", policy["repository"], "--policy-sha256", digest(raw),
@@ -65,7 +86,8 @@ def exercise_ci_gate(image: str, *, run_checks: bool) -> dict:
         if not run_checks:
             assert first["blocking_reasons"] == ["ci_model_review_required"]
             assert not (repo / ".finassist/state").exists()
-            return {"ci_policy_refusal_smoke": "PASS", "model_called": False, "checks_run": False}
+            return {"ci_action_refusal_smoke" if action_bootstrap else "ci_policy_refusal_smoke": "PASS",
+                    "model_called": False, "checks_run": False}
         assert first["status"] == "passed" and first["checks"]["completed"] == 2
         source.write_text(source.read_text(encoding="utf-8").replace("opening + deposits - fees", "opening - deposits - fees"),
                           encoding="utf-8", newline="\n")
@@ -73,7 +95,8 @@ def exercise_ci_gate(image: str, *, run_checks: bool) -> dict:
         git("commit", "-m", "Seed synthetic deposit-sign defect")
         failed = evaluate(1)
         assert failed["status"] == "blocked" and "workflow_check_failed" in failed["blocking_reasons"]
-        return {"ci_container_gate_smoke": "PASS", "seeded_cash_defect_blocked": True, "model_called": False}
+        return {"ci_action_bootstrap_smoke" if action_bootstrap else "ci_container_gate_smoke": "PASS",
+                "seeded_cash_defect_blocked": True, "model_called": False}
 
 
 if __name__ == "__main__":

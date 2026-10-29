@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_release_versions_and_tag_gate():
-    assert validate_tag(ROOT, "v0.3.1") == "0.3.1"
-    for tag in ["main", "v0.2.0", "v0.3.0", "v0.3.1rc1", "v0.3.1; echo unsafe"]:
+    assert validate_tag(ROOT, "v0.4.0") == "0.4.0"
+    for tag in ["main", "v0.2.0", "v0.3.1", "v0.4.0rc1", "v0.4.0; echo unsafe"]:
         with pytest.raises(ValueError):
             validate_tag(ROOT, tag)
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
@@ -68,6 +68,16 @@ def test_dated_first_public_release_notes_extract_cleanly():
     assert "PyPI page:" not in notes
     assert "Earlier development" not in notes
     assert "#1" not in notes and "development milestones" not in notes
+
+
+def test_workflow_release_notes_exclude_already_published_changes():
+    notes = release_notes(ROOT, "0.4.0")
+    assert notes.startswith("# finledgerpoli 0.4.0\n")
+    assert "hash-pinned base policy" in notes and "audit-backed checkpoints" in notes
+    assert "full trusted-source Action bootstrap" in notes
+    assert "PyPI page:" not in notes and "brand artwork" not in notes
+    previous = release_notes(ROOT, "0.3.1")
+    assert "hash-pinned base policy" not in previous and "audit-backed checkpoints" not in previous
 
 
 @pytest.mark.parametrize("headers", ["", "## 0.3.01 - Unreleased\n\nWrong version", "## 0.3.0 - Unreleased\n\n", "## 0.3.0 - Unreleased\n\nOne\n\n## 0.3.0 - 2026-10-28\n\nTwo"])

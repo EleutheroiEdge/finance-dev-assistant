@@ -79,6 +79,7 @@ print('non-root; readonly source and root; writable scratch; no network; no prov
     from ci_gate_smoke import exercise_ci_gate
 
     print(json.dumps(exercise_ci_gate(args.image, run_checks=True)))
+    print(json.dumps(exercise_ci_gate(args.image, run_checks=True, action_bootstrap=True)))
     return 0
 
 
