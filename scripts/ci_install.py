@@ -8,6 +8,7 @@ import io
 import json
 import os
 import platform
+import shutil
 from pathlib import Path, PurePosixPath
 import subprocess
 import sys
@@ -29,9 +30,26 @@ def run(*args):
     subprocess.run([str(arg) for arg in args], check=True, shell=False)
 
 
-def install_requirements(python, root=ROOT):
+def install_requirements(python, root=ROOT, *, windows=None):
+    windows = sys.platform == "win32" if windows is None else windows
+    flags = ["--only-binary=:all:"]
+    if windows:
+        # comrak 0.0.16 has no CPython 3.11-3.13 Windows wheel. Verify its source and
+        # its build backend explicitly, rather than permitting isolated build downloads.
+        if shutil.which("cargo") is None:
+            raise RuntimeError("Windows Markdown binding build requires an existing Rust toolchain")
+        logical = (root / "requirements-dev.lock").read_text(encoding="utf-8").replace("\\\n", "")
+        requirements = [line for line in logical.splitlines() if line.startswith("maturin==")]
+        if len(requirements) != 1 or "--hash=sha256:" not in requirements[0]:
+            raise RuntimeError("Hash-locked Maturin bootstrap missing")
+        with tempfile.TemporaryDirectory(prefix="finassist-native-build-") as directory:
+            bootstrap = Path(directory) / "maturin.txt"
+            bootstrap.write_text(requirements[0] + "\n", encoding="utf-8", newline="\n")
+            run(python, "-m", "pip", "install", "--disable-pip-version-check", "--require-hashes",
+                "--only-binary=:all:", "-r", bootstrap)
+        flags += ["--no-binary=comrak", "--no-build-isolation", "--config-settings=maturin.build-args=--locked"]
     run(python, "-m", "pip", "install", "--disable-pip-version-check", "--require-hashes",
-        "--only-binary=:all:", "-r", root / "requirements-dev.lock")
+        *flags, "-r", root / "requirements-dev.lock")
 
 
 def build_wheel(output, root=ROOT):
@@ -99,10 +117,12 @@ def unpack_pnpm(directory):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("tool", choices=["project", "pnpm", "pnpm-run"])
+    parser.add_argument("tool", choices=["dependencies", "project", "pnpm", "pnpm-run"])
     parser.add_argument("arguments", nargs=argparse.REMAINDER)
     args = parser.parse_args()
-    if args.tool == "project":
+    if args.tool == "dependencies":
+        install_requirements(sys.executable)
+    elif args.tool == "project":
         with tempfile.TemporaryDirectory(prefix="finassist-ci-wheel-") as directory:
             install_wheel(sys.executable, build_wheel(directory))
     elif args.tool == "pnpm-run":

@@ -84,8 +84,11 @@ Python CI/release dependencies are exact pins with distribution hashes in
 `requirements-dev.lock`, resolved for supported Python versions and platforms.
 Regenerate from `pyproject.toml` with the command in the lockfile header, review
 version/hash changes and run the full native matrix. Installs use
-`pip --require-hashes --only-binary=:all:` so an unavailable wheel stops the job
-instead of fetching unchecked source-build dependencies. The build backend and
+`pip --require-hashes` with wheels required by default. The sole source-build
+exception is comrak on Windows/Python 3.11–3.13: its sdist hash is checked,
+Maturin is first installed from the same hash lock, build isolation is disabled,
+and Cargo must use the supplied lockfile and registry checksums. An existing Rust
+toolchain is required; none is downloaded automatically. The build backend and
 release tools are included in that same lock; builds disable isolation and
 install the locally built project wheel using its freshly computed SHA-256.
 The pnpm bootstrap verifies each platform's fixed native npm tarball against its
