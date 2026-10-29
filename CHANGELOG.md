@@ -14,6 +14,7 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ### Changed
 
+- Allow 15 minutes for the platform test job, including native dependency builds and clean-wheel checks; retain the existing matrix, read-only permissions and pinned actions.
 - Preserve dashboard oversized-request refusals on Windows with byte- and deadline-bounded authenticated-body cleanup; payload and authorization limits are unchanged.
 
 - Apply the reviewed f mark and brand artwork to the README, packaged dashboard icons and synthetic documentation media.
