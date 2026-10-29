@@ -11,6 +11,7 @@ import secrets
 from socketserver import TCPServer
 import sqlite3
 import threading
+import time
 from urllib.parse import urlsplit, unquote
 
 from .auditing import command_audit
@@ -262,6 +263,29 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def discard_oversized_body(self, length):
+        # Windows may reset a connection closed with unread request bytes,
+        # hiding the refusal response. Drain only a small authenticated excess;
+        # never parse it or wait without both a byte cap and a total deadline.
+        if not 65536 < length <= 131072:
+            return
+        deadline = time.monotonic() + 0.25
+        previous_timeout = self.connection.gettimeout()
+        try:
+            while length:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self.connection.settimeout(remaining)
+                chunk = self.rfile.read1(min(length, 16384))
+                if not chunk:
+                    break
+                length -= len(chunk)
+        except OSError:
+            pass  # A truncated/stalled rejected body cannot authorize an action.
+        finally:
+            self.connection.settimeout(previous_timeout)
+
     def dispatch(self, mutation=False):
         try:
             parsed = urlsplit(self.path)
@@ -276,12 +300,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self.headers.get("Transfer-Encoding")
                     or len(lengths) != 1
                     or not lengths[0].isdigit()
-                    or not 0 < int(lengths[0]) <= 65536
                 ):
+                    raise AssistantError("request_size_invalid")
+                length = int(lengths[0])
+                if not 0 < length <= 65536:
+                    self.discard_oversized_body(length)
                     raise AssistantError("request_size_invalid")
                 if self.headers.get("Content-Type", "").split(";", 1)[0] != "application/json":
                     raise AssistantError("json_required")
-                document = json.loads(self.rfile.read(int(lengths[0])).decode("utf-8"))
+                document = json.loads(self.rfile.read(length).decode("utf-8"))
                 if path == "/api/config/preview":
                     result = self.server.state.preview(document)
                 elif path == "/api/config/confirm":
