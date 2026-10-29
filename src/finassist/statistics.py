@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .config import Config
 from .ledger import Ledger
+from .workflow_state import replay_workflows, run_phase
 
 
 def statistics(path: Path, config: Config, *, now: datetime | None = None) -> dict:
@@ -20,13 +21,14 @@ def statistics(path: Path, config: Config, *, now: datetime | None = None) -> di
     reviews = offline = requests = unknown_findings = legacy_checks = usage_known = usage_unknown = (
         eligible
     ) = blocked = 0
-    open_rows = []
+    open_rows, workflow_events = [], []
     if path.exists():
         with Ledger(path) as ledger, ledger.transaction():
             ledger.verify()
             open_rows = ledger.open_reservations()
-            for (raw,) in ledger.db.execute("SELECT payload FROM events ORDER BY seq"):
+            for seq, raw in ledger.db.execute("SELECT seq,payload FROM events ORDER BY seq"):
                 event = json.loads(raw)
+                workflow_events.append((seq, event))
                 kind = event.get("event")
                 day = event.get("recorded_at", "")[:10]
                 if kind == "reserved":
@@ -83,6 +85,7 @@ def statistics(path: Path, config: Config, *, now: datetime | None = None) -> di
                         exit_code=event.get("exit_code"),
                         duration_ms=event.get("duration_ms"),
                     )
+    workflows = replay_workflows(workflow_events)
     reserved = sum((Decimal(row["reserved"]) for row in open_rows), Decimal(0))
     actual_day = costs.get(today, Decimal(0))
     actual_month = sum((value for day, value in costs.items() if day[:7] == month), Decimal(0))
@@ -137,5 +140,9 @@ def statistics(path: Path, config: Config, *, now: datetime | None = None) -> di
         "recipes": [{"name": name, **value} for name, value in sorted(recipes.items())],
         "legacy_checks": legacy_checks,
         "recent_runs": list(runs.values())[-50:][::-1],
+        "workflows": [
+            {"workflow_run_id": identifier, "status": run_phase(run), "plan_hash": run["plan_hash"]}
+            for identifier, run in list(workflows.items())[-50:][::-1]
+        ],
         "qualification": "Spend is grouped by the UTC date when funds were set aside. These verified local records may differ from your provider's bill and do not approve a merge or deployment.",
     }

@@ -37,6 +37,10 @@ from .scope import build_packet, git, resolve, triage
 from .security import canonical, check_text, digest, regular_path, write_private
 from .workspace import export_snapshot
 from .workflow import build_workflow_plan, preflight_workflow, verify_workflow_gate
+from .workflow_execution import cancel_run, create_run, execute_run, inspect_run, reconcile_run, retry_step
+from .workflow_state import WorkflowStore, run_phase, unfinished_workflows
+
+WORKFLOW_STATE_ACTIONS = {"run", "resume", "status", "reconcile", "retry", "cancel"}
 
 
 def _read_json(path: str) -> dict:
@@ -113,6 +117,29 @@ def parser() -> argparse.ArgumentParser:
         else:
             operation.add_argument("--plan", required=True)
         operation.add_argument("--output", required=action == "plan")
+    for action in sorted(WORKFLOW_STATE_ACTIONS):
+        operation = actions.add_parser(action)
+        operation.add_argument("--state-dir", type=Path, default=Path(".finassist"))
+        operation.add_argument("--output")
+        if action != "run":
+            operation.add_argument("--run-id", required=action != "status")
+        if action in {"run", "resume"}:
+            operation.add_argument("--repo", type=Path, default=Path.cwd())
+            operation.add_argument("--max-steps", type=int, default=64)
+            operation.add_argument("--approve-local", action="store_true")
+        if action in {"run", "resume", "retry", "cancel"}:
+            operation.add_argument("--approve-plan", required=True)
+        if action == "run":
+            operation.add_argument("--packet", required=True)
+            operation.add_argument("--plan", required=True)
+            operation.add_argument("--backend", choices=["docker", "podman", "local"], default="docker")
+        if action in {"reconcile", "retry"}:
+            operation.add_argument("--step-id", required=True)
+            operation.add_argument("--approve-attempt", required=True)
+        if action == "reconcile":
+            choice = operation.add_mutually_exclusive_group(required=True)
+            choice.add_argument("--approve-artifact")
+            choice.add_argument("--confirm-cleanup", action="store_true")
     apply = commands.add_parser("apply", help="Apply an inspected proposal on a clean feature branch")
     apply.add_argument("--repo", type=Path, default=Path.cwd())
     apply.add_argument("--proposal", required=True)
@@ -216,6 +243,46 @@ def audit_directory(args) -> Path:
     )
 
 
+def _execute_workflow(args, config: Config) -> int:
+    action = args.workflow_action
+    if action in {"run", "resume"} and not 1 <= args.max_steps <= 64:
+        raise AssistantError("workflow_step_limit_invalid")
+    with WorkflowStore(audit_directory(args), create=action == "run") as store:
+        if action == "run":
+            identifier = create_run(
+                store, _read_json(args.plan), _read_json(args.packet), args.repo, config,
+                approved_plan=args.approve_plan, backend=args.backend, approve_local=args.approve_local,
+            )
+            # Preserve discovery of the new run even if execution is interrupted.
+            _emit({"workflow_run_id": identifier, "status": "created"})
+            result = execute_run(store, identifier, args.repo, config, approved_plan=args.approve_plan,
+                                 approve_local=args.approve_local, max_steps=args.max_steps)
+        elif action == "resume":
+            result = execute_run(store, args.run_id, args.repo, config, approved_plan=args.approve_plan,
+                                 approve_local=args.approve_local, max_steps=args.max_steps)
+        elif action == "status":
+            if args.run_id:
+                result = inspect_run(store, args.run_id)
+            else:
+                result = {"schema_version": 1, "artifacts_verified": False, "workflows": [
+                    {"workflow_run_id": identifier, "status": run_phase(state), "plan_hash": state["plan_hash"]}
+                    for identifier, state in store.states().items()
+                ]}
+        elif action == "reconcile":
+            result = reconcile_run(store, args.run_id, args.step_id, args.approve_attempt, config,
+                                   approved_artifact=args.approve_artifact, confirm_cleanup=args.confirm_cleanup)
+        elif action == "retry":
+            result = retry_step(store, args.run_id, args.step_id, args.approve_attempt,
+                                approved_plan=args.approve_plan)
+        else:
+            result = cancel_run(store, args.run_id, approved_plan=args.approve_plan)
+        _emit(result, args.output)
+        if args.output:
+            _emit({"workflow_run_id": result.get("workflow_run_id"), "status": result.get("status"),
+                   "output": args.output})
+        return 1 if result.get("blocking_reasons") else 0
+
+
 def execute(args, config: Config | None = None) -> int:
     config = config or load_config(args.config)
     if args.command == "init":
@@ -241,6 +308,8 @@ def execute(args, config: Config | None = None) -> int:
         packet = build_packet(args.repo, args.base, args.head, config)
         _emit(packet, args.output)
         _emit({"packet_hash": packet["packet_hash"], "output": args.output, "triage": triage(packet, config)})
+    elif args.command == "workflow" and args.workflow_action in WORKFLOW_STATE_ACTIONS:
+        return _execute_workflow(args, config)
     elif args.command == "workflow":
         packet = _read_json(args.packet)
         if args.workflow_action == "plan":
@@ -357,6 +426,11 @@ def execute(args, config: Config | None = None) -> int:
                     "events_verified": ledger.verify(),
                     "unresolved": ledger.open_reservations(),
                     "incomplete_runs": ledger.incomplete_runs(),
+                    "unfinished_workflows": unfinished_workflows([
+                        (seq, json.loads(payload)) for seq, payload in ledger.db.execute(
+                            "SELECT seq,payload FROM events ORDER BY seq"
+                        )
+                    ]),
                 }
             )
     elif args.command == "render":
@@ -521,6 +595,10 @@ def main(argv: list[str] | None = None) -> int:
 
             return serve_dashboard(args.config or Path("finassist.json"), audit_directory(args), args.port)
         config = load_config(args.config)
+        if args.command == "workflow" and args.workflow_action in WORKFLOW_STATE_ACTIONS:
+            # These actions have their own replayable workflow lifecycle. A crash
+            # leaves a checkpoint/unknown attempt, not an unclosable generic run.
+            return execute(args, config)
         if args.command in {"doctor", "demo", "audit", "scan", "render"}:
             return execute(args, config)
         state = audit_directory(args)

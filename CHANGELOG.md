@@ -6,6 +6,8 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ### Added
 
+- Execute approved workflow checks with audit-backed checkpoints, dependency ordering, process-held locks and verified artifact reuse; require explicit reconciliation/retry after uncertain outcomes.
+- Expose durable run inspection and cancellation, block readiness on unfinished workflows, and exercise pause/resume from installed wheels with synthetic checks.
 - Add offline versioned workflow plans and preflight checks binding project methodology, check dependencies, source packets and configuration hashes.
 - Let `verify-gate --workflow-plan` require extra audited financial check evidence, with named missing obligations; export a synthetic cash template and bundled workflow-plans guide.
 

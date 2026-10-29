@@ -10,6 +10,7 @@ from .ledger import CURRENT_RUN, Ledger
 from .review import validate_review
 from .scope import verify_packet, review_omissions
 from .security import canonical, digest
+from .workflow_state import unfinished_workflows
 
 
 def verify_gate(
@@ -79,6 +80,8 @@ def verify_gate(
     import json
 
     events = [(json.loads(payload), value) for payload, value in rows]
+    if unfinished_workflows([(index, payload) for index, (payload, _hash) in enumerate(events, start=1)]):
+        blockers.add("unfinished_workflow")
     now = datetime.now(timezone.utc)
 
     def fresh(payload: dict) -> bool:

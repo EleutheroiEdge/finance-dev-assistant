@@ -45,10 +45,9 @@ must reference known steps and form an acyclic graph. Array order does not
 define execution order. Schema version 1 accepts up to 64 documents,
 requirements and steps. Unknown fields and unsupported versions are refused.
 
-The graph is a declarative contract in this increment. There is no workflow
-executor, step checkpointing or enforcement of historical check order yet.
-Continue running checks explicitly with the existing approved runner. A plan
-does not grant shell/network permissions or replace exact outgoing-request,
+The graph can be consumed by the explicitly approved [durable check executor](workflow-execution.md),
+or checks can still be run individually. A plan alone does not grant
+shell/network permissions or replace exact outgoing-request,
 local-runner or patch-application approvals. Profiles remain checklists; they
 cannot expand capabilities.
 
@@ -139,5 +138,6 @@ command outcomes and inspect the artifact after an interrupted invocation.
 
 Local hashes do not prevent a malicious same-user rewrite of all state. Plans
 do not prove the sufficiency of the selected checks, correctness of a financial
-methodology or professional suitability. This increment does not add durable
-execution, browser adapters, dynamic plugins, remote calls or telemetry export.
+methodology or professional suitability. Planning adds no execution authority,
+browser adapters, dynamic plugins, remote calls or telemetry export. The
+separate executor requires exact plan approval and the existing runner controls.

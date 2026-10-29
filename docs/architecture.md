@@ -22,7 +22,11 @@ Models produce advisory JSON and proposed patches through bounded requests. They
 12. `workflow`: versioned declarative validation plans, committed methodology
     and recipe bindings, acyclic dependency contracts and offline preflight.
     Optional workflow-aware readiness adds evidence obligations through the
-    existing verifier. This is not an executor. See [workflow plans](workflow-plans.md).
+    existing verifier. See [workflow plans](workflow-plans.md).
+13. `workflow_state` / `workflow_execution`: replayable audit transitions,
+    private artifact bindings, process-held execution locks and bounded approved
+    check execution. Unknown outcomes need explicit reconciliation; no model
+    calls or automatic retries. See [durable execution](workflow-execution.md).
 
 Finance profiles separate source authority, approved analyst judgments and
 algorithmic decisions. Do not replace a project's methodology with generic

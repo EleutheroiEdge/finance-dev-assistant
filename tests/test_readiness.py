@@ -151,6 +151,31 @@ def test_additional_recipe_api_rejects_unconfigured_checks(gate_bundle):
         verify_gate(*gate_bundle, additional_recipes=("unconfigured",))
 
 
+def test_readiness_blocks_unfinished_workflow_until_explicit_cancellation(gate_bundle, repository, tmp_path):
+    from finassist.workflow import build_workflow_plan
+    from finassist.workflow_execution import cancel_run, create_run
+    from finassist.workflow_state import WorkflowStore
+
+    packet, review, checks, config, head, state = gate_bundle
+    repo, _base, _head = repository
+    assert verify_gate(*gate_bundle)["status"] == "eligible-for-human-review"
+    target = tmp_path / "audit.sqlite"
+    state.rename(target)
+    template = {
+        "schema_version": 1, "name": "unit-validation", "goal": "Synthetic workflow obligation",
+        "methodology": ["src/cash.py"],
+        "requirements": [{"id": "unit-tests", "recipe": "unit", "methodology": ["src/cash.py"]}],
+        "steps": [{"id": "unit", "requirement": "unit-tests", "depends_on": []}],
+    }
+    plan = build_workflow_plan(template, packet, repo, config)
+    with WorkflowStore(tmp_path) as store:
+        identifier = create_run(store, plan, packet, repo, config, approved_plan=plan["plan_hash"],
+                                backend="local", approve_local=True)
+        assert "unfinished_workflow" in verify_gate(packet, review, checks, config, head, target)["blocking_reasons"]
+        cancel_run(store, identifier, approved_plan=plan["plan_hash"])
+        assert verify_gate(packet, review, checks, config, head, target)["status"] == "eligible-for-human-review"
+
+
 @pytest.mark.parametrize(
     "mutation,code",
     [

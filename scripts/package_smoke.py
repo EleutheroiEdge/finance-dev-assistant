@@ -100,10 +100,13 @@ with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
     assert gate["status"] == "blocked" and "model_review_absent" in gate["blocking_reasons"]
     assert not gate["merge_authority"] and not gate["deployment_authority"]
     # The installed wheel must carry the declarative template and new commands.
-    # These synthetic recipes are declared only; no candidate code is executed.
+    # Execution below uses only these synthetic committed-source checks.
     workflow_config = json.loads((root / "config.json").read_text(encoding="utf-8"))
     workflow_config.update(
-        recipes={"unit": ["python", "-m", "pytest"], "cash": ["python", "check_cash.py"]},
+        recipes={
+            "unit": ["python", "-c", "from cash import cash; assert cash(5, 2) == 3"],
+            "cash": ["python", "-c", "from cash import cash; assert cash(10, 3) == 7"],
+        },
         required_recipes=["unit"],
     )
     config_path = root / "workflow-config.json"
@@ -119,6 +122,15 @@ with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
     preflight = cli("--config", config_path, "workflow", "preflight", "--repo", root,
                     "--packet", packet, "--plan", plan_path)[0]
     assert preflight["status"] == "preflight-passed" and not preflight["execution_authorized"]
+    plan_hash = json.loads(plan_path.read_text(encoding="utf-8"))["plan_hash"]
+    created, paused = cli("--config", config_path, "workflow", "run", "--repo", root,
+                          "--packet", packet, "--plan", plan_path, "--approve-plan", plan_hash,
+                          "--backend", "local", "--approve-local", "--max-steps", "1")
+    assert paused["status"] == "paused" and paused["steps"][0]["state"] == "succeeded"
+    completed = cli("--config", config_path, "workflow", "resume", "--repo", root,
+                    "--run-id", created["workflow_run_id"], "--approve-plan", plan_hash, "--approve-local")[0]
+    assert completed["status"] == "completed-checks" and len(completed["check_records"]) == 2
+    assert cli("workflow", "status", "--run-id", created["workflow_run_id"])[0]["status"] == "completed-checks"
     refused = cli("github-audit", "--repository", "example/repository", expected_exit=2)
     assert refused["code"] == "network_not_approved"  # Offline refusal; no GitHub request.
     audit = cli("audit", "--export", root / "events.jsonl")[0]
@@ -146,6 +158,7 @@ print(
                 "guide (all bundled topics)",
                 "plan",
                 "workflow plan/preflight",
+                "workflow run/resume/status (synthetic local checks)",
                 "review",
                 "verify-gate (blocked offline)",
                 "github-audit (network refused)",
