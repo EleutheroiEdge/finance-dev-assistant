@@ -29,8 +29,8 @@ jobs:
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install -r requirements-dev.lock
-      - run: python -m pip install --no-deps --no-build-isolation -e .
+      - run: python scripts/ci_install.py dependencies
+      - run: python scripts/ci_install.py project
       - run: python -m pytest -q
       - run: ruff check src tests scripts
       - run: finassist demo
@@ -54,27 +54,27 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '22.23.3'
-      - run: python -m pip install -r requirements-dev.lock
-      - run: python -m pip install --no-deps --no-build-isolation -e .
+      - run: python scripts/ci_install.py dependencies
+      - run: python scripts/ci_install.py project
       - run: python -m pytest -q tests/test_dashboard.py
-      - run: npm install --global pnpm@12.9.1 --ignore-scripts
-      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: python scripts/ci_install.py pnpm
+      - run: python ../scripts/ci_install.py pnpm-run install --frozen-lockfile --ignore-scripts
         working-directory: dashboard
-      - run: pnpm run build
+      - run: python ../scripts/ci_install.py pnpm-run run build
         working-directory: dashboard
       - name: Verify shipped assets match their source
         run: git diff --exit-code -- src/finassist/resources/dashboard
-      - run: pnpm run test
+      - run: python ../scripts/ci_install.py pnpm-run run test
         working-directory: dashboard
       - name: Install Chromium and Linux system libraries
         if: runner.os == 'Linux'
-        run: pnpm exec playwright install --with-deps chromium
+        run: python ../scripts/ci_install.py pnpm-run exec playwright install --with-deps chromium
         working-directory: dashboard
       - name: Install Chromium on Windows and macOS
         if: runner.os != 'Linux'
-        run: pnpm exec playwright install chromium
+        run: python ../scripts/ci_install.py pnpm-run exec playwright install chromium
         working-directory: dashboard
-      - run: pnpm run e2e
+      - run: python ../scripts/ci_install.py pnpm-run run e2e
         working-directory: dashboard
         env:
           FINASSIST_TEST_PYTHON: python
@@ -89,8 +89,8 @@ jobs:
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
         with:
           python-version: '3.13'
-      - run: python -m pip install -r requirements-dev.lock
-      - run: python -m pip install --no-deps --no-build-isolation -e .
+      - run: python scripts/ci_install.py dependencies
+      - run: python scripts/ci_install.py project
       - run: docker build -f examples/runner.Dockerfile -t finassist-test-runner .
       - name: Verify real container isolation and cleanup
         shell: bash

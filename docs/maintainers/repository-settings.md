@@ -66,6 +66,38 @@ does not support repositories marked as forks or GitHub Enterprise. This workflo
 skips forks explicitly; fork maintainers can run the upstream Scorecard CLI, or
 review the Action setup after establishing an independent supported repository.
 
+## Interpreting remaining Scorecard findings
+
+Use the [upstream check definitions](https://github.com/ossf/scorecard/blob/main/docs/checks.md)
+and the revision/time of each result. A badge can lag a merged correction; do not
+claim a finding cleared until a new scan reports it.
+
+| Check | Expected result and follow-up |
+| --- | --- |
+| Code-Review | A sole maintainer cannot formally approve their own PRs. A second eligible human reviewer is needed for independent GitHub approvals; AI/bot reviews do not count for this check. Keep existing PR and CI protections. |
+| Maintained | Initial scans cover a repository under 90 days old. Scorecard needs more than 90 days of history to assess its weekly maintenance window; repository age alone does not establish continued maintenance. |
+| Fuzzing | Fuzz integration is optional and is not currently claimed. Add a maintained synthetic fuzzing workflow only as a separately reviewed development task. |
+| CII Best Practices | The best-practices badge is optional. No badge, certification or completed application is claimed. |
+| Security-Policy and SAST | The old missing-policy/scanner findings are expected to clear on the next scan of main now that `SECURITY.md` and the CodeQL workflow exist. Verify the returned results; a full Security-Policy score also considers contact links and disclosure wording, and file presence alone is not a full-score guarantee. |
+
+Python CI/release dependencies are exact pins with distribution hashes in
+`requirements-dev.lock`, resolved for supported Python versions and platforms.
+Regenerate from `pyproject.toml` with the command in the lockfile header, review
+version/hash changes and run the full native matrix. Installs use
+`pip --require-hashes` with wheels required by default. The sole source-build
+exception is comrak on Windows/Python 3.11–3.13: its sdist hash is checked,
+Maturin is first installed from the same hash lock, build isolation is disabled,
+and Cargo must use the supplied lockfile and registry checksums. An existing Rust
+toolchain is required; none is downloaded automatically. The build backend and
+release tools are included in that same lock; builds disable isolation and
+install the locally built project wheel using its freshly computed SHA-256.
+The pnpm bootstrap verifies each platform's fixed native npm tarball against its
+reviewed SHA-512 before bounded,
+path-checked extraction. No bootstrap installer or lifecycle scripts run;
+frontend dependencies retain their frozen pnpm integrity lock.
+The runner's existing Python image digest is unchanged and verified against the
+upstream registry; its version tag remains a comment for update review.
+
 ## Adapting a fork
 
 Replace `.github/CODEOWNERS` with your own write-enabled maintainer/team, update

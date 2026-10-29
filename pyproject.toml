@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools==80.9.0", "wheel==0.45.1"]
+requires = ["setuptools==84.2.1", "wheel==0.48.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -36,7 +36,11 @@ Changelog = "https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/C
 Security = "https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/SECURITY.md"
 
 [project.optional-dependencies]
-dev = ["pytest==8.4.2", "ruff==0.14.3", "PyYAML==6.0.3", "readme-renderer[md]==46.0"]
+dev = ["pytest==9.2.0", "ruff==0.14.3", "PyYAML==6.0.3", "readme-renderer[md]==46.0"]
+
+# Hash-locked alongside the dev extra for CI, release builds and wheel smoke checks.
+[dependency-groups]
+ci = ["build==1.6.1", "twine==7.0.0", "setuptools==84.2.1", "wheel==0.48.0", "maturin==1.15.0"]
 
 [project.scripts]
 finassist = "finassist.cli:main"

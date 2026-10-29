@@ -1,36 +1,18 @@
 """Build/install in a disposable native venv on every supported OS."""
 
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 import venv
 
+from ci_install import build_wheel, install_requirements, install_wheel, run
+
 with tempfile.TemporaryDirectory(prefix="finassist-install-") as directory:
     root = Path(directory)
-    wheels = root / "wheels"
-    subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "wheel",
-            "--no-deps",
-            "--no-build-isolation",
-            ".",
-            "--wheel-dir",
-            str(wheels),
-        ],
-        check=True,
-        shell=False,
-    )
+    wheel = build_wheel(root / "wheels")
     environment = root / "environment"
     venv.EnvBuilder(with_pip=True).create(environment)
     python = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
-    wheel = next(wheels.glob("finledgerpoli-*.whl"))
-    subprocess.run(
-        [str(python), "-m", "pip", "install", "-c", "requirements-dev.lock", str(wheel)],
-        check=True,
-        shell=False,
-    )
-    subprocess.run([str(python), "scripts/package_smoke.py", "examples"], check=True, shell=False)
+    install_requirements(python)
+    install_wheel(python, wheel)
+    run(python, "scripts/package_smoke.py", "examples")
