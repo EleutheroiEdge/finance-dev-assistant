@@ -3,6 +3,7 @@
 from copy import deepcopy
 from dataclasses import replace
 import json
+import io
 import os
 from pathlib import Path
 import sqlite3
@@ -626,8 +627,8 @@ def test_lock_seed_io_contention_has_busy_error(tmp_path, monkeypatch):
     original = state_module.os.fdopen
 
     class ContendedStream:
-        def __init__(self, *args):
-            self.stream = original(*args)
+        def __init__(self, *args, **kwargs):
+            self.stream = original(*args, **kwargs)
 
         def __enter__(self):
             return self
@@ -644,6 +645,49 @@ def test_lock_seed_io_contention_has_busy_error(tmp_path, monkeypatch):
     monkeypatch.setattr(state_module.os, "fdopen", ContendedStream)
     with pytest.raises(AssistantError, match="workflow_run_busy"), workflow_lock(tmp_path, "a" * 32):
         pytest.fail("contended seed must not enter the lock")
+
+
+def test_lock_contention_does_not_retry_buffered_seed_during_close(tmp_path, monkeypatch):
+    import finassist.workflow_state as state_module
+
+    original = state_module.os.fdopen
+
+    class BlockedRaw(io.RawIOBase):
+        def __init__(self, inner):
+            self.inner = inner
+
+        def readable(self):
+            return True
+
+        def writable(self):
+            return True
+
+        def seekable(self):
+            return True
+
+        def seek(self, *args):
+            return self.inner.seek(*args)
+
+        def tell(self):
+            return self.inner.tell()
+
+        def readinto(self, target):
+            return self.inner.readinto(target)
+
+        def write(self, data):
+            raise PermissionError("synthetic Windows byte-range lock")
+
+        def close(self):
+            self.inner.close()
+            super().close()
+
+    def blocked_fdopen(fd, mode, buffering=-1):
+        raw = BlockedRaw(original(fd, mode, buffering=0))
+        return raw if buffering == 0 else io.BufferedRandom(raw)
+
+    monkeypatch.setattr(state_module.os, "fdopen", blocked_fdopen)
+    with pytest.raises(AssistantError, match="workflow_run_busy"), workflow_lock(tmp_path, "a" * 32):
+        pytest.fail("mandatory-lock write failure must remain a classified busy result")
 
 
 @pytest.mark.parametrize("problem", ["wrong-approval", "missing-local-approval", "missing-packet"])
