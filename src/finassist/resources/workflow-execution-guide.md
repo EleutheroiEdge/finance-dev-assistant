@@ -36,6 +36,9 @@ finassist --config finassist.json workflow resume --repo . \
 configuration. It rechecks configuration/source identity and verifies retained
 completed artifacts before reuse or new dispatch. Source or policy changes
 require a new reviewed plan; changing a backend requires a new run.
+Changed valid configuration returns a blocked report even when its narrower
+scope no longer permits the old methodology. Invalid inputs or missing approval
+are refused before a new CLI run initializes persistent state.
 
 Each invocation permits at most `--max-steps` checks, an integer from 1 through
 64, default 64. Exhausting this bound returns `paused`; a later resume continues
@@ -148,6 +151,12 @@ attempts; reconcile them first. Cancellation never interrupts an active owner.
 
 ## State and audit boundaries
 
+Every state command accepts `--repo`; its default state is `REPO/.finassist`,
+including when invoked from another directory. Use the same target repository
+for status, reconciliation, retry and cancellation. An explicit `--state-dir`
+or global `--audit-dir` overrides this default; use that same directory for the
+readiness gate so unfinished work remains visible.
+
 All workflow transitions use schema version 1 in the existing private SQLite
 audit chain. Replay rejects invalid dependency transitions, reused attempt IDs,
 unsupported versions and inconsistent outcomes. Successful/failed check records
@@ -161,6 +170,10 @@ generic command-run markers that cannot be closed after a crash. Existing
 attempt IDs and reduced outcomes appear in audit metadata; raw source, recipe
 arguments, methodology text and test output do not. Test output remains
 untrusted data in private result artifacts and cannot authorize further work.
+Saved results are limited to 4,000,000 encoded bytes including the trailing
+newline. State inspection and the readiness gate accept that same bound for
+check records, including JSON escaping overhead. Other JSON CLI inputs retain
+their 2,000,000-byte limit.
 
 Retained inputs/results live under `STATE/workflow-runs/RUN_ID/`; stable lock
 files live under `STATE/workflow-locks/`. Do not delete lock files to recover a

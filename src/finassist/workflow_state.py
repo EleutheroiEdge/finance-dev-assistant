@@ -27,6 +27,7 @@ _FIELDS = {
 }
 _METADATA = {"recorded_at", "event_schema", "run_id"}
 _OPEN_PHASES = {"pending", "running", "unknown", "failed"}
+MAX_WORKFLOW_ARTIFACT_BYTES = 4_000_000
 
 
 def _matches(value, pattern: str) -> bool:
@@ -185,11 +186,11 @@ def workflow_lock(state_dir: Path, identifier: str):
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
     with os.fdopen(fd, "r+b") as stream:
-        if stream.seek(0, os.SEEK_END) == 0:
-            stream.write(b"\0")
-            stream.flush()
-        stream.seek(0)
         try:
+            if stream.seek(0, os.SEEK_END) == 0:
+                stream.write(b"\0")
+                stream.flush()
+            stream.seek(0)
             if os.name == "nt":
                 import msvcrt
 
@@ -205,7 +206,7 @@ def workflow_lock(state_dir: Path, identifier: str):
         yield
 
 
-def _read_document(path: Path, limit: int = 4_000_000) -> dict:
+def _read_document(path: Path, limit: int = MAX_WORKFLOW_ARTIFACT_BYTES) -> dict:
     file = regular_path(path)
     if not file.is_file() or file.stat().st_size > limit:
         raise AssistantError("workflow_artifact_missing_or_changed")

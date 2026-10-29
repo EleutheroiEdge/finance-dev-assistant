@@ -37,8 +37,8 @@ from .scope import build_packet, git, resolve, triage
 from .security import canonical, check_text, digest, regular_path, write_private
 from .workspace import export_snapshot
 from .workflow import build_workflow_plan, preflight_workflow, verify_workflow_gate
-from .workflow_execution import cancel_run, create_run, execute_run, inspect_run, reconcile_run, retry_step
-from .workflow_state import WorkflowStore, run_phase, unfinished_workflows
+from .workflow_execution import cancel_run, create_run, execute_run, inspect_run, reconcile_run, retry_step, validate_run
+from .workflow_state import MAX_WORKFLOW_ARTIFACT_BYTES, WorkflowStore, run_phase, unfinished_workflows
 from .workflow_packs import export_resolution, read_bundle, resolve_bundle, verify_resolution
 
 WORKFLOW_STATE_ACTIONS = {
@@ -51,9 +51,9 @@ WORKFLOW_STATE_ACTIONS = {
 }
 
 
-def _read_json(path: str) -> dict:
+def _read_json(path: str, *, max_bytes: int = 2_000_000) -> dict:
     file = regular_path(Path(path))
-    if file.stat().st_size > 2_000_000:
+    if file.stat().st_size > max_bytes:
         raise AssistantError("input_limit_exceeded")
     value = json.loads(read_utf8(file))
     if not isinstance(value, dict):
@@ -132,12 +132,12 @@ def parser() -> argparse.ArgumentParser:
         operation.add_argument("--output", required=action == "plan")
     for action in sorted(WORKFLOW_STATE_ACTIONS):
         operation = actions.add_parser(action, help=WORKFLOW_STATE_ACTIONS[action])
-        operation.add_argument("--state-dir", type=Path, default=Path(".finassist"))
+        operation.add_argument("--state-dir", type=Path)
+        operation.add_argument("--repo", type=Path, default=Path.cwd())
         operation.add_argument("--output")
         if action != "run":
             operation.add_argument("--run-id", required=action != "status")
         if action in {"run", "resume"}:
-            operation.add_argument("--repo", type=Path, default=Path.cwd())
             operation.add_argument("--max-steps", type=int, default=64, help="Maximum checks this invocation (1-64)")
             operation.add_argument("--approve-local", action="store_true",
                                    help="Allow trusted local execution without OS isolation")
@@ -262,10 +262,14 @@ def _execute_workflow(args, config: Config) -> int:
     action = args.workflow_action
     if action in {"run", "resume"} and not 1 <= args.max_steps <= 64:
         raise AssistantError("workflow_step_limit_invalid")
+    if action == "run":
+        plan, packet = _read_json(args.plan), _read_json(args.packet)
+        validate_run(plan, packet, args.repo, config, approved_plan=args.approve_plan,
+                     backend=args.backend, approve_local=args.approve_local)
     with WorkflowStore(audit_directory(args), create=action == "run") as store:
         if action == "run":
             identifier = create_run(
-                store, _read_json(args.plan), _read_json(args.packet), args.repo, config,
+                store, plan, packet, args.repo, config,
                 approved_plan=args.approve_plan, backend=args.backend, approve_local=args.approve_local,
             )
             # Preserve discovery of the new run even if execution is interrupted.
@@ -570,7 +574,8 @@ def execute(args, config: Config | None = None) -> int:
             args.repo, "status", "--porcelain", "--untracked-files=normal", "--", ".", ":(exclude).finassist"
         )
         evidence = (
-            _read_json(args.packet), _read_json(args.review), [_read_json(path) for path in args.receipt],
+            _read_json(args.packet), _read_json(args.review),
+            [_read_json(path, max_bytes=MAX_WORKFLOW_ARTIFACT_BYTES) for path in args.receipt],
             config, head, audit_directory(args) / "audit.sqlite",
         )
         if args.workflow_plan:

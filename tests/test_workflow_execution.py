@@ -554,3 +554,125 @@ def test_cli_invalid_step_limit_does_not_leave_an_unfinished_run(execution_case,
     ]) == 2
     assert json.loads(capsys.readouterr().err)["code"] == "workflow_step_limit_invalid"
     assert not target.exists()
+
+
+def test_cli_state_defaults_to_target_repo_from_another_directory(execution_case, tmp_path, capsys, monkeypatch):
+    from finassist.readiness import verify_gate
+
+    repo, config, packet, plan = execution_case
+    for name, document in (("packet", packet), ("plan", plan)):
+        (tmp_path / (name + ".json")).write_bytes(canonical(document))
+    save_config(tmp_path / "config.json", config)
+    caller = tmp_path / "caller"
+    caller.mkdir()
+    monkeypatch.chdir(caller)
+    common = ["--config", str(tmp_path / "config.json"), "workflow"]
+    assert main([*common, "run", "--repo", str(repo), "--plan", str(tmp_path / "plan.json"),
+                 "--packet", str(tmp_path / "packet.json"), "--backend", "local", "--approve-local",
+                 "--approve-plan", plan["plan_hash"], "--max-steps", "1"]) == 0
+    created, paused = map(json.loads, capsys.readouterr().out.splitlines())
+    assert paused["status"] == "paused"
+    assert not (caller / ".finassist").exists()
+    state = repo / ".finassist" / "audit.sqlite"
+    assert "unfinished_workflow" in verify_gate(packet, {}, [], config, plan["head"], state)["blocking_reasons"]
+    identifier = created["workflow_run_id"]
+    assert main([*common, "status", "--repo", str(repo), "--run-id", identifier]) == 0
+    assert json.loads(capsys.readouterr().out)["recorded_status"] == "pending"
+    assert main([*common, "resume", "--repo", str(repo), "--run-id", identifier,
+                 "--approve-plan", plan["plan_hash"], "--approve-local"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "completed-checks"
+
+
+def test_result_limit_includes_persisted_newline(execution_case, tmp_path):
+    from finassist.workflow_execution import _validate_result
+
+    with WorkflowStore(tmp_path / "state", create=True) as store:
+        identifier = new_run(store, execution_case)
+        report = run(store, identifier, execution_case, max_steps=1)
+        document, _hash = store.artifact(identifier, report["steps"][0]["attempt_id"])
+        document["output"] = ""
+        document["receipt"]["output_hash"] = digest(b"")
+        document["output"] = "x" * (4_000_000 - len(canonical(document)))
+        document["receipt"]["output_hash"] = digest(document["output"].encode())
+        assert len(canonical(document)) == 4_000_000
+        with pytest.raises(AssistantError, match="workflow_result_invalid"):
+            _validate_result(document, store.states()[identifier], execution_case[3], "unit", execution_case[1])
+
+
+def test_escaped_output_above_generic_input_limit_remains_reusable(execution_case, tmp_path, monkeypatch):
+    import finassist.workflow_execution as executor
+
+    original = executor.run_recipe
+
+    def escaped(*args, **kwargs):
+        result = original(*args, **kwargs)
+        result["output"] = "\x01" * 350_000
+        result["receipt"]["output_hash"] = digest(result["output"].encode())
+        return result
+
+    monkeypatch.setattr(executor, "run_recipe", escaped)
+    with WorkflowStore(tmp_path / "state", create=True) as store:
+        identifier = new_run(store, execution_case)
+        result = run(store, identifier, execution_case)
+        assert result["status"] == "completed-checks"
+        assert all(2_000_000 < Path(row["path"]).stat().st_size <= 4_000_000 for row in result["check_records"])
+    with WorkflowStore(tmp_path / "state") as store:
+        assert run(store, identifier, execution_case)["status"] == "completed-checks"
+
+
+def test_lock_seed_io_contention_has_busy_error(tmp_path, monkeypatch):
+    import finassist.workflow_state as state_module
+
+    original = state_module.os.fdopen
+
+    class ContendedStream:
+        def __init__(self, *args):
+            self.stream = original(*args)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.stream.close()
+
+        def __getattr__(self, name):
+            return getattr(self.stream, name)
+
+        def flush(self):
+            raise PermissionError("synthetic mandatory lock contention")
+
+    monkeypatch.setattr(state_module.os, "fdopen", ContendedStream)
+    with pytest.raises(AssistantError, match="workflow_run_busy"), workflow_lock(tmp_path, "a" * 32):
+        pytest.fail("contended seed must not enter the lock")
+
+
+@pytest.mark.parametrize("problem", ["wrong-approval", "missing-local-approval", "missing-packet"])
+def test_cli_rejects_invalid_run_before_initializing_state(execution_case, tmp_path, capsys, problem):
+    repo, config, packet, plan = execution_case
+    for name, document in (("packet", packet), ("plan", plan)):
+        (tmp_path / (name + ".json")).write_bytes(canonical(document))
+    if problem == "missing-packet":
+        (tmp_path / "packet.json").unlink()
+    save_config(tmp_path / "config.json", config)
+    target = tmp_path / "new-state"
+    args = ["--config", str(tmp_path / "config.json"), "workflow", "run", "--repo", str(repo),
+            "--plan", str(tmp_path / "plan.json"), "--packet", str(tmp_path / "packet.json"),
+            "--approve-plan", "b" * 64 if problem == "wrong-approval" else plan["plan_hash"],
+            "--backend", "local", "--state-dir", str(target)]
+    if problem != "missing-local-approval":
+        args.append("--approve-local")
+    assert main(args) == 2
+    capsys.readouterr()
+    assert not target.exists()
+
+
+def test_narrowed_configuration_blocks_resume_before_dispatch(execution_case, tmp_path, dispatches):
+    repo, config, _packet, plan = execution_case
+    with WorkflowStore(tmp_path / "state", create=True) as store:
+        identifier = new_run(store, execution_case)
+        run(store, identifier, execution_case, max_steps=1)
+        changed = replace(config, allow_paths=("src/**",))
+        report = execute_run(store, identifier, repo, changed, approved_plan=plan["plan_hash"], approve_local=True)
+        assert report["status"] == "blocked"
+        assert "workflow_configuration_changed" in report["blocking_reasons"]
+        assert dispatches == ["unit"]

@@ -76,6 +76,33 @@ def test_gate_accepts_bound_evidence_but_grants_no_authority(gate_bundle):
     assert not report["merge_authority"] and not report["deployment_authority"]
 
 
+def test_gate_cli_accepts_bounded_json_escaped_check_output(gate_bundle, repository, tmp_path, capsys):
+    from finassist.cli import _read_json, main
+    from finassist.config import save_config
+
+    packet, review, checks, config, head, state = gate_bundle
+    repo, _base, _head = repository
+    checks[0]["output"] = "\x01" * 350_000
+    checks[0]["receipt"]["output_hash"] = digest(checks[0]["output"].encode())
+    with Ledger(state) as ledger:
+        ledger.append({"event": "check_completed", "head": head,
+                       "receipt_hash": digest(canonical(checks[0]["receipt"])),
+                       "config_hash": checks[0]["receipt"]["config_hash"]})
+    state.rename(tmp_path / "audit.sqlite")
+    for name, document in (("packet", packet), ("review", review), ("check", checks[0])):
+        (tmp_path / (name + ".json")).write_bytes(canonical(document) + b"\n")
+    check = tmp_path / "check.json"
+    assert 2_000_000 < check.stat().st_size < 4_000_000
+    with pytest.raises(AssistantError, match="input_limit_exceeded"):
+        _read_json(str(check))
+    save_config(tmp_path / "config.json", config)
+    assert main(["--config", str(tmp_path / "config.json"), "verify-gate", "--repo", str(repo),
+                 "--state-dir", str(tmp_path), "--expected-head", head,
+                 "--packet", str(tmp_path / "packet.json"), "--review", str(tmp_path / "review.json"),
+                 "--receipt", str(check)]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "eligible-for-human-review"
+
+
 def test_workflow_blocks_green_unit_tests_without_financial_evidence(gate_bundle, repository, tmp_path, capsys):
     from finassist.cli import main
     from finassist.config import save_config
@@ -174,6 +201,51 @@ def test_readiness_blocks_unfinished_workflow_until_explicit_cancellation(gate_b
         assert "unfinished_workflow" in verify_gate(packet, review, checks, config, head, target)["blocking_reasons"]
         cancel_run(store, identifier, approved_plan=plan["plan_hash"])
         assert verify_gate(packet, review, checks, config, head, target)["status"] == "eligible-for-human-review"
+
+
+def test_workflow_can_supply_nonempty_requirements_without_weakening_empty_legacy_gate(gate_bundle, repository):
+    from finassist.workflow import build_workflow_plan, verify_workflow_gate
+
+    packet, review, checks, config, head, state = gate_bundle
+    repo, _base, _head = repository
+    config = replace(config, required_recipes=())
+    config_hash = digest(canonical(asdict(config)))
+    review["config_hash"] = config_hash
+    checks[0]["receipt"]["config_hash"] = config_hash
+    with Ledger(state) as ledger:
+        review["receipt"] = ledger.append({
+            "event": "review_completed", "packet_hash": packet["packet_hash"],
+            "report_hash": digest(canonical({key: value for key, value in review.items() if key != "receipt"})),
+        })
+        ledger.append({"event": "check_completed", "head": head, "config_hash": config_hash,
+                       "receipt_hash": digest(canonical(checks[0]["receipt"]))})
+    assert "required_recipes_unconfigured" in verify_gate(packet, review, checks, config, head, state)["blocking_reasons"]
+    template = {
+        "schema_version": 1, "name": "unit-only", "goal": "Synthetic workflow requirement",
+        "methodology": ["src/cash.py"],
+        "requirements": [{"id": "unit-tests", "recipe": "unit", "methodology": ["src/cash.py"]}],
+        "steps": [{"id": "unit", "requirement": "unit-tests", "depends_on": []}],
+    }
+    plan = build_workflow_plan(template, packet, repo, config)
+    assert verify_workflow_gate(plan, packet, review, checks, config, head, state, repo)["status"] == "eligible-for-human-review"
+
+
+def test_workflow_gate_preserves_and_checks_explicit_requested_head(gate_bundle, repository):
+    from finassist.workflow import build_workflow_plan, verify_workflow_gate
+
+    packet, review, checks, config, _head, state = gate_bundle
+    repo, base, _candidate = repository
+    template = {
+        "schema_version": 1, "name": "unit-only", "goal": "Synthetic head binding",
+        "methodology": ["src/cash.py"],
+        "requirements": [{"id": "unit-tests", "recipe": "unit", "methodology": ["src/cash.py"]}],
+        "steps": [{"id": "unit", "requirement": "unit-tests", "depends_on": []}],
+    }
+    plan = build_workflow_plan(template, packet, repo, config)
+    for active in (config, replace(config, timeout_seconds=config.timeout_seconds + 1)):
+        result = verify_workflow_gate(plan, packet, review, checks, active, base, state, repo)
+        assert result["status"] == "blocked" and result["head"] == base
+        assert "workflow_head_changed" in result["blocking_reasons"]
 
 
 @pytest.mark.parametrize(

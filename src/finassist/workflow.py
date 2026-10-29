@@ -238,6 +238,8 @@ def preflight_workflow(plan: dict, packet: dict, repo: Path, config: Config) -> 
         blockers.add("workflow_configuration_changed")
     else:
         verify_packet(packet, config)
+        if packet["schema_version"] != 2:
+            raise AssistantError("workflow_packet_mode_evidence_missing")
         if any(packet[key] != plan[key] for key in ("base", "head", "packet_hash")):
             blockers.add("workflow_packet_changed")
         if review_omissions(packet):
@@ -247,9 +249,10 @@ def preflight_workflow(plan: dict, packet: dict, repo: Path, config: Config) -> 
         recipes = [asdict(item) for item in _recipe_bindings(template, config)]
         if recipes != plan["recipes"]:
             blockers.add("workflow_recipe_changed")
-        methodology = [asdict(item) for item in _methodology_bindings(template, repo, plan["head"], config)]
-        if methodology != plan["methodology"]:
-            blockers.add("workflow_methodology_changed")
+        if head == plan["head"]:
+            methodology = [asdict(item) for item in _methodology_bindings(template, repo, head, config)]
+            if methodology != plan["methodology"]:
+                blockers.add("workflow_methodology_changed")
     if resolve(repo, "HEAD") != head:
         blockers.add("workflow_head_changed")
     return {
@@ -270,9 +273,12 @@ def verify_workflow_gate(
     from .readiness import verify_gate
 
     preflight = preflight_workflow(plan, packet, repo, config)
+    if head != plan["head"] or head != preflight["head"]:
+        preflight["blocking_reasons"] = sorted({*preflight["blocking_reasons"], "workflow_head_changed"})
+        preflight["status"] = "blocked"
     if preflight["status"] == "blocked":
         return {
-            **preflight, "workflow_plan_hash": plan["plan_hash"],
+            **preflight, "head": head, "workflow_plan_hash": plan["plan_hash"],
             "policy_hash": digest(canonical(asdict(config))),
         }
     report = verify_gate(
