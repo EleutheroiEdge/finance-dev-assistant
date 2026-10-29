@@ -33,7 +33,16 @@ def validate_environment(document):
 
 def release_notes(root, version):
     text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
-    section = text.split("## " + version + " — Unreleased\n", 1)[1].split("\n## ", 1)[0]
+    headings = list(re.finditer(r"^## .+$", text, re.MULTILINE))
+    pattern = r"## " + re.escape(version) + r" - (?:Unreleased|\d{4}-\d{2}-\d{2})"
+    matches = [index for index, heading in enumerate(headings) if re.fullmatch(pattern, heading.group())]
+    if len(matches) != 1:
+        raise ValueError("release notes require one exact version section")
+    index = matches[0]
+    end = headings[index + 1].start() if index + 1 < len(headings) else len(text)
+    section = text[headings[index].end():end].strip()
+    if not section:
+        raise ValueError("release notes section must not be empty")
     project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["name"]
     return "# " + project + " " + version + "\n" + section.strip() + "\n"
 

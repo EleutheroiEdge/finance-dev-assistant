@@ -1,11 +1,12 @@
 # Auditing and readiness
 
+Use finledgerpoli audit records and readiness checks to see which review requirements are satisfied and what blocks human review. Its command is `finassist`; a receipt is a hash-bound record of a completed action.
+
 Operational CLI commands record start/completion/failure events in a private
 SQLite ledger. Events carry UTC timestamps, a run ID, event schema, configuration
 digest and reduced action identifiers. Model spend, proposal, apply, rollback
 and recipe events share the run ID. Raw source, arguments, provider output,
-environment values and test logs are excluded. Basic demo/doctor/scan/render and
-audit queries do not add lifecycle events.
+environment values and test logs are excluded. Basic guide/demo/doctor/scan/render and audit queries do not add lifecycle events.
 
 The global `--audit-dir PRIVATE_DIRECTORY` selects the state root. It takes
 precedence over command-specific `--state-dir`. Otherwise commands use their
@@ -28,14 +29,7 @@ Lifecycle verification rejects duplicate starts, mismatched completion commands
 and caller-supplied envelope fields. Interrupted patch backups block further
 application until reconciled; rollback records a terminal state.
 Corrupt/unavailable auditing stops operational commands before work begins.
-A failure recording completion can happen after an operation; reconcile from
-its start event and artifacts before retrying. An unfinished start is unknown,
-not proof that work failed or never occurred. Do not prune/reset billing state.
 
-Hashes are local integrity evidence, not signatures or protection against a
-malicious same-user rewrite. A regulated deployment needs an independently
-controlled collector, identity/retention controls and external anchoring.
-JSON Lines export is a local integration surface; no remote telemetry is enabled.
 
 ## Configurable evidence gate
 
@@ -70,13 +64,8 @@ spend. Offline analysis is not a model review. A freely edited success flag or
 self-consistent file hash does not replace the corresponding audited event.
 Local checks are ineligible unless explicitly selected in policy.
 Stale or invalid review reports return `blocked` with stable reason codes.
-The review's base must match the packet base. The CLI checks source cleanliness
+The review's base must match the outgoing request base. The CLI checks source cleanliness
 before and after evaluation; private untracked `.finassist` state is excluded.
-
-`eligible-for-human-review` is local evidence eligibility. It grants no merge,
-security-policy, deployment or economic authority. Independently check the live
-PR head, current required CI, independent approval, resolved discussions, holds,
-branch protections and target environment before acting.
 
 ## GitHub control inspection
 
@@ -107,3 +96,20 @@ results and a rollback version. Deployment to a service additionally needs its
 named environment, identity, secret delivery, health checks, rollback procedure
 and authorized release decision. Preserve the target project's checks; do not
 treat a model report or this local gate as a release approval.
+
+## Limits
+
+A failure recording completion can happen after an operation; reconcile from
+its start event and artifacts before retrying. An unfinished start is unknown,
+not proof that work failed or never occurred. Do not prune/reset billing state.
+
+Hashes are local integrity evidence, not signatures or protection against a
+malicious same-user rewrite. An integration requiring independent records needs a separately controlled collector, identity/retention controls and external anchoring.
+JSON Lines export is a local integration surface; no remote telemetry is enabled.
+
+`eligible-for-human-review` means the configured prerequisites for human review are satisfied. It grants no merge,
+security-policy, deployment or economic authority. Independently check the live
+PR head, current required CI, independent approval, resolved discussions, holds,
+branch protections and target environment before acting.
+
+Local budget admission does not cap provider billing. See the [threat model](threat-model.md).

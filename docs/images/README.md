@@ -1,10 +1,12 @@
 # Synthetic demo media
 
+Reproduce finledgerpoli demo media using synthetic data and the packaged dashboard. Its command is `finassist`; the recording and screenshots are examples, not measured provider results.
+
 All shown spend, tokens, reviews, findings and readiness are fictional. No model
 provider is called. Screenshots are captured from the actual prebuilt dashboard
 with a fresh temporary config and ledger. The capture process receives only a
 small OS/path environment allowlist, excluding provider keys. External browser
-requests are refused. These images were captured against the 0.3.0 release-candidate
+requests are refused. These images were captured against the 0.3.0
 wheel; the seed script creates synthetic metadata, not measured provider results.
 
 The recording uses a `.cast.txt` filename so the existing text-source policy can
@@ -38,6 +40,12 @@ python scripts/catalog_docs_images.py
 finassist scan --repo .
 ```
 
+After frontend changes, rebuild/compare shipped assets and regenerate affected
+screenshots. No screenshots or recordings should use live account,
+client, portfolio or provider data.
+
+## Limits
+
 Review and stage the media and `manifest.json` explicitly before the scan. The
 manifest names exact PNGs under `docs/images/` and binds their SHA-256 hashes.
 The scanner still rejects undeclared images, links, oversized/malformed PNGs,
@@ -45,8 +53,3 @@ changed bytes and PNG metadata chunks. This narrow exception does not allow
 arbitrary private image formats or exempt text from content screening. Pixel
 privacy is a human review responsibility; a manifest hash cannot classify image
 content. Source planning/snapshots retain their existing binary-asset exclusions.
-
-After frontend changes, rebuild/compare shipped assets and regenerate affected
-screenshots. After publication, add a PyPI badge only when the owner verifies the
-actual package/version. No screenshots or recordings should use live account,
-client, portfolio or provider data.

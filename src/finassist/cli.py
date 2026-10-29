@@ -25,6 +25,7 @@ from .evidence_store import EvidenceStore
 from .finance import cash_check, observation_check, tax_estimate, weights_check
 from .ledger import Ledger
 from .integrations import export_kit
+from .guides import guide_index, guide_text
 from .github_audit import inspect_github
 from .patching import apply_patch_artifact, rollback_patch
 from .proposal import propose
@@ -67,6 +68,8 @@ def parser() -> argparse.ArgumentParser:
         help="Private command audit directory; default is the operation state directory",
     )
     commands = root.add_subparsers(dest="command", required=True)
+    guide = commands.add_parser("guide", help="List or print bundled guides offline")
+    guide.add_argument("topic", nargs="?", help="Topic from the guide index; omit to list topics as JSON")
     init = commands.add_parser("init", help="Create offline-by-default configuration")
     init.add_argument("--output", default="finassist.json")
     init.add_argument("--provider", choices=sorted(PROVIDERS), default="offline")
@@ -470,6 +473,17 @@ def execute(args, config: Config | None = None) -> int:
 def main(argv: list[str] | None = None) -> int:
     try:
         args = parser().parse_args(argv)
+        if args.command == "guide":
+            if args.topic is None:
+                _emit(guide_index())
+            else:
+                text = guide_text(args.topic)
+                stream = getattr(sys.stdout, "buffer", None)
+                if stream is None:
+                    sys.stdout.write(text)
+                else:
+                    stream.write(text.encode("utf-8"))
+            return 0
         if args.command == "dashboard":
             from .dashboard import serve_dashboard
 

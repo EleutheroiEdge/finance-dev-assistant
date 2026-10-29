@@ -59,3 +59,20 @@ def test_release_notes_only_include_requested_version():
     assert "PyPI page: absolute links and images, project URLs, badge" in notes
     assert "#1 and #3–#5" not in notes
     assert "## Next" not in notes and "Unreleased" not in notes
+
+
+def test_dated_first_public_release_notes_extract_cleanly():
+    notes = release_notes(ROOT, "0.3.0")
+    assert notes.startswith("# finledgerpoli 0.3.0\n")
+    assert "First public release" in notes
+    assert "PyPI page:" not in notes
+    assert "Earlier development" not in notes
+    assert "#1" not in notes and "development milestones" not in notes
+
+
+@pytest.mark.parametrize("headers", ["", "## 0.3.01 - Unreleased\n\nWrong version", "## 0.3.0 - Unreleased\n\n", "## 0.3.0 - Unreleased\n\nOne\n\n## 0.3.0 - 2026-10-28\n\nTwo"])
+def test_release_notes_refuse_missing_empty_or_duplicate_sections(tmp_path, headers):
+    (tmp_path / "CHANGELOG.md").write_text(headers, encoding="utf-8", newline="\n")
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "synthetic"\n', encoding="utf-8", newline="\n")
+    with pytest.raises(ValueError, match="release notes"):
+        release_notes(tmp_path, "0.3.0")

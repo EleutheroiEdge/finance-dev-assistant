@@ -1,0 +1,23 @@
+# finledgerpoli
+
+> Local-first developer assistance for finance software, with screened source review, deterministic checks and explicit approvals; the command is `finassist`.
+
+## Start here
+
+- [Quick start](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/README.md): Installation and the offline one-minute workflow.
+- [AI coding agents](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/agents.md): Command selection, human approvals and host recipes; `finassist guide agents` prints the bundled guide offline.
+- [CLI contracts](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/cli-contracts.md): JSON fields, output streams and exit codes; `finassist guide` lists bundled topics as JSON.
+
+## Configure and review
+
+- [Configuration](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/configuration.md): Path policy, profiles, providers, budgets and readiness settings.
+- [JSON Schema](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/schemas/finassist.schema.json): Editor autocomplete; runtime checks remain authoritative.
+- [Providers](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/providers.md): Explicit model, endpoint, disclosure and spend controls.
+- [Workflows](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflows.md): Source review, isolated checks and approved patches.
+- [Evidence-review skill](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/skills/evidence-review/SKILL.md): Portable instructions exported by `finassist export-kit`.
+
+## Safety and evidence
+
+- [Threat model](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/threat-model.md): Protections, trust boundaries and limits.
+- [Auditing and readiness](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/readiness-and-auditing.md): Verified records, unknown outcomes and prerequisites for human review.
+- [Security design](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/security-design.md): Controls for source, execution, audit and release boundaries.

@@ -10,6 +10,7 @@ import tempfile
 
 import finassist
 from finassist.platform_support import find_tool
+from finassist.guides import GUIDES
 from finassist.scope import git_environment
 
 assert "site-packages" in str(Path(finassist.__file__).resolve()), finassist.__file__
@@ -58,6 +59,14 @@ with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
     cli("init", "--output", root / "config.json")
     kit = cli("export-kit", "--output", root / "kit")[0]
     assert not kit["installed_into_host"]
+    topics = cli("guide")[0]["topics"]
+    assert {row["topic"] for row in topics} == set(GUIDES)
+    for topic, (_, source, _) in GUIDES.items():
+        result = subprocess.run(
+            [sys.executable, "-m", "finassist", "guide", topic],
+            cwd=root, capture_output=True, check=True, shell=False,
+        )
+        assert result.stdout == (root / "kit" / source).read_bytes()
     git("init", "-b", "main")
     git("config", "user.name", "Synthetic Tester")
     git("config", "user.email", "tester@example.invalid")
@@ -110,6 +119,7 @@ print(
                 "doctor",
                 "init",
                 "export-kit",
+                "guide (all bundled topics)",
                 "plan",
                 "review",
                 "verify-gate (blocked offline)",

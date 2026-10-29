@@ -401,7 +401,7 @@ def test_ci_and_protection_proposal_cover_each_native_python_version():
     ]["matrix"]["include"]
     for system in ("ubuntu-24.04", "windows-latest", "macos-latest"):
         assert {row["python"] for row in rows if row["os"] == system} == {"3.11", "3.12", "3.13"}
-    proposal = json.loads((root / "docs/branch-protection-proposal.json").read_text(encoding="utf-8"))
+    proposal = json.loads((root / "docs/maintainers/branch-protection-proposal.json").read_text(encoding="utf-8"))
     assert {row["check_name"] for row in rows} | {"isolation"} <= {
         row["context"] for row in proposal["body"]["required_status_checks"]["checks"]
     }

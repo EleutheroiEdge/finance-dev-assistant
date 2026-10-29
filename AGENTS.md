@@ -13,3 +13,5 @@ Before a PR: run python -m pytest -q, ruff check src tests, finassist demo and
 the publication scan. Validate changed portable skill instructions. Explain
 risks and limitations with evidence; do not claim live provider validation from
 mocked tests. Stage only reviewed paths and do not modify another agent's work.
+
+For using finledgerpoli from a coding agent, see [the user agent guide](docs/agents.md).

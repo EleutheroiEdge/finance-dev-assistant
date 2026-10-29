@@ -1,8 +1,8 @@
 # CLI exit codes and output contracts
 
-The following is the integration contract for the current command set. Use
-`finassist --help` and `finassist COMMAND --help` for argument syntax. Global
-options (`--config`, `--audit-dir`) precede the command. Do not parse human prose,
+Use finledgerpoli in scripts through documented JSON records and exit codes. Its command is `finassist`; global options precede the subcommand.
+
+Use `finassist --help` and `finassist COMMAND --help` for argument syntax. Global options include `--config` and `--audit-dir`. Do not parse human prose,
 error messages or dashboard console URLs as structured records.
 
 | Exit | Meaning |
@@ -15,6 +15,8 @@ error messages or dashboard console URLs as structured records.
 unexpected interpreter/host failures are outside this normalized contract; do not
 interpret absence of a result as success. Dashboard exits 0 after a handled
 keyboard shutdown. Starting it is not a readiness check.
+
+A receipt is a saved action record that binds an outcome to hashes. Readiness means the configured prerequisites for human review are satisfied.
 
 ## Encoding, streams and artifacts
 
@@ -50,10 +52,11 @@ means other documented/context-specific fields can exist, not a literal JSON val
 
 | Command | JSON/result shape and streams | Normal exits |
 | --- | --- | --- |
+| `guide` | Without a topic: stdout `{topics: [{topic, title}]}`. With a topic: bundled UTF-8 Markdown, not JSON. No config, state writes or network. Unknown topics return `unknown_guide` on stderr. | 0, 2 |
 | `init` | stdout `{created: string, network_enabled: false}`; writes validated config JSON. | 0, 2 |
 | `doctor` | stdout health object: `version`, `python`, `platform`, `provider`, `model_configured`, `network_enabled`, `key_present` (boolean/null), runtime binary presence, `container_daemon_checked: false`, recipes/profile and private-state warning. | 0, 2 |
 | `demo` | result `{status, data_class: "synthetic", checks: array, counterexamples_detected: array, model_called: false, trade_execution: false, qualification, tax_example}`. | 0, 1, 2 |
-| `plan` | packet artifact with `schema_version: 2`, base/head/merge-base hashes, profile/path policy, files, omissions and `packet_hash`; stdout summary `{packet_hash, output, triage}`. | 0, 2 |
+| `plan` | outgoing request artifact with `schema_version: 2`, base/head/merge-base hashes, profile/path policy, files, omissions and `packet_hash`; stdout summary `{packet_hash, output, triage}`. | 0, 2 |
 | `watch` | one stdout `{head, triage, network_called: false}` record initially, then one for each observed committed-head change, within configured iteration bounds. | 0, 2 |
 | `review` | full report: `status`, `packet_hash`, `head`, provider, findings and qualification; offline includes triage and no model claim. Remote adds model/review evidence metadata. Stdout summary `{output, status}`. Findings do not change the exit status to 1. | 0, 2 |
 | `propose` | full `{artifact: {head, patch, summary}, approval_hash, reservation, applied: false, audit_receipt}`; stdout `{output, status}`. No patch is applied. | 0, 2 |
@@ -62,7 +65,7 @@ means other documented/context-specific fields can exist, not a literal JSON val
 | `check` | full `{receipt, output, snapshot}`; stdout receipt includes `passed`, exit code, timeout/output/cleanup/isolation metadata, head, config and snapshot hashes. A command failure and cleanup failure both prevent a pass. | 0, 1, 2 |
 | `finance-check` | kind-specific deterministic result: cash/weights have `passed` and reconciliation fields; observation has `passed`, `issues`, `decision_time` and qualification; tax has estimated arithmetic/rates and qualification, without a `passed` requirement. | 0, 1, 2 |
 | `audit` | stdout `{events_verified: integer, unresolved: array, incomplete_runs: array}`. Optional export writes verified event JSON Lines. Exit 0 does not mean reservations/runs are resolved. | 0, 2 |
-| `reconcile-budget` | same summary shape as audit after settling the named reservation with the operator's actual USD charge. | 0, 2 |
+| `reconcile-budget` | same summary shape as audit after settling the named reservation with your actual USD charge. | 0, 2 |
 | `render` | writes escaped HTML; stdout `{output: string}`. | 0, 2 |
 | `scan` | stdout `{files: integer, findings: [{path, code}], passed: boolean, qualification}`. Supplementary tracked-file scan, not a confidentiality proof. | 0, 1, 2 |
 | `evaluate` | stdout `{suite_hash, provider}` first; full evaluation artifact with hash, cases and provider metadata, then `{output, model_quality_measured: false}`. Independent scoring is separate. | 0, 2 |
@@ -91,4 +94,8 @@ presence booleans. See [dashboard guide](dashboard.md) for preview/confirmation.
 
 See [workflow artifacts](workflows.md), [readiness/auditing](readiness-and-auditing.md),
 [configuration](configuration.md) and [provider behavior](providers.md). These
-contracts do not replace the strict validators for saved packets/proposals.
+contracts do not replace the strict validators for saved outgoing requests/proposals.
+
+## Limits
+
+Partial output, missing artifacts and unknown outcomes are not success; reconcile state before retrying a mutation or provider call. JSON shape and citations do not establish correctness. Readiness grants no action authority. Private outputs must remain local. See the [threat model](threat-model.md).

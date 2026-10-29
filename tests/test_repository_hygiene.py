@@ -68,4 +68,4 @@ def test_issue_security_redirect_and_contributor_documents():
     owners = (ROOT / ".github/CODEOWNERS").read_text(encoding="utf-8")
     assert "* @EleutheroiEdge" in owners and "forks must replace" in owners
     template = (ROOT / ".github/pull_request_template.md").read_text(encoding="utf-8")
-    assert "synthetic" in template and "CHANGELOG" in template and "Ready for Claude at" in template
+    assert "synthetic" in template and "CHANGELOG" in template and "Ready for review at" in template

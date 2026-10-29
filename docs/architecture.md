@@ -1,9 +1,8 @@
 # Architecture and trust boundaries
 
-The runtime is a deterministic coordinator with replaceable model adapters.
-Models produce advisory JSON and proposed patches; they never receive execution
-tools or credentials through source context. This is a bounded developer workflow,
-not an unbounded autonomous service.
+finledgerpoli coordinates source review, deterministic checks and approved patch proposals through replaceable adapters. Its command is `finassist`.
+
+Models produce advisory JSON and proposed patches through bounded requests. They receive no execution tools or credentials through source context.
 
 1. `scope`: resolves immutable Git commits and their merge base, reads blobs
    without checkouts/filters and records both versions and hashes.
@@ -14,17 +13,12 @@ not an unbounded autonomous service.
 6. `ledger`: concurrent budget reservations and a local tamper-evident hash chain.
 7. `runner` / `workspace`: approved recipes on screened, committed snapshots.
 8. `proposal` / `patching`: propose, inspect, approve, apply and guarded rollback.
-9. `finance`: deterministic arithmetic and evidence-metadata oracles.
-10. `cli`: visible operator actions, static HTML and bounded change watching.
+9. `finance`: deterministic arithmetic and evidence-metadata checks.
+10. `cli`: explicit user actions, static HTML and bounded change watching.
 11. `dashboard` / `statistics` / `health`: prebuilt local React UI, shared
     configuration validation and reduced, verified audit statistics. A loopback
     HTTP boundary uses exact origins and per-session tokens; browser actions
     cannot execute tools or access environment key values. See [dashboard](dashboard.md).
-
-The same user's ability to edit an audit database or approvals is outside the
-integrity guarantee. The chain detects accidental corruption; it is not a signed
-external attestation. Hashes establish byte identity, not semantic truth or ownership.
-Model source citations are checked for existence and line bounds, not entailment.
 
 Finance profiles separate source authority, approved analyst judgments and
 algorithmic decisions. Do not replace a project's methodology with generic
@@ -46,6 +40,15 @@ Research informing this design:
 - https://www.anthropic.com/research/demystifying-evals-for-ai-agents
 - https://modelcontextprotocol.io/docs/draft/tutorials/security/security_best_practices
 
+## Limits
+
+The same user's ability to edit an audit database or approvals is outside the
+integrity guarantee. The chain detects accidental corruption; it is not a signed
+external attestation. Hashes establish byte identity, not semantic truth or ownership.
+Model source citations are checked for existence and line bounds, not entailment.
+
 These references describe options and evaluation methods, not certification of
 this implementation. Credentials and private context from another assistant are
 never transferred to configure this project.
+
+The installed code, dependencies, Python, Git, reviewed configuration and host OS are components you rely on. Source and model output remain untrusted. See the [threat model](threat-model.md).
