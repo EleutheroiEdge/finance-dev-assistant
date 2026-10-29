@@ -2,7 +2,7 @@
 
 Review committed changes, reproduce numerical behavior and prepare approved patches with finledgerpoli. Its command is `finassist`; follow the target project’s governing methodology throughout.
 
-A receipt is a saved action record bound to exact source, configuration and execution hashes.
+Saved records bind actions to exact source, configuration and execution hashes.
 
 ## Source review
 
@@ -53,7 +53,7 @@ also need Git installed in that project image.
 The default container is network-disabled, non-root, capability-dropped and read-only, with scratch temporary storage and resource limits. A test requiring writable project files needs an explicit reviewed adapter; do not grant the real checkout write access.
 
 `--backend local --approve-local` is for trusted recipes only. It receives a
-minimal environment and temporary HOME. Your team owns that decision. Logs stay local; only recipe/exit/hash receipts are
+minimal environment and temporary HOME. Your team owns that decision. Logs stay local; only saved recipe/exit/hash records are
 intended as reduced evidence. Logs are not automatically sent to a provider.
 
 ## Proposed changes
@@ -65,7 +65,7 @@ stale heads, dirty worktrees and common default branch names. Coordinate exclusi
 
 Backups are private under `.finassist`. Rollback requires the original head and
 unchanged post-apply bytes; later work stops rollback. An interrupted
-apply without its receipt requires manual reconciliation from the saved backup.
+apply without its saved record requires manual reconciliation from the saved backup.
 The assistant does not force history, stage, commit or push.
 
 Build/dependency files and `scripts/` are protected from proposals by default.
@@ -91,7 +91,7 @@ or restart services. Use its output to dispatch the next authorized task.
 
 ## Limits
 
-Each check receipt carries its committed head, snapshot digest, recipe digest,
+Each saved check record carries its committed head, snapshot digest, recipe digest,
 runtime image and cleanup result. `check` tests committed source; it does not
 validate uncommitted applied patches. Commit a candidate on an isolated feature
 branch before testing it, or use a separately reviewed project adapter.

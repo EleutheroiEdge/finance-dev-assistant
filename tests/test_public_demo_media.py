@@ -94,7 +94,7 @@ def test_readme_keeps_release_and_media_claims_honest():
     assert "pip install finledgerpoli" in readme
     assert "After the first PyPI" not in readme and "PyPI badge will be added after" not in readme
     assert "https://img.shields.io/pypi/v/finledgerpoli" in readme
-    assert "<h3>From source</h3>" in readme and "from a source checkout with `asciinema play" in readme
+    assert "### From source" in readme and "asciinema play docs/images/demo.cast.txt" in readme
     assert "All displayed spend" in readme and "fictional" in readme
 
 

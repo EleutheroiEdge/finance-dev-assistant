@@ -5,7 +5,23 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "finledgerpoli"
 version = "0.3.1"
-description = "Evidence-first, model-neutral developer assistance for finance software"
+description = "AI code review for financial software that keeps your code local and backs every finding with evidence. Works with OpenAI, Anthropic, Gemini or Ollama."
+keywords = ["ai code review", "code review", "llm", "finance", "fintech", "quantitative finance", "portfolio optimization", "rebalancing", "model risk", "audit trail", "reproducibility", "developer tools", "local-first", "offline", "ollama", "ai agents"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Environment :: Web Environment",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Financial and Insurance Industry",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Office/Business :: Financial :: Investment",
+  "Topic :: Software Development :: Quality Assurance",
+  "Topic :: Software Development :: Testing",
+]
 requires-python = ">=3.11"
 license = "MIT"
 readme = "README.md"

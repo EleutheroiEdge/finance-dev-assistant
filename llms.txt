@@ -1,6 +1,6 @@
 # finledgerpoli
 
-> Local-first developer assistance for finance software, with screened source review, deterministic checks and explicit approvals; the command is `finassist`.
+> AI code review for financial software that keeps your code local and backs every finding with evidence. Works with OpenAI, Anthropic, Gemini or Ollama.
 
 ## Start here
 

@@ -6,6 +6,11 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ### Changed
 
+- Explain the finance developer workflow in plain language, with audience examples, current guide links and package metadata for discovery.
+- Brand the dashboard as finledgerpoli, clarify pending charges and human review, and retain explicit configuration confirmation.
+- Add a reproducible synthetic demo GIF, five-step flow and social preview; refresh light-theme screenshots and bind all public media to the catalogue.
+- Remove legacy documentation redirect pages and define technical record terminology once while keeping command and JSON field names stable.
+
 - PyPI page: absolute links and images, project URLs, badge.
 - Clarify user guides and safety limits, add AI coding-agent recipes and offline `finassist guide` topics, and organize maintainer documentation.
 

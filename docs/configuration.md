@@ -44,7 +44,7 @@ with `unknown_config_option`; no provider is selected from an existing key.
 | `readiness_max_age_seconds` | Maximum age of audited review and check evidence. |
 | `allow_local_readiness` | Explicit trusted-code opt-in for local recipe evidence; false by default. |
 
-A receipt is a saved action record bound to source and configuration hashes. Readiness means satisfying configured prerequisites for human review.
+Saved records bind actions to source and configuration hashes. Readiness means satisfying configured prerequisites for human review.
 
 ## Path and file policy
 

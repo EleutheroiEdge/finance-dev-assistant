@@ -1,52 +1,59 @@
-<h1>Finance Developer Assistant</h1>
+# finledgerpoli
+
+AI code review for financial software that keeps your code local and backs every finding with evidence.
 
 [![PyPI](https://img.shields.io/pypi/v/finledgerpoli)](https://pypi.org/project/finledgerpoli/)
 [![CI](https://github.com/EleutheroiEdge/finance-dev-assistant/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/EleutheroiEdge/finance-dev-assistant/actions/workflows/ci.yml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/EleutheroiEdge/finance-dev-assistant/badge)](https://scorecard.dev/viewer/?uri=github.com/EleutheroiEdge/finance-dev-assistant)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/LICENSE)
-[![Tested Python](https://img.shields.io/badge/tested%20Python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/pyproject.toml)
 
-Review committed changes, reproduce findings and inspect readiness evidence for
-finance software, using your chosen model or deterministic offline analysis.
+![Synthetic offline demo: real local checks, no model calls](https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/main/docs/images/hero.gif)
 
-**Local-first, no telemetry.** The default provider is offline. The demo and local
-dashboard make no external requests. Remote model reviews and GitHub inspection
-require explicit configuration and approval. The dashboard ships prebuilt and
-binds only to `127.0.0.1`; Node is needed only for frontend development.
+## Why finledgerpoli
 
-<h2>What it does</h2>
+- Hosted AI reviewers need your source; finledgerpoli runs on your machine and is offline by default. You approve anything that leaves it.
+- AI findings can be wrong; reproduce them with your own checks and tie each one to the exact code version.
+- AI spend is easy to lose track of; it enforces daily and monthly limits locally and shows spend against them.
+- Suggested fixes can be risky; every patch needs your approval and can be rolled back. Nothing merges, deploys or trades by itself.
 
-- **Review source:** freeze commits, screen paths/content, inspect coverage and
-  use configurable finance, research, quant or custom review profiles.
-- **Reproduce:** run approved recipes on screened snapshots in a pinned,
-  network-disabled container; trusted local execution requires explicit opt-in.
-- **Propose carefully:** inspect and approve exact patch hashes, protect policy
-  files and preserve guarded recovery copies. No automatic merge, deploy or trade.
-- **Track evidence:** local spend reservations, usage, findings, readiness and a
-  tamper-evident audit trail; unknown outcomes stay visible and block readiness.
-- **Configure locally:** preview a diff, confirm a save, inspect statistics and
-  run Health checks from the browser. API keys stay in environment variables.
+## Who it's for
 
-<h2>Start in one minute</h2>
+**Built for developers of institutional financial software** — rebalancers, optimizers,
+risk and tax-lot engines — where a one-cent rounding error or an unexpected change in trades
+is a real incident.
+
+| When you... | finledgerpoli helps you... |
+|---|---|
+| Change an optimizer or rebalancing rule | Review the exact commit with a finance or quant review profile, then reproduce each finding with your own tests before acting on it |
+| Worry about rounding, units and edge cases | Run your configured, repeatable checks for cents, basis points vs percent and boundary values, so findings have evidence you can inspect |
+| Want AI review without exposing client data | Stay offline by default, screen content before anything leaves your machine, approve every outgoing request, or use a local model through Ollama |
+| Need to show reviewers what changed and why | Keep a tamper-evident local log of what was reviewed, found, fixed and approved: audit evidence for your change records |
+| Use several AI providers on a budget | Switch between OpenAI, Anthropic, Gemini or local models, with daily and monthly limits and a usage dashboard |
+| Let an AI agent suggest fixes | Approve each patch before it applies, with rollback. Nothing merges, deploys or trades by itself |
+
+**Why not a general AI code reviewer?** Hosted reviewers ask you to send your code and trust
+their retention policies. finledgerpoli keeps review state and evidence on your machine,
+ties findings to the exact code version, and tracks estimated spend and unresolved charges
+locally. Remote providers receive the requests you explicitly approve.
+
+## Quick start
 
 Python 3.11+ is required; Git is needed for source workflows. Install with
-[pipx](https://pipx.pypa.io/) in an isolated command environment.
-The distribution is `finledgerpoli`; the command and import package remain
-`finassist`, with `finledgerpoli` also available as a command alias.
+[pipx](https://pipx.pypa.io/):
 
 ```sh
 pipx install finledgerpoli
 finassist demo
-finassist doctor
-finassist init --output finassist.json
-finassist --config finassist.json dashboard
+finassist init
+finassist dashboard
 ```
 
+The package is `finledgerpoli`, the command is `finassist` (`finledgerpoli` also works).
 For an existing Python environment, `pip install finledgerpoli` is also supported.
+The demo needs no key, model download or container; it runs fictional finance checks,
+not a model-quality benchmark. The dashboard ships prebuilt, makes no external requests
+and binds only to `127.0.0.1`; Node is needed only for frontend development.
 
-<h3>From source</h3>
-
-To develop from a source checkout, clone and install in a virtual environment:
+### From source
 
 ```sh
 git clone https://github.com/EleutheroiEdge/finance-dev-assistant.git
@@ -54,8 +61,8 @@ cd finance-dev-assistant
 python3 -m venv .venv
 .venv/bin/python -m pip install .
 .venv/bin/finassist demo
-.venv/bin/finassist init --output finassist.json
-.venv/bin/finassist --config finassist.json dashboard
+.venv/bin/finassist init
+.venv/bin/finassist dashboard
 ```
 
 On Windows PowerShell, use `py -3 -m venv .venv`, then
@@ -64,35 +71,18 @@ On Windows PowerShell, use `py -3 -m venv .venv`, then
 is required. macOS/Linux use the commands above. See [platform setup](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/platforms.md)
 for UTF-8, permissions, Git modes and Docker Desktop details.
 
-The demo uses fictional finance checks and needs no key, model download or
-container. It demonstrates deterministic oracles, not model review quality.
-[Download the short terminal recording](https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/main/docs/images/demo.cast.txt) and play it locally
-from a source checkout with `asciinema play docs/images/demo.cast.txt`; no hosting
-account is needed.
+## How it works
 
-<h2>Dashboard preview</h2>
+1. **Plan:** choose the exact commits, screen source and inspect what will be reviewed.
+2. **Review:** use a finance, quant or custom checklist with your chosen model, or inspect risks offline.
+3. **Reproduce:** run your approved checks against the committed source and compare the evidence.
+4. **Propose:** inspect the exact patch, approve it and keep a guarded recovery copy.
+5. **Audit:** save evidence for your change records, including approvals, spend and unknown outcomes.
 
-These screenshots come from an isolated synthetic fixture. All displayed spend,
-tokens, findings and review activity are fictional; no provider was called.
+![Plan, Review, Reproduce, Propose, Audit: a five-step flow](https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/main/docs/images/how-it-works.png)
 
-![Configuration: offline provider, key-presence indicators and spend limits](https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/main/docs/images/dashboard-configuration.png)
-
-<details>
-<summary>Statistics and Health screenshots</summary>
-
-![Statistics: fictional spend, tokens and findings](https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/main/docs/images/dashboard-statistics.png)
-
-![Health: valid offline configuration and local capability checks](https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/main/docs/images/dashboard-health.png)
-
-</details>
-
-See the [dashboard guide](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/dashboard.md) for configuration previews, explicit
-confirmation, audit statistics and same-user security limits.
-
-<h2>Review your first change</h2>
-
-From the repository you want to review, after inspecting your configuration and
-source policy:
+Start offline from the repository you want to review, after inspecting its configuration
+and source policy:
 
 ```sh
 finassist --config finassist.json plan --repo . --base main --head HEAD \
@@ -101,34 +91,62 @@ finassist --config finassist.json review --packet .finassist/context.json \
   --output .finassist/offline-review.json
 ```
 
-Offline analysis does not claim a model review or test execution. To use a remote
-model, choose its provider/model/endpoint, price assumptions and named environment
-variable; enable network access deliberately and approve the exact outgoing packet.
-There is no automatic provider fallback. [Provider setup](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/providers.md) explains
-OpenAI Responses, Anthropic, Gemini, compatible Chat Completions and local Ollama.
-Compatibility tests use fake transports; not every model/service is live-tested.
+Offline analysis does not claim a model review or test execution. Remote model use
+requires an explicit provider, model, endpoint, price assumptions, named key environment
+variable, network permission and approval of the exact outgoing request.
+There is no automatic provider fallback. See [provider setup](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/providers.md).
+[Download the original terminal recording](https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/main/docs/images/demo.cast.txt)
+and play it locally with `asciinema play docs/images/demo.cast.txt`; no hosting account is needed.
 
-<h2>Guides</h2>
+## Dashboard
+
+All displayed spend, tokens, findings and review activity are fictional; these light-theme
+screenshots use an isolated synthetic fixture and call no provider.
+
+Preview configuration changes before explicitly confirming a save; keys are shown only as present or absent.
+
+![Configuration: offline provider, key availability and spend limits](https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/main/docs/images/dashboard-configuration.png)
+
+See recorded spend against daily and monthly limits, pending charges, checks and review activity.
+
+![Statistics: fictional spend, tokens, findings and checks](https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/main/docs/images/dashboard-statistics.png)
+
+Inspect local configuration and capabilities without calling a model or testing a container daemon.
+
+![Health: valid offline configuration and local capabilities](https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/main/docs/images/dashboard-health.png)
+
+## Use it with AI agents
+
+Use the portable instructions with Claude Code, Codex and Cursor: [agent guide](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/agents.md).
+Point an agent at [llms.txt](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/llms.txt) to find the public guides.
+Run `finassist guide agents` for offline help; your project's rules and approvals still apply.
+
+## Guides
 
 | Goal | Guide |
-| --- | --- |
-| Adapt to your own team | [Fork and customize](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/fork-and-customize.md) |
-| Understand protection and limits | [Threat model](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/threat-model.md), [security policy](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/SECURITY.md) |
-| Configure profiles, paths and budgets | [All configuration options](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/configuration.md), [examples](https://github.com/EleutheroiEdge/finance-dev-assistant/tree/main/examples/) |
+|---|---|
+| Configure profiles, paths and budgets | [Configuration](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/configuration.md), [examples](https://github.com/EleutheroiEdge/finance-dev-assistant/tree/main/examples/) |
+| Choose a model | [Providers](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/providers.md) |
+| Plan, review, check and recover | [Workflows](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflows.md), [auditing and readiness](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/readiness-and-auditing.md) |
+| Use the local dashboard | [Dashboard](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/dashboard.md) |
 | Automate command results | [Exit codes and JSON contracts](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/cli-contracts.md) |
-| Plan, review, check and recover | [Workflow contracts](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflows.md), [auditing/readiness](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/readiness-and-auditing.md) |
 | Evaluate findings or manage evidence | [Evaluation](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/evaluation.md), [research inputs](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/research-inputs.md) |
-| Integrate your coding agent | [Portable templates](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/integrations.md), [evidence-review skill](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/skills/evidence-review/SKILL.md) |
-| Maintain and release a fork | [Repository settings](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/repository-settings.md), [releasing](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/releasing.md) |
+| Integrate your coding agent | [AI agents](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/agents.md), [templates](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/integrations.md), [evidence-review skill](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/skills/evidence-review/SKILL.md) |
+| Adapt to your team | [Fork and customize](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/fork-and-customize.md) |
+| Understand protection and design | [Threat model](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/threat-model.md), [security policy](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/SECURITY.md), [security design](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/security-design.md), [design principles](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/design-principles.md) |
+| Maintain and release a fork | [Repository settings](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/maintainers/repository-settings.md), [releasing](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/maintainers/releasing.md) |
 
-Keep `.finassist/` and private artifacts out of Git. Inspect every outgoing packet:
-content screening cannot prove confidentiality. A readiness result grants no merge,
-deployment or financial authority. Local audit hashes cannot defeat a malicious
-same-user rewrite; budget estimates are not provider-enforced billing caps.
+## Safety and limits
 
-<h2>Contribute</h2>
+- **Advisory only.** A valid report, plausible citation or matching hash does not prove a defect, correctness or professional suitability. Your project's specifications and authorized people own financial rules and approvals. Profiles guide reviews; they do not train model weights or confer professional credentials.
+- **Local-first, no telemetry.** Offline is the default, regardless of existing keys. Uncommitted work is excluded. Remote reviews and GitHub inspection require explicit configuration and approval. Protocol compatibility tests use fake transports; not every model or service has been live-tested.
+- **Inspect outgoing content.** Screening conservatively rejects common private, binary and sensitive formats, but cannot prove confidentiality. Inspect every outgoing request. There is no guard-bypass switch. Keep `.finassist/`, keys, client data and private artifacts out of Git.
+- **Execution needs a reviewed check.** Container isolation depends on the image, daemon and host. Instructions and Python checks are not security sandboxes. Local execution requires explicit opt-in and has no OS filesystem isolation. The dashboard cannot run reviews, checks, shell commands, merges or deployments.
+- **Budgets are local estimates.** Prices come from your configuration; limits are not provider-enforced billing caps. Unknown charges remain reserved across days and months and are not retried automatically. Missing usage is unknown, not zero. Pending charges and incomplete runs block a ready-for-review result.
+- **Evidence has limits.** Review prerequisites grant no merge, deployment or financial authority. Local audit hashes cannot defeat a malicious rewrite of all state by the same user. Generated files need independent build verification; a green result cannot prove vulnerability absence.
+- **Recovery is guarded.** Rollback refuses to overwrite later edits. Interrupted changes need reconciliation from the saved backup; multi-file changes and configuration saves are not atomic against other same-user writers. The local dashboard does not protect against other processes running as you.
 
-From a source checkout:
+## Contribute
 
 ```sh
 python -m pip install -r requirements-dev.lock
@@ -141,7 +159,9 @@ finassist scan --repo .
 
 Use synthetic fixtures and fake provider transports. See [contributing](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/CONTRIBUTING.md),
 [architecture](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/architecture.md) and [media reproduction](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/images/README.md).
-Scorecard is a posture indicator, not certification; results appear after its
-workflow publishes. Forks must update badge/repository links and maintainer settings.
+Forks must update repository links and maintainer settings. Posture badges describe
+repository settings; they do not establish vulnerability absence.
+
+## License
 
 MIT licensed. See [LICENSE](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/LICENSE).
