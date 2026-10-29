@@ -23,6 +23,7 @@ def export_kit(destination: Path) -> dict:
         "examples/fork-config.json": "fork-config.json",
         "examples/dashboard.json": "dashboard-config.json",
         "examples/cash-workflow.json": "cash-workflow.json",
+        "examples/github-actions/finassist-ci.json": "github-ci-policy.json",
         "examples/workflow-packs/bundle.json": "cash-workflow-bundle.json",
         "examples/workflow-packs/workflow.json": "cash-workflow-pack.json",
         "examples/workflow-packs/checks.json": "cash-check-pack.json",

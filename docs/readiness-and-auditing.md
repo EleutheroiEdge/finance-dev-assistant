@@ -74,6 +74,11 @@ before and after evaluation; private untracked `.finassist` state is excluded.
 
 ## GitHub control inspection
 
+The [GitHub Actions adapter](ci-gates.md) provides a separate deterministic-check
+gate under pinned CI policy. A passing check gate is not `verify-gate` readiness:
+required model review, freshness and other existing review prerequisites remain
+independent. Unattended model-required CI policies currently return blocked.
+
 Select `allow_network: true` in a reviewed configuration and explicitly approve
 the metadata request. The configured model is never called by this command.
 

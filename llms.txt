@@ -24,4 +24,5 @@
 - [Threat model](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/threat-model.md): Protections, trust boundaries and limits.
 - [Auditing and readiness](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/readiness-and-auditing.md): Verified records, unknown outcomes and prerequisites for human review.
 - [Workflow audit timelines](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflow-timelines.md): Read-only historical attempts, dependency blockers and snapshot-bound metadata pages.
+- [GitHub Actions check gates](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/ci-gates.md): Pinned base policies, unattended isolated checks, metadata summaries and explicit AI-review limits.
 - [Security design](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/security-design.md): Controls for source, execution, audit and release boundaries.

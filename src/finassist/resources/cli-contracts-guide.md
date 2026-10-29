@@ -52,6 +52,7 @@ means other documented/context-specific fields can exist, not a literal JSON val
 
 | Command | JSON/result shape and streams | Normal exits |
 | --- | --- | --- |
+| `ci` | `ci gate` returns a version-1 deterministic-check report: status, exact policy/source/plan/configuration hashes, required/completed counts, model-review status and blockers. With `--output`, stdout is `{output, status, report_hash}`. Reads a pinned base policy, not workspace config. See [CI gates](ci-gates.md). | 0, 1, 2 |
 | `guide` | Without a topic: stdout `{topics: [{topic, title}]}`. With a topic: bundled UTF-8 Markdown, not JSON. No config, state writes or network. Unknown topics return `unknown_guide` on stderr. | 0, 2 |
 | `init` | stdout `{created: string, network_enabled: false}`; writes validated config JSON. | 0, 2 |
 | `doctor` | stdout health object: `version`, `python`, `platform`, `provider`, `model_configured`, `network_enabled`, `key_present` (boolean/null), runtime binary presence, `container_daemon_checked: false`, recipes/profile and private-state warning. | 0, 2 |

@@ -35,6 +35,12 @@ Models produce advisory JSON and proposed patches through bounded requests. They
     timelines and explanations of recorded dependency/recovery blockers. It
     does not load configuration or confer execution/readiness authority.
     See [workflow timelines](workflow-timelines.md).
+16. `ci_policy` / `github_context` / `ci_gate`: pinned base-revision CI envelopes,
+    narrow PR identity checks and unattended isolated recipe execution. Required
+    model review remains blocked; existing full readiness is unchanged.
+17. `github_actions`: metadata-only job summaries, outputs and private reports.
+    The composite action bootstraps trusted action source in an isolated environment;
+    it installs no target PR package on the host. See [CI gates](ci-gates.md).
 
 Finance profiles separate source authority, approved analyst judgments and
 algorithmic decisions. Do not replace a project's methodology with generic

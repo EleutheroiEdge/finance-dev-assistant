@@ -129,6 +129,11 @@ Run `finassist guide agents` for offline help; your project's rules and approval
 
 ## Guides
 
+For unattended PR validation, use the [GitHub Actions check gate](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/ci-gates.md).
+It runs approved isolated checks under a pinned policy from the PR's base
+revision and publishes a reduced job summary. This first CI mode reports
+deterministic checks; policies requiring model review remain blocked.
+
 | Goal | Guide |
 |---|---|
 | Configure profiles, paths and budgets | [Configuration](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/configuration.md), [workflow packs](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflow-packs.md), [examples](https://github.com/EleutheroiEdge/finance-dev-assistant/tree/main/examples/) |

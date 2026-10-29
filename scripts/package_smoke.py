@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 
+from ci_gate_smoke import exercise_ci_gate
 import finassist
 from finassist.platform_support import find_tool
 from finassist.guides import GUIDES
@@ -24,6 +25,7 @@ assert len(images) == 3 and all("finassist/resources/dashboard/assets/" in str(e
 assert sorted(entry.suffix for entry in images) == [".png", ".svg", ".svg"]
 assert finassist.installed_version() == distribution.version
 examples = Path(sys.argv[1]).resolve()
+assert exercise_ci_gate("sha256:" + "a" * 64, run_checks=False)["ci_policy_refusal_smoke"] == "PASS"
 with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
     root = Path(directory)
 
@@ -172,6 +174,7 @@ print(
                 "workflow run/resume/status (synthetic local checks)",
                 "workflow resolve (exported declarative packs)",
                 "workflow timeline (read-only historical snapshot)",
+                "ci gate (required model review refuses without dispatch)",
                 "review",
                 "verify-gate (blocked offline)",
                 "github-audit (network refused)",

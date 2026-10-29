@@ -93,6 +93,17 @@ def parser() -> argparse.ArgumentParser:
     )
     demo = commands.add_parser("demo", help="Run fictional finance checks offline")
     demo.add_argument("--output")
+    ci = commands.add_parser("ci", help="Run isolated CI checks under a pinned base-revision policy")
+    ci_actions = ci.add_subparsers(dest="ci_action", required=True)
+    ci_gate_parser = ci_actions.add_parser("gate", help="Evaluate a GitHub PR without calling or approving models")
+    ci_gate_parser.add_argument("--repo", type=Path, default=Path.cwd())
+    ci_gate_parser.add_argument("--event", type=Path, required=True)
+    ci_gate_parser.add_argument("--event-name", required=True)
+    ci_gate_parser.add_argument("--repository", required=True)
+    ci_gate_parser.add_argument("--policy", default="finassist-ci.json")
+    ci_gate_parser.add_argument("--policy-sha256", required=True)
+    ci_gate_parser.add_argument("--state-dir", type=Path)
+    ci_gate_parser.add_argument("--output")
     for command in ("plan", "watch"):
         plan = commands.add_parser(
             command, help="Inspect source changes without running models or candidate code"
@@ -644,6 +655,21 @@ def main(argv: list[str] | None = None) -> int:
             if args.output:
                 _emit({"output": args.output, "report_hash": report["report_hash"]})
             return 0
+        if args.command == "ci":
+            from .ci_gate import ci_gate
+            from .ci_policy import read_document
+            from .github_context import pull_request_context
+
+            if args.config:
+                raise AssistantError("ci_configuration_must_come_from_policy")
+            if args.audit_dir is None and args.state_dir is None:
+                raise AssistantError("ci_state_directory_required")
+            context = pull_request_context(read_document(args.event), args.event_name, args.repository)
+            report = ci_gate(args.repo, context, args.policy, args.policy_sha256, audit_directory(args))
+            _emit(report, args.output)
+            if args.output:
+                _emit({"output": args.output, "status": report["status"], "report_hash": report["report_hash"]})
+            return 0 if report["status"] == "passed" else 1
         config = load_config(args.config)
         if args.command == "workflow" and args.workflow_action in WORKFLOW_STATE_ACTIONS:
             # These actions have their own replayable workflow lifecycle. A crash

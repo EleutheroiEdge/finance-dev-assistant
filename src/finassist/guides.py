@@ -14,6 +14,7 @@ GUIDES = {
     "workflow-execution": ("Durable workflow execution", "docs/workflow-execution.md", "workflow-execution-guide.md"),
     "workflow-packs": ("Workflow packs", "docs/workflow-packs.md", "workflow-packs-guide.md"),
     "workflow-timelines": ("Workflow audit timelines", "docs/workflow-timelines.md", "workflow-timelines-guide.md"),
+    "ci-gates": ("GitHub Actions check gates", "docs/ci-gates.md", "ci-gates-guide.md"),
     "providers": ("Providers", "docs/providers.md", "provider-guide.md"),
     "readiness": ("Auditing and readiness", "docs/readiness-and-auditing.md", "readiness-guide.md"),
     "platforms": ("Supported platforms", "docs/platforms.md", "platform-guide.md"),

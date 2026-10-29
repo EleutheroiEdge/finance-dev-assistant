@@ -32,7 +32,7 @@ jobs:
       - run: python scripts/ci_install.py dependencies
       - run: python scripts/ci_install.py project
       - run: python -m pytest -q
-      - run: ruff check src tests scripts
+      - run: ruff check src tests scripts actions
       - run: finassist demo
       - run: finassist scan --repo .
       - name: Verify a clean wheel installation
