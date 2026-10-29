@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "name": "restricted-validation",
+  "version": "1.0.0",
+  "kind": "policy",
+  "compatibility": {"config_schema": 1, "workflow_schema": 1},
+  "data": {
+    "allow_network": false,
+    "allow_partial_review": false,
+    "allow_local_readiness": false,
+    "timeout_seconds": 30,
+    "max_run_usd": 0.25,
+    "daily_budget_usd": 1.0,
+    "required_recipes": ["cash"],
+    "blocking_severities": ["medium"]
+  }
+}

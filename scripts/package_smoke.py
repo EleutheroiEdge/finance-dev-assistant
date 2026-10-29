@@ -131,6 +131,13 @@ with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
                     "--run-id", created["workflow_run_id"], "--approve-plan", plan_hash, "--approve-local")[0]
     assert completed["status"] == "completed-checks" and len(completed["check_records"]) == 2
     assert cli("workflow", "status", "--run-id", created["workflow_run_id"])[0]["status"] == "completed-checks"
+    # Compose only exported declarative packs; source recipes remain explicit.
+    resolved = root / "resolved-packs"
+    summary = cli("--config", config_path, "workflow", "resolve", "--repo", root / "kit",
+                  "--bundle", root / "kit/examples/workflow-packs/bundle.json", "--output", resolved)[0]
+    assert not summary["execution_authorized"]
+    effective = json.loads((resolved / "config.json").read_text(encoding="utf-8"))
+    assert effective["profile"] == "monetary-review" and not effective["allow_network"]
     refused = cli("github-audit", "--repository", "example/repository", expected_exit=2)
     assert refused["code"] == "network_not_approved"  # Offline refusal; no GitHub request.
     audit = cli("audit", "--export", root / "events.jsonl")[0]
@@ -159,6 +166,7 @@ print(
                 "plan",
                 "workflow plan/preflight",
                 "workflow run/resume/status (synthetic local checks)",
+                "workflow resolve (exported declarative packs)",
                 "review",
                 "verify-gate (blocked offline)",
                 "github-audit (network refused)",

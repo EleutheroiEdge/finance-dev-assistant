@@ -39,6 +39,7 @@ from .workspace import export_snapshot
 from .workflow import build_workflow_plan, preflight_workflow, verify_workflow_gate
 from .workflow_execution import cancel_run, create_run, execute_run, inspect_run, reconcile_run, retry_step
 from .workflow_state import WorkflowStore, run_phase, unfinished_workflows
+from .workflow_packs import export_resolution, read_bundle, resolve_bundle, verify_resolution
 
 WORKFLOW_STATE_ACTIONS = {
     "run": "Execute approved checks in dependency order with durable checkpoints",
@@ -115,12 +116,17 @@ def parser() -> argparse.ArgumentParser:
         request.add_argument("--output", required=True)
     workflow = commands.add_parser("workflow", help="Plan, execute approved checks and reconcile durable workflows")
     actions = workflow.add_subparsers(dest="workflow_action", required=True)
+    resolver = actions.add_parser("resolve", help="Preview pinned local packs as configuration and a workflow template")
+    resolver.add_argument("--repo", type=Path, default=Path.cwd())
+    resolver.add_argument("--bundle", required=True)
+    resolver.add_argument("--output", type=Path, required=True, help="New private output directory")
     for action in ("plan", "preflight"):
         operation = actions.add_parser(action)
         operation.add_argument("--repo", type=Path, default=Path.cwd())
         operation.add_argument("--packet", required=True)
         if action == "plan":
             operation.add_argument("--template", required=True)
+            operation.add_argument("--resolution", help="Bind this pack-resolution provenance to the plan's audit event")
         else:
             operation.add_argument("--plan", required=True)
         operation.add_argument("--output", required=action == "plan")
@@ -319,11 +325,23 @@ def execute(args, config: Config | None = None) -> int:
         _emit({"packet_hash": packet["packet_hash"], "output": args.output, "triage": triage(packet, config)})
     elif args.command == "workflow" and args.workflow_action in WORKFLOW_STATE_ACTIONS:
         return _execute_workflow(args, config)
+    elif args.command == "workflow" and args.workflow_action == "resolve":
+        result = resolve_bundle(read_bundle(Path(args.bundle)), args.repo, config)
+        saved = export_resolution(result, args.output)
+        with Ledger(audit_directory(args) / "audit.sqlite") as ledger:
+            ledger.append({"event": "workflow_bundle_resolved", "resolution_hash": saved["resolution_hash"],
+                           "config_hash": saved["config_hash"], "template_hash": saved["template_hash"]})
+        _emit(saved)
     elif args.command == "workflow":
         packet = _read_json(args.packet)
         if args.workflow_action == "plan":
-            result = build_workflow_plan(_read_json(args.template), packet, args.repo, config)
+            template = _read_json(args.template)
+            provenance = {}
+            if args.resolution:
+                provenance["resolution_hash"] = verify_resolution(_read_json(args.resolution), template, config)
+            result = build_workflow_plan(template, packet, args.repo, config)
             event = {"event": "workflow_plan_bound", "plan_hash": result["plan_hash"]}
+            event.update(provenance)
         else:
             result = preflight_workflow(_read_json(args.plan), packet, args.repo, config)
             event = {

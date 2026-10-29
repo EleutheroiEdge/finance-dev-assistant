@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "name": "monetary-profile",
+  "version": "1.0.0",
+  "kind": "profile",
+  "compatibility": {"config_schema": 1, "workflow_schema": 1},
+  "data": {
+    "monetary-review": [
+      "Resolve currency, units, rounding stage and tolerances from project methodology.",
+      "Check cash conservation under the approved fee model and explain missing evidence."
+    ]
+  }
+}

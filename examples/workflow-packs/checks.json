@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "name": "cash-checks",
+  "version": "1.0.0",
+  "kind": "checks",
+  "compatibility": {"config_schema": 1, "workflow_schema": 1},
+  "data": {
+    "requirements": [{"id": "cash-conservation", "recipe": "cash", "methodology": ["docs/cash-policy.md"]}],
+    "steps": [{"id": "cash", "requirement": "cash-conservation", "depends_on": ["unit"]}]
+  }
+}

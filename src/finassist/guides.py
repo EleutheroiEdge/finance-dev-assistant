@@ -12,6 +12,7 @@ GUIDES = {
     "workflows": ("Workflows", "docs/workflows.md", "workflow-guide.md"),
     "workflow-plans": ("Workflow plans", "docs/workflow-plans.md", "workflow-plans-guide.md"),
     "workflow-execution": ("Durable workflow execution", "docs/workflow-execution.md", "workflow-execution-guide.md"),
+    "workflow-packs": ("Workflow packs", "docs/workflow-packs.md", "workflow-packs-guide.md"),
     "providers": ("Providers", "docs/providers.md", "provider-guide.md"),
     "readiness": ("Auditing and readiness", "docs/readiness-and-auditing.md", "readiness-guide.md"),
     "platforms": ("Supported platforms", "docs/platforms.md", "platform-guide.md"),

@@ -27,6 +27,10 @@ Models produce advisory JSON and proposed patches through bounded requests. They
     private artifact bindings, process-held execution locks and bounded approved
     check execution. Unknown outcomes need explicit reconciliation; no model
     calls or automatic retries. See [durable execution](workflow-execution.md).
+14. `workflow_packs`: pinned local profile/workflow/check/policy composition,
+    restrictive configuration resolution and provenance export. It produces
+    inspectable snapshots without installing code or activating settings.
+    See [workflow packs](workflow-packs.md).
 
 Finance profiles separate source authority, approved analyst judgments and
 algorithmic decisions. Do not replace a project's methodology with generic

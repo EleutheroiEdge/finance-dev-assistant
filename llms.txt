@@ -16,6 +16,7 @@
 - [Workflows](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflows.md): Source review, isolated checks and approved patches.
 - [Workflow plans](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflow-plans.md): Offline methodology/check plans, source bindings and additional readiness evidence obligations.
 - [Durable workflow execution](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflow-execution.md): Approved check execution, checkpoints, resumption and explicit reconciliation of unknown outcomes.
+- [Workflow packs](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflow-packs.md): Pinned local profile/check/workflow/policy composition and inspectable configuration provenance.
 - [Evidence-review skill](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/skills/evidence-review/SKILL.md): Portable instructions exported by `finassist export-kit`.
 
 ## Safety and evidence

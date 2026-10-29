@@ -10,8 +10,12 @@ calls a provider or approves any action.
 ## Declare a workflow
 
 Start with [the synthetic cash template](../examples/cash-workflow.json). Adapt
-its methodology and recipes to the target project's reviewed rules. A template
-has exactly these fields:
+its methodology and recipes to the target project's reviewed rules.
+
+For reusable composition, [workflow packs](workflow-packs.md) resolve separate
+profiles, checks and restrictive policies into this same version-1 format.
+
+A template has exactly these fields:
 
 ```json
 {

@@ -131,7 +131,7 @@ Run `finassist guide agents` for offline help; your project's rules and approval
 
 | Goal | Guide |
 |---|---|
-| Configure profiles, paths and budgets | [Configuration](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/configuration.md), [examples](https://github.com/EleutheroiEdge/finance-dev-assistant/tree/main/examples/) |
+| Configure profiles, paths and budgets | [Configuration](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/configuration.md), [workflow packs](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflow-packs.md), [examples](https://github.com/EleutheroiEdge/finance-dev-assistant/tree/main/examples/) |
 | Choose a model | [Providers](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/providers.md) |
 | Plan, review, check and recover | [Workflows](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflows.md), [workflow plans](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflow-plans.md), [durable execution](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflow-execution.md), [auditing and readiness](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/readiness-and-auditing.md) |
 | Use the local dashboard | [Dashboard](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/dashboard.md) |
