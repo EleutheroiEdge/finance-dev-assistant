@@ -249,6 +249,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 raise AssistantError("session_token_required")
 
     def respond(self, status, body, content_type="application/json; charset=utf-8"):
+        self.discard_request_body()
         data = canonical(body) if not isinstance(body, bytes) else body
         self.send_response(status)
         self.send_header("Content-Type", content_type)
@@ -263,11 +264,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def discard_oversized_body(self, length):
+    def discard_request_body(self):
+        # The response/authorization decision is already made. GET and refused
+        # requests can also carry bodies; discard known framing without parsing
+        # it so Windows can receive the response before the connection closes.
+        lengths = self.headers.get_all("Content-Length", [])
+        if (
+            self.headers.get_all("Transfer-Encoding", []) or len(lengths) != 1
+            or not lengths[0].isascii() or not lengths[0].isdigit() or len(lengths[0]) > 6
+        ):
+            return
+        length = int(lengths[0])
+        if 0 < length <= 131072:
+            self.discard_body(length - getattr(self, "body_consumed", 0))
+
+    def discard_body(self, length):
         # Windows may reset a connection closed with unread request bytes,
-        # hiding the refusal response. Drain only a small authenticated excess;
+        # hiding the response. Drain only a small explicitly framed body;
         # never parse it or wait without both a byte cap and a total deadline.
-        if not 65536 < length <= 131072:
+        if not 0 < length <= 131072:
             return
         deadline = time.monotonic() + 0.25
         previous_timeout = self.connection.gettimeout()
@@ -281,12 +296,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 if not chunk:
                     break
                 length -= len(chunk)
-        except OSError:
+        except (OSError, ValueError):
             pass  # A truncated/stalled rejected body cannot authorize an action.
         finally:
-            self.connection.settimeout(previous_timeout)
+            try:
+                self.connection.settimeout(previous_timeout)
+            except OSError:
+                pass
 
     def dispatch(self, mutation=False):
+        self.body_consumed = 0
         try:
             parsed = urlsplit(self.path)
             path = unquote(parsed.path)
@@ -304,11 +323,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     raise AssistantError("request_size_invalid")
                 length = int(lengths[0])
                 if not 0 < length <= 65536:
-                    self.discard_oversized_body(length)
                     raise AssistantError("request_size_invalid")
                 if self.headers.get("Content-Type", "").split(";", 1)[0] != "application/json":
                     raise AssistantError("json_required")
-                document = json.loads(self.rfile.read(length).decode("utf-8"))
+                content = self.rfile.read(length)
+                self.body_consumed = len(content)
+                document = json.loads(content.decode("utf-8"))
                 if path == "/api/config/preview":
                     result = self.server.state.preview(document)
                 elif path == "/api/config/confirm":
