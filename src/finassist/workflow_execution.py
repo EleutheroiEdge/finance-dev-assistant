@@ -76,6 +76,7 @@ def inspect_run(store: WorkflowStore, identifier: str) -> dict:
         row = {
             "step_id": step_id, "state": step["state"], "attempt_id": step["attempt_id"],
             "depends_on": step["depends_on"], "artifact_hash": step["artifact_hash"],
+            "started_at": step["started_at"],
         }
         if step["attempt_id"]:
             row["artifact_path"] = str(store.artifact_path(identifier, step["attempt_id"]))

@@ -86,10 +86,13 @@ def verify_gate(
 
     def fresh(payload: dict) -> bool:
         try:
-            instant = datetime.fromisoformat(payload["recorded_at"])
-            return (
+            instants = [datetime.fromisoformat(payload["recorded_at"])]
+            if "evidence_recorded_at" in payload:
+                instants.append(datetime.fromisoformat(payload["evidence_recorded_at"]))
+            return all(
                 instant.tzinfo is not None
                 and 0 <= (now - instant).total_seconds() <= config.readiness_max_age_seconds
+                for instant in instants
             )
         except (KeyError, TypeError, ValueError):
             return False

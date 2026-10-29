@@ -295,6 +295,30 @@ def test_gate_rejects_stale_receipts(gate_bundle, monkeypatch):
     assert "review_receipt_missing_or_stale" in reasons and "check_receipt_missing_or_stale" in reasons
 
 
+@pytest.mark.parametrize("evidence_time", ["old", "future", "naive", "invalid", None])
+def test_newly_adopted_check_cannot_refresh_stale_or_invalid_execution_time(gate_bundle, evidence_time):
+    from datetime import datetime, timedelta, timezone
+
+    packet, review, checks, config, head, state = gate_bundle
+    now = datetime.now(timezone.utc)
+    times = {
+        "old": (now - timedelta(days=2)).isoformat(),
+        "future": (now + timedelta(days=2)).isoformat(),
+        "naive": now.replace(tzinfo=None).isoformat(), "invalid": "not-a-time", None: None,
+    }
+    # Give the adopted document a distinct identity, so its original event cannot match.
+    checks[0]["receipt"]["output_hash"] = "b" * 64
+    with Ledger(state) as ledger:
+        ledger.append({
+            "event": "check_completed", "head": head, "config_hash": checks[0]["receipt"]["config_hash"],
+            "receipt_hash": digest(canonical(checks[0]["receipt"])),
+            "evidence_recorded_at": times[evidence_time],
+        })
+    assert "check_receipt_missing_or_stale" in verify_gate(
+        packet, review, checks, config, head, state
+    )["blocking_reasons"]
+
+
 def test_legacy_packets_are_inspectable_but_not_readiness_evidence(gate_bundle):
     from finassist.scope import verify_packet
 

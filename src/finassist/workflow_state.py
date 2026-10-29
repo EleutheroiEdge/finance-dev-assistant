@@ -107,7 +107,7 @@ def replay_workflows(events: list[tuple[int, dict]]) -> dict[str, dict]:
                 "steps": {step["id"]: {
                     "depends_on": step["depends_on"], "state": "pending", "attempt_id": None,
                     "snapshot_hash": None, "artifact_hash": None, "receipt_hash": None,
-                    "cleanup_verified": False,
+                    "cleanup_verified": False, "started_at": None,
                 } for step in steps},
             }
             continue
@@ -133,7 +133,8 @@ def replay_workflows(events: list[tuple[int, dict]]) -> dict[str, dict]:
                     raise AssistantError("workflow_state_invalid")
                 used_attempts.add(row["attempt_id"])
                 step.update(state="running", attempt_id=row["attempt_id"], snapshot_hash=row["snapshot_hash"],
-                            artifact_hash=None, receipt_hash=None, cleanup_verified=False)
+                            artifact_hash=None, receipt_hash=None, cleanup_verified=False,
+                            started_at=payload.get("recorded_at"))
             else:
                 if row["attempt_id"] != step["attempt_id"]:
                     raise AssistantError("workflow_state_invalid")
@@ -306,10 +307,15 @@ class WorkflowStore:
         with self.ledger.transaction():
             self.ledger.verify()
             events = self.events()
-            replay_workflows([*events, (events[-1][0] + 1, row)])
+            states = replay_workflows([*events, (events[-1][0] + 1, row)])
+            started_at = states[identifier]["steps"][step_id]["started_at"]
+            if not isinstance(started_at, str):
+                raise AssistantError("workflow_state_invalid")
             self.ledger._append({
                 "event": "check_completed", "head": receipt["head"], "config_hash": receipt["config_hash"],
                 "receipt_hash": row["receipt_hash"], "recipe": receipt["recipe"], "passed": receipt["passed"],
                 "workflow_run_id": identifier, "step_id": step_id, "attempt_id": attempt_id,
+                # Reconciliation must not restart the original evidence-age clock.
+                "evidence_recorded_at": started_at,
             })
             self.ledger._append(row)

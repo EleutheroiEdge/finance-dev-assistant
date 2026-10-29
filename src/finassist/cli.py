@@ -40,7 +40,14 @@ from .workflow import build_workflow_plan, preflight_workflow, verify_workflow_g
 from .workflow_execution import cancel_run, create_run, execute_run, inspect_run, reconcile_run, retry_step
 from .workflow_state import WorkflowStore, run_phase, unfinished_workflows
 
-WORKFLOW_STATE_ACTIONS = {"run", "resume", "status", "reconcile", "retry", "cancel"}
+WORKFLOW_STATE_ACTIONS = {
+    "run": "Execute approved checks in dependency order with durable checkpoints",
+    "resume": "Resume remaining checks; hold uncertain attempts for reconciliation",
+    "status": "Inspect stored workflow state without executing checks",
+    "reconcile": "Adopt a verified result or confirm cleanup of an uncertain attempt",
+    "retry": "Make an approved failed attempt eligible for a later explicit resume",
+    "cancel": "Close an inactive run while preserving evidence",
+}
 
 
 def _read_json(path: str) -> dict:
@@ -106,7 +113,7 @@ def parser() -> argparse.ArgumentParser:
         request.add_argument("--allow-network", action="store_true")
         request.add_argument("--state-dir", type=Path, default=Path(".finassist"))
         request.add_argument("--output", required=True)
-    workflow = commands.add_parser("workflow", help="Bind and preflight offline validation plans; never execute")
+    workflow = commands.add_parser("workflow", help="Plan, execute approved checks and reconcile durable workflows")
     actions = workflow.add_subparsers(dest="workflow_action", required=True)
     for action in ("plan", "preflight"):
         operation = actions.add_parser(action)
@@ -118,28 +125,30 @@ def parser() -> argparse.ArgumentParser:
             operation.add_argument("--plan", required=True)
         operation.add_argument("--output", required=action == "plan")
     for action in sorted(WORKFLOW_STATE_ACTIONS):
-        operation = actions.add_parser(action)
+        operation = actions.add_parser(action, help=WORKFLOW_STATE_ACTIONS[action])
         operation.add_argument("--state-dir", type=Path, default=Path(".finassist"))
         operation.add_argument("--output")
         if action != "run":
             operation.add_argument("--run-id", required=action != "status")
         if action in {"run", "resume"}:
             operation.add_argument("--repo", type=Path, default=Path.cwd())
-            operation.add_argument("--max-steps", type=int, default=64)
-            operation.add_argument("--approve-local", action="store_true")
+            operation.add_argument("--max-steps", type=int, default=64, help="Maximum checks this invocation (1-64)")
+            operation.add_argument("--approve-local", action="store_true",
+                                   help="Allow trusted local execution without OS isolation")
         if action in {"run", "resume", "retry", "cancel"}:
-            operation.add_argument("--approve-plan", required=True)
+            operation.add_argument("--approve-plan", required=True, help="Exact hash of the inspected workflow plan")
         if action == "run":
             operation.add_argument("--packet", required=True)
             operation.add_argument("--plan", required=True)
             operation.add_argument("--backend", choices=["docker", "podman", "local"], default="docker")
         if action in {"reconcile", "retry"}:
             operation.add_argument("--step-id", required=True)
-            operation.add_argument("--approve-attempt", required=True)
+            operation.add_argument("--approve-attempt", required=True, help="Exact ID of the attempt being resolved")
         if action == "reconcile":
             choice = operation.add_mutually_exclusive_group(required=True)
-            choice.add_argument("--approve-artifact")
-            choice.add_argument("--confirm-cleanup", action="store_true")
+            choice.add_argument("--approve-artifact", help="Exact hash of the inspected saved result")
+            choice.add_argument("--confirm-cleanup", action="store_true",
+                                help="Confirm processes are stopped and cleanup is complete; records failure")
     apply = commands.add_parser("apply", help="Apply an inspected proposal on a clean feature branch")
     apply.add_argument("--repo", type=Path, default=Path.cwd())
     apply.add_argument("--proposal", required=True)

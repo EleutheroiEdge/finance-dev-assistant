@@ -335,6 +335,32 @@ def test_result_and_check_audit_records_commit_atomically(execution_case, tmp_pa
         assert inspect_run(store, identifier)["status"] == "unknown"
 
 
+def test_delayed_reconciliation_preserves_original_evidence_timestamp(execution_case, tmp_path, monkeypatch):
+    from datetime import datetime, timedelta
+
+    class Past(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(tz) - timedelta(days=2)
+
+    def lost_checkpoint(*args, **kwargs):
+        raise sqlite3.OperationalError("synthetic delayed recovery")
+
+    with WorkflowStore(tmp_path / "state", create=True) as store:
+        with monkeypatch.context() as patcher:
+            patcher.setattr("finassist.ledger.datetime", Past)
+            patcher.setattr(store, "commit_result", lost_checkpoint)
+            identifier = new_run(store, execution_case)
+            with pytest.raises(OperationOutcomeUnknown):
+                run(store, identifier, execution_case)
+        step = inspect_run(store, identifier)["steps"][0]
+        reconcile_run(store, identifier, "unit", step["attempt_id"], execution_case[1],
+                      approved_artifact=step["recovery_artifact_hash"])
+        event = next(payload for _seq, payload in store.events() if payload["event"] == "check_completed")
+        assert event["evidence_recorded_at"] == step["started_at"]
+        assert event["evidence_recorded_at"] < event["recorded_at"]
+
+
 def test_adoption_requires_the_snapshot_recorded_before_dispatch(execution_case, tmp_path, monkeypatch):
     with WorkflowStore(tmp_path / "state", create=True) as store:
         identifier = new_run(store, execution_case)

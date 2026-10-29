@@ -111,6 +111,12 @@ audit event and workflow result checkpoint are then committed atomically. An
 exact artifact hash alone is insufficient. An artifact claiming uncertain
 cleanup cannot be adopted as success.
 
+Workflow check freshness is measured conservatively from the dispatch intent,
+not the later reconciliation date. Delayed adoption cannot make an old check
+fresh. The original timestamp appears as `started_at` in step inspection and
+`evidence_recorded_at` in the check audit event; readiness requires both that
+time and the event's own recording time to satisfy the configured age limit.
+
 If no valid result exists, first independently verify that the attempt's
 processes/containers have stopped and cleanup is complete. Lock release alone
 does not prove descendant cleanup. Then record an explicit failed outcome:
