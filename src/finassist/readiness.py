@@ -13,10 +13,18 @@ from .security import canonical, digest
 
 
 def verify_gate(
-    packet: dict, review: dict, checks: list[dict], config: Config, head: str, state: Path
+    packet: dict, review: dict, checks: list[dict], config: Config, head: str, state: Path,
+    *, additional_recipes: tuple[str, ...] = (),
 ) -> dict:
     config.validate()
     verify_packet(packet, config)
+    if not isinstance(additional_recipes, tuple) or any(
+        not isinstance(name, str) or name not in config.recipes for name in additional_recipes
+    ):
+        raise AssistantError("readiness_additional_recipe_invalid")
+    # Workflow obligations can expand the configured gate, never weaken it.
+    # Keep the original config hash: its existing receipts must remain valid.
+    required_recipes = tuple(dict.fromkeys((*config.required_recipes, *additional_recipes)))
     if not isinstance(review, dict) or any(
         not isinstance(value, dict)
         or not isinstance(value.get("receipt"), dict)
@@ -97,7 +105,7 @@ def verify_gate(
     for document in checks:
         receipt, snapshot = document.get("receipt", {}), document.get("snapshot", {})
         name = receipt.get("recipe")
-        if name not in config.required_recipes:
+        if name not in required_recipes:
             continue
         if name in seen:
             blockers.add("duplicate_recipe_evidence")
@@ -146,13 +154,13 @@ def verify_gate(
             for p, _ in events
         ):
             blockers.add("check_receipt_missing_or_stale")
-    if seen != set(config.required_recipes):
+    if seen != set(required_recipes):
         blockers.add("required_recipe_evidence_missing")
     return {
         "status": "blocked" if blockers else "eligible-for-human-review",
         "head": head,
         "blocking_reasons": sorted(blockers),
-        "required_recipes": list(config.required_recipes),
+        "required_recipes": list(required_recipes),
         "policy_hash": digest(canonical(asdict(config))),
         "merge_authority": False,
         "deployment_authority": False,

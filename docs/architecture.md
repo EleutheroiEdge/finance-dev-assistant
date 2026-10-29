@@ -19,6 +19,10 @@ Models produce advisory JSON and proposed patches through bounded requests. They
     configuration validation and reduced, verified audit statistics. A loopback
     HTTP boundary uses exact origins and per-session tokens; browser actions
     cannot execute tools or access environment key values. See [dashboard](dashboard.md).
+12. `workflow`: versioned declarative validation plans, committed methodology
+    and recipe bindings, acyclic dependency contracts and offline preflight.
+    Optional workflow-aware readiness adds evidence obligations through the
+    existing verifier. This is not an executor. See [workflow plans](workflow-plans.md).
 
 Finance profiles separate source authority, approved analyst judgments and
 algorithmic decisions. Do not replace a project's methodology with generic

@@ -22,6 +22,7 @@ def export_kit(destination: Path) -> dict:
         "roles/codex-reviewer.toml": "codex-reviewer.toml",
         "examples/fork-config.json": "fork-config.json",
         "examples/dashboard.json": "dashboard-config.json",
+        "examples/cash-workflow.json": "cash-workflow.json",
         "examples/profiles/engineering.json": "engineering-profile.json",
         "docs/maintainers/branch-protection-proposal.json": "branch-protection-proposal.json",
     }

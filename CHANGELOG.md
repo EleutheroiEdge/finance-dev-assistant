@@ -4,6 +4,11 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ## 0.3.1 - Unreleased
 
+### Added
+
+- Add offline versioned workflow plans and preflight checks binding project methodology, check dependencies, source packets and configuration hashes.
+- Let `verify-gate --workflow-plan` require extra audited financial check evidence, with named missing obligations; export a synthetic cash template and bundled workflow-plans guide.
+
 ### Changed
 
 - Apply the reviewed f mark and brand artwork to the README, packaged dashboard icons and synthetic documentation media.

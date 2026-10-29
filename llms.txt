@@ -14,6 +14,7 @@
 - [JSON Schema](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/schemas/finassist.schema.json): Editor autocomplete; runtime checks remain authoritative.
 - [Providers](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/providers.md): Explicit model, endpoint, disclosure and spend controls.
 - [Workflows](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflows.md): Source review, isolated checks and approved patches.
+- [Workflow plans](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflow-plans.md): Offline methodology/check plans, source bindings and additional readiness evidence obligations.
 - [Evidence-review skill](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/skills/evidence-review/SKILL.md): Portable instructions exported by `finassist export-kit`.
 
 ## Safety and evidence

@@ -10,6 +10,7 @@ GUIDES = {
     "configuration": ("Configuration", "docs/configuration.md", "configuration-guide.md"),
     "cli-contracts": ("CLI output contracts", "docs/cli-contracts.md", "cli-contracts-guide.md"),
     "workflows": ("Workflows", "docs/workflows.md", "workflow-guide.md"),
+    "workflow-plans": ("Workflow plans", "docs/workflow-plans.md", "workflow-plans-guide.md"),
     "providers": ("Providers", "docs/providers.md", "provider-guide.md"),
     "readiness": ("Auditing and readiness", "docs/readiness-and-auditing.md", "readiness-guide.md"),
     "platforms": ("Supported platforms", "docs/platforms.md", "platform-guide.md"),

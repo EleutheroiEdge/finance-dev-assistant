@@ -57,6 +57,9 @@ means other documented/context-specific fields can exist, not a literal JSON val
 | `doctor` | stdout health object: `version`, `python`, `platform`, `provider`, `model_configured`, `network_enabled`, `key_present` (boolean/null), runtime binary presence, `container_daemon_checked: false`, recipes/profile and private-state warning. | 0, 2 |
 | `demo` | result `{status, data_class: "synthetic", checks: array, counterexamples_detected: array, model_called: false, trade_execution: false, qualification, tax_example}`. | 0, 1, 2 |
 | `plan` | outgoing request artifact with `schema_version: 2`, base/head/merge-base hashes, profile/path policy, files, omissions and `packet_hash`; stdout summary `{packet_hash, output, triage}`. | 0, 2 |
+| `workflow` | Subcommands `plan` and `preflight` bind or inspect offline workflow contracts. See the action rows below and [workflow plans](workflow-plans.md). | 0, 1, 2 |
+| `workflow plan` | separate version-1 plan binding template, methodology, recipes, packet and configuration hashes; writes the plan privately and emits `{output, plan_hash, status: "plan-bound"}`. No execution. See [workflow plans](workflow-plans.md). | 0, 2 |
+| `workflow preflight` | `{schema_version: 1, status: "preflight-passed"/"blocked", plan_hash, head, blocking_reasons, required_recipes, execution_authorized: false, merge_authority: false, deployment_authority: false, qualification}`. With `--output`, writes the full result and emits `{output, plan_hash, status}`. No execution or readiness claim. | 0, 1, 2 |
 | `watch` | one stdout `{head, triage, network_called: false}` record initially, then one for each observed committed-head change, within configured iteration bounds. | 0, 2 |
 | `review` | full report: `status`, `packet_hash`, `head`, provider, findings and qualification; offline includes triage and no model claim. Remote adds model/review evidence metadata. Stdout summary `{output, status}`. Findings do not change the exit status to 1. | 0, 2 |
 | `propose` | full `{artifact: {head, patch, summary}, approval_hash, reservation, applied: false, audit_receipt}`; stdout `{output, status}`. No patch is applied. | 0, 2 |
@@ -72,7 +75,7 @@ means other documented/context-specific fields can exist, not a literal JSON val
 | `score` | result `{evaluation_hash, counts, case_recall: number/null, negative_control_false_alarm_rate: number/null, complete: boolean, qualification}`. Unresolved labels are represented, not treated as a process error. | 0, 2 |
 | `evidence` | see action table below; stdout one evidence record. | 0, 2 |
 | `export-kit` | stdout `{directory, templates: array, installed_into_host: false}`; writes a new private directory only. | 0, 2 |
-| `verify-gate` | `{status: "blocked"/"eligible-for-human-review", head, blocking_reasons: array, required_recipes, policy_hash, merge_authority: false, deployment_authority: false, qualification}`. | 0, 1, 2 |
+| `verify-gate` | `{status: "blocked"/"eligible-for-human-review", head, blocking_reasons: array, required_recipes, policy_hash, merge_authority: false, deployment_authority: false, qualification}`. Optional `--workflow-plan` adds plan preflight, extra recipe requirements and `workflow_plan_hash`; after passing preflight, `workflow_missing_requirements` names absent check records. | 0, 1, 2 |
 | `github-audit` | protection snapshot with repository/branch, observations, `issues: array` and `snapshot_hash`; read-only API inspection after network approval. | 0, 1, 2 |
 | `dashboard` | Human stdout `Dashboard: http://127.0.0.1:<port>`; persistent local HTTP server, no CLI JSON success record. See dashboard API errors below. | 0, 2 |
 

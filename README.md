@@ -133,7 +133,7 @@ Run `finassist guide agents` for offline help; your project's rules and approval
 |---|---|
 | Configure profiles, paths and budgets | [Configuration](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/configuration.md), [examples](https://github.com/EleutheroiEdge/finance-dev-assistant/tree/main/examples/) |
 | Choose a model | [Providers](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/providers.md) |
-| Plan, review, check and recover | [Workflows](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflows.md), [auditing and readiness](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/readiness-and-auditing.md) |
+| Plan, review, check and recover | [Workflows](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflows.md), [workflow plans](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflow-plans.md), [auditing and readiness](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/readiness-and-auditing.md) |
 | Use the local dashboard | [Dashboard](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/dashboard.md) |
 | Automate command results | [Exit codes and JSON contracts](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/cli-contracts.md) |
 | Evaluate findings or manage evidence | [Evaluation](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/evaluation.md), [research inputs](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/research-inputs.md) |

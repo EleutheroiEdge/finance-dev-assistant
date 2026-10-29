@@ -36,6 +36,7 @@ from .runner import run_recipe
 from .scope import build_packet, git, resolve, triage
 from .security import canonical, check_text, digest, regular_path, write_private
 from .workspace import export_snapshot
+from .workflow import build_workflow_plan, preflight_workflow, verify_workflow_gate
 
 
 def _read_json(path: str) -> dict:
@@ -101,6 +102,17 @@ def parser() -> argparse.ArgumentParser:
         request.add_argument("--allow-network", action="store_true")
         request.add_argument("--state-dir", type=Path, default=Path(".finassist"))
         request.add_argument("--output", required=True)
+    workflow = commands.add_parser("workflow", help="Bind and preflight offline validation plans; never execute")
+    actions = workflow.add_subparsers(dest="workflow_action", required=True)
+    for action in ("plan", "preflight"):
+        operation = actions.add_parser(action)
+        operation.add_argument("--repo", type=Path, default=Path.cwd())
+        operation.add_argument("--packet", required=True)
+        if action == "plan":
+            operation.add_argument("--template", required=True)
+        else:
+            operation.add_argument("--plan", required=True)
+        operation.add_argument("--output", required=action == "plan")
     apply = commands.add_parser("apply", help="Apply an inspected proposal on a clean feature branch")
     apply.add_argument("--repo", type=Path, default=Path.cwd())
     apply.add_argument("--proposal", required=True)
@@ -180,6 +192,7 @@ def parser() -> argparse.ArgumentParser:
     gate.add_argument("--packet", required=True)
     gate.add_argument("--review", required=True)
     gate.add_argument("--receipt", action="append", default=[])
+    gate.add_argument("--workflow-plan", help="Also require this plan's canon, bindings and check evidence")
     gate.add_argument("--state-dir", type=Path)
     gate.add_argument("--output")
     github = commands.add_parser(
@@ -228,6 +241,24 @@ def execute(args, config: Config | None = None) -> int:
         packet = build_packet(args.repo, args.base, args.head, config)
         _emit(packet, args.output)
         _emit({"packet_hash": packet["packet_hash"], "output": args.output, "triage": triage(packet, config)})
+    elif args.command == "workflow":
+        packet = _read_json(args.packet)
+        if args.workflow_action == "plan":
+            result = build_workflow_plan(_read_json(args.template), packet, args.repo, config)
+            event = {"event": "workflow_plan_bound", "plan_hash": result["plan_hash"]}
+        else:
+            result = preflight_workflow(_read_json(args.plan), packet, args.repo, config)
+            event = {
+                "event": "workflow_preflight_evaluated", "plan_hash": result["plan_hash"],
+                "status": result["status"], "reasons": result["blocking_reasons"],
+            }
+        with Ledger(audit_directory(args) / "audit.sqlite") as ledger:
+            ledger.append({**event, "head": result["head"], "config_hash": digest(canonical(asdict(config)))})
+        _emit(result, args.output)
+        if args.output:
+            _emit({"output": args.output, "plan_hash": result.get("plan_hash"),
+                   "status": result.get("status", "plan-bound")})
+        return 1 if result.get("blocking_reasons") else 0
     elif args.command == "watch":
         if not 1 <= args.iterations <= 1000 or not 0.1 <= args.interval <= 300:
             raise AssistantError("invalid_watch_bounds")
@@ -437,14 +468,14 @@ def execute(args, config: Config | None = None) -> int:
         dirty_before = git(
             args.repo, "status", "--porcelain", "--untracked-files=normal", "--", ".", ":(exclude).finassist"
         )
-        report = verify_gate(
-            _read_json(args.packet),
-            _read_json(args.review),
-            [_read_json(path) for path in args.receipt],
-            config,
-            head,
-            audit_directory(args) / "audit.sqlite",
+        evidence = (
+            _read_json(args.packet), _read_json(args.review), [_read_json(path) for path in args.receipt],
+            config, head, audit_directory(args) / "audit.sqlite",
         )
+        if args.workflow_plan:
+            report = verify_workflow_gate(_read_json(args.workflow_plan), *evidence, args.repo)
+        else:
+            report = verify_gate(*evidence)
         if resolve(args.repo, "HEAD") != head:
             raise AssistantError("readiness_head_changed")
         if dirty_before or git(
@@ -459,6 +490,7 @@ def execute(args, config: Config | None = None) -> int:
                     "head": head,
                     "status": report["status"],
                     "reasons": report["blocking_reasons"],
+                    **({"workflow_plan_hash": report["workflow_plan_hash"]} if args.workflow_plan else {}),
                 }
             )
         _emit(report, args.output)

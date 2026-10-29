@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "name": "cash-validation",
+  "goal": "Validate cash conservation under the project's approved fee policy",
+  "methodology": ["docs/cash-policy.md"],
+  "requirements": [
+    {"id": "unit-tests", "recipe": "unit", "methodology": ["docs/cash-policy.md"]},
+    {"id": "cash-conservation", "recipe": "cash", "methodology": ["docs/cash-policy.md"]}
+  ],
+  "steps": [
+    {"id": "unit", "requirement": "unit-tests", "depends_on": []},
+    {"id": "cash", "requirement": "cash-conservation", "depends_on": ["unit"]}
+  ]
+}

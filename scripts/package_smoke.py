@@ -99,6 +99,26 @@ with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
     )[0]
     assert gate["status"] == "blocked" and "model_review_absent" in gate["blocking_reasons"]
     assert not gate["merge_authority"] and not gate["deployment_authority"]
+    # The installed wheel must carry the declarative template and new commands.
+    # These synthetic recipes are declared only; no candidate code is executed.
+    workflow_config = json.loads((root / "config.json").read_text(encoding="utf-8"))
+    workflow_config.update(
+        recipes={"unit": ["python", "-m", "pytest"], "cash": ["python", "check_cash.py"]},
+        required_recipes=["unit"],
+    )
+    config_path = root / "workflow-config.json"
+    config_path.write_text(json.dumps(workflow_config), encoding="utf-8", newline="\n")
+    template = json.loads((root / "kit/examples/cash-workflow.json").read_text(encoding="utf-8"))
+    template["methodology"] = ["src/cash.py"]
+    for requirement in template["requirements"]:
+        requirement["methodology"] = ["src/cash.py"]
+    template_path, plan_path = root / "workflow-template.json", root / "workflow-plan.json"
+    template_path.write_text(json.dumps(template), encoding="utf-8", newline="\n")
+    cli("--config", config_path, "workflow", "plan", "--repo", root, "--packet", packet,
+        "--template", template_path, "--output", plan_path)
+    preflight = cli("--config", config_path, "workflow", "preflight", "--repo", root,
+                    "--packet", packet, "--plan", plan_path)[0]
+    assert preflight["status"] == "preflight-passed" and not preflight["execution_authorized"]
     refused = cli("github-audit", "--repository", "example/repository", expected_exit=2)
     assert refused["code"] == "network_not_approved"  # Offline refusal; no GitHub request.
     audit = cli("audit", "--export", root / "events.jsonl")[0]
@@ -125,6 +145,7 @@ print(
                 "export-kit",
                 "guide (all bundled topics)",
                 "plan",
+                "workflow plan/preflight",
                 "review",
                 "verify-gate (blocked offline)",
                 "github-audit (network refused)",
