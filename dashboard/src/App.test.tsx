@@ -58,6 +58,12 @@ it("shows statistics coverage and health through keyboard-accessible navigation"
   fireEvent.click(screen.getByRole("button", {name: /^Statistics/}));
   expect(await screen.findByRole("heading", {name: "Reviews & findings"})).toBeInTheDocument();
   expect(screen.getByText(/older reviews lack finding metadata/)).toBeInTheDocument();
+  expect(screen.getByRole("heading", {name: "Pending charges (not yet confirmed)"})).toBeInTheDocument();
+  expect(screen.getByRole("heading", {name: "Ready for human review"})).toBeInTheDocument();
+  expect(screen.getByRole("heading", {name: "Checks you've run"})).toBeInTheDocument();
+  expect(screen.getByText(/Eligibility grants no merge or deployment authority/)).toBeInTheDocument();
+  expect(document.querySelector("aside .brand")).toHaveTextContent("finledgerpoli");
+  expect(document.querySelector("footer")).toHaveTextContent("finledgerpoli — local dashboard");
   expect(screen.getByText("50%")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", {name: /^Health/}));
   await waitFor(() => expect(screen.getByText("Configuration is valid")).toBeInTheDocument());

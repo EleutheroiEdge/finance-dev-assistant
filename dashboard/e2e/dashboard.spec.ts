@@ -59,6 +59,9 @@ test.describe("seeded audit trail", () => {
     page.on("request", request => {if (new URL(request.url()).origin !== server.origin) external.push(request.url());});
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(server.origin);
+    await expect(page).toHaveTitle("finledgerpoli - local dashboard");
+    await expect(page.locator("aside .brand")).toContainText("finledgerpoli");
+    await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", /^finledgerpoli local dashboard/);
     await expect(page.getByRole("heading", {name: "Configuration", exact: true})).toBeVisible();
     await page.getByLabel("Daily spend limit (USD)", {exact: true}).fill("7");
     expect(JSON.parse(await readFile(path.join(server.root, "configuration.json"), "utf8")).daily_budget_usd).toBe(5);
@@ -70,6 +73,10 @@ test.describe("seeded audit trail", () => {
     expect(JSON.parse(await readFile(path.join(server.root, "configuration.json"), "utf8")).daily_budget_usd).toBe(7);
     await page.getByRole("button", {name: /^Statistics/}).click();
     await expect(page.getByRole("heading", {name: "Recent runs"})).toBeVisible();
+    await expect(page.getByRole("heading", {name: "Pending charges (not yet confirmed)"})).toBeVisible();
+    await expect(page.getByRole("heading", {name: "Ready for human review"})).toBeVisible();
+    await expect(page.getByRole("heading", {name: "Checks you've run"})).toBeVisible();
+    await expect(page.getByText(/Eligibility grants no merge or deployment authority/)).toBeVisible();
     await expect(page.getByText("dashboard-save", {exact: true})).toBeVisible();
     await expect(page.getByRole("img", {name: "Recorded spend (USD)", exact: true})).toBeVisible();
     await expect(page.getByRole("heading", {name: "No activity recorded yet"})).toHaveCount(0);
@@ -104,6 +111,9 @@ test.describe("empty audit trail", () => {
     page.on("request", request => {if (new URL(request.url()).origin !== server.origin) external.push(request.url());});
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(server.origin);
+    await expect(page).toHaveTitle("finledgerpoli - local dashboard");
+    await expect(page.locator("aside .brand")).toContainText("finledgerpoli");
+    await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", /^finledgerpoli local dashboard/);
     await expect(page.getByRole("heading", {name: "Configuration", exact: true})).toBeVisible();
     await expect(page.getByText(/No provider keys detected/)).toBeVisible();
     await page.screenshot({path: "test-results/configuration-first-run.png", fullPage: true});

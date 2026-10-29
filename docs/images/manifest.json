@@ -1,8 +1,11 @@
 {
   "schema_version": 1,
   "images": {
-    "docs/images/dashboard-configuration.png": "8cbe04f9178d09dc053efca7fcf27b2ab6b7b2dcd0170f33893719821c05682d",
-    "docs/images/dashboard-health.png": "cc436d817e8bcbce6f776bb233b86e062645b7b1be1fb5f33fd8d105689963a2",
-    "docs/images/dashboard-statistics.png": "69fb7569d82631d0ab3e0704e69e072cd3546b6675576b1f0abef40ac05a2561"
+    "docs/images/dashboard-configuration.png": "8affe335407d6e64f7ec879d635b02e5f1e3f30cdbf172a366f98d1f12e51fee",
+    "docs/images/dashboard-health.png": "f9a781de2ade3ec2dd4e20b099ca6c4c4766e5026b804a638963e11d5c41b5fa",
+    "docs/images/dashboard-statistics.png": "8ab30f1e9159eea9da21caa5841104c092db438b4a5c80f1567a1e9e71ef08d7",
+    "docs/images/hero.gif": "a9759b46b1b550bec50de66fd990bf669c856e640bd78b04c1eae5b4b52e40a2",
+    "docs/images/how-it-works.png": "6df196ad44b6e73e2b368167e9e50b88bdd0bec256c6eed1a09ec22cef1dee9f",
+    "docs/images/social-preview.png": "e367d44098fca17f7aeb04b89e058fcdc10a280c550589950b855065de203ed6"
   }
 }
