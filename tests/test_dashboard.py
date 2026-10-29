@@ -1,6 +1,7 @@
 from dataclasses import asdict
 from datetime import datetime, timezone
 from decimal import Decimal
+from email.message import Message
 import http.client
 import json
 import io
@@ -161,6 +162,48 @@ def test_preflight_and_oversized_bodies_are_rejected(dashboard):
     assert state.config_path.read_bytes() == before
 
 
+def test_refusal_response_discards_small_get_body_without_parsing():
+    class Connection:
+        def gettimeout(self):
+            return 5
+
+        def settimeout(self, _timeout):
+            pass
+
+    handler = object.__new__(DashboardHandler)
+    handler.headers = Message()
+    handler.headers["Content-Length"] = "2"
+    handler.rfile = io.BytesIO(b"\xff{")  # Neither valid UTF-8 nor valid JSON.
+    handler.wfile = io.BytesIO()
+    handler.connection = Connection()
+    statuses = []
+    handler.send_response = lambda status: statuses.append((status, handler.rfile.tell()))
+    handler.send_header = lambda *_args: None
+    handler.end_headers = lambda: None
+    handler.respond(403, {"code": "origin_rejected"})
+    assert statuses == [(403, 2)]
+    assert json.loads(handler.wfile.getvalue()) == {"code": "origin_rejected"}
+
+
+@pytest.mark.parametrize("lengths,encoding,consumed", [
+    (["2"], None, 2), (["2", "2"], None, 0), (["2"], "chunked", 0),
+    (["131073"], None, 0), (["9" * 1000], None, 0), (["-1"], None, 0), (["\u0662"], None, 0),
+])
+def test_cleanup_ignores_consumed_or_ambiguous_unbounded_framing(lengths, encoding, consumed):
+    handler = object.__new__(DashboardHandler)
+    handler.headers = Message()
+    for length in lengths:
+        handler.headers["Content-Length"] = length
+    if encoding:
+        handler.headers["Transfer-Encoding"] = encoding
+    handler.body_consumed = consumed
+    handler.discard_body = lambda _length: pytest.fail("must not read this body")
+    # Zero remainder is harmless, but should not even call the drain helper.
+    if lengths == ["2"] and consumed == 2:
+        handler.discard_body = lambda length: None if length == 0 else pytest.fail("body already consumed")
+    handler.discard_request_body()
+
+
 def test_rejected_body_cleanup_is_bounded_and_restores_timeout(monkeypatch):
     class Connection:
         timeout = 5
@@ -174,16 +217,16 @@ def test_rejected_body_cleanup_is_bounded_and_restores_timeout(monkeypatch):
     handler = object.__new__(DashboardHandler)
     handler.connection = Connection()
     handler.rfile = io.BytesIO(b"x" * 70000)
-    handler.discard_oversized_body(70000)
+    handler.discard_body(70000)
     assert handler.rfile.tell() == 70000 and handler.connection.timeout == 5
     handler.rfile.seek(0)
-    handler.discard_oversized_body(131073)
+    handler.discard_body(131073)
     assert handler.rfile.tell() == 0
     # Total deadline expires even when a peer keeps trickling bytes before each
     # individual socket timeout, rather than restarting the budget per chunk.
     instants = iter((0.0, 0.1, 0.3))
     monkeypatch.setattr("finassist.dashboard.time.monotonic", lambda: next(instants))
-    handler.discard_oversized_body(70000)
+    handler.discard_body(70000)
     assert handler.rfile.tell() == 16384 and handler.connection.timeout == 5
 
 
@@ -204,10 +247,10 @@ def test_rejected_body_cleanup_handles_stalled_or_truncated_client():
     handler = object.__new__(DashboardHandler)
     handler.connection = Connection()
     handler.rfile = Stalled()
-    handler.discard_oversized_body(70000)
+    handler.discard_body(70000)
     assert handler.connection.timeout == 5
     handler.rfile = io.BytesIO(b"short")
-    handler.discard_oversized_body(70000)
+    handler.discard_body(70000)
     assert handler.rfile.tell() == 5 and handler.connection.timeout == 5
 
 
