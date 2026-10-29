@@ -2,3 +2,6 @@
 * text=auto eol=lf
 src/finassist/resources/** text eol=lf
 dashboard/** text eol=lf
+
+# Hashed PNG icons must remain binary even under the resources text rule.
+src/finassist/resources/dashboard/assets/*.png binary

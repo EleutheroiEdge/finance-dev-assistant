@@ -18,6 +18,10 @@ if len(sys.argv) != 2:
     raise SystemExit("usage: python scripts/package_smoke.py EXAMPLES_DIRECTORY")
 distribution = metadata.distribution("finledgerpoli")
 assert distribution.metadata["Name"] == "finledgerpoli"
+assert not any(str(entry).startswith("brand/") for entry in distribution.files)
+images = [entry for entry in distribution.files if entry.suffix in {".png", ".svg", ".gif"}]
+assert len(images) == 3 and all("finassist/resources/dashboard/assets/" in str(entry) for entry in images)
+assert sorted(entry.suffix for entry in images) == [".png", ".svg", ".svg"]
 assert finassist.installed_version() == distribution.version
 examples = Path(sys.argv[1]).resolve()
 with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:

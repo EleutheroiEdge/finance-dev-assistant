@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -58,11 +59,31 @@ test.describe("seeded audit trail", () => {
   test("offline configuration, confirmation, statistics and health work end to end", async ({page}) => {
     const external: string[] = [];
     const errors: string[] = [];
+    page.on("console", message => {if (message.type() === "error" && /content security|refused to load|violates.*policy/i.test(message.text())) errors.push(message.text());});
     page.on("request", request => {if (new URL(request.url()).origin !== server.origin) external.push(request.url());});
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(server.origin);
     await expect(page).toHaveTitle("finledgerpoli - local dashboard");
     await expect(page.locator("aside .brand")).toContainText("finledgerpoli");
+    const logo = page.getByRole("img", {name: "finledgerpoli logo", exact: true});
+    await expect(logo).toBeVisible();
+    expect(await logo.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+    const icons = [
+      [await logo.getAttribute("src"), "mark.svg", "image/svg+xml"],
+      [await page.locator('link[rel="icon"][type="image/svg+xml"]').getAttribute("href"), "favicon.svg", "image/svg+xml"],
+      [await page.locator('link[rel="icon"][type="image/png"]').getAttribute("href"), "favicon-32.png", "image/png"],
+    ];
+    for (const [url, source, mime] of icons) {
+      const local = new URL(url!, server.origin);
+      expect(local.origin).toBe(server.origin);
+      expect(local.pathname).toMatch(/^\/assets\//);
+      const response = await page.request.get(local.href);
+      expect(response.status()).toBe(200);
+      expect(response.headers()["content-type"]).toBe(mime);
+      expect(response.headers()["content-security-policy"]).toContain("img-src 'self';");
+      const expected = await readFile(path.join("../brand", source!));
+      expect(createHash("sha256").update(await response.body()).digest("hex")).toBe(createHash("sha256").update(expected).digest("hex"));
+    }
     await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", /^finledgerpoli local dashboard/);
     await expect(page.getByRole("heading", {name: "Configuration", exact: true})).toBeVisible();
     await page.getByLabel("Daily spend limit (USD)", {exact: true}).fill("7");
@@ -135,6 +156,7 @@ test.describe("empty audit trail", () => {
   test("first-run statistics explain what to do next", async ({page}) => {
     const external: string[] = [];
     const errors: string[] = [];
+    page.on("console", message => {if (message.type() === "error" && /content security|refused to load|violates.*policy/i.test(message.text())) errors.push(message.text());});
     page.on("request", request => {if (new URL(request.url()).origin !== server.origin) external.push(request.url());});
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(server.origin);
@@ -159,4 +181,27 @@ test.describe("empty audit trail", () => {
     expect(external).toEqual([]);
     expect(errors).toEqual([]);
   });
+});
+
+test("README diagram switches with the theme and keeps its plain-image fallback", async ({page}) => {
+  const raw = "https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/main/brand/";
+  const readme = await readFile("../README.md", "utf8");
+  const picture = readme.match(/<picture>[\s\S]*?<\/picture>/)![0];
+  await page.route("**/*", async route => {
+    const url = route.request().url();
+    const name = url.slice(raw.length);
+    if (!url.startsWith(raw) || !["how-it-works-dark.png", "how-it-works-light.png"].includes(name)) return route.abort();
+    await route.fulfill({contentType: "image/png", body: await readFile(path.join("../brand", name))});
+  });
+  const diagram = page.locator("picture img");
+  for (const theme of ["dark", "light"] as const) {
+    await page.emulateMedia({colorScheme: theme});
+    await page.setContent(picture);
+    await expect.poll(() => diagram.evaluate((img: HTMLImageElement) => img.currentSrc)).toBe(raw + `how-it-works-${theme}.png`);
+    await expect.poll(() => diagram.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+  }
+  await page.emulateMedia({colorScheme: "dark"});
+  await page.setContent(picture.replace(/<source[^>]*>/g, ""));
+  await expect.poll(() => diagram.evaluate((img: HTMLImageElement) => img.currentSrc)).toBe(raw + "how-it-works-light.png");
+  await expect.poll(() => diagram.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
 });

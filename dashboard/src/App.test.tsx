@@ -68,6 +68,7 @@ it("shows statistics coverage and health through keyboard-accessible navigation"
   expect(screen.getByRole("heading", {name: "Checks you've run"})).toBeInTheDocument();
   expect(screen.getByText(/Ready for review does not approve a merge or deployment/)).toBeInTheDocument();
   expect(document.querySelector("aside .brand")).toHaveTextContent("finledgerpoli");
+  expect(screen.getByRole("img", {name: "finledgerpoli logo"})).toHaveAttribute("src", expect.stringContaining("mark.svg"));
   expect(document.querySelector("footer")).toHaveTextContent("finledgerpoli — local dashboard");
   expect(screen.getByText("50%")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", {name: /^Health/}));

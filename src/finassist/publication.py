@@ -28,7 +28,7 @@ def public_images(repo: Path, tracked: set[str]) -> dict:
     if not isinstance(images, dict) or len(images) > 32:
         raise AssistantError("public_image_manifest_invalid")
     for name, expected in images.items():
-        if (not re.fullmatch(r"docs/images/(?:[a-z0-9-]+\.png|hero\.gif)", name) or name not in tracked
+        if (not re.fullmatch(r"(?:docs/images/(?:[a-z0-9-]+\.png|hero\.gif)|brand/[a-z0-9-]+\.png|src/finassist/resources/dashboard/assets/favicon-32-[A-Za-z0-9_-]+\.png)", name) or name not in tracked
                 or not isinstance(expected, str) or not re.fullmatch(r"[a-f0-9]{64}", expected)):
             raise AssistantError("public_image_manifest_invalid")
     return images

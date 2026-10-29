@@ -121,6 +121,8 @@ def test_python_serves_prebuilt_assets_and_offline_health(dashboard):
     status, html, headers = request("GET", "/", token=False)
     assert status == 200 and b'<div id="root"></div>' in html
     assert "connect-src 'self'" in headers["Content-Security-Policy"]
+    assert "img-src 'self';" in headers["Content-Security-Policy"]
+    assert "data:" not in headers["Content-Security-Policy"]
     assert headers["Cache-Control"] == "no-store"
     assert request("GET", "/api/health")[1]["doctor"] == doctor_report(Config())
     assert request("GET", "/api/health")[1]["configuration"]["valid"]
@@ -359,3 +361,19 @@ def test_statistics_uses_verified_metadata_and_marks_legacy_gaps(tmp_path):
         ledger.db.execute("UPDATE events SET hash='corrupt' WHERE seq=1")
     with pytest.raises(AssistantError, match="audit_integrity_failed"):
         statistics(path, Config())
+
+
+def test_packaged_brand_icons_are_same_origin_with_correct_mime(dashboard):
+    _, server, request = dashboard
+    root = Path(__file__).resolve().parent.parent
+    for source, prefix, mime in [("mark.svg", "/assets/mark-", "image/svg+xml"),
+                                 ("favicon.svg", "/assets/favicon-", "image/svg+xml"),
+                                 ("favicon-32.png", "/assets/favicon-32-", "image/png")]:
+        names = [name for name in server.assets if name.startswith(prefix) and name.endswith(Path(source).suffix)]
+        assert len(names) == 1
+        status, data, headers = request("GET", names[0], token=False)
+        assert status == 200 and data == (root / "brand" / source).read_bytes()
+        assert headers["Content-Type"] == mime
+        assert headers["X-Content-Type-Options"] == "nosniff"
+        assert "img-src 'self';" in headers["Content-Security-Policy"]
+    assert len([name for name in server.assets if name.endswith((".png", ".svg"))]) == 3

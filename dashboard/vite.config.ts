@@ -3,6 +3,6 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()], base: "./",
-  build: { outDir: "../src/finassist/resources/dashboard", emptyOutDir: true, sourcemap: false },
+  build: { outDir: "../src/finassist/resources/dashboard", emptyOutDir: true, sourcemap: false, assetsInlineLimit: 0 },
   test: { environment: "jsdom", setupFiles: ["./src/test-setup.ts"], include: ["src/**/*.test.tsx"] },
 });

@@ -34,7 +34,7 @@ def test_metadata_llms_and_about_description_agree():
     assert "https://pypi.org/project/finledgerpoli/" in settings
     topics = settings.split("**Topics (20):** ")[1].splitlines()[0]
     assert len(re.findall(r"`([^`]+)`", topics)) == 20
-    assert "docs/images/social-preview.png" in settings
+    assert "brand/social-dark.png" in settings
 
 
 def test_readme_has_plain_headings_in_requested_order_and_audience_table():

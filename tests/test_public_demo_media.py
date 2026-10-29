@@ -27,9 +27,16 @@ def png(metadata=False):
 
 
 def test_shipped_screenshots_match_manifest_and_have_no_metadata():
-    names = {path.relative_to(ROOT).as_posix() for path in (ROOT / "docs/images").glob("*")}
+    paths = [*(ROOT / "docs/images").glob("*"), *(ROOT / "brand").glob("*.png"),
+             *(ROOT / "src/finassist/resources/dashboard/assets").glob("*.png")]
+    names = {path.relative_to(ROOT).as_posix() for path in paths}
     images = public_images(ROOT, names)
-    assert set(images) == {f"docs/images/dashboard-{name}.png" for name in ["configuration", "statistics", "health"]} | {"docs/images/hero.gif", "docs/images/how-it-works.png", "docs/images/social-preview.png"}
+    docs = {f"docs/images/dashboard-{name}.png" for name in ["configuration", "statistics", "health"]}
+    docs |= {"docs/images/hero.gif", "docs/images/how-it-works.png", "docs/images/social-preview.png"}
+    brand = {path.relative_to(ROOT).as_posix() for path in (ROOT / "brand").glob("*.png")}
+    icons = {path.relative_to(ROOT).as_posix() for path in (ROOT / "src/finassist/resources/dashboard/assets").glob("*.png")}
+    assert len(brand) == 10 and len(icons) == 1
+    assert set(images) == docs | brand | icons
     for name, expected in images.items():
         verify_public_image(ROOT / name, expected)
 
@@ -145,3 +152,8 @@ def test_marketing_media_dimensions_and_size():
     hero = (ROOT / "docs/images/hero.gif").read_bytes()
     assert len(hero) < 3_000_000
     verify_public_image(ROOT / "docs/images/hero.gif", digest(hero))
+
+
+def test_compatibility_media_copies_use_canonical_brand_exports():
+    for destination, source in [("social-preview.png", "social-dark.png"), ("how-it-works.png", "how-it-works-light.png")]:
+        assert (ROOT / "docs/images" / destination).read_bytes() == (ROOT / "brand" / source).read_bytes()

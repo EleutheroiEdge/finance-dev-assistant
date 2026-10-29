@@ -2,6 +2,8 @@ include LICENSE README.md SECURITY.md CONTRIBUTING.md AGENTS.md CHANGELOG.md req
 include .gitignore .dockerignore .gitattributes
 include llms.txt
 graft schemas
+# Brand source belongs to the sdist; the wheel only includes src/finassist package data.
+graft brand
 graft docs
 graft examples
 graft skills

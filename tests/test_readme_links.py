@@ -21,6 +21,9 @@ class Targets(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         self.targets.extend(value for key, value in attrs if key in {"href", "src"})
+        for key, value in attrs:
+            if key == "srcset":
+                self.targets.extend(candidate.strip().split()[0] for candidate in value.split(",") if candidate.strip())
         if tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
             self.heading_ids.update(value for key, value in attrs if key == "id" and value)
 
@@ -114,6 +117,8 @@ def test_pypi_rendered_description_has_no_relative_links_or_images():
     '<details><summary>More</summary><img src="local.png"></details>',
     "<a href='docs/guide.md'>Guide</a>", "<img src=local.png />",
     '<a href="//example.invalid/guide">Guide</a>', '<a href="#guide">Guide</a>',
+    '<picture><source srcset="docs/dark.png"><img src="https://example.invalid/light.png"></picture>',
+    '<source srcset="https://example.invalid/dark.png 1x, //example.invalid/light.png 2x">',
 ])
 def test_link_parser_rejects_relative_markdown_and_html(text):
     with pytest.raises(AssertionError):
@@ -151,3 +156,22 @@ def test_valid_headings_do_not_allow_other_relative_targets(renderer, target):
     document = parsed_html(renderer(f'# Overview\n\n[Bad]({target})'))
     with pytest.raises(AssertionError):
         assert_absolute(document.targets, document.heading_ids)
+
+
+def test_brand_header_demo_placement_and_theme_picture_survive_rendering():
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    raw = "https://raw.githubusercontent.com" + REPOSITORY + "/main/"
+    header, quick = text.split("## Quick start", 1)
+    assert raw + "brand/social-dark.png" in header
+    assert "hero.gif" not in header and raw + "docs/images/hero.gif" in quick.split("## How it works")[0]
+    html = markdown_html(text)
+    assert '<picture>' in html
+    assert 'media="(prefers-color-scheme: dark)"' in html
+    assert 'media="(prefers-color-scheme: light)"' in html
+    targets = html_targets(html)
+    for name in ["dark", "light"]:
+        assert raw + f"brand/how-it-works-{name}.png" in targets
+    # PyPI strips source elements; the ordinary fallback image must remain.
+    pypi = render(text)
+    assert '<img src="' + raw + 'brand/how-it-works-light.png"' in pypi
+    assert 'alt="Plan, Review, Reproduce, Propose, Audit:' in pypi

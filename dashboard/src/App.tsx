@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { explain, request, type Configuration, type Health, type Preview, type Statistics, type Values } from "./api";
 import { Chart } from "./Chart";
 import { Timestamp } from "./Timestamp";
+import mark from "../../brand/mark.svg";
 
 const labels: Record<keyof Values, string> = {provider: "Provider", model: "Model", daily_budget_usd: "Daily spend limit (USD)", monthly_budget_usd: "Monthly spend limit (USD)", allow_paths: "Allowed paths", generated_paths: "Generated paths", protected_paths: "Protected paths", extra_sensitive_patterns: "Sensitive patterns", profile: "Review profile", required_recipes: "Required recipes", blocking_severities: "Blocking severities", readiness_max_age_seconds: "Evidence age (seconds)"};
 const money = (value: string) => new Intl.NumberFormat("en-US", {style: "currency", currency: "USD", maximumFractionDigits: 4}).format(Number(value));
@@ -64,7 +65,7 @@ export function App() {
     && stats.usage.known_calls === 0 && stats.usage.unknown_calls === 0 && stats.daily.length === 0 && stats.open_reservations.length === 0;
 
   return <div className="layout"><a className="skip" href="#main">Skip to content</a>
-    <aside><div className="sidebar-content"><div className="brand"><span className="brand-icon" aria-hidden="true">f</span><div>finledgerpoli<small>Local review console</small></div></div>
+    <aside><div className="sidebar-content"><div className="brand"><img className="brand-icon" src={mark} width="40" height="40" alt="finledgerpoli logo" /><div>finledgerpoli<small>Local review console</small></div></div>
       <nav aria-label="Dashboard sections">{["Configuration", "Statistics", "Health"].map(name => <button key={name} aria-current={page === name ? "page" : undefined}
         onClick={() => {setPage(name); setNotice(""); main.current?.focus({preventScroll: true}); window.scrollTo({top: 0});}}>{name}<span aria-hidden="true">→</span></button>)}</nav>
       <div className="local"><span aria-hidden="true" className="dot" />Local session<p>Offline dashboard · loopback only (127.0.0.1)</p><p>Reviews and deployments stay under your normal project controls.</p></div>

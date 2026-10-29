@@ -6,7 +6,7 @@ AI code review for financial software that keeps your code local and backs every
 [![CI](https://github.com/EleutheroiEdge/finance-dev-assistant/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/EleutheroiEdge/finance-dev-assistant/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/LICENSE)
 
-![Synthetic offline demo: real local checks, no model calls](https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/main/docs/images/hero.gif)
+![finledgerpoli green f mark and a fictional code-review finding with reproduced checks and human patch approval](https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/main/brand/social-dark.png)
 
 ## Why finledgerpoli
 
@@ -53,6 +53,8 @@ The demo needs no key, model download or container; it runs fictional finance ch
 not a model-quality benchmark. The dashboard ships prebuilt, makes no external requests
 and binds only to `127.0.0.1`; Node is needed only for frontend development.
 
+![Synthetic offline demo: real local checks, no model calls](https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/main/docs/images/hero.gif)
+
 ### From source
 
 ```sh
@@ -79,7 +81,11 @@ for UTF-8, permissions, Git modes and Docker Desktop details.
 4. **Propose:** inspect the exact patch, approve it and keep a guarded recovery copy.
 5. **Audit:** save evidence for your change records, including approvals, spend and unknown outcomes.
 
-![Plan, Review, Reproduce, Propose, Audit: a five-step flow](https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/main/docs/images/how-it-works.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/main/brand/how-it-works-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/main/brand/how-it-works-light.png">
+  <img src="https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/main/brand/how-it-works-light.png" alt="Plan, Review, Reproduce, Propose, Audit: five steps from a code change to saved evidence">
+</picture>
 
 Start offline from the repository you want to review, after inspecting its configuration
 and source policy:

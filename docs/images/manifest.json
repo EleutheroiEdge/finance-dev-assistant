@@ -1,11 +1,22 @@
 {
   "schema_version": 1,
   "images": {
-    "docs/images/dashboard-configuration.png": "c412d58f7e38a2745db3667280317641f6215ef42d010e21b1af283cb44830f5",
-    "docs/images/dashboard-health.png": "1b8158653251ecbe08cab226b95b563cba23c7a21a3baa4a15a3fd159bf3d647",
-    "docs/images/dashboard-statistics.png": "b581e928adce6818ea8fe598b4848cb43941443f65f3707b231f24682e93c043",
+    "brand/apple-touch-icon-180.png": "09a941d95c87ba681b5b1d352c9f8af25d03ca2d844aac841c4aba57554e707c",
+    "brand/favicon-32.png": "a77df6c7b9a3ea1285c3ba42d60f350486a84e73d3cf9bd844f3db8f96287d8f",
+    "brand/how-it-works-dark.png": "bc40ed91ad79f35d4821b035448d81ef2b75a94a1fc9dd917a8aefd6e0a4ae80",
+    "brand/how-it-works-light.png": "39337d756654a9878a6234e5c86a0db51c70bb8891a7d4974a015c400dda4100",
+    "brand/icon-512.png": "6529765c01f5754d4619f919e1eee4a98febf9acaaebab44030ecc421fa31b66",
+    "brand/lockup-dark.png": "9f82fa4533fcbaa580ef50df3452376f0f46cdcaf654454043f9862ea9f75e3a",
+    "brand/lockup-light.png": "59d8120ada9558134c923ac83dc7caf31de58d918f11238109c44296e8464dd6",
+    "brand/mark-256.png": "f66dc415f6bfa380993efbaf4acf37546dad29c7bf28f250ea5bf0856bdbf236",
+    "brand/social-dark.png": "9aca801a8a7cedc14946b10aebdd10544395f04b2cfa918ab606b8a1baf406c0",
+    "brand/social-light.png": "7c2a0ae7b74e1567784ad2ff0c049b0b9f9d1278c2329776e54a187204757884",
+    "docs/images/dashboard-configuration.png": "4d81f1ecb7ba657fd0761ba5249c2ea882bbe5a07b10ec7d47c2d06b0cc70051",
+    "docs/images/dashboard-health.png": "3fe23461a038de30de46298a5a9d2feef23897493a6934138960e4b8da91b7d5",
+    "docs/images/dashboard-statistics.png": "1a7580bc384fb5a3b78d7063aa5607db2c2ab0c3b7cbeb8d1f3bb05013b7baa8",
     "docs/images/hero.gif": "a9759b46b1b550bec50de66fd990bf669c856e640bd78b04c1eae5b4b52e40a2",
-    "docs/images/how-it-works.png": "6df196ad44b6e73e2b368167e9e50b88bdd0bec256c6eed1a09ec22cef1dee9f",
-    "docs/images/social-preview.png": "afc6e107ed3d91ce20f0eeda19b0bc83841c33a36ac7cff0203a4135f66745b8"
+    "docs/images/how-it-works.png": "39337d756654a9878a6234e5c86a0db51c70bb8891a7d4974a015c400dda4100",
+    "docs/images/social-preview.png": "9aca801a8a7cedc14946b10aebdd10544395f04b2cfa918ab606b8a1baf406c0",
+    "src/finassist/resources/dashboard/assets/favicon-32-DVBb9OpX.png": "a77df6c7b9a3ea1285c3ba42d60f350486a84e73d3cf9bd844f3db8f96287d8f"
   }
 }
