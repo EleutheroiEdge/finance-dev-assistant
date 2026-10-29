@@ -61,6 +61,8 @@ The output directory must be new. It contains private `config.json`,
 template and resolution hashes, with `execution_authorized: false`. Failure can
 leave partial files; inspect them and use a new directory rather than treating
 partial output as a successful resolution. No existing configuration is edited.
+Each generated document is limited to 2,000,000 encoded bytes including its
+trailing newline, so it remains within the corresponding CLI input limit.
 
 Inspect the resulting settings and provenance before using them:
 

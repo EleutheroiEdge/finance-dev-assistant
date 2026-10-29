@@ -244,7 +244,7 @@ def resolve_bundle(bundle: dict, repo: Path, config: Config) -> dict:
     }
     resolution["resolution_hash"] = digest(canonical(resolution))
     for value in (configuration, workflow, resolution):
-        if len(canonical(value)) > 2_000_000:
+        if len(canonical(value)) + 1 > 2_000_000:
             raise AssistantError("workflow_resolution_limit_exceeded")
     return {"config": configuration, "template": workflow, "resolution": resolution}
 

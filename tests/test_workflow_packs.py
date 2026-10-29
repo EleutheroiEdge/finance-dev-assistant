@@ -83,6 +83,25 @@ def test_four_pack_kinds_resolve_with_explicit_recipe_bindings_and_restrictive_p
     assert any(item["rule"] == "minimum-cap" for item in result["resolution"]["decisions"])
 
 
+def test_resolution_size_limit_includes_persisted_newline(pack_case):
+    repo, config, bundle, _packet = pack_case
+    profiles = {**config.profiles, **{f"padding-{index}": ["x" * 1900] * 64 for index in range(16)},
+                "spare-padding": ["x"] * 64}
+    config = replace(config, profiles=profiles)
+    initial = resolve_bundle(bundle, repo, config)
+    remaining = 2_000_000 - len(canonical(initial["config"]))
+    assert 0 < remaining < 64 * 1999
+    for index in range(64):
+        increment = min(1999, remaining)
+        profiles["spare-padding"][index] += "x" * increment
+        remaining -= increment
+    assert remaining == 0
+    # A canonical document exactly at the input cap becomes unreadable if its
+    # persisted newline is omitted from the resolver's output-size accounting.
+    with pytest.raises(AssistantError, match="workflow_resolution_limit_exceeded"):
+        resolve_bundle(bundle, repo, config)
+
+
 @pytest.mark.parametrize("kind,mutation", [
     ("policy", lambda p: p["data"].update(allow_network=True)),
     ("policy", lambda p: p["data"].update(allow_network=0)),
