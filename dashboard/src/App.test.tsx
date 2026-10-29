@@ -7,9 +7,9 @@ const values = {provider: "offline", model: "", daily_budget_usd: 5, monthly_bud
   allow_paths: ["src/"], generated_paths: ["src/finassist/resources/dashboard/"], protected_paths: [".github/"], extra_sensitive_patterns: [], profile: "general",
   required_recipes: [], blocking_severities: ["critical", "high"], readiness_max_age_seconds: 86400};
 const configuration = {revision: "revision", values, options: {providers: ["offline", "openai"], profiles: ["general"], recipes: []}, key_presence: {openai: true}};
-const statistics = {as_of: "2026-10-28T00:00:00Z", limits: {daily_usd: "5", monthly_usd: "100"}, spend: {today_usd: "1", month_usd: "2", open_reserved_usd: "0.5", available_today_usd: "3.5", available_month_usd: "97.5"}, daily: [], open_reservations: [],
+const statistics = {as_of: "2026-10-29T00:14:21.916226+00:00", limits: {daily_usd: "5", monthly_usd: "100"}, spend: {today_usd: "1", month_usd: "2", open_reserved_usd: "0.5", available_today_usd: "3.5", available_month_usd: "97.5"}, daily: [], open_reservations: [],
   reviews: {total: 2, offline: 1, findings: {high: 1}, by_profile: {general: 2}, findings_by_profile: {general: 1}, unknown_findings: 1}, usage: {known_calls: 1, unknown_calls: 1},
-  readiness: {eligible: 1, blocked: 1, unclassified: 1, reasons: {stale: 1}}, recipes: [{name: "unit", passed: 1, total: 2}], legacy_checks: 1, recent_runs: [], qualification: "Synthetic audit."};
+  readiness: {eligible: 1, blocked: 1, unclassified: 1, reasons: {stale: 1}}, recipes: [{name: "unit", passed: 1, total: 2}], legacy_checks: 1, recent_runs: [{id: "synthetic-run", command: "review", status: "complete", started_at: "2026-10-28T20:14:21.123456-04:00"}], qualification: "Synthetic audit."};
 let calls: {path: string; body: Record<string, unknown> | undefined; headers: Record<string, string>}[];
 beforeEach(() => {
   calls = [];
@@ -58,10 +58,15 @@ it("shows statistics coverage and health through keyboard-accessible navigation"
   fireEvent.click(screen.getByRole("button", {name: /^Statistics/}));
   expect(await screen.findByRole("heading", {name: "Reviews & findings"})).toBeInTheDocument();
   expect(screen.getByText(/older reviews lack finding metadata/)).toBeInTheDocument();
-  expect(screen.getByRole("heading", {name: "Pending charges (not yet confirmed)"})).toBeInTheDocument();
+  expect(screen.getAllByRole("heading", {name: "Pending charges"})).toHaveLength(2);
+  expect(screen.getByText("0 pending charges (not yet confirmed)")).toBeInTheDocument();
+  expect(screen.getByText("No pending charges.")).toBeInTheDocument();
+  expect(screen.getAllByText("2026-10-29 00:14 UTC")).toHaveLength(2);
+  expect(screen.getByTitle(statistics.as_of)).toHaveAttribute("datetime", statistics.as_of);
+  expect(screen.getByTitle(statistics.recent_runs[0].started_at)).toHaveAttribute("datetime", statistics.recent_runs[0].started_at);
   expect(screen.getByRole("heading", {name: "Ready for human review"})).toBeInTheDocument();
   expect(screen.getByRole("heading", {name: "Checks you've run"})).toBeInTheDocument();
-  expect(screen.getByText(/Eligibility grants no merge or deployment authority/)).toBeInTheDocument();
+  expect(screen.getByText(/Ready for review does not approve a merge or deployment/)).toBeInTheDocument();
   expect(document.querySelector("aside .brand")).toHaveTextContent("finledgerpoli");
   expect(document.querySelector("footer")).toHaveTextContent("finledgerpoli — local dashboard");
   expect(screen.getByText("50%")).toBeInTheDocument();
