@@ -26,6 +26,17 @@ _PRIVATE = {"data", "private", "client", "clients", "household", "households",
             "client-config", "client_config", "household-config", "household_config"}
 
 
+def _contains_key(value, key: str) -> bool:
+    """Inspect decoded strings, so JSON escaping cannot hide a literal key."""
+    if isinstance(value, str):
+        return key in value
+    if isinstance(value, dict):
+        return any(_contains_key(name, key) or _contains_key(item, key) for name, item in value.items())
+    if isinstance(value, list):
+        return any(_contains_key(item, key) for item in value)
+    return False
+
+
 def validate_model_report(report: dict) -> None:
     schema = json.loads(files("finassist").joinpath("resources/model-gate-report.schema.json").read_text(encoding="utf-8"))
     try:
@@ -154,9 +165,10 @@ def model_gate(repo: Path, base: str, head: str, policy_path: str, policy_pin: s
             raise AssistantError("scope_incomplete")
         schema, system = review_schema(), config.instructions()
         # Keys are first accessed here, after identity, scope and screening.
-        request_hash, body = request_identity(*request_shape(config, system, packet, schema))
+        shape = request_shape(config, system, packet, schema)
+        request_hash, body = request_identity(*shape)
         key = os.environ.get(config.key_name, "")
-        if key and key in json.dumps(json.loads(body), ensure_ascii=False):
+        if key and any(_contains_key(value, key) for value in (packet, shape[0], shape[2])):
             raise AssistantError("gate_key_in_source_context")
         if len(body) > rules["max_request_bytes"]:
             raise AssistantError("gate_request_bytes_exceeded")
@@ -177,7 +189,7 @@ def model_gate(repo: Path, base: str, head: str, policy_path: str, policy_pin: s
             data = json.loads(result.text)
         except ValueError as exc:
             raise AssistantError("review_json_invalid") from exc
-        if key and key in json.dumps(data, ensure_ascii=False):
+        if key and _contains_key(data, key):
             raise AssistantError("gate_provider_echoed_key")
         validate_review(data, packet, config=config)
         report["findings"] = [{"severity": finding["severity"], "file": finding["path"],

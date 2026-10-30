@@ -170,6 +170,32 @@ def test_provider_key_echo_is_never_in_report_or_audit(gate_case):
         assert "fictional-provider-value" not in canonical(ledger.events()).decode()
 
 
+def test_json_escaped_key_echo_is_blocked(gate_case, monkeypatch):
+    key = 'fictional-"quoted\\value'
+    monkeypatch.setenv("REVIEW_PROVIDER_KEY", key)
+
+    def echo(packet):
+        value = response(packet)
+        value["findings"][0]["claim"] = key
+        return envelope(json.dumps(value))
+
+    report, calls = run(gate_case, echo)
+    assert len(calls) == 1 and report["verdict"] == "BLOCKED"
+    assert report["reasons"] == ["gate_provider_echoed_key"] and not report["findings"]
+
+
+def test_json_escaped_key_in_source_is_blocked_before_dispatch(gate_case, monkeypatch):
+    key = 'fictional-"quoted\\value'
+    monkeypatch.setenv("REVIEW_PROVIDER_KEY", key)
+    repo = gate_case["repo"]
+    (repo / "src/cash.py").write_text("# marker " + key + "\n", encoding="utf-8")
+    command(repo, "add", "src/cash.py")
+    command(repo, "commit", "-m", "Synthetic escaped content")
+    gate_case["head"] = command(repo, "rev-parse", "HEAD")
+    report, calls = run(gate_case)
+    assert not calls and report["reasons"] == ["gate_key_in_source_context"]
+
+
 def test_fork_context_blocks_before_key_or_policy_access(gate_case, tmp_path, monkeypatch):
     event = {"action": "synchronize", "number": 1, "repository": {"full_name": "Example/Project"},
              "pull_request": {"number": 1, "base": {"sha": gate_case["base"], "ref": "main",
