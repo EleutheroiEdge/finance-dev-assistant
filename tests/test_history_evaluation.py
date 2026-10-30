@@ -2,6 +2,7 @@ from copy import deepcopy
 from decimal import Decimal
 import json
 from pathlib import Path
+import sys
 
 import httpx
 import pytest
@@ -346,3 +347,52 @@ def test_source_repository_must_name_its_root_before_key_or_network(gate_case, t
         evaluate_history(suite, tmp_path, Config(), gate_case["state"],
                          approved_suite_hash=history_approval_hash(suite), network_approved=network)
     assert not gate_case["state"].exists()
+
+
+@pytest.mark.parametrize("network", [False, True])
+def test_policy_repository_subdirectory_refused_before_key_or_network(gate_case, tmp_path, monkeypatch, network):
+    suite = model_suite(gate_case)
+    selection = policy_repository(tmp_path)
+    (tmp_path / "policies/subdirectory").mkdir()
+    selection["repo_path"] = "policies/subdirectory"
+    suite["cases"][0]["policy"] = selection
+    monkeypatch.setattr("finassist.history_evaluation.prepare_model_request", lambda *a: pytest.fail("key/network"))
+    with pytest.raises(AssistantError, match="history_policy_repository_invalid"):
+        evaluate_history(suite, tmp_path, Config(), gate_case["state"],
+                         approved_suite_hash=history_approval_hash(suite), network_approved=network)
+    assert not gate_case["state"].exists()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows short-name directory aliases")
+@pytest.mark.parametrize("selection", ["source", "policy"])
+@pytest.mark.parametrize("network", [False, True])
+def test_windows_short_name_repository_roots_are_accepted(gate_case, tmp_path, selection, network):
+    import ctypes
+    from ctypes import wintypes
+
+    suite = model_suite(gate_case)
+    if selection == "policy":
+        suite["cases"][0]["policy"] = policy_repository(tmp_path, name="separate-policy-repository")
+        target = suite["cases"][0]["policy"]
+    else:
+        target = suite["cases"][0]
+    repo = (tmp_path / target["repo_path"]).resolve()
+    get_short_path = ctypes.WinDLL("kernel32", use_last_error=True).GetShortPathNameW
+    get_short_path.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+    get_short_path.restype = wintypes.DWORD
+    needed = get_short_path(str(repo), None, 0)
+    assert needed, ctypes.get_last_error()
+    buffer = ctypes.create_unicode_buffer(needed)
+    written = get_short_path(str(repo), buffer, needed)
+    assert 0 < written < needed, ctypes.get_last_error()
+    alias = Path(buffer.value)
+    if alias == repo:
+        pytest.skip("Filesystem did not assign an 8.3 directory alias")
+    assert alias.samefile(repo)  # Real native aliases, not a mocked path comparison.
+    target["repo_path"] = str(alias)
+    if network:
+        result, calls = execute(gate_case, suite, trials=1)
+        assert len(calls) == 1 and result["cases"][0]["runs"][0]["status"] == "complete"
+    else:
+        result = evaluate_history(suite, tmp_path, Config(), gate_case["state"])
+        assert result["mode"] == "offline" and not gate_case["state"].exists()

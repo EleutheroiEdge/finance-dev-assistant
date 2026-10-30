@@ -105,7 +105,9 @@ def history_policy_binding(case: dict, suite_directory: Path) -> HistoryPolicyBi
     repo = regular_path(suite_directory / selection.get("repo_path", case["repo_path"]))
     # Reject a non-repo subdirectory that would otherwise inherit an ancestor's
     # Git identity. No remote inspection, fetch or working-tree mutation occurs.
-    if not repo.is_dir() or regular_path(Path(git(repo, "rev-parse", "--show-toplevel"))) != repo:
+    # Git may expand Windows 8.3 names. Compare directory identity only after
+    # both spellings pass the existing symlink/reparse-point screening.
+    if not repo.is_dir() or not regular_path(Path(git(repo, "rev-parse", "--show-toplevel"))).samefile(repo):
         raise AssistantError("history_policy_repository_invalid")
     commit = selection.get("commit", case["base_sha"])
     if resolve(repo, commit) != commit:
@@ -127,7 +129,7 @@ def prepare_history_case(case: dict, root: Path, config: Config) -> dict:
     repo = regular_path(root / case["repo_path"])
     if not repo.is_dir():
         raise AssistantError("history_repository_unavailable")
-    if regular_path(Path(git(repo, "rev-parse", "--show-toplevel"))) != repo:
+    if not regular_path(Path(git(repo, "rev-parse", "--show-toplevel"))).samefile(repo):
         raise AssistantError("history_repository_root_required")
     base, head = case["base_sha"], case["head_sha"]
     if resolve(repo, base) != base or resolve(repo, head) != head:
