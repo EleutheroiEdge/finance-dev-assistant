@@ -201,6 +201,12 @@
       "title": "Max run usd",
       "type": "number"
     },
+    "min_version": {
+      "default": "",
+      "description": "Optional stable X.Y.Z reader version floor, checked before other options.",
+      "title": "Min version",
+      "type": "string"
+    },
     "model": {
       "default": "",
       "title": "Model",

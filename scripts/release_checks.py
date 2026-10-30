@@ -43,6 +43,10 @@ def release_notes(root, version):
     section = text[headings[index].end():end].strip()
     if not section:
         raise ValueError("release notes section must not be empty")
+    if tuple(map(int, version.split("."))) >= (0, 5, 0):
+        upgrading = list(re.finditer(r"^### Upgrading\n(.*?)(?=^### |\Z)", section, re.MULTILINE | re.DOTALL))
+        if len(upgrading) != 1 or not upgrading[0][1].strip():
+            raise ValueError("release notes require one nonempty Upgrading section")
     project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["name"]
     return "# " + project + " " + version + "\n" + section.strip() + "\n"
 

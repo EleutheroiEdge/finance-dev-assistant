@@ -17,8 +17,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_release_versions_and_tag_gate():
-    assert validate_tag(ROOT, "v0.4.0") == "0.4.0"
-    for tag in ["main", "v0.2.0", "v0.3.1", "v0.4.0rc1", "v0.4.0; echo unsafe"]:
+    assert validate_tag(ROOT, "v0.5.0") == "0.5.0"
+    for tag in ["main", "v0.2.0", "v0.3.1", "v0.4.0", "v0.5.0rc1", "v0.5.0; echo unsafe"]:
         with pytest.raises(ValueError):
             validate_tag(ROOT, tag)
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
@@ -82,6 +82,20 @@ def test_workflow_release_notes_exclude_already_published_changes():
     assert "PyPI page:" not in notes and "brand artwork" not in notes
     previous = release_notes(ROOT, "0.3.1")
     assert "hash-pinned base policy" not in previous and "audit-backed checkpoints" not in previous
+
+
+@pytest.mark.parametrize("section", ["Changes only", "### Upgrading\n", "### Upgrading\nFirst\n\n### Upgrading\nSecond"])
+def test_new_release_notes_require_one_nonempty_upgrading_section(tmp_path, section):
+    (tmp_path / "CHANGELOG.md").write_text("## 0.5.0 - Unreleased\n\n" + section, encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text('[project]\nname="synthetic"\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="Upgrading"):
+        release_notes(tmp_path, "0.5.0")
+
+
+def test_current_unreleased_notes_explain_upgrade_and_downgrade_boundary():
+    notes = release_notes(ROOT, "0.5.0")
+    assert "### Upgrading" in notes and "pre-migration evidence" in notes
+    assert "Historical releases" in notes
 
 
 def test_built_source_distribution_contains_complete_action_bootstrap(tmp_path):

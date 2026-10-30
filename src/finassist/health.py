@@ -22,6 +22,7 @@ def doctor_report(config: Config) -> dict:
         "container_daemon_checked": False,
         "recipes": sorted(config.recipes),
         "profile": config.profile,
+        "deprecated_config_options": list(getattr(config, "_deprecated_options", ())),
         "private_state_protection": private_state_protection(),
         "next_step": "inspect a plan packet before enabling any provider or running a recipe",
     }

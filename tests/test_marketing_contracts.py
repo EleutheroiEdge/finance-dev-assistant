@@ -22,7 +22,7 @@ CLASSIFIERS = [
 
 def test_metadata_llms_and_about_description_agree():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
-    assert project["version"] == "0.4.0"
+    assert project["version"] == "0.5.0"
     assert project["description"] == DESCRIPTION
     assert project["keywords"] == KEYWORDS
     assert project["classifiers"] == CLASSIFIERS
@@ -41,7 +41,7 @@ def test_readme_has_plain_headings_in_requested_order_and_audience_table():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert readme.startswith("# finledgerpoli\n\n")
     assert re.findall(r"^## (.+)$", readme, re.MULTILINE) == [
-        "Why finledgerpoli", "Who it's for", "Quick start", "How it works", "Dashboard",
+        "Why finledgerpoli", "Who it's for", "Quick start", "Upgrading", "How it works", "Dashboard",
         "Use it with AI agents", "Guides", "Safety and limits", "Contribute", "License",
     ]
     assert not re.search(r"<h[1-6](?:>|\s)", readme)

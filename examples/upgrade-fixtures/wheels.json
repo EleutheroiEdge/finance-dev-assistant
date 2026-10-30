@@ -1,0 +1,21 @@
+{
+  "distribution": "finledgerpoli",
+  "wheels": [
+    {
+      "version": "0.3.1",
+      "filename": "finledgerpoli-0.3.1-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/42/d1/8c9c87fb4b8d47d1164fa54fa073c89d96329bea60a6b15b5faa3f122204/finledgerpoli-0.3.1-py3-none-any.whl",
+      "sha256": "6e1554b10c6b7d7d4e8072b541a97356df77c2070ac53425fed8bb38d9b8128d",
+      "size": 246265,
+      "metadata_url": "https://pypi.org/pypi/finledgerpoli/0.3.1/json"
+    },
+    {
+      "version": "0.4.0",
+      "filename": "finledgerpoli-0.4.0-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/05/7a/268287cccb5cd3ebb3959b46a5152a00cb35159cb932eb5ae26d88212e95/finledgerpoli-0.4.0-py3-none-any.whl",
+      "sha256": "f56db4445dab9e0abb5ea0010d1768f3688a0e448a1882a05a8720b0e67e9e1c",
+      "size": 301075,
+      "metadata_url": "https://pypi.org/pypi/finledgerpoli/0.4.0/json"
+    }
+  ]
+}

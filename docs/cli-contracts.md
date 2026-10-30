@@ -52,11 +52,12 @@ means other documented/context-specific fields can exist, not a literal JSON val
 
 | Command | JSON/result shape and streams | Normal exits |
 | --- | --- | --- |
+| `config` | `config migrate --dry-run` returns `{changed, source_sha256, diff, written: false, backup: null}` without writes. A non-dry run applies only supported key renames after validation, with exact original bytes in a timestamped backup; unchanged files remain byte-identical. | 0, 2 |
 | `gate` | `gate run` writes a version-1 model component report at required new `--output`; stdout `{verdict, report_hash}`. Explicit v2 pinned base policy and private retained `--state-dir` required. Verdict PASS/FAIL/BLOCKED, reasons, structured advisory findings, source/policy/request hashes, usage and spend. Unknown usage stays reserved. Summary/Action outputs omit raw provider text. See [pre-merge gate](pre-merge-gate.md). | 0 PASS, 1 FAIL, 2 BLOCKED/error |
 | `ci` | `ci gate` returns a version-1 deterministic-check report: status, exact policy/source/plan/configuration hashes, required/completed counts, model-review status and blockers. With `--output`, stdout is `{output, status, report_hash}`. Reads a pinned base policy, not workspace config. See [CI gates](ci-gates.md). | 0, 1, 2 |
 | `guide` | Without a topic: stdout `{topics: [{topic, title}]}`. With a topic: bundled UTF-8 Markdown, not JSON. No config, state writes or network. Unknown topics return `unknown_guide` on stderr. | 0, 2 |
 | `init` | stdout `{created: string, network_enabled: false}`; writes validated config JSON. | 0, 2 |
-| `doctor` | stdout health object: `version`, `python`, `platform`, `provider`, `model_configured`, `network_enabled`, `key_present` (boolean/null), runtime binary presence, `container_daemon_checked: false`, recipes/profile and private-state warning. | 0, 2 |
+| `doctor` | stdout health object: `version`, `python`, `platform`, `provider`, `model_configured`, `network_enabled`, `key_present` (boolean/null), runtime binary presence, `container_daemon_checked: false`, recipes/profile, deprecated keys and private-state warning. Explicit `--fix` preflights and applies safe reversible configuration/evidence migrations, adding `fixes` metadata without network calls. | 0, 2 |
 | `demo` | result `{status, data_class: "synthetic", checks: array, counterexamples_detected: array, model_called: false, trade_execution: false, qualification, tax_example}`. | 0, 1, 2 |
 | `plan` | outgoing request artifact with `schema_version: 2`, base/head/merge-base hashes, profile/path policy, files, omissions and `packet_hash`; stdout summary `{packet_hash, output, triage}`. | 0, 2 |
 | `workflow` | `plan`/`preflight` bind and inspect plans; `run`/`resume` execute approved checks; `status`/`reconcile`/`retry`/`cancel` inspect and manage durable state. See [workflow plans](workflow-plans.md) and [execution](workflow-execution.md). | 0, 1, 2 |
@@ -90,10 +91,17 @@ means other documented/context-specific fields can exist, not a literal JSON val
 | `dashboard` | Human stdout `Dashboard: http://127.0.0.1:<port>`; persistent local HTTP server, no CLI JSON success record. See dashboard API errors below. | 0, 2 |
 
 `evidence` actions are positional: `finassist evidence add`,
-`approve`, `reject` or `latest`. Add/decision records contain `id`, content `hash`,
+`approve`, `reject`, `latest`, `verify` or `migrate`. Add/decision records contain `id`, content `hash`,
 status and record metadata; latest returns the unique approved revision matching
 the requested entity/metric/period/unit, or refuses ambiguity/missing matches.
 Use the IDs and hashes printed by the tool, not list position. See [research inputs](research-inputs.md).
+`evidence verify` returns `{verified, schema_version, entries, decisions}` without
+writes. `evidence migrate --dry-run` adds `{changed, written: false, source_sha256,
+target_schema_version, backup, destination}`. The explicit non-dry run copies to
+a new versioned filename and adds `destination_sha256`, keeping the original as
+the untouched backup. A current-schema no-op reports `changed: false` and
+`written: false`. `--dry-run` is refused on other evidence actions. See the
+[compatibility policy](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/maintainers/compatibility.md).
 
 ## Dashboard HTTP errors
 

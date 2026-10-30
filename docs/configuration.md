@@ -9,6 +9,7 @@ with `unknown_config_option`; no provider is selected from an existing key.
 | Option | Meaning |
 |---|---|
 | `schema_version` | Configuration format version; use 1. |
+| `min_version` | Optional stable X.Y.Z reader floor, checked before other options; empty by default. Historical releases without this feature report unknown_config_option for it. |
 | `provider` | offline, openai, anthropic, google, compatible or ollama. No automatic fallback. |
 | `model` | Exact user-selected model identifier; empty for offline. |
 | `endpoint` | Explicit provider API URL, or the built-in protocol default. |

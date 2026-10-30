@@ -1,6 +1,7 @@
 {
   "$schema": "../schemas/finassist.schema.json",
   "schema_version": 1,
+  "min_version": "",
   "provider": "offline",
   "model": "",
   "endpoint": "",
