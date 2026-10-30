@@ -5,7 +5,7 @@ inputs:
     description: checks-only (default, v1 policy) or model-review (explicit v2 model policy).
     default: checks-only
   state-directory:
-    description: Private caller-retained budget ledger directory; required for model-review. Daily caps apply per ledger.
+    description: Private absolute retained state path outside RUNNER_TEMP and checkout; required for model-review. Caps apply per ledger.
     default: ''
   policy-path:
     description: Repository-relative policy path, read from the base commit.

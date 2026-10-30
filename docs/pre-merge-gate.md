@@ -101,7 +101,10 @@ the named key. It accepts only the narrow `pull_request` context, never
 hooks in a key-bearing job. Workflow isolation and trusted caller wiring remain
 part of the boundary, not something this source-review tool can enforce.
 
-Supply a caller-managed private retained state directory explicitly. With
+Supply a caller-managed private retained state directory explicitly, using an
+**absolute path outside both RUNNER_TEMP and GITHUB_WORKSPACE**. The adapter
+refuses relative paths that would resolve inside its disposable bootstrap
+directory, temporary state paths and candidate-controlled checkout state. With
 ephemeral hosted runners, arrange trusted retention and serialization yourself
 before enabling paid unattended review. Do not restore budget/audit state from
 untrusted PR-controlled caches. No persistence backend, secret or workflow is

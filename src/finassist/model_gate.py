@@ -115,6 +115,16 @@ def _blank_report() -> dict:
             "summary": "Advisory model-review component only. Source references are checked; claims are not reproduced."}
 
 
+def refused_model_report(code: str) -> dict:
+    """Keep the versioned verdict contract when caller preflight cannot enter the core."""
+    report = _blank_report()
+    report["reasons"] = [code if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,80}", code)
+                         else "gate_action_refused"]
+    report["report_hash"] = digest(canonical(report))
+    validate_model_report(report)
+    return report
+
+
 def model_gate(repo: Path, base: str, head: str, policy_path: str, policy_pin: str, state_dir: Path,
                *, environment=None, transport=None) -> dict:
     """Evaluate all policy rules before approving/reserving one exact request.

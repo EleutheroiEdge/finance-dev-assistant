@@ -93,3 +93,38 @@ def test_action_cannot_supply_key_to_fork_or_create_fresh_implicit_state(gate_ca
     assert run_github_action(env) == 2
     assert reason in Path(env["GITHUB_STEP_SUMMARY"]).read_text(encoding="utf-8")
     assert "BLOCKED" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("changes,reason", [
+    ({"GITHUB_EVENT_NAME": "pull_request_target"}, "ci_event_not_allowed"),
+    ({"FINASSIST_CI_REPOSITORY_PATH": ".."}, "ci_checkout_path_invalid"),
+    ({"FINASSIST_CI_MODE": "unsupported"}, "ci_action_mode_invalid"),
+])
+def test_action_preflight_refusals_keep_blocked_report_contract(gate_case, tmp_path, capsys, changes, reason):
+    env = environment(gate_case, tmp_path)
+    env.update(changes)
+    assert run_github_action(env) == 2
+    summary = Path(env["GITHUB_STEP_SUMMARY"])
+    outputs = Path(env["GITHUB_OUTPUT"])
+    assert summary.exists() and outputs.exists()
+    assert reason in summary.read_text(encoding="utf-8")
+    values = dict(line.split("=", 1) for line in outputs.read_text(encoding="utf-8").splitlines())
+    report = json.loads(Path(values["report-path"]).read_text(encoding="utf-8"))
+    assert values["status"] == report["verdict"] == "BLOCKED" and report["reasons"] == [reason]
+    assert "ci_action_output_unavailable" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("location", ["relative", "runner", "repository"])
+def test_action_rejects_implicit_or_candidate_managed_ledgers(gate_case, tmp_path, monkeypatch, capsys, location):
+    env = environment(gate_case, tmp_path)
+    paths = {"relative": "retained-state", "runner": str(tmp_path / "runner/retained-state"),
+             "repository": str(gate_case["repo"] / ".finassist/retained-state")}
+    env["FINASSIST_CI_STATE_DIRECTORY"] = paths[location]
+    bootstrap_cwd = tmp_path / "bootstrap-cwd"
+    bootstrap_cwd.mkdir()
+    monkeypatch.chdir(bootstrap_cwd)
+    monkeypatch.setattr("finassist.model_gate.model_gate", partial(model_gate, transport=httpx.MockTransport(fake_model)))
+    assert run_github_action(env) == 2
+    assert "gate_state_directory_not_retained" in Path(env["GITHUB_STEP_SUMMARY"]).read_text(encoding="utf-8")
+    assert not (Path(paths[location]) / "audit.sqlite").exists()
+    capsys.readouterr()

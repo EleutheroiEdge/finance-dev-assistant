@@ -122,10 +122,8 @@ def _run_github_action(environment) -> int:
 def run_github_action(environment) -> int:
     try:
         mode = environment.get("FINASSIST_CI_MODE", "checks-only")
-        if mode == "model-review":
-            return _run_model_action(environment)
         if mode != "checks-only":
-            raise AssistantError("ci_action_mode_invalid")
+            return _run_model_action(environment)
         return _run_github_action(environment)
     except Exception:
         # Invalid/unwritable runner output paths must fail without a traceback
@@ -135,24 +133,42 @@ def run_github_action(environment) -> int:
 
 
 def _run_model_action(environment) -> int:
-    from .model_gate import EXIT_CODES, model_gate
+    from .model_gate import EXIT_CODES, model_gate, refused_model_report
 
-    if environment.get("GITHUB_ACTIONS") != "true":
-        raise AssistantError("ci_github_context_required")
-    workspace = regular_path(Path(environment["GITHUB_WORKSPACE"]))
-    repo = regular_path(workspace / environment.get("FINASSIST_CI_REPOSITORY_PATH", "."))
-    if not repo.is_relative_to(workspace):
-        raise AssistantError("ci_checkout_path_invalid")
-    context = pull_request_context(read_document(Path(environment["GITHUB_EVENT_PATH"])),
-                                   environment["GITHUB_EVENT_NAME"], environment["GITHUB_REPOSITORY"])
+    try:
+        if environment.get("FINASSIST_CI_MODE") != "model-review":
+            raise AssistantError("ci_action_mode_invalid")
+        if environment.get("GITHUB_ACTIONS") != "true":
+            raise AssistantError("ci_github_context_required")
+        workspace = regular_path(Path(environment["GITHUB_WORKSPACE"]))
+        repo = regular_path(workspace / environment.get("FINASSIST_CI_REPOSITORY_PATH", "."))
+        if not repo.is_relative_to(workspace):
+            raise AssistantError("ci_checkout_path_invalid")
+        context = pull_request_context(read_document(Path(environment["GITHUB_EVENT_PATH"])),
+                                       environment["GITHUB_EVENT_NAME"], environment["GITHUB_REPOSITORY"])
+        retained_state = environment.get("FINASSIST_CI_STATE_DIRECTORY", "")
+        if not retained_state:
+            raise AssistantError("gate_state_directory_required")
+        supplied_state = Path(retained_state)
+        private_root = regular_path(Path(environment["RUNNER_TEMP"]))
+        if not supplied_state.is_absolute():
+            raise AssistantError("gate_state_directory_not_retained")
+        state = regular_path(supplied_state)
+        if state.is_relative_to(private_root) or state.is_relative_to(workspace):
+            raise AssistantError("gate_state_directory_not_retained")
+        report = model_gate(repo, context.base_sha, context.head_sha,
+                            environment.get("FINASSIST_CI_POLICY_PATH", "gate-policy.json"),
+                            environment["FINASSIST_CI_POLICY_SHA256"], state, environment=environment)
+    except AssistantError as exc:
+        report = refused_model_report(exc.code)
+    except Exception:
+        report = refused_model_report("gate_action_input_unavailable")
+    # An invalid context still gets a stable BLOCKED report when the trusted
+    # runner's output paths work. Only actual output failures reach the outer
+    # last-resort handler; source/event/exception text is never projected.
     private_root = regular_path(Path(environment["RUNNER_TEMP"]))
     private_root.mkdir(mode=0o700, parents=True, exist_ok=True)
     directory = Path(tempfile.mkdtemp(prefix="finassist-model-gate-", dir=private_root))
-    retained_state = environment.get("FINASSIST_CI_STATE_DIRECTORY", "")
-    report = model_gate(repo, context.base_sha, context.head_sha,
-                        environment.get("FINASSIST_CI_POLICY_PATH", "gate-policy.json"),
-                        environment["FINASSIST_CI_POLICY_SHA256"],
-                        Path(retained_state) if retained_state else None, environment=environment)
     report_path = directory / "report.json"
     write_private(report_path, canonical(report) + b"\n")
     publish_action_report(report, report_path, Path(environment["GITHUB_STEP_SUMMARY"]), Path(environment["GITHUB_OUTPUT"]))
