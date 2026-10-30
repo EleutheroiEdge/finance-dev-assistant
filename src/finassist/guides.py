@@ -15,6 +15,7 @@ GUIDES = {
     "workflow-packs": ("Workflow packs", "docs/workflow-packs.md", "workflow-packs-guide.md"),
     "workflow-timelines": ("Workflow audit timelines", "docs/workflow-timelines.md", "workflow-timelines-guide.md"),
     "ci-gates": ("GitHub Actions check gates", "docs/ci-gates.md", "ci-gates-guide.md"),
+    "pre-merge-gate": ("Using finledgerpoli as a pre-merge gate", "docs/pre-merge-gate.md", "pre-merge-gate-guide.md"),
     "providers": ("Providers", "docs/providers.md", "provider-guide.md"),
     "readiness": ("Auditing and readiness", "docs/readiness-and-auditing.md", "readiness-guide.md"),
     "platforms": ("Supported platforms", "docs/platforms.md", "platform-guide.md"),

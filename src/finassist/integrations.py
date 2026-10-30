@@ -17,6 +17,9 @@ def export_kit(destination: Path) -> dict:
     destination.mkdir(mode=0o700, parents=True)
     mapping = {
         "schemas/finassist.schema.json": "finassist.schema.json",
+        "schemas/model-gate-report.schema.json": "model-gate-report.schema.json",
+        "examples/model-gate/policy.json": "model-gate-policy.json",
+        "examples/model-gate/caller.py": "model-gate-caller.py",
         "evidence-review/SKILL.md": "skill.md",
         "roles/claude-reviewer.md": "claude-reviewer.md",
         "roles/codex-reviewer.toml": "codex-reviewer.toml",

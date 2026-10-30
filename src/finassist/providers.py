@@ -12,6 +12,7 @@ import httpx
 
 from .config import Config
 from .errors import AssistantError
+from .security import canonical, digest
 
 
 @dataclass(frozen=True)
@@ -95,6 +96,24 @@ def request_shape(config: Config, system: str, packet: dict, schema: dict) -> tu
     return url, headers, payload
 
 
+def request_identity(url: str, headers: dict, payload: dict) -> tuple[str, bytes]:
+    """Bind the exact wire body and destination without persisting credential values.
+
+    Authentication header names are bound; their values are deliberately excluded.
+    The named process environment remains the credential authority. Protocol header
+    values are included only through this fixed, nonsecret allowlist.
+    """
+    body = canonical(payload)
+    identity = {
+        "method": "POST", "url": url,
+        "header_names": sorted(name.lower() for name in headers),
+        "protocol_headers": {name.lower(): value for name, value in headers.items()
+                             if name.lower() in {"content-type", "anthropic-version"}},
+        "body_sha256": digest(body),
+    }
+    return digest(canonical(identity)), body
+
+
 def parse_response(provider: str, data: dict) -> ModelResult:
     if not isinstance(data, dict):
         raise AssistantError("invalid_provider_response")
@@ -161,17 +180,21 @@ def invoke(
     *,
     network_approved: bool,
     transport: httpx.BaseTransport | None = None,
+    approved_request_hash: str | None = None,
 ) -> ModelResult:
     config.validate()
     if not config.allow_network or not network_approved:
         raise AssistantError("network_not_approved")
     url, headers, payload = request_shape(config, system, packet, schema)
+    request_hash, body = request_identity(url, headers, payload)
+    if approved_request_hash is not None and approved_request_hash != request_hash:
+        raise AssistantError("request_approval_mismatch")
     started = time.monotonic()
     try:
         with httpx.Client(
             timeout=config.timeout_seconds, trust_env=False, follow_redirects=False, transport=transport
         ) as client:
-            with client.stream("POST", url, headers=headers, json=payload) as response:
+            with client.stream("POST", url, headers=headers, content=body) as response:
                 if response.status_code != 200:
                     # Never print a provider response body: it may echo credentials or input.
                     raise AssistantError("provider_http_error")

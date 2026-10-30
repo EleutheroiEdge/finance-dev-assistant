@@ -1,6 +1,12 @@
 name: finledgerpoli financial check gate
 description: Run isolated financial checks under a pinned policy from the pull request base revision.
 inputs:
+  mode:
+    description: checks-only (default, v1 policy) or model-review (explicit v2 model policy).
+    default: checks-only
+  state-directory:
+    description: Private caller-retained budget ledger directory; required for model-review. Daily caps apply per ledger.
+    default: ''
   policy-path:
     description: Repository-relative policy path, read from the base commit.
     default: finassist-ci.json
@@ -12,7 +18,7 @@ inputs:
     default: .
 outputs:
   status:
-    description: passed, blocked or error; only passed produces a successful action.
+    description: Checks use passed/blocked/error; model-review uses PASS/FAIL/BLOCKED. Only passed or PASS succeeds.
     value: ${{ steps.gate.outputs.status }}
   report-hash:
     description: Hash of the metadata-only report, excluding its hash field.
@@ -27,6 +33,8 @@ runs:
       id: gate
       shell: bash
       env:
+        FINASSIST_CI_MODE: ${{ inputs.mode }}
+        FINASSIST_CI_STATE_DIRECTORY: ${{ inputs.state-directory }}
         FINASSIST_CI_POLICY_PATH: ${{ inputs.policy-path }}
         FINASSIST_CI_POLICY_SHA256: ${{ inputs.policy-sha256 }}
         FINASSIST_CI_REPOSITORY_PATH: ${{ inputs.repository-path }}

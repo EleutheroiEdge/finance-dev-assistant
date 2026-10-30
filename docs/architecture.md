@@ -41,6 +41,11 @@ Models produce advisory JSON and proposed patches through bounded requests. They
 17. `github_actions`: metadata-only job summaries, outputs and private reports.
     The composite action bootstraps trusted action source in an isolated environment;
     it installs no target PR package on the host. See [CI gates](ci-gates.md).
+18. `model_policy` / `model_gate`: separate opt-in v2 model policy, pinned base
+    bytes, mandatory source/ignore screening and exact serialized request approval.
+    A caller-retained ledger reserves spend and blocks unresolved attempts.
+    CLI and explicit Action model mode share the same advisory verdict core;
+    v1 CI checks remain unchanged. See [pre-merge gate](pre-merge-gate.md).
 
 Finance profiles separate source authority, approved analyst judgments and
 algorithmic decisions. Do not replace a project's methodology with generic

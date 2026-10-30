@@ -154,13 +154,19 @@ class Ledger:
             return count
 
     def reserve(
-        self, amount: Decimal, daily_limit: Decimal, run_limit: Decimal, monthly_limit: Decimal | None = None
+        self, amount: Decimal, daily_limit: Decimal, run_limit: Decimal, monthly_limit: Decimal | None = None,
+        *, require_reconciled: bool = False,
     ) -> str:
         if not amount.is_finite() or amount < 0 or amount > run_limit:
             raise AssistantError("run_budget_exceeded")
         day = datetime.now(timezone.utc).date().isoformat()
         with self.transaction():
             rows = self.db.execute("SELECT reserved,actual,state,day FROM reservations").fetchall()
+            # Policy-approved unattended calls must not retry while any attempt's
+            # charge is unresolved. Check inside the same write transaction as
+            # reservation so concurrent callers cannot both pass the preflight.
+            if require_reconciled and any(state == "reserved" for _, _, state, _ in rows):
+                raise AssistantError("unreconciled_model_usage")
             # Unreconciled calls remain reserved across date changes.
             used = sum(
                 (
