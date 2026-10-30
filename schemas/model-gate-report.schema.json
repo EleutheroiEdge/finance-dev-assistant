@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "finledgerpoli model-review gate report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "mode", "verdict", "reasons", "base", "head", "policy_sha256", "request_sha256", "findings", "usage", "spend", "merge_authority", "deployment_authority", "summary", "report_hash"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "mode": {"const": "model-review"},
+    "verdict": {"enum": ["PASS", "FAIL", "BLOCKED"]},
+    "reasons": {"type": "array", "maxItems": 128, "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,80}$"}},
+    "base": {"$ref": "#/$defs/revision"}, "head": {"$ref": "#/$defs/revision"},
+    "policy_sha256": {"$ref": "#/$defs/hashOrNull"}, "request_sha256": {"$ref": "#/$defs/hashOrNull"},
+    "report_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "merge_authority": {"const": false}, "deployment_authority": {"const": false},
+    "summary": {"const": "Advisory model-review component only. Source references are checked; claims are not reproduced."},
+    "findings": {"type": "array", "maxItems": 50, "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["severity", "file", "line", "claim", "evidence_status"],
+      "properties": {
+        "severity": {"enum": ["critical", "high", "medium", "low", "info"]},
+        "file": {"type": "string", "minLength": 1, "maxLength": 512},
+        "line": {"type": "integer", "minimum": 1},
+        "claim": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "evidence_status": {"const": "source-reference-validated-not-reproduced"}
+      }
+    }},
+    "usage": {"type": "object", "additionalProperties": false, "required": ["input_tokens", "output_tokens"], "properties": {
+      "input_tokens": {"$ref": "#/$defs/tokens"}, "output_tokens": {"$ref": "#/$defs/tokens"}
+    }},
+    "spend": {"type": "object", "additionalProperties": false, "required": ["reserved_usd", "actual_usd", "scope"], "properties": {
+      "reserved_usd": {"$ref": "#/$defs/money"}, "actual_usd": {"$ref": "#/$defs/money"},
+      "scope": {"const": "caller-retained-ledger"}
+    }}
+  },
+  "$defs": {
+    "revision": {"type": ["string", "null"], "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+    "hashOrNull": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "tokens": {"type": ["integer", "null"], "minimum": 1, "maximum": 2000000},
+    "money": {"type": ["string", "null"], "pattern": "^(?:[0-9]+(?:\\.[0-9]+)?|[0-9]+(?:\\.[0-9]+)?[Ee][+-]?[0-9]+)$"}
+  }
+}

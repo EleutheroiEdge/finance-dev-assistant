@@ -38,6 +38,18 @@ def _report_identity(report: dict) -> None:
 
 
 def summary_markdown(report: dict) -> str:
+    if report.get("mode") == "model-review":
+        from .model_gate import validate_model_report
+
+        validate_model_report(report)
+        # No model claims, source paths or provider response text enter Actions
+        # summaries, outputs or workflow-command-capable stdout.
+        lines = ["## finledgerpoli model review gate", "", "Result: **" + report["verdict"] + "**.",
+                 "", "Advisory component only; findings have not been reproduced. No merge authority.",
+                 "", "Report hash: `" + report["report_hash"] + "`."]
+        if report["reasons"]:
+            lines += ["", *("- `" + code + "`" for code in report["reasons"])]
+        return "\n".join(lines) + "\n"
     _report_identity(report)
     lines = ["## finledgerpoli financial check gate", "", "Result: **" + report["status"] + "**.",
              "", "Mode: deterministic checks only. No AI review or merge authorization is implied.",
@@ -59,7 +71,8 @@ def publish_action_report(report: dict, report_path: Path, summary_path: Path, o
     with selected_summary.open("a", encoding="utf-8", newline="\n") as stream:
         stream.write(summary)
     with selected_outputs.open("a", encoding="utf-8", newline="\n") as stream:
-        stream.write("status=" + report["status"] + "\nreport-hash=" + report["report_hash"] +
+        status = report["verdict"] if report.get("mode") == "model-review" else report["status"]
+        stream.write("status=" + status + "\nreport-hash=" + report["report_hash"] +
                      "\nreport-path=" + path_value + "\n")
 
 
@@ -108,12 +121,59 @@ def _run_github_action(environment) -> int:
 
 def run_github_action(environment) -> int:
     try:
+        mode = environment.get("FINASSIST_CI_MODE", "checks-only")
+        if mode != "checks-only":
+            return _run_model_action(environment)
         return _run_github_action(environment)
     except Exception:
         # Invalid/unwritable runner output paths must fail without a traceback
         # revealing path values or accidentally leaving a successful job exit.
         print(json.dumps({"status": "error", "code": "ci_action_output_unavailable"}))
         return 2
+
+
+def _run_model_action(environment) -> int:
+    from .model_gate import EXIT_CODES, model_gate, refused_model_report
+
+    try:
+        if environment.get("FINASSIST_CI_MODE") != "model-review":
+            raise AssistantError("ci_action_mode_invalid")
+        if environment.get("GITHUB_ACTIONS") != "true":
+            raise AssistantError("ci_github_context_required")
+        workspace = regular_path(Path(environment["GITHUB_WORKSPACE"]))
+        repo = regular_path(workspace / environment.get("FINASSIST_CI_REPOSITORY_PATH", "."))
+        if not repo.is_relative_to(workspace):
+            raise AssistantError("ci_checkout_path_invalid")
+        context = pull_request_context(read_document(Path(environment["GITHUB_EVENT_PATH"])),
+                                       environment["GITHUB_EVENT_NAME"], environment["GITHUB_REPOSITORY"])
+        retained_state = environment.get("FINASSIST_CI_STATE_DIRECTORY", "")
+        if not retained_state:
+            raise AssistantError("gate_state_directory_required")
+        supplied_state = Path(retained_state)
+        private_root = regular_path(Path(environment["RUNNER_TEMP"]))
+        if not supplied_state.is_absolute():
+            raise AssistantError("gate_state_directory_not_retained")
+        state = regular_path(supplied_state)
+        if state.is_relative_to(private_root) or state.is_relative_to(workspace):
+            raise AssistantError("gate_state_directory_not_retained")
+        report = model_gate(repo, context.base_sha, context.head_sha,
+                            environment.get("FINASSIST_CI_POLICY_PATH", "gate-policy.json"),
+                            environment["FINASSIST_CI_POLICY_SHA256"], state, environment=environment)
+    except AssistantError as exc:
+        report = refused_model_report(exc.code)
+    except Exception:
+        report = refused_model_report("gate_action_input_unavailable")
+    # An invalid context still gets a stable BLOCKED report when the trusted
+    # runner's output paths work. Only actual output failures reach the outer
+    # last-resort handler; source/event/exception text is never projected.
+    private_root = regular_path(Path(environment["RUNNER_TEMP"]))
+    private_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    directory = Path(tempfile.mkdtemp(prefix="finassist-model-gate-", dir=private_root))
+    report_path = directory / "report.json"
+    write_private(report_path, canonical(report) + b"\n")
+    publish_action_report(report, report_path, Path(environment["GITHUB_STEP_SUMMARY"]), Path(environment["GITHUB_OUTPUT"]))
+    print(json.dumps({"verdict": report["verdict"], "report_hash": report["report_hash"]}))
+    return EXIT_CODES[report["verdict"]]
 
 
 if __name__ == "__main__":

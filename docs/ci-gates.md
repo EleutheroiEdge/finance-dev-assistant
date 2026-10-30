@@ -1,5 +1,9 @@
 # GitHub Actions check gates
 
+For the separate opt-in policy-approved model component, see
+[Using finledgerpoli as a pre-merge gate](pre-merge-gate.md). The v1 check policy
+and default Action mode described here retain their existing behavior.
+
 Run finledgerpoli automatically on pull requests under a reviewed, pinned CI
 policy. Version 1 supports deterministic checks in digest-pinned, network-disabled
 Docker or Podman containers. The action emits a failing job for blocked or

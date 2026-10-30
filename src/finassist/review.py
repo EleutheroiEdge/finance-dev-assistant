@@ -5,19 +5,35 @@ from __future__ import annotations
 from .platform_support import read_utf8
 
 from decimal import Decimal
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from importlib.resources import files
 import json
 from pathlib import Path
+import re
 
 import jsonschema
 
 from .config import Config
 from .errors import AssistantError
 from .ledger import Ledger
-from .providers import invoke, request_shape
+from .providers import invoke, request_identity, request_shape
 from .scope import triage, verify_packet, review_omissions
 from .security import canonical, check_text, digest
+
+
+@dataclass(frozen=True)
+class PolicyRequestApproval:
+    """A computed policy decision, not a replacement for the policy evaluator."""
+
+    policy_sha256: str
+    request_sha256: str
+
+    def validate(self, actual_request_hash: str) -> None:
+        if any(not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None
+               for value in (self.policy_sha256, self.request_sha256)):
+            raise AssistantError("policy_request_approval_invalid")
+        if self.request_sha256 != actual_request_hash:
+            raise AssistantError("request_approval_mismatch")
 
 
 def review_schema() -> dict:
@@ -76,6 +92,7 @@ def call_model(
     network_approved: bool,
     approved_packet_hash: str | None,
     transport=None,
+    policy_approval: PolicyRequestApproval | None = None,
 ):
     verify_packet(packet, config)
     config.validate()
@@ -102,7 +119,10 @@ def call_model(
         raise AssistantError("scope_incomplete")
     if not packet["files"]:
         raise AssistantError("empty_model_context")
-    request_shape(config, system, packet, schema)  # credential/config preflight, no IO
+    shape = request_shape(config, system, packet, schema)  # credential/config preflight, no IO
+    request_hash, request_body = request_identity(*shape)
+    if policy_approval is not None:
+        policy_approval.validate(request_hash)
     paid = config.provider != "ollama"
     if paid and (config.input_usd_per_million <= 0 or config.output_usd_per_million <= 0):
         raise AssistantError("provider_prices_required")
@@ -111,6 +131,8 @@ def call_model(
     # A conservative byte-based estimate plus envelope allowance is a planning
     # reservation, not a provider-enforced billing cap or tokenizer guarantee.
     input_bound = len(canonical(packet)) + len(system.encode()) + 16_384
+    if policy_approval is not None:
+        input_bound = max(input_bound, len(request_body) + 16_384)
     price_in, price_out = (
         Decimal(str(config.input_usd_per_million)),
         Decimal(str(config.output_usd_per_million)),
@@ -123,7 +145,15 @@ def call_model(
             Decimal(str(config.daily_budget_usd)),
             Decimal(str(config.max_run_usd)),
             Decimal(str(config.monthly_budget_usd)),
+            require_reconciled=policy_approval is not None,
         )
+        if policy_approval is not None:
+            ledger.append({
+                "event": "request_approved", "approved_by": "policy",
+                "policy_sha256": policy_approval.policy_sha256,
+                "request_sha256": policy_approval.request_sha256,
+                "reservation": reservation,
+            })
         ledger.append(
             {
                 "event": "review_requested",
@@ -135,7 +165,8 @@ def call_model(
                 "config_hash": digest(canonical(asdict(config))),
             }
         )
-        result = invoke(config, system, packet, schema, network_approved=True, transport=transport)
+        result = invoke(config, system, packet, schema, network_approved=True, transport=transport,
+                        approved_request_hash=policy_approval.request_sha256 if policy_approval else None)
         ledger.append(
             {
                 "event": "model_usage",
@@ -145,7 +176,9 @@ def call_model(
             }
         )
         # Settle usage before validating semantics, including refused/malformed output.
-        if price_in == price_out == 0:
+        if price_in == price_out == 0 and (
+            policy_approval is None or (result.input_tokens is not None and result.output_tokens is not None)
+        ):
             ledger.settle(reservation, Decimal(0))
         elif result.input_tokens is not None and result.output_tokens is not None:
             actual = (

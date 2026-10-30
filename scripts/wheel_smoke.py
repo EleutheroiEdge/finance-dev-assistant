@@ -16,3 +16,4 @@ with tempfile.TemporaryDirectory(prefix="finassist-install-") as directory:
     install_requirements(python)
     install_wheel(python, wheel)
     run(python, "scripts/package_smoke.py", "examples")
+    run(python, "scripts/model_gate_smoke.py")

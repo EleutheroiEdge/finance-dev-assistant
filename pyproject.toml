@@ -51,7 +51,7 @@ where = ["src"]
 
 # Brand source is outside src/; only the prebuilt dashboard icons ship in wheels.
 [tool.setuptools.package-data]
-finassist = ["resources/*.json", "resources/*.md", "resources/*.toml", "resources/dashboard/*", "resources/dashboard/assets/*"]
+finassist = ["resources/*.json", "resources/*.md", "resources/*.toml", "resources/*.py", "resources/dashboard/*", "resources/dashboard/assets/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
