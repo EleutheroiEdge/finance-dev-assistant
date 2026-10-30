@@ -335,3 +335,14 @@ def test_offline_policy_inspection_never_reads_the_provider_key(gate_case, tmp_p
     suite["cases"][0]["policy"]["sha256"] = "0" * 64
     with pytest.raises(AssistantError, match="gate_policy_pin_mismatch"):
         evaluate_history(suite, tmp_path, Config(), gate_case["state"])
+
+
+@pytest.mark.parametrize("network", [False, True])
+def test_source_repository_must_name_its_root_before_key_or_network(gate_case, tmp_path, monkeypatch, network):
+    suite = model_suite(gate_case)
+    suite["cases"][0]["repo_path"] = str(gate_case["repo"] / "src")
+    monkeypatch.setattr("finassist.history_evaluation.prepare_model_request", lambda *a: pytest.fail("key/network"))
+    with pytest.raises(AssistantError, match="history_repository_root_required"):
+        evaluate_history(suite, tmp_path, Config(), gate_case["state"],
+                         approved_suite_hash=history_approval_hash(suite), network_approved=network)
+    assert not gate_case["state"].exists()

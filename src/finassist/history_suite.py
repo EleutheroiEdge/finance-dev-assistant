@@ -127,6 +127,8 @@ def prepare_history_case(case: dict, root: Path, config: Config) -> dict:
     repo = regular_path(root / case["repo_path"])
     if not repo.is_dir():
         raise AssistantError("history_repository_unavailable")
+    if regular_path(Path(git(repo, "rev-parse", "--show-toplevel"))) != repo:
+        raise AssistantError("history_repository_root_required")
     base, head = case["base_sha"], case["head_sha"]
     if resolve(repo, base) != base or resolve(repo, head) != head:
         raise AssistantError("history_revision_mismatch")

@@ -65,8 +65,9 @@ A history file has `version: 1` and `cases`, each with these fields:
 ```
 
 Use actual full commit SHAs, not the illustrative values above. Repository paths
-are local, relative to the suite file or absolute; URLs and linked paths are
-refused. Objects must already exist. Evaluation never fetches, switches branches,
+are local Git repository roots, relative to the suite file or absolute; URLs,
+linked paths and repository subdirectories are refused. Objects must already
+exist. Evaluation never fetches, switches branches,
 changes files or executes the repository. All changed source is screened; omitted,
 ignored, private, binary, oversized or unsupported source refuses the case.
 Expected paths must be inside that complete scope. Case IDs, expected labels,
