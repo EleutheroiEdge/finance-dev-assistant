@@ -240,9 +240,12 @@ def parser() -> argparse.ArgumentParser:
         "--forbid", action="append", default=[], help="Additional text to exclude, case-insensitively"
     )
     evaluation = commands.add_parser(
-        "evaluate", help="Run a frozen synthetic discovery suite; labels stay out of context"
+        "evaluate", help="Run frozen synthetic or local history cases; labels stay out of context"
     )
-    evaluation.add_argument("--suite", required=True)
+    suites = evaluation.add_mutually_exclusive_group(required=True)
+    suites.add_argument("--suite")
+    suites.add_argument("--history-suite", help="Local frozen revisions and held-out expected findings")
+    evaluation.add_argument("--trials", type=int, default=1, help="History trials per case (1-20)")
     evaluation.add_argument("--approve-suite")
     evaluation.add_argument("--allow-network", action="store_true")
     evaluation.add_argument("--state-dir", type=Path, default=Path(".finassist"))
@@ -250,6 +253,8 @@ def parser() -> argparse.ArgumentParser:
     scoring = commands.add_parser("score", help="Score an evaluation with independent operator judgments")
     scoring.add_argument("--evaluation", required=True)
     scoring.add_argument("--labels", required=True)
+    scoring.add_argument("--compare", help="Second history evaluation over the same frozen cases")
+    scoring.add_argument("--compare-labels", help="Independent judgments bound to the second evaluation")
     scoring.add_argument("--output", required=True)
     evidence = commands.add_parser(
         "evidence", help="Append local analyst evidence and record explicit approval"
@@ -568,19 +573,47 @@ def execute(args, config: Config | None = None) -> int:
         )
         return 1 if findings else 0
     elif args.command == "evaluate":
-        suite = _read_json(args.suite)
-        _emit({"suite_hash": digest(canonical(suite)), "provider": config.provider})
-        result = evaluate(
-            suite,
-            config,
-            audit_directory(args),
-            approved_suite_hash=args.approve_suite,
-            network_approved=args.allow_network,
-        )
+        if args.history_suite:
+            from .history_evaluation import evaluate_history
+            from .history_suite import history_approval_hash
+
+            suite_file = regular_path(Path(args.history_suite))
+            suite = _read_json(str(suite_file), max_bytes=1_000_000)
+            _emit({"suite_hash": history_approval_hash(suite, args.trials), "trials": args.trials,
+                   "mode": "model" if args.allow_network else "offline"})
+            # A failed final output must not be the first discovery that a paid
+            # evaluation was written somewhere unusable. The retained journal
+            # also survives interruption/output races after this preflight.
+            output = regular_path(Path(args.output))
+            if output.exists():
+                raise AssistantError("output_exists")
+            result = evaluate_history(suite, suite_file.parent, config, audit_directory(args),
+                                      trials=args.trials, approved_suite_hash=args.approve_suite,
+                                      network_approved=args.allow_network)
+        else:
+            if args.trials != 1:
+                raise AssistantError("history_trials_require_history_suite")
+            suite = _read_json(args.suite)
+            _emit({"suite_hash": digest(canonical(suite)), "provider": config.provider})
+            result = evaluate(suite, config, audit_directory(args), approved_suite_hash=args.approve_suite,
+                              network_approved=args.allow_network)
         _emit(result, args.output)
         _emit({"output": args.output, "model_quality_measured": False})
+        if result.get("kind") == "history-evaluation" and any(
+            run["status"] == "blocked" for case in result["cases"] for run in case["runs"]
+        ):
+            return 2
     elif args.command == "score":
-        _emit(score(_read_json(args.evaluation), _read_json(args.labels)), args.output)
+        if bool(args.compare) != bool(args.compare_labels):
+            raise AssistantError("history_comparison_labels_required")
+        if args.compare:
+            from .history_scoring import compare_history
+
+            result = compare_history(_read_json(args.evaluation), _read_json(args.labels),
+                                     _read_json(args.compare), _read_json(args.compare_labels))
+        else:
+            result = score(_read_json(args.evaluation), _read_json(args.labels))
+        _emit(result, args.output)
     elif args.command == "evidence":
         if args.action in {"verify", "migrate"}:
             from .evidence_schema import migrate_evidence_store, verify_evidence_store

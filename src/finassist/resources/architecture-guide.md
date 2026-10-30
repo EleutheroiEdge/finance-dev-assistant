@@ -46,6 +46,13 @@ Models produce advisory JSON and proposed patches through bounded requests. They
     A caller-retained ledger reserves spend and blocks unresolved attempts.
     CLI and explicit Action model mode share the same advisory verdict core;
     v1 CI checks remain unchanged. See [pre-merge gate](pre-merge-gate.md).
+19. `history_suite` / `history_evaluation` / `history_scoring`: local frozen
+    source pairs, held-out target labels and bounded sequential trials through
+    the model gate. Whole-suite preflight and trial-count-bound approval precede
+    dispatch; a private journal preserves interruptions and the common ledger
+    retains unresolved charges. Scoring uses independent human adjudication,
+    withholds incomplete quality metrics and compares identical frozen tasks.
+    Offline planning makes no provider call. See [evaluation](evaluation.md).
 
 Finance profiles separate source authority, approved analyst judgments and
 algorithmic decisions. Do not replace a project's methodology with generic
