@@ -6,6 +6,7 @@ import tempfile
 import venv
 
 from ci_install import build_wheel, install_requirements, install_wheel, run
+from upgrade_smoke import exercise_upgrades
 
 with tempfile.TemporaryDirectory(prefix="finassist-install-") as directory:
     root = Path(directory)
@@ -17,3 +18,4 @@ with tempfile.TemporaryDirectory(prefix="finassist-install-") as directory:
     install_wheel(python, wheel)
     run(python, "scripts/package_smoke.py", "examples")
     run(python, "scripts/model_gate_smoke.py")
+    exercise_upgrades(wheel, root / "upgrades")

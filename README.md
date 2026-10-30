@@ -73,6 +73,33 @@ On Windows PowerShell, use `py -3 -m venv .venv`, then
 is required. macOS/Linux use the commands above. See [platform setup](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/platforms.md)
 for UTF-8, permissions, Git modes and Docker Desktop details.
 
+## Upgrading
+
+Use the package manager that installed finledgerpoli:
+
+```sh
+pipx upgrade finledgerpoli
+uv tool upgrade finledgerpoli
+python -m pip install --upgrade finledgerpoli
+```
+
+Upgrades never edit project configuration or evidence. Run `finassist doctor`
+after updating. `finassist update status --json` shows cached update information;
+`finassist update --dry-run` prints the detected command, and `--yes` explicitly
+runs it for a supported installation. Notices are off by default. Teams can pin
+a reviewed version, for example
+`pipx install finledgerpoli==0.4.0`, and roll back with
+`pipx install finledgerpoli==0.4.0 --force`. With uv use
+`uv tool install finledgerpoli==0.4.0 --force`; with pip use
+`python -m pip install finledgerpoli==0.4.0` in the intended environment.
+
+Configuration and evidence migrations are separate explicit commands. After
+migrating evidence with 0.5.0 or later, a downgrade below 0.5.0 sees only the
+pre-migration evidence. Keep both files and restore the preserved backup for
+a full rollback; later observations are not merged automatically. See the
+[upgrade guide](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/upgrading.md)
+or run `finassist guide upgrading` offline.
+
 ## How it works
 
 1. **Plan:** choose the exact commits, screen source and inspect what will be reviewed.

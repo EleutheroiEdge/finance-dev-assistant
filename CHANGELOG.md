@@ -2,13 +2,46 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.5.0 - Unreleased
 
 - Add an explicitly opted-in model-review gate with pinned base policy bytes,
   exact request approval, mandatory source screening, retained budget state,
   advisory PASS/FAIL/BLOCKED reports, shared CLI/Action core and generic examples.
   Existing offline and v1 checks defaults remain unchanged. Synthetic transports
   exercise this feature; live providers and project-wide hosted state are not supplied.
+
+- Add optional early configuration version floors, safe unknown-option upgrade
+  hints, tested deprecation windows and explicit configuration migration previews
+  with byte-exact backups. Ordinary configuration loads preserve original files.
+- Version evidence stores, verify their integrity read-only and copy forward
+  migrations to a new versioned filename while preserving the original backup.
+  Guarded readers refuse newer unsupported stores without changes; explicit
+  doctor fixes preflight reversible local migrations without network calls.
+- Test upgrades from the hash-pinned public 0.3.1 and 0.4.0 wheels in isolated
+  environments, retaining their original configuration as golden fixtures.
+- Inspect installation/update status offline, preview exact package-manager
+  commands and run them only with explicit confirmation. Add separately opted-in
+  daily cached PyPI notices, a network-gated manual doctor check, and cached
+  dashboard update status without browser install actions or external requests.
+
+- Allow 20 minutes in existing Windows Python CI jobs for native tests,
+  clean-wheel validation and historical upgrades. Other CI jobs retain
+  15-minute limits; the matrix and permissions are unchanged.
+
+### Fixed
+
+- Keep strict SQLite sidecar refusal in explicit evidence migrations. Ordinary
+  evidence opens and verification recover hot journals and wait for conflicting
+  writers while preserving unsupported-schema refusal.
+
+### Upgrading
+
+No action needed for existing configuration or evidence. Package upgrades never
+edit them, and data migrations are separate explicit commands. After an explicit
+evidence migration, downgrading below 0.5.0 sees only pre-migration evidence in
+the preserved original file. Restore that backup for a full rollback and retain
+the new versioned file separately; post-downgrade writes are not merged.
+Historical releases do not acquire the newer schema or `min_version` guards.
 
 ## 0.4.0 - 2026-10-29
 

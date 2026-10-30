@@ -70,7 +70,10 @@ fork check. Use the Action adapter in Actions.
 The state directory is mandatory and private. Retain the **same ledger** across
 calls that share a daily budget; serialize access or share the SQLite database
 on a filesystem that supports its locking. Caps are per ledger and UTC day,
-based on configured prices and reported usage. A fresh hosted runner with fresh
+based on configured prices and reported usage. This v2 model policy exposes
+run and daily limits, with no operator-selected monthly cap; manual review's
+`monthly_budget_usd` setting is not configurable through this policy version. A
+fresh hosted runner with fresh
 state does not enforce a project-wide daily cap. Caller retention, access
 control, reliable filesystem locks and accurate prices remain prerequisites.
 There is no new hosted state service or provider-enforced billing guarantee.

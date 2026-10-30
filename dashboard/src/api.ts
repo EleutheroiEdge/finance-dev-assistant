@@ -18,7 +18,13 @@ export type Statistics = {
   recent_runs: {id: string; command: string; status: string; started_at: string; duration_ms?: number; exit_code?: number}[];
   qualification: string;
 };
-export type Health = {configuration: {valid: boolean; code: string | null}; doctor: Record<string, string | number | boolean | string[] | null>};
+export type UpdateStatus = {
+  status: "not checked" | "update-available" | "up-to-date";
+  installed_version: string; latest_version: string | null; checked_at: string | null; stale: boolean;
+  install_method: string; upgrade_command: string | null; editable_install: boolean; can_upgrade: boolean;
+  update_check: "off" | "notify" | "invalid"; checks_disabled_by_environment: boolean;
+};
+export type Health = {configuration: {valid: boolean; code: string | null}; doctor: Record<string, unknown> & {updates?: UpdateStatus}};
 
 export type ErrorKind = "configuration" | "request";
 export class ApiError extends Error {

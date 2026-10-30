@@ -36,6 +36,22 @@ do not remove that guard or add an upload token as a workaround.
 
 ## Prepare and release
 
+For every new release starting with 0.5.0, use this changelog template and state
+any migration or downgrade limits explicitly. The release-note preflight requires
+one nonempty `Upgrading` section; historical published notes remain unchanged.
+
+```markdown
+## X.Y.Z - Unreleased
+
+### Added
+
+- Describe the change and its user-visible result.
+
+### Upgrading
+
+No action needed. Upgrades never edit project configuration or evidence.
+```
+
 1. Merge reviewed release source through a PR with all required CI green. Confirm
    project/package versions agree, release notes are complete, and the dashboard
    assets are current. Run tests, Ruff, the demo and publication scan.

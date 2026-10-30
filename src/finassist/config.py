@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .errors import AssistantError
+from .config_compat import check_min_version, compatible_document, decode_config, unknown_option
 from .security import (
     check_path,
     check_text,
@@ -46,6 +47,7 @@ class LoadedProfiles(dict):
 @dataclass(frozen=True)
 class Config:
     schema_version: int = field(default=1, metadata={"json_schema": {"const": 1}})
+    min_version: str = field(default="", metadata={"json_schema": {"description": "Optional stable X.Y.Z reader version floor, checked before other options."}})
     provider: str = field(default="offline", metadata={"json_schema": {"enum": sorted(PROVIDERS)}})
     model: str = ""
     endpoint: str = ""
@@ -102,6 +104,7 @@ class Config:
         import math
         import re
 
+        check_min_version(self.min_version)
         for key in ("provider", "model", "endpoint", "api_key_env", "profile", "runner_image"):
             if not isinstance(getattr(self, key), str):
                 raise AssistantError("invalid_config_string")
@@ -346,16 +349,18 @@ def load_config(path: Path | None = None, *, content: bytes | None = None) -> Co
             path = regular_path(path)
         if (len(content) if content is not None else path.stat().st_size) > 2_000_000:
             raise AssistantError("config_file_too_large")
-        raw = json.loads(content.decode("utf-8") if content is not None else read_utf8(path))
+        raw = decode_config(content if content is not None else read_utf8(path).encode("utf-8"))
         if isinstance(raw, dict) and "$schema" in raw:
             schema_hint = raw.pop("$schema")
             if not isinstance(schema_hint, str) or len(schema_hint) > 2048:
                 raise AssistantError("invalid_schema_hint")
             # Editor metadata only: never fetch or execute the referenced document.
-        if not isinstance(raw, dict) or set(raw) - {
+        raw, deprecated = compatible_document(raw)
+        unknown = set(raw) - {
             item.name for item in fields(Config) if not item.metadata.get("internal")
-        }:
-            raise AssistantError("unknown_config_option")
+        }
+        if unknown:
+            raise unknown_option(sorted(unknown)[0])
         for key in (
             "allow_paths",
             "generated_paths",
@@ -375,8 +380,13 @@ def load_config(path: Path | None = None, *, content: bytes | None = None) -> Co
         if path is None:
             if config.profile_files:
                 raise AssistantError("profile_files_require_path")
-            return config.validate()
-        return _load_profile_files(config, path.parent)
+            loaded = config.validate()
+        else:
+            loaded = _load_profile_files(config, path.parent)
+        # Non-semantic provenance: omitted by dataclass equality/asdict and all
+        # persisted configuration/hash documents, like resolved profile origins.
+        object.__setattr__(loaded, "_deprecated_options", tuple(deprecated))
+        return loaded
     except (ValueError, TypeError, OSError) as exc:
         raise AssistantError("invalid_config") from exc
 

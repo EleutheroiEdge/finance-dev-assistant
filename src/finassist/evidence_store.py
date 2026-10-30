@@ -8,17 +8,42 @@ import sqlite3
 
 from .errors import AssistantError
 from .finance import observation_check
-from .security import canonical, check_text, digest, regular_path
+from .security import canonical, check_text, digest
+from . import evidence_schema
 
 
 class EvidenceStore:
     def __init__(self, path: Path, *, extra_sensitive_patterns: tuple[str, ...] = ()):
         self.extra_sensitive_patterns = extra_sensitive_patterns
-        path = regular_path(path)
+        path = evidence_schema.resolve_evidence_path(path)
+        existed = path.exists()
+        evidence_schema.check_evidence_schema(path)
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.db = sqlite3.connect(path, timeout=15)
+        # Check again before any chmod/DDL: a connection to a pre-existing newer
+        # schema must never initialize tables or mutate its bytes.
+        try:
+            if existed or self.db.execute("PRAGMA user_version").fetchone()[0] != 0:
+                evidence_schema._version(self.db, path)
+            if existed:
+                evidence_schema.require_evidence_layout(self.db)
+        except BaseException:
+            self.db.close()
+            raise
+        self.path = path
         path.chmod(0o600)
         self.db.execute("PRAGMA foreign_keys=ON")
+        if existed:
+            # Opening an existing legacy/current store is not a migration or a
+            # repair operation. Missing tables must fail rather than be created.
+            return
+        try:
+            self._create_schema()
+        except BaseException:
+            self.db.close()
+            raise
+
+    def _create_schema(self) -> None:
         self.db.executescript("""
             CREATE TABLE IF NOT EXISTS entries (
                 id INTEGER PRIMARY KEY, entity TEXT NOT NULL, metric TEXT NOT NULL,
@@ -38,6 +63,10 @@ class EvidenceStore:
             CREATE TRIGGER IF NOT EXISTS no_delete_decision BEFORE DELETE ON decisions BEGIN
                 SELECT RAISE(ABORT,'immutable_decision'); END;
         """)
+        self.db.execute(f"PRAGMA user_version={evidence_schema.SUPPORTED_EVIDENCE_SCHEMA}")
+
+    def verify(self) -> dict:
+        return evidence_schema.verify_connection(self.db)
 
     def __enter__(self):
         return self

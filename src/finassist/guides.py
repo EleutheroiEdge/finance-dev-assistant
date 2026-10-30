@@ -8,6 +8,8 @@ from .errors import AssistantError
 GUIDES = {
     "agents": ("AI coding agents", "docs/agents.md", "agents-guide.md"),
     "configuration": ("Configuration", "docs/configuration.md", "configuration-guide.md"),
+    "upgrading": ("Upgrading", "docs/upgrading.md", "upgrading-guide.md"),
+    "compatibility": ("Configuration compatibility", "docs/maintainers/compatibility.md", "compatibility-guide.md"),
     "cli-contracts": ("CLI output contracts", "docs/cli-contracts.md", "cli-contracts-guide.md"),
     "workflows": ("Workflows", "docs/workflows.md", "workflow-guide.md"),
     "workflow-plans": ("Workflow plans", "docs/workflow-plans.md", "workflow-plans-guide.md"),

@@ -83,14 +83,28 @@ def parser() -> argparse.ArgumentParser:
     commands = root.add_subparsers(dest="command", required=True)
     guide = commands.add_parser("guide", help="List or print bundled guides offline")
     guide.add_argument("topic", nargs="?", help="Topic from the guide index; omit to list topics as JSON")
+    config_command = commands.add_parser("config", help="Preview or explicitly apply reversible configuration migrations")
+    config_actions = config_command.add_subparsers(dest="config_action", required=True)
+    migrate = config_actions.add_parser("migrate", help="Keep exact backup bytes before applying reviewed key renames")
+    migrate.add_argument("--path", type=Path, help="Configuration file; otherwise --config or finassist.json")
+    migrate.add_argument("--dry-run", action="store_true")
     init = commands.add_parser("init", help="Create offline-by-default configuration")
     init.add_argument("--output", default="finassist.json")
     init.add_argument("--provider", choices=sorted(PROVIDERS), default="offline")
     init.add_argument("--model", default="")
     init.add_argument("--profile", help="Name in the configured profile registry")
-    commands.add_parser(
+    doctor = commands.add_parser(
         "doctor", help="Check runtime, provider setup and container availability without network"
     )
+    doctor.add_argument("--fix", action="store_true", help="Apply only explicit safe reversible local migrations")
+    doctor.add_argument("--state-dir", type=Path)
+    doctor.add_argument("--check-updates", action="store_true", help="Check PyPI once when project network use is allowed")
+    update = commands.add_parser("update", help="Inspect installation or explicitly upgrade; never migrate project data")
+    update.add_argument("update_action", nargs="?", choices=["status"])
+    update.add_argument("--json", action="store_true", help="Emit JSON (also the default output contract)")
+    update_mode = update.add_mutually_exclusive_group()
+    update_mode.add_argument("--dry-run", action="store_true", help="Print the exact upgrade argv/command without installing")
+    update_mode.add_argument("--yes", action="store_true", help="Explicitly run the detected package manager once")
     demo = commands.add_parser("demo", help="Run fictional finance checks offline")
     demo.add_argument("--output")
     model_gate = commands.add_parser("gate", help="Run an explicitly policy-approved model review component")
@@ -240,7 +254,8 @@ def parser() -> argparse.ArgumentParser:
     evidence = commands.add_parser(
         "evidence", help="Append local analyst evidence and record explicit approval"
     )
-    evidence.add_argument("action", choices=["add", "approve", "reject", "latest"])
+    evidence.add_argument("action", choices=["add", "approve", "reject", "latest", "verify", "migrate"])
+    evidence.add_argument("--dry-run", action="store_true", help="Preview evidence migration without writes")
     evidence.add_argument("--state-dir", type=Path, default=Path(".finassist"))
     evidence.add_argument("--input")
     evidence.add_argument("--supersedes", type=int)
@@ -349,7 +364,10 @@ def execute(args, config: Config | None = None) -> int:
         )
         _emit({"created": args.output, "network_enabled": False})
     elif args.command == "doctor":
-        _emit(doctor_report(config))
+        from .update_check import check_once
+
+        checked = check_once(network_allowed=config.allow_network) if args.check_updates else None
+        _emit(doctor_report(config, update_check=checked))
     elif args.command == "demo":
         result = run_demo()
         _emit(result, args.output)
@@ -564,6 +582,18 @@ def execute(args, config: Config | None = None) -> int:
     elif args.command == "score":
         _emit(score(_read_json(args.evaluation), _read_json(args.labels)), args.output)
     elif args.command == "evidence":
+        if args.action in {"verify", "migrate"}:
+            from .evidence_schema import migrate_evidence_store, verify_evidence_store
+
+            path = audit_directory(args) / "evidence.sqlite"
+            result = verify_evidence_store(path) if args.action == "verify" else migrate_evidence_store(path, dry_run=args.dry_run)
+            if args.action == "migrate" and not args.dry_run:
+                with Ledger(audit_directory(args) / "audit.sqlite") as ledger:
+                    ledger.append({"event": "evidence_migrated", "changed": result["written"],
+                                   "source_sha256": result.get("source_sha256"),
+                                   "destination_sha256": result.get("destination_sha256")})
+            _emit(result)
+            return 0
         with EvidenceStore(
             audit_directory(args) / "evidence.sqlite",
             extra_sensitive_patterns=config.extra_sensitive_patterns,
@@ -642,6 +672,57 @@ def execute(args, config: Config | None = None) -> int:
 def main(argv: list[str] | None = None) -> int:
     try:
         args = parser().parse_args(argv)
+        if args.command == "update":
+            from .updater import run_upgrade, update_status
+
+            if args.config:
+                raise AssistantError("update_does_not_accept_project_config")
+            if args.update_action and (args.dry_run or args.yes):
+                raise AssistantError("update_status_action_conflict")
+            if not args.yes:
+                _emit({**update_status(), "dry_run": args.dry_run})
+                return 0
+            state = audit_directory(args)
+            with command_audit(state / "audit.sqlite", "update", Config()) as outcome:
+                result = run_upgrade(confirmed=True)
+                with Ledger(state / "audit.sqlite") as ledger:
+                    ledger.append({"event": "package_upgrade_finished", "install_method": result["install_method"],
+                                   "installer_exit_code": result["installer_exit_code"], "status": result["status"]})
+                _emit(result)
+                outcome["exit_code"] = 0 if result["installer_exit_code"] == 0 else 1
+                return outcome["exit_code"]
+        if args.command == "doctor" and args.fix and args.check_updates:
+            raise AssistantError("doctor_fix_must_remain_offline")
+        if args.command == "evidence" and args.dry_run and args.action != "migrate":
+            raise AssistantError("evidence_dry_run_requires_migrate")
+        if args.command == "doctor" and args.fix:
+            from .maintenance import fix_local_state
+
+            path = args.config
+            if path is None and Path("finassist.json").exists():
+                path = Path("finassist.json")
+            _emit(fix_local_state(path, audit_directory(args)))
+            return 0
+        if args.command == "config":
+            from .config_compat import apply_config_migration, preview_config_migration
+
+            if args.path and args.config and regular_path(args.path) != regular_path(args.config):
+                raise AssistantError("config_migration_path_ambiguous")
+            path = args.path or args.config or Path("finassist.json")
+            plan = preview_config_migration(path)
+            if args.dry_run:
+                _emit({**plan.report(), "written": False, "backup": None})
+                return 0
+            config = load_config(path, content=plan.after)
+            state = audit_directory(args)
+            with command_audit(state / "audit.sqlite", "config-migrate", config) as outcome:
+                result = apply_config_migration(plan)
+                with Ledger(state / "audit.sqlite") as ledger:
+                    ledger.append({"event": "config_migrated", "source_sha256": digest(plan.before),
+                                   "target_sha256": digest(plan.after), "changed": result["written"]})
+                _emit(result)
+                outcome["exit_code"] = 0
+                return 0
         if args.command == "guide":
             if args.topic is None:
                 _emit(guide_index())
@@ -693,6 +774,12 @@ def main(argv: list[str] | None = None) -> int:
                 _emit({"output": args.output, "status": report["status"], "report_hash": report["report_hash"]})
             return 0 if report["status"] == "passed" else 1
         config = load_config(args.config)
+        if not (args.command == "doctor" and args.check_updates):
+            from .update_check import maybe_notify
+
+            maybe_notify(network_allowed=config.allow_network, command=args.command)
+        if args.command == "evidence" and (args.action == "verify" or (args.action == "migrate" and args.dry_run)):
+            return execute(args, config)
         if args.command == "workflow" and args.workflow_action in WORKFLOW_STATE_ACTIONS:
             # These actions have their own replayable workflow lifecycle. A crash
             # leaves a checkpoint/unknown attempt, not an unclosable generic run.
@@ -704,7 +791,11 @@ def main(argv: list[str] | None = None) -> int:
             outcome["exit_code"] = execute(args, config)
             return outcome["exit_code"]
     except AssistantError as exc:
-        print(json.dumps({"status": "error", "code": exc.code}), file=sys.stderr)
+        from .config_compat import ConfigCompatibilityError
+        from .evidence_schema import EvidenceSchemaError
+
+        details = exc.public_details if isinstance(exc, (ConfigCompatibilityError, EvidenceSchemaError)) else {}
+        print(json.dumps({"status": "error", "code": exc.code, **details}), file=sys.stderr)
         return 2
     except (OSError, ValueError, TypeError, KeyError, InvalidOperation, sqlite3.Error) as exc:
         # Report a stable class, never raw provider errors, source or private paths.
