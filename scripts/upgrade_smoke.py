@@ -163,6 +163,10 @@ else:
 
 
 def exercise_upgrades(candidate, directory, *, cache=None):
+    # Temporary roots can use OS aliases (notably /var on macOS). Pass only
+    # the canonical owned staging path to installed CLIs; their link rejection
+    # remains unchanged for project configuration and evidence inputs.
+    directory = directory.resolve()
     manifest = json.loads((ROOT / "examples/upgrade-fixtures/wheels.json").read_text(encoding="utf-8"))
     if manifest["distribution"] != "finledgerpoli" or [row["version"] for row in manifest["wheels"]] != ["0.3.1", "0.4.0"]:
         raise RuntimeError("Expected both pinned historical versions")
