@@ -93,6 +93,17 @@ def parser() -> argparse.ArgumentParser:
     )
     demo = commands.add_parser("demo", help="Run fictional finance checks offline")
     demo.add_argument("--output")
+    model_gate = commands.add_parser("gate", help="Run an explicitly policy-approved model review component")
+    gate_actions = model_gate.add_subparsers(dest="gate_action", required=True)
+    gate_run = gate_actions.add_parser("run", help="Review immutable source with a pinned base policy")
+    gate_run.add_argument("--repo", type=Path, default=Path.cwd())
+    gate_run.add_argument("--base", required=True)
+    gate_run.add_argument("--head", required=True)
+    gate_run.add_argument("--policy", required=True)
+    gate_run.add_argument("--policy-sha256", required=True)
+    gate_run.add_argument("--state-dir", type=Path, required=True, help="Private caller-retained budget ledger directory")
+    gate_run.add_argument("--output", required=True, help="New private JSON report path")
+
     ci = commands.add_parser("ci", help="Run isolated CI checks under a pinned base-revision policy")
     ci_actions = ci.add_subparsers(dest="ci_action", required=True)
     ci_gate_parser = ci_actions.add_parser("gate", help="Evaluate a GitHub PR without calling or approving models")
@@ -655,6 +666,17 @@ def main(argv: list[str] | None = None) -> int:
             if args.output:
                 _emit({"output": args.output, "report_hash": report["report_hash"]})
             return 0
+        if args.command == "gate":
+            from .model_gate import EXIT_CODES, model_gate
+
+            if args.config:
+                raise AssistantError("gate_configuration_must_come_from_policy")
+            if regular_path(Path(args.output)).exists():
+                raise AssistantError("output_exists")
+            report = model_gate(args.repo, args.base, args.head, args.policy, args.policy_sha256, args.state_dir)
+            _emit(report, args.output)
+            _emit({"verdict": report["verdict"], "report_hash": report["report_hash"]})
+            return EXIT_CODES[report["verdict"]]
         if args.command == "ci":
             from .ci_gate import ci_gate
             from .ci_policy import read_document

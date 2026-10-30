@@ -2,6 +2,14 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+- Add an explicitly opted-in model-review gate with pinned base policy bytes,
+  exact request approval, mandatory source screening, retained budget state,
+  advisory PASS/FAIL/BLOCKED reports, shared CLI/Action core and generic examples.
+  Existing offline and v1 checks defaults remain unchanged. Synthetic transports
+  exercise this feature; live providers and project-wide hosted state are not supplied.
+
 ## 0.4.0 - 2026-10-29
 
 ### Added
