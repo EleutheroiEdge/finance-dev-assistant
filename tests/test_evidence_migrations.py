@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import stat
 
 import pytest
 
@@ -223,3 +224,22 @@ def test_future_named_sibling_never_falls_back_even_without_extension(tmp_path, 
     with pytest.raises(AssistantError, match="evidence_store_newer_schema_upgrade_required"):
         EvidenceStore(logical)
     assert {path: file_hash(path) for path in before} == before
+
+
+def test_migration_flush_uses_a_writable_regular_file_handle(legacy_store, monkeypatch):
+    original_fsync = os.fsync
+    checked = []
+
+    def writable_fsync(descriptor):
+        if stat.S_ISREG(os.fstat(descriptor).st_mode):
+            # Windows _commit requires a writable descriptor. A zero-byte
+            # write enforces that same requirement on every test platform.
+            assert os.write(descriptor, b"") == 0
+            checked.append(True)
+        return original_fsync(descriptor)
+
+    before = file_hash(legacy_store)
+    monkeypatch.setattr(evidence_schema.os, "fsync", writable_fsync)
+    result = migrate_evidence_store(legacy_store, dry_run=False)
+    assert checked and result["written"] and file_hash(legacy_store) == before
+    assert verify_evidence_store(legacy_store)["verified"]

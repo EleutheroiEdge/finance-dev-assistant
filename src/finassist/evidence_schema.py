@@ -193,7 +193,9 @@ def migrate_evidence_store(path: Path, *, dry_run: bool = True) -> dict:
                 verify_connection(target)
             finally:
                 target.close()
-            with temporary.open("rb") as stream:
+            # Windows _commit needs a writable descriptor. This is only the
+            # verified private copy; the original store remains read-only.
+            with temporary.open("r+b") as stream:
                 os.fsync(stream.fileno())
             _no_sidecars(source)
             if _file_hash(source) != before_hash:
