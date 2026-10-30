@@ -1,42 +1,51 @@
 # Updates and configuration compatibility
 
-Design note, 2026-10-29. This records how comparable developer tools handle updates and which choices finledgerpoli makes. Sources are listed at the end. Third-party pages are marked; verify version-specific details against the official docs.
+Design note started 2026-10-29, primary-source comparisons refreshed 2026-10-30. This records selected update patterns and the contracts chosen for finledgerpoli.
 
-## 1. What comparable tools do
+## 1. Verified examples from comparable tools
 
-| Tool | How users learn of an update | How they update | Config safety |
-|---|---|---|---|
-| **Claude Code** | Native install auto-updates in the background. Channel `latest` or `stable` (about a week old, skips releases with major regressions). Opt out with `DISABLE_AUTOUPDATER`. | `claude update`; `claude doctor` shows the last update attempt and whether auto-update is on. | User settings live outside the install. `minimumVersion` is a floor, so switching channel never downgrades. |
-| **OpenClaw** | Background checks; a failed check is logged and retried later. | `openclaw update` detects the install method (npm, pnpm, Bun, git), stages the new version while the old one keeps serving, then verifies. Supports `--dry-run`, `--json`, `update status`, channels (beta, dev, extended-stable), `update repair`. | `openclaw doctor --fix` runs migrations after an update and keeps the original bytes. `--non-interactive` applies only safe migrations. It stops before rewriting a config that has retired keys and points to a "bridge" release. Rollback refuses when the old version can't read the newer database. |
-| **Codex CLI** (third-party sources) | Async, non-blocking startup check against the registry. Off with `check_for_update_on_startup = false`. | `codex update` detects Homebrew or npm and runs the right command. `codex doctor` covers install and config problems. | Updating replaces the program only; config and credentials stay. |
-| **GitHub CLI** | Checks at most once every 24 hours. The notice goes to stderr. Off with `GH_NO_UPDATE_NOTIFIER`. | Through the package manager. | Not applicable. |
-| **npm update-notifier** (common library) | A cached check every 24 hours in a background process. Silent in CI. Off with `NO_UPDATE_NOTIFIER`. | Prints the exact command. | Not applicable. |
-| **pip** | Self version check, cached in a local file. Off with `--disable-pip-version-check` or `PIP_DISABLE_PIP_VERSION_CHECK`. | `pip install -U pip` | Not applicable. |
-| **Terraform (Checkpoint)** | Version check plus security bulletins, with an anonymous ID. `CHECKPOINT_DISABLE` turns it off. `disable_checkpoint_signature` keeps security alerts but drops the ID. | Package manager or download. | Strict state versioning. |
-| **pre-commit** | None. | `pre-commit autoupdate` (hooks). | `migrate-config` rewrites old formats, and `autoupdate` calls it automatically. `minimum_pre_commit_version` is now checked before the rest of the config is parsed, so an old install says "upgrade" instead of a confusing parse error (fixed in 3.6.0). |
-| **Ruff** | None. | Package manager. | Deprecated settings keep working and warn with the exact new key (`ignore` → `lint.ignore`) for several releases before they are removed. |
+Primary documentation checked 2026-10-30. These are selected documented
+behaviors, not guarantees about every version or installation. Each design
+input is our inference; no other tool's migration or security guarantees are
+inherited by finledgerpoli.
 
-## 2. The industry pattern
+| Tool | Documented behavior | Design input |
+|---|---|---|
+| **Claude Code** | Native/npm installs expose an update control and manual `claude update`. `DISABLE_AUTOUPDATER` suppresses background checks. `minimumVersion` constrains updates; separate managed version-range settings control startup. [Setup](https://code.claude.com/docs/en/setup) | Distinguish update policy from a reader's startup/configuration floor. |
+| **OpenClaw** | `openclaw update --dry-run` previews and `update status --json` inspects state. Recovery retains artifacts when rollback is incompatible with migrated databases. [Updating](https://docs.openclaw.ai/install/updating) | Preview changes and preserve uncertain/recovery state; historical updaters cannot acquire future guards retroactively. |
+| **Codex CLI** | Official examples update through npm or Homebrew; the configuration reference documents `check_for_update_on_startup`. [Upgrade commands](https://developers.openai.com/cookbook/examples/codex/using_goals_in_codex), [configuration](https://learn.chatgpt.com/docs/config-file/config-reference) | Preserve package-manager ownership and provide an explicit check switch. |
+| **GitHub CLI** | Checks every 24 hours, prints an available-version notice on stderr and honors `GH_NO_UPDATE_NOTIFIER`. [Environment](https://cli.github.com/manual/gh_help_environment) | Cache a low-noise notice and provide an environment off switch. |
+| **pip** | Periodic self checks can be disabled with `PIP_DISABLE_PIP_VERSION_CHECK`; `pip install --upgrade` replaces a selected package. [Options](https://pip.pypa.io/en/stable/cli/pip/), [install](https://pip.pypa.io/en/stable/cli/pip_install/) | Separate checking from explicit installation. |
+| **Terraform** | `disable_checkpoint` disables upgrade/security checks; `disable_checkpoint_signature` disables their anonymous de-duplication identifier. [CLI configuration](https://developer.hashicorp.com/terraform/cli/config/config-file) | Our check sends no identifier and remains off by default. |
+| **pre-commit** | Documents `minimum_pre_commit_version` and a separate `migrate-config` command for the old list format. [Configuration and commands](https://pre-commit.com/) | Name a minimum reader and expose explicit migration. |
+| **Ruff** | The v0.2.0 migration describes moving lint settings to `tool.ruff.lint`, with warnings identifying replacement locations. [Migration](https://astral.sh/blog/ruff-v0.2.0) | Warnings should name the replacement rather than merely rejecting an old key. |
 
-1. **Separate the program from the user's data.** Every tool above keeps config and state outside the install, so an upgrade never edits them. finledgerpoli already does this.
-2. **Check, don't install, by default.** CLIs that run inside other people's repos and CI (gh, npm tools, pip, Codex) notify; only consumer-style agents (Claude Code, OpenClaw) auto-install. Notifiers are cached, at most daily, non-blocking, print to stderr, are silent in CI and non-interactive shells, and have one documented off switch.
-3. **One update command that knows how you installed it** (`claude update`, `codex update`, `openclaw update`). It prints or runs the right command for the install method, with `--dry-run` and `--json`.
-4. **Doctor is the post-upgrade step.** It reports version, update status and config health, and applies only safe, reversible migrations without asking.
-5. **Config evolves additively.** New keys are optional. Renamed keys warn for several releases with the exact replacement. Removal needs an explicit migration that shows a diff, keeps a backup and preserves original bytes.
-6. **Minimum version, checked first.** A project can require a version (`minimumVersion`, `minimum_pre_commit_version`), and the check runs before parsing, so an outdated install gets "please upgrade to X" instead of an error.
-7. **Downgrade is guarded.** A newer state or database schema is never opened by an older version; the tool says why and how to recover.
-8. **Security notices are distinct from feature updates** (Terraform's bulletins). They can stay on when feature notices are off.
+## 2. Design choices inferred from these examples
 
-## 3. Where finledgerpoli stands (main c6a267e)
+Keep the installed program separate from project files. Preview installation,
+then run only the owning manager after explicit confirmation. Keep optional
+public checks separate from model requests and package installation: no source,
+credentials, identifiers or telemetry belong in an update query.
 
-- Already done: config separated from the install; offline `finassist doctor`; `schema_version: 1`.
-- Gaps:
-  - no update signal and no upgrade docs;
-  - unknown config options are a hard error that doesn't say "upgrade" (the pre-commit 3.6.0 bug);
-  - no minimum version;
-  - no deprecation or migration path;
-  - the evidence store (SQLite) has no schema guard against downgrade;
-  - no upgrade test across released versions.
+Use a private daily reservation/cache for automatic checks, and keep interactive
+notices on stderr. Suppress them in CI, redirected shells and network-disabled
+projects. A pending attempt remains pending instead of triggering an automatic
+retry. A fresh manual check is a separate explicit action.
+
+Make new configuration additive, check reader floors early and preserve renamed
+options for a tested window. Preview migrations, keep original bytes and verify
+the result. A historical binary without a guard cannot be made safe by adding a
+check to a later release; use the versioned-file barrier described in
+[compatibility](compatibility.md). These are finledgerpoli's chosen contracts,
+not a claim that every compared tool implements the same behavior.
+
+## 3. Verified baseline before implementation
+
+The main baseline inspected for issue #27 had offline doctor with no update
+status, schema version 1, no upgrade section, unknown-option errors without an
+upgrade hint and no evidence downgrade guard. That observation describes the
+pre-implementation baseline. The 0.5.0 development implementation, tests and
+current operational limits are documented in [Upgrading](../upgrading.md).
 
 ## 4. Recommended design (finance-specific choices noted)
 
@@ -59,18 +68,10 @@ Design note, 2026-10-29. This records how comparable developer tools handle upda
    Keep the old configs as golden fixtures.
 8. **Every release note has an "Upgrading" section**, usually "no action needed".
 
-## Sources
+## Sources and scope
 
-- Claude Code setup (official): https://code.claude.com/docs/en/setup
-- Claude Code settings (official): https://code.claude.com/docs/zh-TW/settings
-- Claude Code update guides (third party): https://wmedia.es/en/tips/claude-code-how-to-update , https://inventivehq.com/knowledge-base/claude/how-to-update-claude-code
-- Claude Code issue on disable keys: https://github.com/anthropics/claude-code/issues/56723
-- OpenClaw updating (official): https://docs.openclaw.ai/install/updating.md
-- OpenClaw doctor (official): https://docs.openclaw.ai/gateway/doctor
-- Codex CLI startup and update (third party): https://codex.danielvaughan.com/2026/05/12/codex-cli-startup-sequence-binary-to-first-model-call/ , https://inventivehq.com/knowledge-base/openai/how-to-update-codex-cli
-- GitHub CLI environment (official): https://cli.github.com/manual/gh_help_environment
-- update-notifier: https://github.com/lbevilacqua/update-notifier
-- pip options: https://man.archlinux.org/man/extra/python-pip/pip-check.1.en
-- Terraform commands and Checkpoint: https://docs.w3cub.com/terraform/commands/ , https://pkg.go.dev/github.com/hashicorp/go-checkpoint
-- pre-commit: https://www.mankier.com/1/pre-commit-migrate-config , https://newreleases.io/project/pypi/pre-commit/release/1.0.0 , https://redirect.github.com/espressif/esp-idf/commit/09ba070b7e7a6ec9a7e7fcfcf5f3ef0d95752149
-- Ruff 0.2.0 deprecations: https://astral.sh/blog/ruff-v0.2.0
+Primary links appear next to each supported comparison above. This note uses
+only the narrow documented behaviors stated there. Detailed channel timing,
+installer detection and migration internals are version-dependent; re-check the
+upstream source before adopting them. The implementation follows issue #27 and
+its explicit historical-downgrade ruling where they refine this design.

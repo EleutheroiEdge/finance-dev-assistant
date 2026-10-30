@@ -287,3 +287,4 @@ footer{
   button{padding:10px 14px}
   .steps li{flex-wrap:wrap;gap:6px}
 }
+ .upgrade-command {max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;}

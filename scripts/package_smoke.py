@@ -10,7 +10,7 @@ import tempfile
 
 from ci_gate_smoke import exercise_ci_gate
 import finassist
-from finassist.platform_support import find_tool
+from finassist.platform_support import clean_environment, find_tool
 from finassist.guides import GUIDES
 from finassist.scope import git_environment
 
@@ -28,6 +28,12 @@ examples = Path(sys.argv[1]).resolve()
 assert exercise_ci_gate("sha256:" + "a" * 64, run_checks=False)["ci_policy_refusal_smoke"] == "PASS"
 with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
     root = Path(directory)
+    home = root / "home"
+    home.mkdir()
+    environment = clean_environment()
+    environment.update(HOME=str(home), USERPROFILE=str(home), APPDATA=str(home / "appdata"),
+                       LOCALAPPDATA=str(home / "localappdata"), XDG_CONFIG_HOME=str(home / "config"),
+                       XDG_CACHE_HOME=str(home / "cache"), FINASSIST_NO_UPDATE_CHECK="1")
 
     def cli(*args, expected_exit=0):
         result = subprocess.run(
@@ -37,6 +43,7 @@ with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
             text=True,
             encoding="utf-8",
             check=False,
+            env=environment,
         )
         assert result.returncode == expected_exit, (result.returncode, result.stderr)
         if expected_exit == 2:
@@ -56,12 +63,18 @@ with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
         result = subprocess.run(
             [str(executable), "--version"], cwd=root, capture_output=True,
             text=True, encoding="utf-8", check=True, shell=False,
+            env=environment,
         )
         assert result.stdout.strip() == distribution.version, command
     assert cli("demo")[0]["status"] == "PASS"
     doctor = cli("doctor")[0]
     assert doctor["version"] == distribution.version
     assert doctor["provider"] == "offline" and not doctor["container_daemon_checked"]
+    assert doctor["updates"]["status"] == "not checked"
+    assert cli("update", "status", "--json")[0]["automatic_installs"] is False
+    preview_update = cli("update", "--dry-run")[0]
+    assert preview_update["dry_run"] and preview_update["upgrade_argv"][-1] == "finledgerpoli"
+    assert cli("doctor", "--check-updates")[0]["updates"]["reason"] == "network-disabled"
     cli("init", "--output", root / "config.json")
     kit = cli("export-kit", "--output", root / "kit")[0]
     assert not kit["installed_into_host"]
@@ -71,6 +84,7 @@ with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
         result = subprocess.run(
             [sys.executable, "-m", "finassist", "guide", topic],
             cwd=root, capture_output=True, check=True, shell=False,
+            env=environment,
         )
         assert result.stdout == (root / "kit" / source).read_bytes()
     git("init", "-b", "main")

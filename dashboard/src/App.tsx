@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { explain, request, type Configuration, type Health, type Preview, type Statistics, type Values } from "./api";
 import { Chart } from "./Chart";
 import { Timestamp } from "./Timestamp";
+import { Updates } from "./Updates";
 import mark from "../../brand/mark.svg";
 
 const labels: Record<keyof Values, string> = {provider: "Provider", model: "Model", daily_budget_usd: "Daily spend limit (USD)", monthly_budget_usd: "Monthly spend limit (USD)", allow_paths: "Allowed paths", generated_paths: "Generated paths", protected_paths: "Protected paths", extra_sensitive_patterns: "Sensitive patterns", profile: "Review profile", required_recipes: "Required recipes", blocking_severities: "Blocking severities", readiness_max_age_seconds: "Evidence age (seconds)"};
 const money = (value: string) => new Intl.NumberFormat("en-US", {style: "currency", currency: "USD", maximumFractionDigits: 4}).format(Number(value));
 const entries = (value: Record<string, number>) => Object.entries(value);
+const capability = (value: unknown): string => Array.isArray(value) ? value.map(item => typeof item === "object" ? JSON.stringify(item) : String(item)).join(", ") || "None" : typeof value === "boolean" ? (value ? "Yes" : "No") : value === null ? "Not applicable" : typeof value === "object" ? JSON.stringify(value) : String(value);
 
 export function App() {
   const [page, setPage] = useState("Configuration");
@@ -114,7 +116,7 @@ export function App() {
         <section className="card"><h2>Pending charges</h2>{stats.open_reservations.length ? <table><thead><tr><th>Record</th><th className="num">Amount</th><th>Recorded date (UTC)</th></tr></thead><tbody>{stats.open_reservations.map(row => <tr key={row.id}><td>{row.id.slice(0, 8)}</td><td className="num">{money(row.reserved)}</td><td>{row.day}</td></tr>)}</tbody></table> : <p>No pending charges.</p>}</section>
         <section className="card"><h2>Recent runs</h2>{stats.recent_runs.length ? <table><thead><tr><th>Command</th><th>Started (UTC)</th><th>Outcome</th></tr></thead><tbody>{stats.recent_runs.map(run => <tr key={run.id}><td>{run.command}</td><td><Timestamp value={run.started_at} /></td><td>{run.status === "unknown" ? "Open / unknown" : run.status === "blocked-or-failed" ? `Blocked / failed (exit ${run.exit_code})` : run.status}</td></tr>)}</tbody></table> : <p>No audited runs yet.</p>}</section><p className="help">{stats.qualification}</p>
       </>}
-      {page === "Health" && health && <><section className="card"><h2>Configuration status</h2><p><span className={health.configuration.valid ? "badge ok" : "badge bad"}>{health.configuration.valid ? "Valid" : "Attention"}</span><span className={health.configuration.valid ? "healthy" : "unhealthy"}>{health.configuration.valid ? "Configuration is valid" : "Configuration needs attention"}</span></p></section><section className="card"><h2>Local capabilities</h2><dl className="health">{Object.entries(health.doctor).map(([key, value]) => <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{Array.isArray(value) ? value.join(", ") || "None" : typeof value === "boolean" ? (value ? "Yes" : "No") : value === null ? "Not applicable" : value}</dd></div>)}</dl><p className="help">This page inspects local metadata. It does not call a model or test a container daemon.</p></section></>}
+      {page === "Health" && health && <><section className="card"><h2>Configuration status</h2><p><span className={health.configuration.valid ? "badge ok" : "badge bad"}>{health.configuration.valid ? "Valid" : "Attention"}</span><span className={health.configuration.valid ? "healthy" : "unhealthy"}>{health.configuration.valid ? "Configuration is valid" : "Configuration needs attention"}</span></p></section>{health.doctor.updates && <Updates value={health.doctor.updates} />}<section className="card"><h2>Local capabilities</h2><dl className="health">{Object.entries(health.doctor).filter(([key]) => key !== "updates").map(([key, value]) => <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{capability(value)}</dd></div>)}</dl><p className="help">This page inspects local metadata. It does not call a model or test a container daemon.</p></section></>}
       {((page === "Configuration" && !config) || (page === "Statistics" && !stats) || (page === "Health" && !health)) && !error && <p>Loading local data…</p>}
       <footer><span>finledgerpoli — local dashboard</span><span>Local evidence. Human decisions.</span></footer>
     </main></div>;

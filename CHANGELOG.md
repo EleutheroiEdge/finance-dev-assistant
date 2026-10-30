@@ -19,6 +19,10 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   doctor fixes preflight reversible local migrations without network calls.
 - Test upgrades from the hash-pinned public 0.3.1 and 0.4.0 wheels in isolated
   environments, retaining their original configuration as golden fixtures.
+- Inspect installation/update status offline, preview exact package-manager
+  commands and run them only with explicit confirmation. Add separately opted-in
+  daily cached PyPI notices, a network-gated manual doctor check, and cached
+  dashboard update status without browser install actions or external requests.
 
 ### Upgrading
 

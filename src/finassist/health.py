@@ -8,7 +8,12 @@ from .config import Config
 from .platform_support import tool_present, private_state_protection
 
 
-def doctor_report(config: Config) -> dict:
+def doctor_report(config: Config, *, update_check: dict | None = None) -> dict:
+    from .updater import update_status
+
+    updates = update_status()
+    if update_check is not None:
+        updates.update(update_check)
     return {
         "version": installed_version(),
         "python": platform.python_version(),
@@ -23,6 +28,7 @@ def doctor_report(config: Config) -> dict:
         "recipes": sorted(config.recipes),
         "profile": config.profile,
         "deprecated_config_options": list(getattr(config, "_deprecated_options", ())),
+        "updates": updates,
         "private_state_protection": private_state_protection(),
         "next_step": "inspect a plan packet before enabling any provider or running a recipe",
     }

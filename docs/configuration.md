@@ -6,6 +6,12 @@ The CLI and library use the same `Config.validate()` rules. Unknown fields fail
 with `unknown_config_option`; no provider is selected from an existing key.
 [Complete example](../examples/fork-config.json) lists every option. It stays offline.
 
+Update notices use a separate user-level `settings.json` with `update_check`
+set to `off` or `notify`; the default is off. Do not put this setting in project JSON.
+`FINASSIST_NO_UPDATE_CHECK` disables checks, including when empty. See
+[Upgrading](upgrading.md) for platform paths, daily caching, explicit installer
+commands and the `doctor --check-updates` network gate.
+
 | Option | Meaning |
 |---|---|
 | `schema_version` | Configuration format version; use 1. |

@@ -133,6 +133,10 @@ test.describe("seeded audit trail", () => {
     await page.getByRole("button", {name: /^Health/}).focus();
     await page.keyboard.press("Enter");
     await expect(page.getByText("Configuration is valid")).toBeVisible();
+    await expect(page.getByRole("heading", {name: "Package updates"})).toBeVisible();
+    await expect(page.getByRole("heading", {name: "Upgrade command"})).toBeVisible();
+    await expect(page.getByText(/This page reads cached metadata without contacting PyPI/)).toBeVisible();
+    await page.screenshot({path: "test-results/health-updates.png", fullPage: true});
     await page.getByRole("button", {name: /^Configuration/}).click();
     await page.screenshot({path: "test-results/configuration.png", fullPage: true});
     await writeFile(path.join(server.root, "configuration.json"), "invalid JSON", "utf8");
@@ -178,6 +182,9 @@ test.describe("empty audit trail", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
     await page.getByRole("button", {name: /^Health/}).click();
     await expect(page.getByRole("heading", {name: "Health", exact: true})).toBeVisible();
+    await expect(page.getByRole("heading", {name: "Package updates"})).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    await page.screenshot({path: "test-results/health-updates-mobile.png", fullPage: true});
     expect(external).toEqual([]);
     expect(errors).toEqual([]);
   });

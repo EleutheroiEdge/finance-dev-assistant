@@ -15,6 +15,73 @@ Run `finassist doctor` afterwards. Package upgrades and explicit local data
 migrations are separate operations. You can keep using old configuration without
 reformatting it. New options remain optional and default to the earlier behavior.
 
+## Status, preview and explicit install
+
+`finassist update status --json` reports the installed and last checked latest
+versions, timestamp/stale flag, installation method and exact upgrade command
+and argv/environment. Managed homes are bound to the installation running the
+command, so a custom pipx or uv directory does not upgrade an unrelated default
+environment. Windows command previews use PowerShell syntax.
+A missing or failed check says `not checked`, with a null latest version.
+Status and `finassist update --dry-run` make no request, run no installer and
+create no audit state. JSON is also the default output.
+
+`finassist update --yes` explicitly runs that package manager once, records
+metadata in the command audit and never migrates project data. The result reports
+the installer exit status; restart the command to observe the installed version.
+Installer output is not copied into logs or JSON. A timeout can leave a partial
+installation and an open audit run: inspect and reconcile before another attempt.
+There is no automatic retry, fallback, privilege elevation or background install.
+
+Omit project `--config`: the update command works independently of configuration
+that may require a newer reader. Manager marker filenames identify pipx/uv tool
+environments without reading their potentially private saved records. Unrecognized or
+custom-named managed environments, missing tools, batch shims and editable source
+installations refuse execution. Update an editable installation through its
+reviewed source workflow. Package managers execute under your account; this is
+not an installer sandbox or a substitute for reviewing a release.
+
+## Optional update checks
+
+Doctor and dashboard health reports read cached metadata only. To request one
+public check, allow network use in reviewed project configuration and run
+`finassist --config finassist.json doctor --check-updates`. A network-disabled
+project returns `not checked` with `network-disabled`. Manual checks can bypass
+the daily cache but never enable a provider, approve a model request or install
+anything. `doctor --fix --check-updates` refuses so local fixes remain offline.
+
+Automatic notices are **off** by default. Create a user-level `settings.json`
+with `{"update_check":"notify"}` to opt in, or `off` to disable them. This is
+separate from project `finassist.json` and cannot enable automatic installs.
+
+| Platform | User settings file |
+|---|---|
+| Linux | `$XDG_CONFIG_HOME/finledgerpoli/settings.json`, default `~/.config/finledgerpoli/settings.json` |
+| macOS | `~/Library/Application Support/finledgerpoli/settings.json` |
+| Windows | `%APPDATA%\finledgerpoli\settings.json` |
+
+With `notify`, interactive `doctor`, `demo` and `init` commands may start a
+one-shot check when project network use is allowed. A private cache reserves the
+attempt atomically before launch, at most once per 24 hours across processes.
+Pending and failed attempts count; there is no automatic retry. The worker makes
+one GET to `https://pypi.org/pypi/finledgerpoli/json` with short HTTP timeouts and
+a response-size limit. No identifiers, source, credentials or telemetry are sent;
+proxies, redirects and retries are disabled. Failure means `not checked`. HTTP
+deadlines do not replace host DNS/runtime controls.
+
+The parent never waits for HTTP. A later eligible invocation prints the cached
+notice on stderr, at most once per UTC day. Notices/checks stay silent in CI,
+non-interactive or redirected shells, network-disabled projects and sensitive
+workflow/gate operations. The dashboard starts no check. Cache/launch failures
+do not fail the user's command.
+
+The presence of `FINASSIST_NO_UPDATE_CHECK`, even empty, disables automatic and
+manual checks. It does not affect a separately explicit package-manager upgrade.
+The cache lives under `$XDG_CACHE_HOME/finledgerpoli` (default
+`~/.cache/finledgerpoli`) on Linux, `~/Library/Caches/finledgerpoli` on macOS, or
+`%LOCALAPPDATA%\finledgerpoli` on Windows. Windows inherits directory ACLs; use
+a private user directory.
+
 ## Team pinning and rollback
 
 For a team, install an exact reviewed release, for example

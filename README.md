@@ -84,7 +84,10 @@ python -m pip install --upgrade finledgerpoli
 ```
 
 Upgrades never edit project configuration or evidence. Run `finassist doctor`
-after updating. Teams can pin a reviewed version, for example
+after updating. `finassist update status --json` shows cached update information;
+`finassist update --dry-run` prints the detected command, and `--yes` explicitly
+runs it for a supported installation. Notices are off by default. Teams can pin
+a reviewed version, for example
 `pipx install finledgerpoli==0.4.0`, and roll back with
 `pipx install finledgerpoli==0.4.0 --force`. With uv use
 `uv tool install finledgerpoli==0.4.0 --force`; with pip use
