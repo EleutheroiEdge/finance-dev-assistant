@@ -609,10 +609,13 @@ def execute(args, config: Config | None = None) -> int:
         if args.compare:
             from .history_scoring import compare_history
 
-            result = compare_history(_read_json(args.evaluation), _read_json(args.labels),
-                                     _read_json(args.compare), _read_json(args.compare_labels))
+            result = compare_history(_read_json(args.evaluation, max_bytes=64_000_000),
+                                     _read_json(args.labels, max_bytes=16_000_000),
+                                     _read_json(args.compare, max_bytes=64_000_000),
+                                     _read_json(args.compare_labels, max_bytes=16_000_000))
         else:
-            result = score(_read_json(args.evaluation), _read_json(args.labels))
+            result = score(_read_json(args.evaluation, max_bytes=64_000_000),
+                           _read_json(args.labels, max_bytes=16_000_000))
         _emit(result, args.output)
     elif args.command == "evidence":
         if args.action in {"verify", "migrate"}:

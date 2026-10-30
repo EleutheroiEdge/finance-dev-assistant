@@ -125,7 +125,7 @@ def refused_model_report(code: str) -> dict:
     return report
 
 
-def prepare_model_source(repo: Path, base: str, head: str, policy) -> dict:
+def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_repo: Path | None = None) -> dict:
     """Shared offline source construction; never reads a provider key or ledger."""
     rules, config = policy.document["model_review"], policy.config
     ancestor = git(repo, "merge-base", base, head)
@@ -150,6 +150,8 @@ def prepare_model_source(repo: Path, base: str, head: str, policy) -> dict:
         if not config.allows(path):
             raise AssistantError("gate_path_not_allowed")
     _screen_ignores(repo, {base, ancestor}, paths)
+    if policy_repo is not None and (policy_repo != repo or policy.base != base):
+        _screen_ignores(policy_repo, {policy.base}, paths)
     packet = build_packet(repo, base, head, config)
     if packet["omitted"] or len(packet["files"]) != len(paths):
         raise AssistantError("scope_incomplete")
@@ -172,6 +174,15 @@ def prepare_model_request(policy, packet: dict) -> tuple[str, dict, str]:
 
 def model_gate(repo: Path, base: str, head: str, policy_path: str, policy_pin: str, state_dir: Path,
                *, environment=None, transport=None, expected_request_hash: str | None = None) -> dict:
+    """Ordinary CLI/CI gate: policy is always pinned at the source base."""
+    return _evaluate_model_gate(repo, base, head,
+                                lambda source: (load_model_policy(source, base, policy_path, policy_pin), source),
+                                state_dir, environment=environment, transport=transport,
+                                expected_request_hash=expected_request_hash)
+
+
+def _evaluate_model_gate(repo: Path, base: str, head: str, policy_loader, state_dir: Path,
+                         *, environment=None, transport=None, expected_request_hash: str | None = None) -> dict:
     """Evaluate all policy rules before approving/reserving one exact request.
 
     Caller-retained state is mandatory. Environment metadata is trusted caller
@@ -190,10 +201,10 @@ def model_gate(repo: Path, base: str, head: str, policy_path: str, policy_pin: s
         _context(repo, base, head, os.environ if environment is None else environment)
         if state_dir is None:
             raise AssistantError("gate_state_directory_required")
-        policy = load_model_policy(repo, base, policy_path, policy_pin)
+        policy, policy_repo = policy_loader(repo)
         report["policy_sha256"] = policy.sha256
         rules, config = policy.document["model_review"], policy.config
-        packet = prepare_model_source(repo, base, head, policy)
+        packet = prepare_model_source(repo, base, head, policy, policy_repo=policy_repo)
         # Keys are first accessed here, after identity, scope and screening.
         request_hash, schema, system = prepare_model_request(policy, packet)
         if expected_request_hash is not None and request_hash != expected_request_hash:

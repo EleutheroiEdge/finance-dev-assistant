@@ -91,11 +91,34 @@ scored as model quality.
 
 For a model run, each case additionally needs a reviewed `policy` object with
 `path` and `sha256`: the policy file's repository-relative path and SHA-256 of
-its exact committed bytes at that case's **base SHA**. Its profile must equal
-the case profile. Policy values choose the provider, model, endpoint, named key,
-scope, pricing and limits. The normal gate's policy pin, full source screening,
-immutable ignores, exact wire-request hash and retained budget reservations apply.
-An offline inspection configuration does not authorize a model call.
+its exact committed bytes. Optional `repo_path` defaults to the case's repository;
+optional `commit` defaults to the case's `base_sha`. Policy repositories may be
+separate regular local Git repositories. All repository paths are anchored at
+the suite file; policy commits must be full40-hex SHAs already present locally.
+No policy repository or missing commit is fetched. For example:
+
+```json
+{
+  "repo_path": "../private-benchmark-policies",
+  "commit": "3333333333333333333333333333333333333333",
+  "path": "policies/review.json",
+  "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+}
+```
+
+Replace those illustrative hashes with inspected exact values. The case profile
+must equal the pinned policy's profile. Policy values choose the provider,
+model, endpoint, named key, scope, pricing and limits. Source base and merge-base
+ignores, plus ignores at the policy commit (in its own repository), are screened.
+The shared gate's complete coverage, exact wire-request hash, key screening and
+retained budget reservations apply. Offline inspection validates supplied policy
+bindings without reading a key. An offline inspection configuration does not
+authorize a model call.
+
+**This separate binding is for out-of-band history evaluation only. It never
+authorizes a CI review.** The ordinary CLI/CI gate always pins policy at its
+source base and has no policy-repository/commit override. Live history evaluation
+refuses execution inside GitHub Actions.
 
 ```sh
 finassist evaluate --history-suite /private/benchmark/history.json --trials 3 \
@@ -108,7 +131,14 @@ through one shared ledger. A gate FAIL means a completed review with a blocking
 finding and does not stop later trials. BLOCKED stops the evaluation; later
 trials remain `not-run`. There is no retry, provider fallback or automatic resume.
 A private `state/history/*.json` journal marks the attempt before dispatch and
-is updated after each result. If interrupted, retain it and the audit database;
+is updated after each result. Full gate claims live in separate `*.report.json`
+files beside that journal; each trial binds its report filename/hash and exact
+request/policy hashes. The compact evaluation keeps stable finding IDs, paths,
+severities and reviewer/model/policy identity for adjudication and comparison.
+Keep those report files with the journal when copying an evaluation.
+Scoring accepts evaluations up to64MB and labels up to16MB; a live suite whose
+worst-case compact results exceed the bound is refused before dispatch.
+If interrupted, retain the journal, reports and audit database;
 unknown usage stays reserved. Reconcile actual provider billing before any new
 run. Do not reset or change state directories to evade that hold.
 
@@ -164,7 +194,8 @@ finassist score --evaluation /private/benchmark/model-a.json \
 ```
 
 Both evaluations need complete independent adjudication, identical case IDs,
-source identities and ground truth. Profiles/models may differ. The report
+base/head source pairs, source identities and ground truth. Profiles/models and
+policy selections may differ. The report
 shows labels detected by both reviewers, each reviewer alone, and overlap.
 Detection in any trial counts for this overlap, so unequal trial counts change
 opportunity; prefer matched counts and disclose the sampling choice.

@@ -8,17 +8,38 @@ from uuid import uuid4
 
 from .config import Config
 from .errors import AssistantError
-from .history_suite import history_approval_hash, plan_history, source_identity
+from .history_suite import history_approval_hash, plan_history, prepare_history_case
 from .ledger import Ledger
-from .model_gate import _context, model_gate, prepare_model_request, prepare_model_source
+from .model_gate import _evaluate_model_gate, prepare_model_request
 from .model_policy import load_model_policy
-from .scope import resolve
 from .security import canonical, digest, regular_path, write_private
 
 
 def _signed(evaluation: dict) -> dict:
     data = {key: value for key, value in evaluation.items() if key != "evaluation_hash"}
     return {**data, "evaluation_hash": digest(canonical(data))}
+
+
+def check_result_capacity(result: dict, prepared: list[dict], trials: int) -> None:
+    """Refuse before dispatch if worst-case compact findings cannot be scored."""
+    bound = len(canonical(_signed(result)))
+    for source in prepared:
+        longest = max((item["path"] for item in source["packet"]["files"]),
+                      key=lambda path: len(canonical(path)))
+        finding = {"id": "f-" + "f" * 64, "path": longest, "severity": "critical"}
+        # At most50 findings per gate response; metadata/reasons/report reference
+        # are bounded independently. Canonical length counts Unicode escaping.
+        bound += trials * (50 * (len(canonical(finding)) + 1) + 2048)
+    if bound > 64_000_000:
+        raise AssistantError("history_evaluation_size_exceeded")
+
+
+def run_history_gate(repo: Path, case: dict, binding, state: Path, *, transport, request_hash: str) -> dict:
+    """History-only policy selection; ordinary model_gate exposes no override."""
+    def load(_source):
+        return load_model_policy(binding.repo, binding.commit, binding.path, binding.sha256), binding.repo
+    return _evaluate_model_gate(repo, case["base_sha"], case["head_sha"], load, state,
+                                transport=transport, expected_request_hash=request_hash)
 
 
 def evaluate_history(suite: dict, suite_directory: Path, config: Config, state_dir: Path, *,
@@ -38,24 +59,13 @@ def evaluate_history(suite: dict, suite_directory: Path, config: Config, state_d
     if network_approved:
         if approved_suite_hash != suite_hash:
             raise AssistantError("eval_suite_approval_required")
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            raise AssistantError("history_ci_execution_forbidden")
         # Screen EVERY case before the first key read, reservation or dispatch.
         for case in suite["cases"]:
             if "policy" not in case:
                 raise AssistantError("history_policy_required")
-            repo = regular_path(root / case["repo_path"])
-            base, head = case["base_sha"], case["head_sha"]
-            if resolve(repo, base) != base or resolve(repo, head) != head:
-                raise AssistantError("history_revision_mismatch")
-            _context(repo, base, head, os.environ)
-            policy = load_model_policy(repo, base, case["policy"]["path"], case["policy"]["sha256"])
-            if policy.config.profile != case["profile"]:
-                raise AssistantError("history_policy_profile_mismatch")
-            packet = prepare_model_source(repo, base, head, policy)
-            paths = {item["path"] for item in packet["files"]}
-            if any(path not in paths for item in case["expected"] for path in item["paths"]):
-                raise AssistantError("history_expected_outside_scope")
-            prepared.append({"repo": repo, "source_hash": source_identity(packet), "packet": packet,
-                             "policy": policy})
+            prepared.append(prepare_history_case(case, root, config))
         # All source preflights have finished. Now validate every exact request,
         # including key-echo and wire-size checks, before reserving any spend.
         for source in prepared:
@@ -64,6 +74,12 @@ def evaluate_history(suite: dict, suite_directory: Path, config: Config, state_d
         prepared = plan_history(suite, root, config, trials=trials)["cases"]
     cases = [{"id": case["id"], "base_sha": case["base_sha"], "head_sha": case["head_sha"],
               "profile": case["profile"], "source_hash": source["source_hash"],
+              "reviewer": ({"provider": source["policy"].config.provider,
+                            "model": source["policy"].config.model,
+                            "policy_repo_path": str(source["binding"].repo),
+                            "policy_commit": source["binding"].commit, "policy_path": case["policy"]["path"],
+                            "policy_sha256": case["policy"]["sha256"]}
+                           if network_approved else {"provider": "offline", "model": None}),
               "expected": case["expected"], "negative_control": case["negative_control"],
               "runs": [{"trial": trial, "status": "not-run" if network_approved else "offline",
                         "findings": [], "actual_usd": None, "elapsed_seconds": None}
@@ -82,6 +98,7 @@ def evaluate_history(suite: dict, suite_directory: Path, config: Config, state_d
     state = regular_path(state_dir)
     journal = state / "history" / (uuid4().hex + ".json")
     result["journal"] = str(journal)
+    check_result_capacity(result, prepared, trials)
     write_private(journal, canonical(_signed(result)) + b"\n")
     with Ledger(state / "audit.sqlite") as ledger:
         ledger.verify()
@@ -91,18 +108,21 @@ def evaluate_history(suite: dict, suite_directory: Path, config: Config, state_d
                                   "policy_sha256": case["policy"]["sha256"],
                                   "request_sha256": source["request_sha256"]}
                                  for case, source in zip(suite["cases"], prepared, strict=True)]})
-    for case, source, output in zip(suite["cases"], prepared, cases, strict=True):
+    for case_index, (case, source, output) in enumerate(zip(suite["cases"], prepared, cases, strict=True)):
         for run in output["runs"]:
             # If the process dies during dispatch, the journal keeps a blocked
             # attempt rather than making it look safe to rerun automatically.
             run.update(status="blocked", reason="history_attempt_outcome_unknown")
             write_private(journal, canonical(_signed(result)) + b"\n", replace=True)
             started = time.monotonic()
-            report = model_gate(source["repo"], case["base_sha"], case["head_sha"],
-                                case["policy"]["path"], case["policy"]["sha256"], state,
-                                transport=transport, expected_request_hash=source["request_sha256"])
+            report = run_history_gate(source["repo"], case, source["binding"], state,
+                                      transport=transport, request_hash=source["request_sha256"])
             elapsed = time.monotonic() - started
-            run.update(report=report, elapsed_seconds=elapsed, actual_usd=report["spend"]["actual_usd"])
+            report_file = journal.with_name(f"{journal.stem}-{case_index}-{run['trial']}.report.json")
+            write_private(report_file, canonical(report) + b"\n")
+            run.update(report_file=report_file.name, report_hash=report["report_hash"],
+                       request_sha256=report["request_sha256"], policy_sha256=report["policy_sha256"],
+                       elapsed_seconds=elapsed, actual_usd=report["spend"]["actual_usd"])
             run["reason"] = report["reasons"]
             if report["verdict"] in {"PASS", "FAIL"}:
                 run["status"] = "complete"

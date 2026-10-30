@@ -6,6 +6,7 @@ import math
 import re
 
 from .errors import AssistantError
+from .ci_policy import revision
 from .history_suite import SEVERITY_WEIGHTS, identifier, validate_expected
 from .security import canonical, digest
 
@@ -52,6 +53,8 @@ def validate_history_evaluation(evaluation: dict) -> None:
         if name in names:
             raise AssistantError("history_identity_invalid")
         names.add(name)
+        revision(case.get("base_sha"))
+        revision(case.get("head_sha"))
         _hash(case.get("source_hash"))
         validate_expected(case.get("expected"), case.get("negative_control"))
         runs = case.get("runs")
@@ -214,7 +217,7 @@ def compare_history(left: dict, left_labels: dict, right: dict, right_labels: di
     if not first["complete"] or not second["complete"]:
         raise AssistantError("history_comparison_incomplete")
     def identities(evaluation):
-        return {case["id"]: (case["source_hash"], digest(canonical({
+        return {case["id"]: (case["base_sha"], case["head_sha"], case["source_hash"], digest(canonical({
             "expected": case["expected"], "negative_control": case["negative_control"]})))
                 for case in evaluation["cases"]}
     if identities(left) != identities(right):

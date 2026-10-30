@@ -19,11 +19,13 @@ def evaluation():
             "actual_usd": "0.10", "elapsed_seconds": 2.0}
     return signed({"schema_version": 2, "kind": "history-evaluation", "mode": "model", "trials": 2,
                    "suite_hash": "a" * 64, "cases": [
-                       {"id": "positive", "source_hash": "b" * 64, "negative_control": False,
+                       {"id": "positive", "base_sha": "1" * 40, "head_sha": "2" * 40,
+                        "source_hash": "b" * 64, "negative_control": False,
                         "expected": [{"label": "major", "paths": ["src/cash.py"], "severity": "high"},
                                      {"label": "minor", "paths": ["src/cash.py"], "severity": "low"}],
                         "runs": [run(1, ["one", "duplicate"]), run(2, ["two"])]},
-                       {"id": "negative", "source_hash": "c" * 64, "negative_control": True,
+                       {"id": "negative", "base_sha": "1" * 40, "head_sha": "2" * 40,
+                        "source_hash": "c" * 64, "negative_control": True,
                         "expected": [], "runs": [run(1, ["alarm"]), run(2, [])]}]})
 
 
@@ -133,3 +135,12 @@ def test_hash_bindings_offline_refusal_and_external_overlap():
     offline = signed({**data, "mode": "offline"})
     with pytest.raises(AssistantError, match="offline_run_is_not_model_evaluation"):
         score_history(offline, adjudication(offline))
+
+
+def test_comparison_refuses_changed_source_pair_even_with_attested_same_source_hash():
+    data = evaluation()
+    other = deepcopy(data)
+    other["cases"][0]["head_sha"] = "3" * 40
+    other = signed(other)
+    with pytest.raises(AssistantError, match="history_comparison_scope_mismatch"):
+        compare_history(data, adjudication(data), other, adjudication(other))
