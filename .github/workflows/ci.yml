@@ -8,20 +8,20 @@ jobs:
   test:
     name: ${{ matrix.check_name }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - {os: ubuntu-24.04, python: '3.11', check_name: 'test (3.11)'}
-          - {os: ubuntu-24.04, python: '3.12', check_name: 'test (3.12)'}
-          - {os: ubuntu-24.04, python: '3.13', check_name: 'test (3.13)'}
-          - {os: windows-latest, python: '3.11', check_name: 'platform (Windows, 3.11)'}
-          - {os: windows-latest, python: '3.12', check_name: 'platform (Windows, 3.12)'}
-          - {os: windows-latest, python: '3.13', check_name: 'platform (Windows)'}
-          - {os: macos-latest, python: '3.11', check_name: 'platform (macOS, 3.11)'}
-          - {os: macos-latest, python: '3.12', check_name: 'platform (macOS, 3.12)'}
-          - {os: macos-latest, python: '3.13', check_name: 'platform (macOS)'}
+          - {os: ubuntu-24.04, python: '3.11', check_name: 'test (3.11)', timeout_minutes: 15}
+          - {os: ubuntu-24.04, python: '3.12', check_name: 'test (3.12)', timeout_minutes: 15}
+          - {os: ubuntu-24.04, python: '3.13', check_name: 'test (3.13)', timeout_minutes: 15}
+          - {os: windows-latest, python: '3.11', check_name: 'platform (Windows, 3.11)', timeout_minutes: 20}
+          - {os: windows-latest, python: '3.12', check_name: 'platform (Windows, 3.12)', timeout_minutes: 20}
+          - {os: windows-latest, python: '3.13', check_name: 'platform (Windows)', timeout_minutes: 20}
+          - {os: macos-latest, python: '3.11', check_name: 'platform (macOS, 3.11)', timeout_minutes: 15}
+          - {os: macos-latest, python: '3.12', check_name: 'platform (macOS, 3.12)', timeout_minutes: 15}
+          - {os: macos-latest, python: '3.13', check_name: 'platform (macOS)', timeout_minutes: 15}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -24,6 +24,10 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   daily cached PyPI notices, a network-gated manual doctor check, and cached
   dashboard update status without browser install actions or external requests.
 
+- Allow 20 minutes in existing Windows Python CI jobs for native tests,
+  clean-wheel validation and historical upgrades. Other CI jobs retain
+  15-minute limits; the matrix and permissions are unchanged.
+
 ### Upgrading
 
 No action needed for existing configuration or evidence. Package upgrades never

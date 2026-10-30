@@ -89,6 +89,16 @@ def test_local_wheel_install_verifies_artifact_without_fetching_dependencies(tmp
     assert len(calls) == 1
 
 
+def test_native_upgrade_checks_have_a_bounded_windows_time_allowance():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    job = workflow["jobs"]["test"]
+    assert job["timeout-minutes"] == "${{ matrix.timeout_minutes }}"
+    for item in job["strategy"]["matrix"]["include"]:
+        assert item["timeout_minutes"] == (20 if item["os"] == "windows-latest" else 15)
+    assert workflow["jobs"]["dashboard"]["timeout-minutes"] == 15
+    assert workflow["jobs"]["isolation"]["timeout-minutes"] == 15
+
+
 def test_third_party_install_refuses_unhashed_source_builds(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(ci_install, "run", lambda *args: calls.append(args))
