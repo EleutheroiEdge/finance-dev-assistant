@@ -117,6 +117,17 @@ the original `evidence.sqlite` remains its byte-identical backup.
 `finassist doctor --fix --state-dir .finassist` explicitly preflights and applies
 only these safe reversible migrations, using `--config` or local `finassist.json`.
 
+The closed-writer/sidecar check applies to migration, including its dry run.
+Ordinary evidence opens and verification allow SQLite's normal hot-journal
+rollback recovery and wait up to 15 seconds for a conflicting writer. Recovery
+discards an interrupted transaction; it does not migrate the evidence schema or
+approve observations. Do not delete journal, WAL or shared-memory files by hand.
+Recover through a normal open, then close writers before retrying migration.
+
+Existing empty or partial evidence stores are refused with
+`evidence_store_schema_invalid` rather than initialized, unlike 0.4.0. Preserve
+the file and inspect a recovery copy; this release does not repair its layout.
+
 Guarded readers refuse a newer unsupported schema without changing it. Old
 0.3.x/0.4.0 binaries cannot discover the new filename and see only stale,
 pre-migration evidence. They do not gain a guard retroactively. A full rollback

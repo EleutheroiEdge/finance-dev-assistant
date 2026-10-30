@@ -1,11 +1,15 @@
 """Synthetic immutable-original migrations and guarded downgrade refusal."""
 
 import hashlib
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import json
 import os
 from pathlib import Path
 import sqlite3
 import stat
+import subprocess
+import sys
+import threading
 
 import pytest
 
@@ -40,6 +44,124 @@ def test_loading_legacy_store_does_not_migrate_or_rewrite(legacy_store):
         assert store.latest_approved("Fictional Example", "revenue")["observation"]["value"] == "100"
     assert file_hash(legacy_store) == before
     assert list(legacy_store.parent.iterdir()) == [legacy_store]
+
+
+def leave_hot_journal(path):
+    # Spill uncommitted pages, then exit without SQLite cleanup. Only this
+    # disposable child process and synthetic database are involved.
+    subprocess.run([sys.executable, "-c", """
+import os, sqlite3, sys
+connection = sqlite3.connect(sys.argv[1])
+connection.execute('PRAGMA cache_size=1')
+connection.execute('PRAGMA synchronous=FULL')
+connection.execute('BEGIN IMMEDIATE')
+connection.execute('CREATE TABLE uncommitted_spill(value BLOB)')
+connection.executemany('INSERT INTO uncommitted_spill VALUES(zeroblob(8192))', [()] * 64)
+os._exit(0)
+""", str(path)], check=True, timeout=15)
+    journal = Path(str(path) + "-journal")
+    assert journal.stat().st_size > 512
+    assert journal.read_bytes()[:8] == bytes.fromhex("d9d505f920a163d7")
+    return journal
+
+
+@pytest.mark.parametrize("operation", ["open", "verify"])
+def test_normal_evidence_access_recovers_a_hot_journal(legacy_store, operation):
+    before = file_hash(legacy_store)
+    journal = leave_hot_journal(legacy_store)
+    if operation == "open":
+        with EvidenceStore(legacy_store) as store:
+            assert store.latest_approved("Fictional Example", "revenue")["observation"]["value"] == "100"
+            assert store.verify()["entries"] == 1
+    else:
+        assert verify_evidence_store(legacy_store)["entries"] == 1
+    assert not journal.exists()
+    assert file_hash(legacy_store) == before
+    assert verify_evidence_store(legacy_store)["verified"]
+
+
+@pytest.mark.parametrize("operation", [EvidenceStore, verify_evidence_store])
+def test_future_store_with_hot_journal_is_refused_without_recovery(legacy_store, operation):
+    with sqlite3.connect(legacy_store) as connection:
+        connection.execute("PRAGMA user_version=99")
+    journal = leave_hot_journal(legacy_store)
+    before = {p: file_hash(p) for p in (legacy_store, journal)}
+    with pytest.raises(AssistantError, match="evidence_store_newer_schema_upgrade_required"):
+        operation(legacy_store)
+    assert {p: file_hash(p) for p in before} == before
+
+
+def test_normal_open_reads_committed_wal_evidence_with_a_writer(legacy_store):
+    connection = sqlite3.connect(legacy_store)
+    try:
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute("CREATE TABLE uncommitted_writer(value)")
+        with EvidenceStore(legacy_store) as store:
+            assert store.verify()["entries"] == 1
+            assert store.latest_approved("Fictional Example", "revenue")["observation"]["value"] == "100"
+        assert verify_evidence_store(legacy_store)["verified"]
+        with pytest.raises(AssistantError, match="evidence_store_busy_close_writers"):
+            migrate_evidence_store(legacy_store, dry_run=False)
+    finally:
+        connection.rollback()
+        connection.close()
+
+
+@pytest.mark.parametrize("operation", [EvidenceStore, verify_evidence_store])
+def test_future_wal_schema_refuses_before_a_writable_open(legacy_store, operation):
+    connection = sqlite3.connect(legacy_store)
+    try:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA user_version=99")
+        connection.commit()
+        wal = Path(str(legacy_store) + "-wal")
+        before = {p: file_hash(p) for p in (legacy_store, wal)}
+        with pytest.raises(AssistantError, match="evidence_store_newer_schema_upgrade_required"):
+            operation(legacy_store)
+        assert {p: file_hash(p) for p in before} == before
+    finally:
+        connection.close()
+
+
+def test_second_evidence_open_waits_for_an_exclusive_writer(legacy_store, monkeypatch):
+    connecting = threading.Event()
+    connect = sqlite3.connect
+
+    def observed_connect(*args, **kwargs):
+        connecting.set()
+        return connect(*args, **kwargs)
+
+    def open_and_verify():
+        with EvidenceStore(legacy_store) as store:
+            return store.verify()
+
+    writer = connect(legacy_store)
+    writer.execute("BEGIN EXCLUSIVE")
+    writer.execute("CREATE TABLE uncommitted_writer(value)")
+    monkeypatch.setattr(sqlite3, "connect", observed_connect)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(open_and_verify)
+        try:
+            assert connecting.wait(timeout=5)
+            with pytest.raises(TimeoutError):
+                pending.result(timeout=0.2)
+        finally:
+            writer.rollback()
+            writer.close()
+        assert pending.result(timeout=5)["verified"]
+
+
+@pytest.mark.parametrize("suffix", ["-journal", "-wal", "-shm"])
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_migration_alone_rejects_sidecars_without_changing_them(legacy_store, suffix, dry_run):
+    sidecar = Path(str(legacy_store) + suffix)
+    sidecar.write_bytes(b"synthetic sidecar")
+    before = {p: file_hash(p) for p in (legacy_store, sidecar)}
+    with pytest.raises(AssistantError, match="evidence_store_busy_close_writers"):
+        migrate_evidence_store(legacy_store, dry_run=dry_run)
+    assert {p: file_hash(p) for p in before} == before
+    assert not legacy_store.with_name("evidence.v2.sqlite").exists()
 
 
 def test_dry_run_preserves_original_then_explicit_copy_preserves_lineage(legacy_store):

@@ -54,7 +54,12 @@ the byte-identical backup. Existing destinations are never overwritten.
 Guarded readers choose the latest migrated sibling; if its declared version
 exceeds their support, they refuse rather than falling back to the old file.
 Close concurrent writers first: active WAL, shared-memory or rollback-journal
-sidecars are refused. A busy or corrupted store is not repaired silently.
+sidecars are refused during migration, including its dry run. Ordinary opens and
+verification retain SQLite's 15-second busy timeout and normal hot-journal
+rollback recovery. This recovers transaction state without migrating the schema
+or approving observations. Do not delete sidecars manually. Existing empty or
+partial stores are refused rather than having their layout initialized or
+repaired, a deliberate change from historical 0.4.0 initialization behavior.
 
 `doctor --fix` explicitly preflights both configuration and evidence before any
 write, then applies only these reversible migrations. It uses `--config` (or a

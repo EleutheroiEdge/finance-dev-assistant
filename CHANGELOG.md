@@ -28,6 +28,12 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   clean-wheel validation and historical upgrades. Other CI jobs retain
   15-minute limits; the matrix and permissions are unchanged.
 
+### Fixed
+
+- Keep strict SQLite sidecar refusal in explicit evidence migrations. Ordinary
+  evidence opens and verification recover hot journals and wait for conflicting
+  writers while preserving unsupported-schema refusal.
+
 ### Upgrading
 
 No action needed for existing configuration or evidence. Package upgrades never

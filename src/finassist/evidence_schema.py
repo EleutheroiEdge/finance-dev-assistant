@@ -67,7 +67,6 @@ def readonly_store(path: Path):
     path = regular_path(path)
     if not path.is_file():
         raise AssistantError("evidence_store_missing")
-    _no_sidecars(path)
     connection = None
     try:
         connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=15)
@@ -86,8 +85,34 @@ def check_evidence_schema(path: Path) -> int | None:
         if _named_version(path) not in {None, SUPPORTED_EVIDENCE_SCHEMA}:
             raise AssistantError("evidence_store_schema_mismatch")
         return None
-    with readonly_store(path) as connection:
+    try:
+        # Inspect before a writable open (including WAL checkpoint/cleanup).
+        # Sidecars are normal SQLite state, not a reason to refuse access.
+        with readonly_store(path) as connection:
+            return _version(connection, path)
+    except AssistantError as exc:
+        cause = exc.__cause__
+        if not isinstance(cause, sqlite3.Error) or getattr(cause, "sqlite_errorcode", None) not in {
+            sqlite3.SQLITE_READONLY_RECOVERY, sqlite3.SQLITE_READONLY_ROLLBACK,
+        }:
+            raise
+    # A read-only connection cannot recover a hot rollback journal. Refuse an
+    # identifiable future header/name before letting SQLite recover this store.
+    with path.open("rb") as stream:
+        header = stream.read(64)
+    named = _named_version(path) or 0
+    version = int.from_bytes(header[60:64], "big", signed=True) if header[:16] == b"SQLite format 3\x00" else 0
+    if max(version, named) > SUPPORTED_EVIDENCE_SCHEMA:
+        raise EvidenceSchemaError(max(version, named))
+    connection = None
+    try:
+        connection = sqlite3.connect(path.as_uri() + "?mode=rw", uri=True, timeout=15)
         return _version(connection, path)
+    except sqlite3.Error as exc:
+        raise AssistantError("evidence_store_unavailable") from exc
+    finally:
+        if connection is not None:
+            connection.close()
 
 
 def verify_connection(connection) -> dict:
@@ -136,6 +161,9 @@ def require_evidence_layout(connection) -> None:
 
 def verify_evidence_store(path: Path) -> dict:
     path = resolve_evidence_path(path)
+    # Verification also permits SQLite's ordinary crash recovery, never schema
+    # migration. Explicit migration retains its separate strict sidecar guard.
+    check_evidence_schema(path)
     with readonly_store(path) as connection:
         return verify_connection(connection)
 
