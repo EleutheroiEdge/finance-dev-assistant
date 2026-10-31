@@ -2,7 +2,7 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## 0.5.0 - Unreleased
+## 0.5.0 - 2026-10-30
 
 - Add an explicitly opted-in model-review gate with pinned base policy bytes,
   exact request approval, mandatory source screening, retained budget state,
