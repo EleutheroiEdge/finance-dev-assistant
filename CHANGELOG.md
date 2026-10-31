@@ -2,29 +2,20 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.6.0 - 2026-10-31
+
+### Added
 
 - Release builds generate and clean-install a hash-locked runtime requirements asset
   from the exact wheel; the approved publication job attaches it to the GitHub release.
-
-- Reject invisible profile characters and nonphysical instruction separators,
-  require LF-exact synthetic marker attestation, and reject reserved fixture path
-  aliases without extending fixture-only restrictions to ordinary v1 snapshots.
-
 - Add default-off, base-pinned synthetic fixture roots to model and checks
   policies. Roots require an exact tests/fixtures component or a reviewed Git
   marker; mandatory private/data, ignore, text, secret and object screening stays
   active. Separate fixture byte caps apply through review and recipe staging.
-
 - Allow v2 model-review policies to own a named checklist through inline text or
   an exact-byte-pinned UTF-8 profile from the reviewed base commit. Bind custom
   instructions to policy/request hashes and refuse head profile changes, unsafe
   paths and sensitive content; built-in and offline defaults remain unchanged.
-- Reject hidden line breaks and control/format characters in policy instruction
-  lines, and document profile-author trust, protected review and raw Git blob pins.
-- Avoid quadratic secret/account assignment scans on long hyphenated tokens
-  while retaining detection of sensitive suffixes in arbitrarily long labels.
-
 - Benchmark frozen local PR history with held-out labels, trial-count-bound
   suite approvals, shared gate screening/policy/request/budget controls and
   private attempt journals. Unknown attempts stop all remaining trials.
@@ -33,6 +24,26 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   compare matched source cases across model or external reviewer evaluations.
 - Include this repository's own reviewed PR history and two controls, plus
   guidance for keeping adoption holdouts private and avoiding memorized cases.
+
+### Security
+
+- Reject invisible profile characters and nonphysical instruction separators,
+  require LF-exact synthetic marker attestation, and reject reserved fixture path
+  aliases without extending fixture-only restrictions to ordinary v1 snapshots.
+- Reject hidden line breaks and control/format characters in policy instruction
+  lines, and document profile-author trust, protected review and raw Git blob pins.
+- Avoid quadratic secret/account assignment scans on long hyphenated tokens
+  while retaining detection of sensitive suffixes in arbitrarily long labels.
+
+### Upgrading
+
+No evidence-store migration; upgrades never edit project configuration or evidence.
+Policy profile text is now screened more strictly: a profile line with a tab, a BOM,
+an invisible, private-use or unassigned character, or a non-LF line separator is refused
+with `gate_profile_line_invalid`. Fix the profile text on the base branch before upgrading
+a gate that uses one. Synthetic fixture roots are off unless the base-pinned policy lists them.
+Each release now ships `finledgerpoli-<version>-requirements.txt`; install with
+`python -m pip install --require-hashes -r finledgerpoli-0.6.0-requirements.txt`.
 
 ## 0.5.0 - 2026-10-30
 
