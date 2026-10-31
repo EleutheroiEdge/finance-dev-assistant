@@ -4,6 +4,9 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ## Unreleased
 
+- Release builds generate and clean-install a hash-locked runtime requirements asset
+  from the exact wheel; the approved publication job attaches it to the GitHub release.
+
 - Reject invisible profile characters and nonphysical instruction separators,
   require LF-exact synthetic marker attestation, and reject reserved fixture path
   aliases without extending fixture-only restrictions to ordinary v1 snapshots.

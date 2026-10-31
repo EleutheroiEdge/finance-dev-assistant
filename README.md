@@ -93,6 +93,19 @@ a reviewed version, for example
 `uv tool install finledgerpoli==0.5.0`; with pip use
 `python -m pip install finledgerpoli==0.5.0` in the intended environment.
 
+For a release that includes a `finledgerpoli-<VERSION>-requirements.txt` asset,
+replace `<VERSION>` with the reviewed release number and use the intended Python
+environment (prefer a fresh virtual environment):
+
+```sh
+python -m pip install --require-hashes --only-binary=:all: -r "https://github.com/EleutheroiEdge/finance-dev-assistant/releases/download/v<VERSION>/finledgerpoli-<VERSION>-requirements.txt"
+finassist doctor
+```
+
+The asset pins the exact release wheel hash and every runtime dependency. Earlier
+releases without this asset still require a consumer-maintained lock. `pipx` does
+not verify this requirements file; use pip for this hash-enforced installation.
+
 Configuration and evidence migrations are separate explicit commands. After
 migrating evidence with 0.5.0 or later, a downgrade below 0.5.0 sees only the
 pre-migration evidence. Keep both files and restore the preserved backup for

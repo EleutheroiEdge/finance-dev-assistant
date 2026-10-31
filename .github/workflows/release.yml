@@ -49,6 +49,8 @@ jobs:
       - name: Build sdist and wheel from the sdist
         run: python -m build --no-isolation
       - run: python -m twine check --strict dist/*
+      - name: Generate and verify hash-locked runtime requirements
+        run: python scripts/release_requirements.py --dist dist --output release-assets
       - run: python scripts/wheel_smoke.py
       - run: python scripts/dashboard_wheel_smoke.py
       - name: Generate source and distribution SBOM
@@ -69,6 +71,7 @@ jobs:
             dist/*.tar.gz
             release-sbom.spdx.json
             release-notes.md
+            release-assets/*-requirements.txt
           if-no-files-found: error
           retention-days: 30
   publish:
@@ -93,6 +96,7 @@ jobs:
           subject-path: |
             release/dist/*
             release/release-sbom.spdx.json
+            release/release-assets/*-requirements.txt
       - name: Attach the SBOM attestation to distributions
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
@@ -103,8 +107,8 @@ jobs:
         with:
           packages-dir: release/dist/
           attestations: true
-      - name: Attach distributions, SBOM and notes to the GitHub release
-        run: gh release create "$RELEASE_TAG" release/dist/* release/release-sbom.spdx.json --verify-tag --title "$RELEASE_TAG" --notes-file release/release-notes.md
+      - name: Attach distributions, requirements, SBOM and notes to the GitHub release
+        run: gh release create "$RELEASE_TAG" release/dist/* release/release-sbom.spdx.json release/release-assets/*-requirements.txt --verify-tag --title "$RELEASE_TAG" --notes-file release/release-notes.md
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
