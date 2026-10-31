@@ -266,3 +266,13 @@ exit 2; these failures may prevent creation of a report file.
 
 Tests use synthetic source and fake transports. No live provider validation,
 financial approval, production secret setup or merge authorization is implied.
+
+Profile instructions accept visible Unicode letters, marks, numbers, punctuation
+and symbols plus ASCII space. Invisible fillers, variation selectors, private-use,
+unassigned and surrogate characters are refused. File instructions use LF or CRLF
+physical lines; other separators are refused rather than creating instructions.
+Synthetic markers require exactly `synthetic: true` before the first LF (or EOF).
+Fixture roots and fixture paths reject reserved components with compatibility
+Unicode spellings or trailing dots/spaces. Paths are compared without rewriting
+Git names. Enabling fixtures does not add fixture-only private-path restrictions
+to ordinary files in a v1 checks snapshot; all original screening still applies.

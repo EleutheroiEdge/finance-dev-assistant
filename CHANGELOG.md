@@ -4,6 +4,10 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ## Unreleased
 
+- Reject invisible profile characters and nonphysical instruction separators,
+  require LF-exact synthetic marker attestation, and reject reserved fixture path
+  aliases without extending fixture-only restrictions to ordinary v1 snapshots.
+
 - Add default-off, base-pinned synthetic fixture roots to model and checks
   policies. Roots require an exact tests/fixtures component or a reviewed Git
   marker; mandatory private/data, ignore, text, secret and object screening stays
