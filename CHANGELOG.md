@@ -4,6 +4,9 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ## Unreleased
 
+- Release builds generate and clean-install a hash-locked runtime requirements asset
+  from the exact wheel; the approved publication job attaches it to the GitHub release.
+
 - Add default-off, base-pinned synthetic fixture roots to model and checks
   policies. Roots require an exact tests/fixtures component or a reviewed Git
   marker; mandatory private/data, ignore, text, secret and object screening stays

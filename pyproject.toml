@@ -40,7 +40,7 @@ dev = ["pytest==9.2.0", "ruff==0.14.3", "PyYAML==6.0.3", "readme-renderer[md]==4
 
 # Hash-locked alongside the dev extra for CI, release builds and wheel smoke checks.
 [dependency-groups]
-ci = ["build==1.6.1", "twine==7.0.0", "setuptools==84.2.1", "wheel==0.48.0", "maturin==1.15.0"]
+ci = ["build==1.6.1", "twine==7.0.0", "setuptools==84.2.1", "wheel==0.48.0", "maturin==1.15.0", "uv==0.12.17"]
 
 [project.scripts]
 finassist = "finassist.cli:main"

@@ -138,3 +138,38 @@ file again. Writes made on the two branches are not merged automatically.
 
 Read the [compatibility policy](maintainers/compatibility.md) for deprecation
 windows, concurrent-writer limits and the installed historical-wheel tests.
+
+## Hash-verified release installation
+
+For a release that includes a `finledgerpoli-<VERSION>-requirements.txt` asset,
+replace `<VERSION>` with the reviewed release number and use the intended Python
+environment (prefer a fresh virtual environment):
+
+```sh
+python -m pip install --require-hashes --only-binary=:all: -r "https://github.com/EleutheroiEdge/finance-dev-assistant/releases/download/v<VERSION>/finledgerpoli-<VERSION>-requirements.txt"
+finassist doctor
+```
+
+The asset pins the exact release wheel hash and every runtime dependency. Earlier
+releases without this asset still require a consumer-maintained lock. `pipx` does
+not verify this requirements file; use pip for this hash-enforced installation.
+
+The release build generates the asset with a pinned `uv pip compile
+--generate-hashes --universal --python-version 3.11` from the exact wheel's
+metadata, excluding development extras. It verifies a clean install using
+`pip install --require-hashes`, then runs `pip check` and `finassist doctor`.
+The verification uses a temporary wheelhouse so the exact newly built wheel can
+be checked before publication, without substituting an older index distribution.
+The requirements asset is preserved across the existing approval job and attached
+to the GitHub release beside the wheel and SBOM; it is not uploaded as a PyPI
+distribution. Existing tag, merged-source and human publication gates remain.
+
+Universal resolution retains environment markers and distribution hashes across
+platforms. The release job verifies its current Python/OS; a platform without a
+compatible binary dependency fails closed with `--only-binary=:all:`. The lock
+does not add support beyond the documented Python/OS matrix. Hashes establish
+that downloaded bytes match the selected release asset, not that those packages
+are safe or that the asset itself is authentic. Obtain it from the trusted release
+and review its provenance. Installing into an existing environment can leave
+already-installed packages untouched; use a fresh environment for complete
+download-and-hash verification. Configuration/evidence migration remains separate.
