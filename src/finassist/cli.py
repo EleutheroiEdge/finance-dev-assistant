@@ -107,6 +107,18 @@ def parser() -> argparse.ArgumentParser:
     update_mode.add_argument("--yes", action="store_true", help="Explicitly run the detected package manager once")
     demo = commands.add_parser("demo", help="Run fictional finance checks offline")
     demo.add_argument("--output")
+    triage_command = commands.add_parser("triage", help="Validate advisory data or calculate offline routing metrics")
+    triage_actions = triage_command.add_subparsers(dest="triage_action", required=True)
+    triage_validate = triage_actions.add_parser("validate", help="Validate an exact request/model-bound result offline")
+    triage_validate.add_argument("--request", type=Path, required=True)
+    triage_validate.add_argument("--result", type=Path, required=True)
+    triage_evaluate = triage_actions.add_parser("evaluate", help="Score separate request, gold and prediction collections")
+    triage_evaluate.add_argument("--requests", type=Path, required=True)
+    triage_evaluate.add_argument("--gold", type=Path, required=True)
+    triage_evaluate.add_argument("--predictions", type=Path, required=True)
+    for operation in (triage_validate, triage_evaluate):
+        operation.add_argument("--model-manifest", type=Path, required=True)
+        operation.add_argument("--output", type=Path, required=True, help="New private report; never overwritten")
     model_gate = commands.add_parser("gate", help="Run an explicitly policy-approved model review component")
     gate_actions = model_gate.add_subparsers(dest="gate_action", required=True)
     gate_run = gate_actions.add_parser("run", help="Review immutable source with a pinned base policy")
@@ -708,6 +720,15 @@ def execute(args, config: Config | None = None) -> int:
 def main(argv: list[str] | None = None) -> int:
     try:
         args = parser().parse_args(argv)
+        if args.command == "triage":
+            from .triage_cli import execute_triage
+
+            if args.config or args.audit_dir:
+                raise AssistantError("triage_configuration_or_audit_not_supported")
+            report, exit_code = execute_triage(args)
+            _emit({"report_hash": digest(canonical(report)), "advisory_only": True,
+                   "default_matrix_required": True, "model_called": False})
+            return exit_code
         if args.command == "update":
             from .updater import run_upgrade, update_status
 
