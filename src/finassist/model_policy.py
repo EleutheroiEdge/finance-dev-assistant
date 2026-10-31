@@ -10,8 +10,9 @@ from urllib.parse import urlsplit
 import jsonschema
 
 from .ci_policy import decode_document, revision
-from .config import Config, load_config
+from .config import Config
 from .errors import AssistantError
+from .policy_fixtures import FIXTURE_PROPERTIES, fixture_settings, load_policy_config
 from .profiles import PROFILES
 from .scope import read_entry
 from .security import canonical, check_model_path, check_path, check_text, digest
@@ -52,7 +53,7 @@ _SCHEMA = {
         "schema_version": {"type": "integer", "const": 2},
         "model_review": {"type": "object", "additionalProperties": False,
                          "required": list(_PROPERTIES),
-                         "properties": {**_PROPERTIES, **_PROFILE_PROPERTIES},
+                         "properties": {**_PROPERTIES, **_PROFILE_PROPERTIES, **FIXTURE_PROPERTIES},
                          "dependentRequired": {"profile_path": ["profile_sha256"],
                                                "profile_sha256": ["profile_path"]},
                          "not": {"required": ["profile_text", "profile_path"]}},
@@ -70,10 +71,10 @@ class ModelGatePolicy:
     profile_path: str | None = None
 
 
-def _prefix(value: str) -> str:
+def _prefix(value: str, fixture_roots: tuple[str, ...] = ()) -> str:
     if any(character in value for character in "*?[]"):
         raise AssistantError("gate_policy_path_invalid")
-    check_path(value.removesuffix("/"), source_only=False)
+    check_path(value.removesuffix("/"), source_only=False, fixture_roots=fixture_roots)
     return value
 
 
@@ -138,8 +139,9 @@ def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePo
     # The only key material accepted by a policy is a variable NAME. All other
     # fields are screened, including unknown fields rejected by the schema.
     check_text(canonical(document).decode())
+    settings = fixture_settings(repo, base, model)
     for prefix in (*model["allow_paths"], *model["deny_paths"]):
-        _prefix(prefix)
+        _prefix(prefix, tuple(model.get("fixture_roots", ())))
     endpoint = urlsplit(model["endpoint"])
     if endpoint.hostname != model["allowed_host"]:
         raise AssistantError("gate_endpoint_host_mismatch")
@@ -160,5 +162,5 @@ def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePo
         profiles = deepcopy(PROFILES)
         profiles[model["profile"]] = profile_text
         config_fields["profiles"] = profiles
-    config = load_config(content=canonical(config_fields))
+    config = load_policy_config(config_fields, settings)
     return ModelGatePolicy(document, config, path, pin, base, profile_path)
