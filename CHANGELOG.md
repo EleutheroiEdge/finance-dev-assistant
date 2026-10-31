@@ -4,6 +4,15 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ## Unreleased
 
+- Allow v2 model-review policies to own a named checklist through inline text or
+  an exact-byte-pinned UTF-8 profile from the reviewed base commit. Bind custom
+  instructions to policy/request hashes and refuse head profile changes, unsafe
+  paths and sensitive content; built-in and offline defaults remain unchanged.
+- Reject hidden line breaks and control/format characters in policy instruction
+  lines, and document profile-author trust, protected review and raw Git blob pins.
+- Avoid quadratic secret/account assignment scans on long hyphenated tokens
+  while retaining detection of sensitive suffixes in arbitrarily long labels.
+
 - Benchmark frozen local PR history with held-out labels, trial-count-bound
   suite approvals, shared gate screening/policy/request/budget controls and
   private attempt journals. Unknown attempts stop all remaining trials.

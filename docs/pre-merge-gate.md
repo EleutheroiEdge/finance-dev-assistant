@@ -77,8 +77,22 @@ refresh the caller's policy-byte pin. Editing, deleting or renaming that profile
 in the PR blocks with `gate_profile_change_requires_review`, even when it is
 outside the source `allow_paths`. A missing file or mismatching pin also blocks.
 
+Compute file pins from the committed blob, including its original line endings:
+
+```sh
+git cat-file blob BASE:docs/review-checklist.txt | sha256sum
+```
+
+Replace `BASE` with the reviewed full commit SHA. Do not hash a CRLF-converted
+working copy. The policy pin similarly binds its exact committed blob bytes.
+
 Both forms accept 1–64 nonblank instruction lines, at most 2,000 characters per
-line; a profile file is additionally capped at 128,000 bytes. Files must pass
+line. Each inline string must be exactly one line, including no trailing newline
+or Unicode line separator. Instruction lines reject Unicode control/format
+characters (`Cc`, `Cf`, `Zl`, `Zp`), including BOM and zero-width-only content;
+ordinary visible Unicode text is preserved. Profile files are split into lines
+before this validation. A profile file is capped at 128,000 bytes, and inline
+text counts toward the policy blob's existing 128,000-byte cap. Files must pass
 the mandatory text-path, UTF-8, Git-object and sensitive-content checks. Links,
 private/client/data paths, explicit policy `deny_paths`, and ignored files are
 refused, including immutable
@@ -90,8 +104,12 @@ The custom text defines the named checklist (it may replace a built-in name).
 The fixed evidence-first reviewer preamble remains; the built-in `general`
 checklist is also prepended unless the selected name is `general`. To own all
 checklist lines, select `general` with your custom text. Neither form confers
-merge, execution or financial authority. Human-maintained checklists still need
-review for confidential content, correctness and consistency with project canon;
+merge, execution or financial authority: the gate report schema fixes
+`merge_authority` to `false`. Profile text has **policy-author trust**: a hostile
+checklist can suppress useful findings despite the fixed preamble, but cannot
+grant execution or merge authority. Protect the profile and policy with
+`CODEOWNERS` and require trusted review of changes. Human-maintained checklists
+still need review for confidential content, correctness and consistency with project canon;
 pattern screening cannot establish those properties. Version-1 checks policies
 and manual review configuration retain their existing profile behavior.
 
