@@ -88,10 +88,10 @@ after updating. `finassist update status --json` shows cached update information
 `finassist update --dry-run` prints the detected command, and `--yes` explicitly
 runs it for a supported installation. Notices are off by default. Teams can pin
 a reviewed version, for example
-`pipx install finledgerpoli==0.4.0`, and roll back with
+`pipx install finledgerpoli==0.5.0`, and roll back with
 `pipx install finledgerpoli==0.4.0 --force`. With uv use
-`uv tool install finledgerpoli==0.4.0 --force`; with pip use
-`python -m pip install finledgerpoli==0.4.0` in the intended environment.
+`uv tool install finledgerpoli==0.5.0`; with pip use
+`python -m pip install finledgerpoli==0.5.0` in the intended environment.
 
 Configuration and evidence migrations are separate explicit commands. After
 migrating evidence with 0.5.0 or later, a downgrade below 0.5.0 sees only the
@@ -158,8 +158,12 @@ Run `finassist guide agents` for offline help; your project's rules and approval
 
 For unattended PR validation, use the [GitHub Actions check gate](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/ci-gates.md).
 It runs approved isolated checks under a pinned policy from the PR's base
-revision and publishes a reduced job summary. This first CI mode reports
-deterministic checks; policies requiring model review remain blocked.
+revision and publishes a reduced job summary. Version-1 policies run
+deterministic checks only. A reviewed version-2 policy adds the
+[policy-approved model review](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/pre-merge-gate.md):
+the model step screens source and returns findings with file references; it
+reproduces nothing itself, posts no commit status or comment, and its spend
+limits are per run and per day against a retained state directory.
 
 | Goal | Guide |
 |---|---|
