@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
 import os
 import re
@@ -22,6 +23,8 @@ def git_environment() -> dict[str, str]:
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_CONFIG_GLOBAL": os.devnull,
         "GIT_TERMINAL_PROMPT": "0",
+        "GIT_NO_LAZY_FETCH": "1",
+        "GIT_NO_REPLACE_OBJECTS": "1",
     }
     if os.name == "nt" and "SYSTEMROOT" in os.environ:
         environment["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
@@ -37,6 +40,8 @@ def _newline_options(repo: Path) -> list[str]:
         if name in os.environ:
             environment[name] = os.environ[name]
     environment["GIT_TERMINAL_PROMPT"] = "0"
+    environment["GIT_NO_LAZY_FETCH"] = "1"
+    environment["GIT_NO_REPLACE_OBJECTS"] = "1"
     result = []
     for key, allowed in (
         ("core.autocrlf", {"true", "false", "input"}),
@@ -82,10 +87,50 @@ def _newline_options(repo: Path) -> list[str]:
     return result
 
 
+@lru_cache(maxsize=8)
+def _supports_no_lazy_fetch(executable: str) -> bool:
+    # Metadata-only capability probe: upstream added this option/env in2.45,
+    # not2.44. Probe rather than trusting vendor/backport version strings.
+    try:
+        result = subprocess.run([executable, "--no-lazy-fetch", "--version"],
+                                env=git_environment(), capture_output=True, timeout=10, check=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise AssistantError("git_capability_check_failed") from exc
+    if result.returncode not in {0, 129}:
+        raise AssistantError("git_capability_check_failed")
+    return result.returncode == 0
+
+
+def _offline_git_options(repo: Path, executable: str) -> list[str]:
+    if _supports_no_lazy_fetch(executable):
+        return ["--no-lazy-fetch"]
+    # Older Git silently ignores the environment variable. Read only config
+    # names before any object/ref command; no Git object lookup or remote IO.
+    # Do not cache this check: repository settings can change between calls.
+    try:
+        result = subprocess.run([
+            executable, "--no-optional-locks", "-c", "core.fsmonitor=false",
+            "-c", "core.hooksPath=" + os.devnull, "-C", str(repo), "config",
+            "--name-only", "--get-regexp",
+            r"^(remote\..*\.(promisor|partialclonefilter)|extensions\.partialclone)$",
+        ], env=git_environment(), capture_output=True, timeout=10, check=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise AssistantError("git_read_failed") from exc
+    if result.returncode == 0:
+        raise AssistantError("git_partial_clone_unsupported")
+    if result.returncode != 1:
+        raise AssistantError("git_read_failed")
+    return []
+
+
 def git_command(repo: Path, *args: str) -> list[str]:
+    executable = find_tool("git")
+    offline = _offline_git_options(repo, executable)
     newline = _newline_options(repo) if args and args[0] in {"status", "apply"} else []
     return [
-        find_tool("git"),
+        executable,
+        *offline,
+        "--no-replace-objects",
         "--no-optional-locks",
         "-c",
         "core.fsmonitor=false",
@@ -115,7 +160,20 @@ def git(repo: Path, *args: str, binary: bool = False):
 def resolve(repo: Path, ref: str) -> str:
     if not ref or ref.startswith("-") or "\0" in ref:
         raise AssistantError("invalid_revision")
-    sha = git(repo, "rev-parse", "--verify", "--end-of-options", ref + "^{commit}")
+    try:
+        result = subprocess.run(
+            git_command(repo, "rev-parse", "--verify", "--quiet", "--end-of-options", ref + "^{commit}"),
+            env=git_environment(), capture_output=True, timeout=30, check=False,
+        )
+        sha = result.stdout.decode("ascii").strip()
+    except (OSError, subprocess.SubprocessError, UnicodeError) as exc:
+        raise AssistantError("git_read_failed") from exc
+    # --verify --quiet uses1 for an unavailable commit; Git/config/process
+    # failures must not masquerade as missing objects (or authorize a fetch).
+    if result.returncode == 1:
+        raise AssistantError("git_commit_unavailable")
+    if result.returncode != 0:
+        raise AssistantError("git_read_failed")
     if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", sha):
         raise AssistantError("invalid_revision")
     return sha

@@ -41,6 +41,183 @@ coverage gaps, prompt-injection behavior, dollars per confirmed defect and elaps
 time on identical frozen tasks. Retain failures and repeated trials. A second
 model is worthwhile only if it adds useful verified findings at acceptable cost.
 
+## Benchmark on your own history
+
+Keep the suite, labels, reports and journals in a private directory outside public
+Git. Select frozen source pairs with independently reproduced findings, plus
+reviewed negative controls. Separate case selection from the person doing the
+review; freeze ground truth before seeing the output. A control with no known
+defect is an assumption to check, not proof of correctness. Never place client,
+holdings, credential or licensed vendor data in a suite or source packet.
+
+A history file has `version: 1` and `cases`, each with these fields:
+
+```json
+{
+  "id": "cash-sign",
+  "repo_path": "../local-repository",
+  "base_sha": "1111111111111111111111111111111111111111",
+  "head_sha": "2222222222222222222222222222222222222222",
+  "profile": "finance-saas",
+  "expected": [{"label": "cash-sign-inversion", "paths": ["src/cash.py"], "severity": "high"}],
+  "negative_control": false
+}
+```
+
+Use actual full commit SHAs, not the illustrative values above. Repository paths
+are local Git repository roots, relative to the suite file or absolute; URLs,
+linked paths and repository subdirectories are refused. Objects must already
+exist. Evaluation never fetches, switches branches,
+changes files or executes the repository. All changed source is screened; omitted,
+ignored, private, binary, oversized or unsupported source refuses the case.
+Expected paths must be inside that complete scope. Case IDs, expected labels,
+severities, control flags and repository locations are excluded from requests.
+Only the frozen source packet and the selected review instructions enter context.
+
+Start with offline inspection. The public example uses only this project's own
+PR history and includes two controls; see `examples/history-cases.md` for its
+exact provenance and local-object prerequisites.
+
+```sh
+finassist --config examples/history-offline-config.json evaluate \
+  --history-suite examples/history-cases.json --trials 2 \
+  --output .finassist/history-offline.json
+```
+
+`--trials` is 1–20 per case (at most 50 cases). The printed `suite_hash` binds
+the complete suite, held-out labels, policy pins and trial count. Inspect the
+suite and frozen source before approving that exact hash; changing trials or
+labels requires new approval. Offline output is deterministic and cannot be
+scored as model quality.
+
+For a model run, each case additionally needs a reviewed `policy` object with
+`path` and `sha256`: the policy file's repository-relative path and SHA-256 of
+its exact committed bytes. Optional `repo_path` defaults to the case's repository;
+optional `commit` defaults to the case's `base_sha`. Policy repositories may be
+separate regular local Git repositories. All repository paths are anchored at
+the suite file; policy commits must be full40-hex SHAs already present locally.
+No policy repository or missing commit is fetched. For example:
+
+```json
+{
+  "repo_path": "../private-benchmark-policies",
+  "commit": "3333333333333333333333333333333333333333",
+  "path": "policies/review.json",
+  "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+}
+```
+
+Replace those illustrative hashes with inspected exact values. The case profile
+must equal the pinned policy's profile. Policy values choose the provider,
+model, endpoint, named key, scope, pricing and limits. Source base and merge-base
+ignores, plus ignores at the policy commit (in its own repository), are screened.
+The shared gate's complete coverage, exact wire-request hash, key screening and
+retained budget reservations apply. Offline inspection validates supplied policy
+bindings without reading a key. An offline inspection configuration does not
+authorize a model call.
+
+**This separate binding is for out-of-band history evaluation only. It never
+authorizes a CI review.** The ordinary CLI/CI gate always pins policy at its
+source base and has no policy-repository/commit override. Live history evaluation
+refuses execution inside GitHub Actions.
+
+```sh
+finassist evaluate --history-suite /private/benchmark/history.json --trials 3 \
+  --approve-suite YOUR_INSPECTED_SUITE_HASH --allow-network \
+  --state-dir /private/benchmark/state --output /private/benchmark/evaluation.json
+```
+
+The whole suite is preflighted before the first request. Trials run sequentially
+through one shared ledger. A gate FAIL means a completed review with a blocking
+finding and does not stop later trials. BLOCKED stops the evaluation; later
+trials remain `not-run`. There is no retry, provider fallback or automatic resume.
+A private `state/history/*.json` journal marks the attempt before dispatch and
+is updated after each result. Full gate claims live in separate `*.report.json`
+files beside that journal; each trial binds its report filename/hash and exact
+request/policy hashes. The compact evaluation keeps stable finding IDs, paths,
+severities and reviewer/model/policy identity for adjudication and comparison.
+Keep those report files with the journal when copying an evaluation.
+Scoring accepts evaluations up to64MB and labels up to16MB; a live suite whose
+worst-case compact results exceed the bound is refused before dispatch.
+If interrupted, retain the journal, reports and audit database;
+unknown usage stays reserved. Reconcile actual provider billing before any new
+run. Do not reset or change state directories to evade that hold.
+
+### Adjudicate each finding
+
+Independently reproduce the claims, then bind judgments to the exact
+`evaluation_hash`. A history labels file has `evaluation_hash` and `runs`:
+
+```json
+{
+  "evaluation_hash": "EXACT_EVALUATION_HASH",
+  "runs": [
+    {"case_id": "cash-sign", "trial": 1, "findings": {
+      "FINDING_ID_FROM_EVALUATION": {"outcome": "confirmed-hit", "label": "cash-sign-inversion"}
+    }}
+  ]
+}
+```
+
+Include exactly one entry for every completed trial, including `findings: {}`
+for a completed review with no findings. Every returned finding ID needs one
+judgment. Outcomes are `confirmed-hit` with an expected label, or `false-alarm`,
+`confirmed-other`, or `unresolved` with `label: null`. A hit must name a target
+whose paths include the cited file. A confirmed new defect outside the expected
+targets is `confirmed-other`, not a false alarm. Such a finding contaminates a
+negative control; investigate and revise ground truth before claiming quality.
+Blocked/unattempted trials get no judgment. Missing targets in a fully
+adjudicated completed trial are misses; unresolved work is never silently clean.
+
+`score` detects the history format and retains the original synthetic scoring
+format for existing evaluations. It reports per-case weighted recall, negative
+control false-alarm rate, pairwise trial agreement and total dollars/seconds per
+confirmed target hit. Fixed weights are critical=5, high=4, medium=3, low=2,
+info=1. Expected labels set weights; model severity claims do not change them.
+Duplicate descriptions of the same target count once per trial. Costs and time
+include misses and false alarms. Time measures each gate attempt, excluding
+initial suite preflight and human adjudication. Unknown amounts remain null; zero hits gives
+null cost per hit. Incomplete runs, unresolved judgments or contaminated
+controls withhold aggregate quality and efficiency metrics.
+
+Agreement is the mean pairwise Jaccard similarity of confirmed target-label sets
+per case; two empty sets agree. False-alarm agreement is reported separately.
+Agreement can be consistently wrong and does not establish correctness.
+
+### Compare reviewers
+
+```sh
+finassist score --evaluation /private/benchmark/model-a.json \
+  --labels /private/benchmark/model-a-labels.json \
+  --compare /private/benchmark/model-b.json \
+  --compare-labels /private/benchmark/model-b-labels.json \
+  --output /private/benchmark/comparison.json
+```
+
+Both evaluations need complete independent adjudication, identical case IDs,
+base/head source pairs, source identities and ground truth. Profiles/models and
+policy selections may differ. The report
+shows labels detected by both reviewers, each reviewer alone, and overlap.
+Detection in any trial counts for this overlap, so unequal trial counts change
+opportunity; prefer matched counts and disclose the sampling choice.
+
+An external review can use a `schema_version: 2`, `kind: history-evaluation`,
+`mode: external` envelope with the same `suite_hash`, `trials` and case fields
+as the local output. Retain each case's `source_hash`, `expected` and
+`negative_control`; give each trial a status, stable finding IDs with paths and
+severities, `actual_usd` (decimal string or null) and `elapsed_seconds` (number or
+null). Use null for unknown external cost/time. Recompute `evaluation_hash` as
+SHA-256 of compact, sorted-key JSON for the entire envelope except that hash
+field (`finassist.security.canonical` defines the encoding). Human labels then
+bind that envelope exactly. This is an operator attestation of source/reviewer
+identity, not authentication of an external service or proof of completeness.
+
+Keep adoption holdouts separate from public examples, profile tuning and prompt
+development. Public PRs and reproduced tests may appear in model training or be
+memorized; recall on those cases can overstate performance on unseen changes.
+Record model/profile versions, failures, trial counts and label revisions.
+No benchmark grants merge, publication or financial authority.
+
 ## Limits
 
 The offline demo and unit tests verify deterministic code paths. Fake HTTP
@@ -48,3 +225,22 @@ transports verify protocol parsing and failure behavior. Neither measures a
 model's ability to discover defects. No provider ranking is claimed.
 
 A matching path, fluent explanation, model vote or valid JSON cannot establish semantic correctness. Public cases may be memorized: keep a separate private synthetic holdout. See the [threat model](threat-model.md).
+
+
+### Local Git object requirements
+
+History evaluation disables Git replacement refs and lazy fetching. Frozen SHAs
+identify the original objects, even if a local `refs/replace` entry exists.
+Missing source or policy objects are refused; offline evaluation never obtains
+them from a promisor remote. Missing selected policy commits report
+`history_policy_commit_unavailable`, distinct from an invalid local policy repo.
+
+The shared Git runner probes support with `git --no-lazy-fetch --version` (no
+repository object or remote access). Upstream introduced the option and
+`GIT_NO_LAZY_FETCH` in [Git 2.45](https://github.com/git/git/blob/v2.45.0/Documentation/RelNotes/2.45.0.txt).
+Older/unsupported builds refuse repositories with any `remote.*.promisor`,
+`remote.*.partialclonefilter` or `extensions.partialclone` setting, returning
+`git_partial_clone_unsupported` before object/ref commands. Use an independently
+prepared complete local clone or a Git build supporting the guard; the evaluator
+does not fetch missing objects or repair Git configuration for you. These rules
+also protect ordinary source packet reads through the shared Git runner.

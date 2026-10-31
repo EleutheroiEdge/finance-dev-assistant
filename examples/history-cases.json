@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "pr31-evidence-recovery-guard",
+      "repo_path": "..",
+      "base_sha": "7f7eb92e7b11a30fffc8b5ab521d4019cdecb11b",
+      "head_sha": "2b6e0d4eb793f03168d9e62e1ab5019175d612a4",
+      "profile": "finance-saas",
+      "expected": [
+        {
+          "label": "ordinary-sqlite-recovery-refused",
+          "paths": ["src/finassist/evidence_schema.py"],
+          "severity": "high"
+        }
+      ],
+      "negative_control": false
+    },
+    {
+      "id": "pr31-macos-smoke-path-control",
+      "repo_path": "..",
+      "base_sha": "a5c40a060237bbd3af4f156c3fe31da5601d1a06",
+      "head_sha": "904fae09c319f128fbed48a44895af475577a2c0",
+      "profile": "finance-saas",
+      "expected": [],
+      "negative_control": true
+    },
+    {
+      "id": "pr31-ci-time-budget-control",
+      "repo_path": "..",
+      "base_sha": "0588d4ff92bfca5207824513047f390673824ea5",
+      "head_sha": "28eb0845e975b2464ac80e994483dca43d425c6f",
+      "profile": "finance-saas",
+      "expected": [],
+      "negative_control": true
+    }
+  ]
+}

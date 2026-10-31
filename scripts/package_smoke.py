@@ -13,6 +13,7 @@ import finassist
 from finassist.platform_support import clean_environment, find_tool
 from finassist.guides import GUIDES
 from finassist.scope import git_environment
+from finassist.security import canonical, digest
 
 assert "site-packages" in str(Path(finassist.__file__).resolve()), finassist.__file__
 if len(sys.argv) != 2:
@@ -168,6 +169,36 @@ with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
     assert cli("finance-check", "--kind", "cash", "--input", examples / "cash-check.json")[0]["passed"]
     cli("evaluate", "--suite", examples / "review-cases.json", "--output", root / "evaluation.json")
     assert not json.loads((root / "evaluation.json").read_text(encoding="utf-8"))["model_quality_measured"]
+    history_suite = {"version": 1, "cases": [{
+        "id": "synthetic-history", "repo_path": ".", "base_sha": git("rev-parse", "HEAD~1"),
+        "head_sha": git("rev-parse", "HEAD"), "profile": "finance-saas", "negative_control": False,
+        "expected": [{"label": "cash-sign", "paths": ["src/cash.py"], "severity": "high"}]}]}
+    history_file, history_output = root / "history.json", root / "history-output.json"
+    history_file.write_bytes(canonical(history_suite))
+    cli("evaluate", "--history-suite", history_file, "--trials", "2", "--output", history_output)
+    history = json.loads(history_output.read_text(encoding="utf-8"))
+    assert history["mode"] == "offline" and history["trials"] == 2
+    labels_file = root / "history-labels.json"
+    labels_file.write_bytes(canonical({"evaluation_hash": history["evaluation_hash"], "runs": []}))
+    assert cli("score", "--evaluation", history_output, "--labels", labels_file,
+               "--output", root / "offline-score.json", expected_exit=2)["code"] == "offline_run_is_not_model_evaluation"
+    # An explicitly synthetic external-review envelope also exercises installed
+    # scoring/comparison imports. Empty findings are misses, never model quality.
+    history["mode"] = "external"
+    for run in history["cases"][0]["runs"]:
+        run["status"] = "complete"
+    history.pop("evaluation_hash")
+    history["evaluation_hash"] = digest(canonical(history))
+    history_output.write_bytes(canonical(history))
+    labels_file.write_bytes(canonical({"evaluation_hash": history["evaluation_hash"], "runs": [
+        {"case_id": "synthetic-history", "trial": trial, "findings": {}} for trial in [1, 2]]}))
+    score_output, comparison_output = root / "history-score.json", root / "history-comparison.json"
+    cli("score", "--evaluation", history_output, "--labels", labels_file, "--output", score_output)
+    assert json.loads(score_output.read_text(encoding="utf-8"))["severity_weighted_recall"] == 0
+    cli("score", "--evaluation", history_output, "--labels", labels_file, "--compare", history_output,
+        "--compare-labels", labels_file, "--output", comparison_output)
+    comparison = json.loads(comparison_output.read_text(encoding="utf-8"))
+    assert comparison["overlap"][0]["overlap_jaccard"] is None
     entry = cli("evidence", "add", "--input", examples / "evidence-observation.json")[0]
     cli("evidence", "approve", "--id", entry["id"], "--approve-hash", entry["hash"])
     latest = cli("evidence", "latest", "--entity", "Fictional Example", "--metric", "revenue")[0]
@@ -196,6 +227,8 @@ print(
                 "render",
                 "finance-check",
                 "evaluate",
+                "evaluate --history-suite (offline synthetic revisions)",
+                "score/compare (synthetic external envelope; no model calls)",
                 "evidence",
             ],
         }

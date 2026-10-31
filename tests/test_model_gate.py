@@ -69,6 +69,12 @@ def test_advisory_pass_has_structured_evidence_usage_and_policy_approval(gate_ca
         assert approval["policy_sha256"] == report["policy_sha256"] == gate_case["pin"]
 
 
+def test_caller_request_binding_cannot_change_before_dispatch(gate_case):
+    report, calls = run(gate_case, expected_request_hash="0" * 64)
+    assert not calls and report["reasons"] == ["gate_request_hash_mismatch"]
+    assert not (gate_case["state"] / "audit.sqlite").exists()
+
+
 def test_selected_severity_fails_while_default_is_advisory(gate_case):
     change_policy(gate_case, blocking_severities=["high"])
     report, calls = run(gate_case)
