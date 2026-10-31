@@ -107,10 +107,24 @@ def history_policy_binding(case: dict, suite_directory: Path) -> HistoryPolicyBi
     # Git identity. No remote inspection, fetch or working-tree mutation occurs.
     # Git may expand Windows 8.3 names. Compare directory identity only after
     # both spellings pass the existing symlink/reparse-point screening.
-    if not repo.is_dir() or not regular_path(Path(git(repo, "rev-parse", "--show-toplevel"))).samefile(repo):
+    if not repo.is_dir():
+        raise AssistantError("history_policy_repository_invalid")
+    try:
+        top = regular_path(Path(git(repo, "rev-parse", "--show-toplevel")))
+    except AssistantError as exc:
+        if exc.code == "git_read_failed":
+            raise AssistantError("history_policy_repository_invalid") from exc
+        raise
+    if not top.samefile(repo):
         raise AssistantError("history_policy_repository_invalid")
     commit = selection.get("commit", case["base_sha"])
-    if resolve(repo, commit) != commit:
+    try:
+        resolved = resolve(repo, commit)
+    except AssistantError as exc:
+        if exc.code == "git_commit_unavailable":
+            raise AssistantError("history_policy_commit_unavailable") from exc
+        raise
+    if resolved != commit:
         raise AssistantError("history_policy_revision_mismatch")
     return HistoryPolicyBinding(repo, commit, selection["path"], selection["sha256"])
 

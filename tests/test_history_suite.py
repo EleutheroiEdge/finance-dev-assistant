@@ -112,3 +112,10 @@ def test_repository_links_refused(repository):
     suite["cases"][0]["repo_path"] = "alias"
     with pytest.raises(AssistantError, match="linked_path"):
         plan_history(suite, repo.parent, Config())
+
+
+def test_published_history_suite_validates_with_two_negative_controls():
+    import json
+    suite = json.loads((Path(__file__).parents[1] / "examples/history-cases.json").read_text(encoding="utf-8"))
+    assert len(validate_history_suite(suite)) == 64
+    assert sum(case["negative_control"] for case in suite["cases"]) >= 2

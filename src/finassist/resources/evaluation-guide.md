@@ -225,3 +225,22 @@ transports verify protocol parsing and failure behavior. Neither measures a
 model's ability to discover defects. No provider ranking is claimed.
 
 A matching path, fluent explanation, model vote or valid JSON cannot establish semantic correctness. Public cases may be memorized: keep a separate private synthetic holdout. See the [threat model](threat-model.md).
+
+
+### Local Git object requirements
+
+History evaluation disables Git replacement refs and lazy fetching. Frozen SHAs
+identify the original objects, even if a local `refs/replace` entry exists.
+Missing source or policy objects are refused; offline evaluation never obtains
+them from a promisor remote. Missing selected policy commits report
+`history_policy_commit_unavailable`, distinct from an invalid local policy repo.
+
+The shared Git runner probes support with `git --no-lazy-fetch --version` (no
+repository object or remote access). Upstream introduced the option and
+`GIT_NO_LAZY_FETCH` in [Git 2.45](https://github.com/git/git/blob/v2.45.0/Documentation/RelNotes/2.45.0.txt).
+Older/unsupported builds refuse repositories with any `remote.*.promisor`,
+`remote.*.partialclonefilter` or `extensions.partialclone` setting, returning
+`git_partial_clone_unsupported` before object/ref commands. Use an independently
+prepared complete local clone or a Git build supporting the guard; the evaluator
+does not fetch missing objects or repair Git configuration for you. These rules
+also protect ordinary source packet reads through the shared Git runner.

@@ -260,8 +260,13 @@ def test_extreme_planned_results_refuse_before_dispatch_instead_of_becoming_unsc
         check_result_capacity({}, prepared, 20)
 
 
-@pytest.mark.parametrize("mutation", ["wrong-pin", "missing-commit", "non-repository", "profile"])
-def test_separate_policy_repository_refusals_happen_before_network(gate_case, tmp_path, monkeypatch, mutation):
+@pytest.mark.parametrize("mutation,code", [
+    ("wrong-pin", "gate_policy_pin_mismatch"),
+    ("missing-commit", "history_policy_commit_unavailable"),
+    ("non-repository", "history_policy_repository_invalid"),
+    ("profile", "history_policy_profile_mismatch"),
+])
+def test_separate_policy_repository_refusals_happen_before_network(gate_case, tmp_path, monkeypatch, mutation, code):
     import finassist.scope as scope
     suite = model_suite(gate_case)
     selection = policy_repository(tmp_path)
@@ -281,7 +286,7 @@ def test_separate_policy_repository_refusals_happen_before_network(gate_case, tm
         return original(*args, **kwargs)
     monkeypatch.setattr(scope, "git_command", no_fetch)
     monkeypatch.setattr("finassist.history_evaluation.prepare_model_request", lambda *a: pytest.fail("key/network reached"))
-    with pytest.raises(AssistantError):
+    with pytest.raises(AssistantError, match="^" + code + "$"):
         execute(gate_case, suite, trials=1)
     assert not gate_case["state"].exists()
 
@@ -396,3 +401,15 @@ def test_windows_short_name_repository_roots_are_accepted(gate_case, tmp_path, s
     else:
         result = evaluate_history(suite, tmp_path, Config(), gate_case["state"])
         assert result["mode"] == "offline" and not gate_case["state"].exists()
+
+
+@pytest.mark.parametrize("field,value", [
+    ("repo_path", "other-local-policy-repo"), ("commit", "1" * 40),
+    ("path", "other-policy.json"), ("sha256", "0" * 64),
+])
+def test_each_policy_selection_field_changes_approval_hash(gate_case, tmp_path, field, value):
+    suite = model_suite(gate_case)
+    suite["cases"][0]["policy"] = policy_repository(tmp_path)
+    before = history_approval_hash(suite, 2)
+    suite["cases"][0]["policy"][field] = value
+    assert history_approval_hash(suite, 2) != before
