@@ -21,6 +21,7 @@
 
 ## Safety and evidence
 
+- [Advisory triage](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/triage-contract.md): Validate exact request/model-bound JSON and score independent labels offline; preserves the required CI matrix and never calls a model.
 - [Threat model](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/threat-model.md): Protections, trust boundaries and limits.
 - [Auditing and readiness](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/readiness-and-auditing.md): Verified records, unknown outcomes and prerequisites for human review.
 - [Workflow audit timelines](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflow-timelines.md): Read-only historical attempts, dependency blockers and snapshot-bound metadata pages.

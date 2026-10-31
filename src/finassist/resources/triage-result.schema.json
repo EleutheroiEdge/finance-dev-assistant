@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Advisory triage result, version 1",
+  "description": "Data validation only; no model, plugin or execution authorization.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "case_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+      "not": {
+        "pattern": "[^A-Za-z0-9_-]"
+      }
+    },
+    "request_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "maxLength": 64
+    },
+    "model_manifest": {
+      "$ref": "#/$defs/model_manifest"
+    },
+    "action": {
+      "enum": [
+        "recommend",
+        "abstain",
+        "invalid"
+      ]
+    },
+    "reason": {
+      "enum": [
+        "scored",
+        "uncertain",
+        "insufficient_context",
+        "out_of_distribution",
+        "invalid_input",
+        "inference_error",
+        "timeout"
+      ]
+    },
+    "probabilities": {
+      "type": "object",
+      "properties": {
+        "patterns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+                "not": {
+                  "pattern": "[^A-Za-z0-9_-]"
+                }
+              },
+              "probability": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "id",
+              "probability"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 256
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+                "not": {
+                  "pattern": "[^A-Za-z0-9_-]"
+                }
+              },
+              "probability": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "id",
+              "probability"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 256
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+                "not": {
+                  "pattern": "[^A-Za-z0-9_-]"
+                }
+              },
+              "probability": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "id",
+              "probability"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 256
+        }
+      },
+      "required": [
+        "patterns",
+        "files",
+        "checks"
+      ],
+      "additionalProperties": false
+    },
+    "selected_patterns": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+        "not": {
+          "pattern": "[^A-Za-z0-9_-]"
+        }
+      },
+      "maxItems": 256,
+      "uniqueItems": true
+    },
+    "selected_checks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+        "not": {
+          "pattern": "[^A-Za-z0-9_-]"
+        }
+      },
+      "maxItems": 256,
+      "uniqueItems": true
+    },
+    "ranked_files": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+        "not": {
+          "pattern": "[^A-Za-z0-9_-]"
+        }
+      },
+      "maxItems": 256,
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "schema_version",
+    "case_id",
+    "request_hash",
+    "model_manifest",
+    "action",
+    "reason",
+    "probabilities",
+    "selected_patterns",
+    "selected_checks",
+    "ranked_files"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "model_manifest": {
+      "type": "object",
+      "properties": {
+        "model_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+          "not": {
+            "pattern": "[^A-Za-z0-9_-]"
+          }
+        },
+        "model_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "maxLength": 64
+        },
+        "scorer_revision": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+          "not": {
+            "pattern": "[^0-9a-f]"
+          }
+        },
+        "calibration_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "model_id",
+        "model_digest",
+        "scorer_revision",
+        "calibration_digest"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
