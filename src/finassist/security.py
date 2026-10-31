@@ -155,6 +155,25 @@ def check_path(
     return name
 
 
+_PRIVATE = {"data", "private", "client", "clients", "household", "households",
+            "client-config", "client_config", "household-config", "household_config"}
+
+
+def check_model_path(path: str) -> str:
+    """Mandatory model context path screening, including policy-owned profiles."""
+    check_path(path)
+    if len(path) > 512 or any(part.lower() in _PRIVATE for part in PurePosixPath(path).parts):
+        raise AssistantError("gate_private_path")
+    name = PurePosixPath(path).name.lower()
+    if name in {"client.json", "clients.json", "household.json", "households.json",
+                "credentials.json", "credential.json", "secrets.json"} or re.search(
+        r"(?:household|client)[_-]?(?:config|settings|profile)", name
+    ):
+        raise AssistantError("gate_private_path")
+    return path
+
+
+
 def check_text(text: str, *, extra_patterns: tuple[str, ...] = ()) -> None:
     if "\0" in text:
         raise AssistantError("binary_input")

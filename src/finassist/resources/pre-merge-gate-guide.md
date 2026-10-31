@@ -47,6 +47,60 @@ are excluded from this public identity; the named process variable is their
 authority. The provider rechecks the request hash immediately before dispatch.
 There is no approve-packet bypass or automatic provider fallback.
 
+## Project-owned review profiles
+
+The v2 `model_review` object keeps the required `profile` name. With no custom
+text it selects a shipped built-in checklist (`general`, `finance-saas`,
+`investment-research` or `quant-review`). To own the checklist, use either
+`profile_text` or the pair `profile_path` / `profile_sha256` in that same object.
+Do not supply both forms. Other required policy fields remain unchanged.
+
+For example, add these fields to your reviewed `model_review` object:
+
+```json
+{
+  "profile": "project-review",
+  "profile_text": [
+    "Trace cent rounding through preview, booking and final balances.",
+    "Use the project's approved objective and constraints; flag missing canon."
+  ]
+}
+```
+
+Alternatively, set `profile` to `project-review`, `profile_path` to a committed
+file such as `docs/review-checklist.txt`, and `profile_sha256` to the lowercase
+SHA-256 of that file's **exact raw bytes**. The file is UTF-8 plain text: each
+nonblank line is one instruction; blank lines are omitted. It is read from the
+same base commit as the policy, never from the worktree or PR head. Update and
+review the file and its policy pin together on the protected base first, then
+refresh the caller's policy-byte pin. Editing, deleting or renaming that profile
+in the PR blocks with `gate_profile_change_requires_review`, even when it is
+outside the source `allow_paths`. A missing file or mismatching pin also blocks.
+
+Both forms accept 1–64 nonblank instruction lines, at most 2,000 characters per
+line; a profile file is additionally capped at 128,000 bytes. Files must pass
+the mandatory text-path, UTF-8, Git-object and sensitive-content checks. Links,
+private/client/data paths, explicit policy `deny_paths`, and ignored files are
+refused, including immutable
+base/merge-base ignore rules removed from a dirty checkout. Custom text is
+included in the existing serialized request-size limit and exact request hash.
+Instructions never load code, read a local `profile_files` path or bypass screening.
+
+The custom text defines the named checklist (it may replace a built-in name).
+The fixed evidence-first reviewer preamble remains; the built-in `general`
+checklist is also prepended unless the selected name is `general`. To own all
+checklist lines, select `general` with your custom text. Neither form confers
+merge, execution or financial authority. Human-maintained checklists still need
+review for confidential content, correctness and consistency with project canon;
+pattern screening cannot establish those properties. Version-1 checks policies
+and manual review configuration retain their existing profile behavior.
+
+For a history suite selecting a separate policy repository or commit, the profile
+comes from that policy selection and its immutable ignore rules also apply.
+A source file at the same relative path in a different repository remains source
+data; it cannot replace the policy profile. Same-repository profile changes stay
+guarded. The ordinary CLI/CI gate still has no separate-policy override.
+
 ## Calling it locally
 
 Use trusted installed package code, outside candidate-controlled imports:

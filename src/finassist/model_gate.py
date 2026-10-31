@@ -19,11 +19,9 @@ from .model_policy import load_model_policy
 from .providers import request_identity, request_shape
 from .review import PolicyRequestApproval, call_model, review_schema, validate_review
 from .scope import build_packet, git, git_command, git_environment, read_entry, resolve
-from .security import canonical, check_path, digest, regular_path
+from .security import canonical, check_model_path as _scope_path, digest, regular_path
 
 EXIT_CODES = {"PASS": 0, "FAIL": 1, "BLOCKED": 2}
-_PRIVATE = {"data", "private", "client", "clients", "household", "households",
-            "client-config", "client_config", "household-config", "household_config"}
 
 
 def _contains_key(value, key: str) -> bool:
@@ -49,19 +47,6 @@ def validate_model_report(report: dict) -> None:
                 report["usage"]["output_tokens"], report["spend"]["actual_usd"],
             ))) or (report["verdict"] != "PASS" and not report["reasons"])):
         raise AssistantError("gate_report_invalid")
-
-
-def _scope_path(path: str) -> str:
-    check_path(path)
-    if len(path) > 512 or any(part.lower() in _PRIVATE for part in PurePosixPath(path).parts):
-        raise AssistantError("gate_private_path")
-    name = PurePosixPath(path).name.lower()
-    if name in {"client.json", "clients.json", "household.json", "households.json",
-                "credentials.json", "credential.json", "secrets.json"} or re.search(
-        r"(?:household|client)[_-]?(?:config|settings|profile)", name
-    ):
-        raise AssistantError("gate_private_path")
-    return path
 
 
 def _ignored(repo: Path, paths: list[str]) -> bool:
@@ -140,6 +125,11 @@ def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_rep
                                    "--name-only", "-z", base, head, binary=True).decode().split("\0")))
     if policy.path in guarded:
         raise AssistantError("gate_policy_change_requires_review")
+    profile_paths = [policy.profile_path] if policy.profile_path else []
+    same_source = policy_repo is None or policy_repo.samefile(repo)
+    source_profile_paths = profile_paths if same_source else []
+    if policy.profile_path in guarded and source_profile_paths:
+        raise AssistantError("gate_profile_change_requires_review")
     if any(PurePosixPath(path).name == ".gitignore" for path in guarded):
         raise AssistantError("gate_ignore_change_requires_review")
     for path in paths:
@@ -149,9 +139,9 @@ def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_rep
             raise AssistantError("gate_denied_path")
         if not config.allows(path):
             raise AssistantError("gate_path_not_allowed")
-    _screen_ignores(repo, {base, ancestor}, paths)
+    _screen_ignores(repo, {base, ancestor}, paths + source_profile_paths)
     if policy_repo is not None and (policy_repo != repo or policy.base != base):
-        _screen_ignores(policy_repo, {policy.base}, paths)
+        _screen_ignores(policy_repo, {policy.base}, paths + profile_paths)
     packet = build_packet(repo, base, head, config)
     if packet["omitted"] or len(packet["files"]) != len(paths):
         raise AssistantError("scope_incomplete")
