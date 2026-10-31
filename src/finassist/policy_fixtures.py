@@ -36,8 +36,7 @@ class PolicyFixtureConfig(Config):
         return super().validate()
 
     def check_path(self, path: str, **kwargs) -> str:
-        # Explicit root configuration cannot remove the mandatory data/private checks.
-        check_fixture_private(path)
+        # check_path applies the extra private checks only to fixture candidates.
         return check_path(path, denied_parts=self.denied_parts, text_suffixes=self.text_suffixes,
                           fixture_roots=self.fixture_roots, **kwargs)
 
@@ -81,7 +80,7 @@ def fixture_settings(repo: Path, base: str, options: dict) -> dict | None:
         except UnicodeError as exc:
             raise AssistantError("fixture_root_unqualified") from exc
         check_text(text)
-        if not text.splitlines() or text.splitlines()[0] != "synthetic: true":
+        if text.split("\n", 1)[0] != "synthetic: true":
             raise AssistantError("fixture_root_unqualified")
         markers[marker] = digest(raw)
     return {"fixture_roots": roots, "fixture_max_file_bytes": limit, "fixture_markers": markers}

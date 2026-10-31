@@ -79,12 +79,19 @@ def _prefix(value: str, fixture_roots: tuple[str, ...] = ()) -> str:
 
 
 def _profile_lines(lines: list[str]) -> list[str]:
-    # JSON Schema's $ permits a trailing newline, and CR/LF checks miss other
-    # Unicode line separators and invisible format/control instructions.
+    # Permit visible Unicode letters/marks/numbers/punctuation/symbols and ASCII
+    # space only. Some marks and letters are invisible despite their category.
+    invisible = {0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180F,
+                 0x2800, 0x3164, 0xFFA0}
     for line in lines:
-        if (line.splitlines() != [line] or not line.strip()
-                or any(unicodedata.category(char) in {"Cc", "Cf", "Zl", "Zp"}
-                       for char in line)):
+        if not line.strip(" ") or any(
+            (char != " " and unicodedata.category(char)[0] not in "LMNPS")
+            or ord(char) in invisible
+            or 0x180B <= ord(char) <= 0x180D
+            or 0xFE00 <= ord(char) <= 0xFE0F
+            or 0xE0100 <= ord(char) <= 0xE01EF
+            for char in line
+        ):
             raise AssistantError("gate_profile_line_invalid")
     return lines
 
@@ -110,7 +117,10 @@ def _profile(repo: Path, base: str, model: dict) -> tuple[list[str] | None, str 
     except UnicodeError as exc:
         raise AssistantError("gate_profile_encoding_invalid") from exc
     check_text(text)
-    return _profile_lines([line for line in text.splitlines() if line.strip()]), path
+    # Only LF and CRLF delimit physical instruction lines. Other separators,
+    # including whitespace-only controls, must reach the line validator intact.
+    lines = text.replace("\r\n", "\n").split("\n")
+    return _profile_lines([line for line in lines if line.strip(" ")]), path
 
 
 def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePolicy:

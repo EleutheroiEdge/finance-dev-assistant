@@ -10,6 +10,7 @@ import re
 import tempfile
 import stat
 import sys
+import unicodedata
 
 from .errors import AssistantError
 from .platform_support import canonical_system_path
@@ -175,14 +176,23 @@ def is_text_fixture(path: str, roots: tuple[str, ...]) -> bool:
     )
 
 
+def _reserved_component(part: str) -> str:
+    # Compare aliases conservatively without rewriting the actual Git path.
+    return unicodedata.normalize("NFKC", part).rstrip(" .").casefold()
+
+
 def check_fixture_private(path: str) -> None:
-    if any(part.lower() == "data" for part in PurePosixPath(path).parts):
+    parts = PurePosixPath(path).parts
+    if any(_reserved_component(part) == "data" for part in parts):
         raise AssistantError("fixture_root_contains_data")
+    if any(_reserved_component(part) in {"tests", "fixtures"}
+           and part not in {"tests", "fixtures"} for part in parts):
+        raise AssistantError("fixture_root_invalid")
     _check_model_private(path)
 
 
 def _check_model_private(path: str) -> None:
-    if len(path) > 512 or any(part.lower() in _PRIVATE for part in PurePosixPath(path).parts):
+    if len(path) > 512 or any(_reserved_component(part) in _PRIVATE for part in PurePosixPath(path).parts):
         raise AssistantError("gate_private_path")
     name = PurePosixPath(path).name.lower()
     if name in {"client.json", "clients.json", "household.json", "households.json",
@@ -194,7 +204,7 @@ def _check_model_private(path: str) -> None:
 
 def check_model_path(path: str, *, fixture_roots: tuple[str, ...] = (), source_only: bool = True) -> str:
     """Mandatory model context path screening, including policy-owned profiles."""
-    if fixture_roots:
+    if is_text_fixture(path, fixture_roots):
         check_fixture_private(path)
     check_path(path, fixture_roots=fixture_roots, source_only=source_only)
     _check_model_private(path)
