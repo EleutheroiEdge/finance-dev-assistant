@@ -7,6 +7,10 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 - Release builds generate and clean-install a hash-locked runtime requirements asset
   from the exact wheel; the approved publication job attaches it to the GitHub release.
 
+- Reject invisible profile characters and nonphysical instruction separators,
+  require LF-exact synthetic marker attestation, and reject reserved fixture path
+  aliases without extending fixture-only restrictions to ordinary v1 snapshots.
+
 - Add default-off, base-pinned synthetic fixture roots to model and checks
   policies. Roots require an exact tests/fixtures component or a reviewed Git
   marker; mandatory private/data, ignore, text, secret and object screening stays
