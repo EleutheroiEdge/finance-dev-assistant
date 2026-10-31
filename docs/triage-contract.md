@@ -13,7 +13,7 @@ are not completed by validating this contract.
 
 `finassist.triage_contract` provides `parse_triage_json`, `validate_request`,
 `request_hash`, `validate_model_manifest`, `validate_result` and `validate_gold`.
-The corresponding version1 JSON schemas ship under `finassist/resources/`.
+The corresponding version 1 JSON schemas ship under `finassist/resources/`.
 Call the Python validators as well as any schema validator: identity, complete
 vectors, disjoint catalogs and other cross-field checks are enforced in Python.
 Validation failures use `AssistantError` codes without embedding input text.
@@ -45,12 +45,29 @@ Explicit global `--config` or `--audit-dir` is rejected for these commands.
 
 Reports are created exclusively at the named new private output path; existing
 files and symlinks are refused. Stdout contains a compact report hash and
-advisory flags, not source or labels. Validation exits0 for a valid recommend
-report,1 for a valid abstain/invalid-action report and2 for a contract/input
-error. Evaluation exits0 when calculation completes and2 on an invalid cohort;
-exit0 does not mean the model met an accuracy gate. All reports preserve the
+advisory flags, not source or labels. Validation exits 0 for a valid recommend
+report, 1 for a valid abstain/invalid-action report and 2 for a contract/input
+error. Evaluation exits 0 when calculation completes and 2 on an invalid cohort;
+exit 0 does not mean the model met an accuracy gate. All reports preserve the
 requirement to run the baseline CI matrix. Run `finassist guide triage` for this
 guide offline.
+
+Validation reports bind `request_hash`, `result_hash`, the exact expected
+`model_manifest` and its `model_manifest_hash`. These hashes use SHA256 of
+`finassist.security.canonical`: UTF-8 JSON, sorted object keys, compact separators,
+ASCII-escaped Unicode and no non-finite numbers. Array order is preserved. Evaluation
+reports contain `input_hashes` with scheme `sha256-finassist-canonical-json` for
+each complete version 1 collection envelope (`requests`, `gold`, `predictions`)
+and the expected model-manifest object. Invalid but JSON-representable predictions
+remain included in their collection hash. Python API inputs without a canonical
+JSON representation fail with `triage_input_not_canonical_json`.
+
+Both CLI reports additionally contain `input_file_hashes`: SHA256 of each exact
+input file's bytes, including whitespace, key order and trailing newline. These
+digests come from the same bounded reads used for parsing, without reopening the
+files. Formatting changes affect file hashes but not semantic hashes; reordered
+arrays affect both. These bindings detect changes, not authenticity, completeness
+or independently approved exclusions. Input files can still change after a read.
 
 ## Request and model boundary
 
@@ -77,7 +94,7 @@ A result binds `case_id`, `request_hash` and an exact caller-expected
 `calibration_digest`. These are supplied identities, not verified files or
 signatures. Results include complete probability vectors for every supplied
 candidate. Patterns and checks are independent probabilities in `[0,1]`;
-nonempty file vectors sum to1 within absolute tolerance1e-9.
+nonempty file vectors sum to 1 within absolute tolerance 1e-9.
 
 Actions and reasons are closed pairs:
 
@@ -112,16 +129,23 @@ Confirmed cases are eligible. Unconfirmed cases use `pending_adjudication`;
 headline quality rates are withheld when a source cohort has any unconfirmed
 cases. A confirmed case with a required set larger than the predeclared budget
 must state `budget_infeasible`; it remains in the primary denominator as a
-routing miss and is separately counted as a frozen-policy failure. It cannot
-be hidden as not applicable. Only predeclared `outside_scope` cases may be
-not applicable and remain explicitly counted. Exclusions need independent
-review; the library cannot prove that they were predeclared or justified.
+routing miss and is separately counted as a frozen-policy failure. The library
+also accepts `not_applicable`/`outside_scope` as a caller-supplied exclusion, even
+if that case's required set exceeds its budget. It cannot determine whether a
+caller improperly relabeled a policy failure. A separate cohort and adjudication
+review must enforce predeclared, justified exclusions; reported exclusion counts
+and input hashes do not authenticate those decisions.
 
 `evaluate_triage(requests, gold, predictions, expected_model_manifest=...)` in
 `finassist.triage_metrics` requires exactly one gold record for every request.
 Duplicate or unknown cases fail evaluation; absent predictions count as misses.
 Invalid/stale/mismatched results and abstentions also count as misses. No
 provider call or fallback is performed, and no output is treated as executed CI.
+The eligible-case outcomes histogram distinguishes `contract_invalid` (a result
+failed validation) from `declared_invalid` (a contract-valid result declared
+action `invalid`). `recommend`, `abstain` and `missing` retain their meanings.
+This replaces the formerly combined `invalid` report bucket; the input action
+enum and version 1 schemas are unchanged. Both invalid categories remain misses.
 
 The primary model-only routing success is:
 
@@ -141,7 +165,8 @@ Real and synthetic metrics remain separate. Reports count declared eligible
 family groups and give an all-cases-successful family rate; family IDs do not
 prove independence. Required-review/no-required-review and control/noncontrol
 strata are distinct: clean code and controls can still require review checks.
-First-file top1/top3 use only cases with a nonempty acceptable set; per-label
+First-file top1/top3 use eligible cases with a nonempty acceptable set, including
+missing predictions as misses; per-label
 precision/recall exclude optional labels from positive/negative judgments.
 Zero denominators return `None`, never a perfect score.
 
