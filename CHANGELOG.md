@@ -13,7 +13,7 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 - Include this repository's own reviewed PR history and two controls, plus
   guidance for keeping adoption holdouts private and avoiding memorized cases.
 
-## 0.5.0 - Unreleased
+## 0.5.0 - 2026-10-30
 
 - Add an explicitly opted-in model-review gate with pinned base policy bytes,
   exact request approval, mandatory source screening, retained budget state,
