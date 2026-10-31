@@ -17,8 +17,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_release_versions_and_tag_gate():
-    assert validate_tag(ROOT, "v0.5.0") == "0.5.0"
-    for tag in ["main", "v0.2.0", "v0.3.1", "v0.4.0", "v0.5.0rc1", "v0.5.0; echo unsafe"]:
+    assert validate_tag(ROOT, "v0.6.0") == "0.6.0"
+    for tag in ["main", "v0.2.0", "v0.3.1", "v0.4.0", "v0.5.0", "v0.6.0rc1", "v0.6.0; echo unsafe"]:
         with pytest.raises(ValueError):
             validate_tag(ROOT, tag)
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]

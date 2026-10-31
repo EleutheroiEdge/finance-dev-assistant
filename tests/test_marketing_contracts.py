@@ -22,7 +22,7 @@ CLASSIFIERS = [
 
 def test_metadata_llms_and_about_description_agree():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
-    assert project["version"] == "0.5.0"
+    assert project["version"] == "0.6.0"
     assert project["description"] == DESCRIPTION
     assert project["keywords"] == KEYWORDS
     assert project["classifiers"] == CLASSIFIERS
