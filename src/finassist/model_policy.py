@@ -4,6 +4,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import unicodedata
 from urllib.parse import urlsplit
 
 import jsonschema
@@ -76,11 +77,22 @@ def _prefix(value: str) -> str:
     return value
 
 
+def _profile_lines(lines: list[str]) -> list[str]:
+    # JSON Schema's $ permits a trailing newline, and CR/LF checks miss other
+    # Unicode line separators and invisible format/control instructions.
+    for line in lines:
+        if (line.splitlines() != [line] or not line.strip()
+                or any(unicodedata.category(char) in {"Cc", "Cf", "Zl", "Zp"}
+                       for char in line)):
+            raise AssistantError("gate_profile_line_invalid")
+    return lines
+
+
 def _profile(repo: Path, base: str, model: dict) -> tuple[list[str] | None, str | None]:
     """Resolve only policy-owned text; never use a working-tree profile loader."""
     if "profile_text" in model:
         # Config validates every decoded line, including JSON-escaped secrets.
-        return model["profile_text"], None
+        return _profile_lines(model["profile_text"]), None
     if "profile_path" not in model:
         return None, None
     path = check_model_path(model["profile_path"])
@@ -97,7 +109,7 @@ def _profile(repo: Path, base: str, model: dict) -> tuple[list[str] | None, str 
     except UnicodeError as exc:
         raise AssistantError("gate_profile_encoding_invalid") from exc
     check_text(text)
-    return [line for line in text.splitlines() if line.strip()], path
+    return _profile_lines([line for line in text.splitlines() if line.strip()]), path
 
 
 def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePolicy:
