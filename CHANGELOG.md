@@ -4,6 +4,11 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ## Unreleased
 
+- Add default-off, base-pinned synthetic fixture roots to model and checks
+  policies. Roots require an exact tests/fixtures component or a reviewed Git
+  marker; mandatory private/data, ignore, text, secret and object screening stays
+  active. Separate fixture byte caps apply through review and recipe staging.
+
 - Allow v2 model-review policies to own a named checklist through inline text or
   an exact-byte-pinned UTF-8 profile from the reviewed base commit. Bind custom
   instructions to policy/request hashes and refuse head profile changes, unsafe

@@ -119,6 +119,63 @@ A source file at the same relative path in a different repository remains source
 data; it cannot replace the policy profile. Same-repository profile changes stay
 guarded. The ordinary CLI/CI gate still has no separate-policy override.
 
+## Policy-owned synthetic text fixtures
+
+Text-fixture exceptions are off by default and belong only to a reviewed,
+base-pinned policy. In a v2 policy, add `fixture_roots` and optionally
+`fixture_max_file_bytes` to `model_review`. A v1 checks policy uses the same fields
+at its top level, beside `config`; ordinary local configuration cannot grant this
+capability. For example:
+
+```json
+{
+  "fixture_roots": ["packages/engine/tests/fixtures/prices.csv", "synthetic-firm/"],
+  "fixture_max_file_bytes": 48000
+}
+```
+
+Each root is an exact repository-relative file or a literal directory prefix
+ending in `/`. Globs, absolute paths, `..`, links and special Git objects are
+refused. The match is literal: `tests/fixtures/public/` does not cover
+`tests/fixtures/public-extra/`, and an exact CSV does not admit its siblings.
+Only `.csv`, `.tsv`, `.yaml` and `.yml` qualify for the text-fixture exception.
+Other denied formats remain denied. Ordinary source `allow_paths`, v2
+`deny_paths`, coverage accounting and request/packet byte caps still apply.
+
+A root qualifies when one complete component is exactly `tests` or `fixtures`
+(nested roots such as `packages/x/tests/fixtures/` qualify; `tests-old/` does not).
+Otherwise place `.finledgerpoli-synthetic` in the listed directory, or beside an
+exact listed file, with its first line exactly:
+
+```text
+synthetic: true
+```
+
+Commit and review this UTF-8 marker on the pinned base before enabling the root.
+The marker is read only from that Git commit, capped at 4,096 bytes and screened;
+a marker in the working tree or PR head cannot qualify a root. Missing or invalid
+markers refuse the policy with `fixture_root_unqualified`. Marker edits/deletions
+in the candidate require separate policy review; marker bytes are never provider
+context or recipe inputs. History evaluations use the selected policy repository
+and commit for this qualification, as for their policy-owned review profiles.
+
+Every `data` component remains refused, case-insensitively, with
+`fixture_root_contains_data`, even inside a listed root. Private, client,
+household, holdings and credential locations, ignored paths, non-UTF-8 or NUL
+content, secret patterns and special Git objects remain refused. Both changed
+versions are screened; deterministic recipes use screened committed snapshots.
+The allowance is the policy author's attestation that the data are synthetic.
+Neither the path nor the marker proves confidentiality: review their contents
+and guard the policy and marker with trusted review/CODEOWNERS.
+
+`fixture_max_file_bytes` defaults to 48,000 and has a hard ceiling of 2,000,000.
+It applies per version of a listed text fixture, independently of the policy's
+ordinary `max_file_bytes` (also capped at 2,000,000). For example, a reviewed
+`max_file_bytes` of 200,000 can admit a large source module while fixtures retain
+the 48,000-byte default. Byte limits are enforced during construction, packet
+revalidation, model dispatch and recipe staging. Raising either limit does not
+raise the total request/packet caps or change offline/approval/budget defaults.
+
 ## Calling it locally
 
 Use trusted installed package code, outside candidate-controlled imports:

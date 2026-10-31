@@ -165,3 +165,15 @@ job summaries and exit codes after installing the trusted action source. The
 pilot supplies synthetic event metadata and changes no repository settings; it
 does not claim deployment into a consumer repository. These
 are synthetic control checks, not measured live model quality or certification.
+
+
+## Synthetic fixture policy
+
+Checks policies may opt into `fixture_roots` and `fixture_max_file_bytes` at the
+policy top level, outside `config`. These fields are read from the hash-pinned
+base policy only. See the [fixture policy contract](pre-merge-gate.md#policy-owned-synthetic-text-fixtures)
+for structural roots, base-only `.finledgerpoli-synthetic` markers, literal scope,
+the 48,000-byte default and 2,000,000-byte hard ceiling. This is a synthetic-data
+attestation, never permission for client/private/data paths. Existing guard paths
+still apply; the owner must review the intended fixture-change scope explicitly.
+CI checks retain isolated execution and never gain model/network authority.

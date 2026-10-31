@@ -6,8 +6,6 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
-import subprocess
-import tempfile
 
 import jsonschema
 
@@ -18,7 +16,8 @@ from .ledger import Ledger
 from .model_policy import load_model_policy
 from .providers import request_identity, request_shape
 from .review import PolicyRequestApproval, call_model, review_schema, validate_review
-from .scope import build_packet, git, git_command, git_environment, read_entry, resolve
+from .scope import build_packet, git, resolve
+from .policy_ignores import screen_ignores as _screen_ignores
 from .security import canonical, check_model_path as _scope_path, digest, regular_path
 
 EXIT_CODES = {"PASS": 0, "FAIL": 1, "BLOCKED": 2}
@@ -48,35 +47,6 @@ def validate_model_report(report: dict) -> None:
             ))) or (report["verdict"] != "PASS" and not report["reasons"])):
         raise AssistantError("gate_report_invalid")
 
-
-def _ignored(repo: Path, paths: list[str]) -> bool:
-    result = subprocess.run(git_command(repo, "check-ignore", "--no-index", "-z", "--stdin"),
-                            input=("\0".join(paths) + "\0").encode(), capture_output=True,
-                            timeout=30, env=git_environment(), check=False)
-    if result.returncode not in {0, 1}:
-        raise AssistantError("gate_ignore_check_unavailable")
-    return result.returncode == 0
-
-
-def _screen_ignores(repo: Path, revisions: set[str], paths: list[str]) -> None:
-    if _ignored(repo, paths):
-        raise AssistantError("gate_ignored_path")
-    # Read immutable ignore rules from the policy base AND merge base. A stale
-    # PR or dirty checkout cannot remove baseline exclusions to authorize source.
-    directories = {parent for path in paths for parent in PurePosixPath(path).parents}
-    for sha in revisions:
-        with tempfile.TemporaryDirectory(prefix="finassist-ignore-") as temporary:
-            snapshot = Path(temporary)
-            git(snapshot, "init", "--quiet", "--template=")
-            for parent in directories:
-                target = snapshot / str(parent)
-                target.mkdir(parents=True, exist_ok=True)
-                name = str(parent / ".gitignore")
-                raw, _ = read_entry(repo, sha, name, 128_000)
-                if raw is not None:
-                    (target / ".gitignore").write_bytes(raw)
-            if _ignored(snapshot, paths):
-                raise AssistantError("gate_ignored_path")
 
 
 def _context(repo: Path, base: str, head: str, environment) -> None:
@@ -126,22 +96,25 @@ def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_rep
     if policy.path in guarded:
         raise AssistantError("gate_policy_change_requires_review")
     profile_paths = [policy.profile_path] if policy.profile_path else []
+    marker_paths = list(getattr(config, "fixture_markers", {}))
     same_source = policy_repo is None or policy_repo.samefile(repo)
     source_profile_paths = profile_paths if same_source else []
+    if same_source and guarded.intersection(marker_paths):
+        raise AssistantError("gate_fixture_marker_change_requires_review")
     if policy.profile_path in guarded and source_profile_paths:
         raise AssistantError("gate_profile_change_requires_review")
     if any(PurePosixPath(path).name == ".gitignore" for path in guarded):
         raise AssistantError("gate_ignore_change_requires_review")
     for path in paths:
-        _scope_path(path)
+        _scope_path(path, fixture_roots=getattr(config, "fixture_roots", ()))
         if any(path.startswith(prefix) if prefix.endswith("/") else path == prefix
                for prefix in rules["deny_paths"]):
             raise AssistantError("gate_denied_path")
         if not config.allows(path):
             raise AssistantError("gate_path_not_allowed")
-    _screen_ignores(repo, {base, ancestor}, paths + source_profile_paths)
+    _screen_ignores(repo, {base, ancestor}, paths + source_profile_paths + (marker_paths if same_source else []))
     if policy_repo is not None and (policy_repo != repo or policy.base != base):
-        _screen_ignores(policy_repo, {policy.base}, paths + profile_paths)
+        _screen_ignores(policy_repo, {policy.base}, paths + profile_paths + marker_paths)
     packet = build_packet(repo, base, head, config)
     if packet["omitted"] or len(packet["files"]) != len(paths):
         raise AssistantError("scope_incomplete")
