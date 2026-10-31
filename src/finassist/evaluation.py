@@ -118,6 +118,10 @@ def evaluate(
 
 
 def score(evaluation: dict, labels: dict) -> dict:
+    if evaluation.get("kind") == "history-evaluation":
+        from .history_scoring import score_history
+
+        return score_history(evaluation, labels)
     expected_hash = digest(canonical({k: v for k, v in evaluation.items() if k != "evaluation_hash"}))
     if evaluation.get("evaluation_hash") != expected_hash or labels.get("evaluation_hash") != expected_hash:
         raise AssistantError("evaluation_hash_mismatch")

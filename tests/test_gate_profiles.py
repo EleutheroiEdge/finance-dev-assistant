@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 import json
+import sys
 
 import pytest
 
@@ -200,3 +201,115 @@ def test_explicit_policy_denial_also_covers_profile_path(gate_case, denied):
     profile_case(gate_case, deny_paths=[denied])
     report, calls = run(gate_case)
     assert report["reasons"] == ["gate_denied_path"] and not calls
+
+
+def history_profile_policy(case, tmp_path, *, ignored=False, same_repo=False):
+    from test_history_evaluation import model_suite, policy_repository
+    raw = b"Use the historical project's approved cent-rounding rule.\n"
+    document = model_policy()
+    document["model_review"].update(profile="project-review", profile_path="docs/review.txt",
+                                    profile_sha256=digest(raw), allow_paths=["src/", "docs/"])
+    if same_repo:
+        policy_repo = case["repo"]
+        (policy_repo / "gate-policy.json").write_bytes(canonical(document))
+        selection = {"repo_path": str(policy_repo), "path": "gate-policy.json", "sha256": digest(canonical(document))}
+    else:
+        selection = policy_repository(tmp_path, document=document)
+        policy_repo = tmp_path / selection["repo_path"]
+    (policy_repo / "docs").mkdir(exist_ok=True)
+    (policy_repo / "docs/review.txt").write_bytes(raw)
+    if ignored:
+        (policy_repo / ".gitignore").write_text("docs/review.txt\n", encoding="utf-8")
+        command(policy_repo, "add", ".gitignore")
+    command(policy_repo, "add", "--force", "gate-policy.json", "docs/review.txt")
+    command(policy_repo, "commit", "-m", "Synthetic pinned historical profile")
+    selection["commit"] = command(policy_repo, "rev-parse", "HEAD")
+    suite = model_suite(case)
+    suite["cases"][0].update(policy=selection, profile="project-review")
+    return suite, policy_repo
+
+
+def test_history_profile_uses_separate_policy_commit_not_dirty_file(gate_case, tmp_path):
+    from test_history_evaluation import execute
+    suite, policy_repo = history_profile_policy(gate_case, tmp_path)
+    (policy_repo / "docs/review.txt").write_text("Dirty policy file is not authority.", encoding="utf-8")
+    result, calls = execute(gate_case, suite, trials=1)
+    assert result["cases"][0]["runs"][0]["status"] == "complete" and len(calls) == 1
+    instructions = json.loads(calls[0].content)["instructions"]
+    assert "approved cent-rounding rule" in instructions and "Dirty policy file" not in instructions
+
+
+@pytest.mark.parametrize("same_repo", [False, True])
+def test_history_profile_policy_commit_ignores_survive_dirty_removal(gate_case, tmp_path, monkeypatch, same_repo):
+    from test_history_evaluation import execute
+    suite, policy_repo = history_profile_policy(gate_case, tmp_path, ignored=True, same_repo=same_repo)
+    (policy_repo / ".gitignore").write_text("", encoding="utf-8")
+    monkeypatch.setattr("finassist.history_evaluation.prepare_model_request", lambda *a: pytest.fail("key access before profile ignore screening"))
+    with pytest.raises(AssistantError, match="^gate_ignored_path$"):
+        execute(gate_case, suite, trials=1)
+    assert not gate_case["state"].exists()
+
+
+def test_unrelated_source_file_cannot_replace_a_separate_policy_profile(gate_case, tmp_path):
+    from test_history_evaluation import execute
+    repo = gate_case["repo"]
+    (repo / "docs").mkdir()
+    (repo / "docs/review.txt").write_text("Source text is not policy instructions.", encoding="utf-8")
+    command(repo, "add", "docs/review.txt")
+    command(repo, "commit", "-m", "Synthetic unrelated source path")
+    gate_case["head"] = command(repo, "rev-parse", "HEAD")
+    suite, _ = history_profile_policy(gate_case, tmp_path)
+    from test_providers_review import envelope
+    def reviewed_all(packet):
+        return envelope(json.dumps({"head": packet["head"], "summary": "Synthetic complete review.",
+                                    "reviewed_paths": [f["path"] for f in packet["files"]], "findings": []}))
+    result, calls = execute(gate_case, suite, handler=reviewed_all, trials=1)
+    assert result["cases"][0]["runs"][0]["status"] == "complete" and len(calls) == 1
+    instructions = json.loads(calls[0].content)["instructions"]
+    assert "approved cent-rounding rule" in instructions and "Source text is not" not in instructions
+
+
+def test_source_ignore_rule_does_not_name_separate_policy_file(gate_case, tmp_path):
+    from test_history_evaluation import execute
+    repo = gate_case["repo"]
+    (repo / ".gitignore").write_text("docs/review.txt\n", encoding="utf-8")
+    command(repo, "add", ".gitignore")
+    change_policy(gate_case)
+    suite, _ = history_profile_policy(gate_case, tmp_path)
+    result, calls = execute(gate_case, suite, trials=1)
+    assert result["cases"][0]["runs"][0]["status"] == "complete" and len(calls) == 1
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows short-name directory aliases")
+@pytest.mark.parametrize("selection", ["source", "policy"])
+def test_profile_guard_uses_repository_identity_across_short_names(gate_case, tmp_path, selection):
+    import ctypes
+    from ctypes import wintypes
+    from pathlib import Path
+    from test_history_evaluation import execute, model_suite
+    file = profile_case(gate_case, allow_paths=["src/", "docs/"])
+    file.write_text("Head cannot amend the profile.", encoding="utf-8")
+    command(gate_case["repo"], "add", "docs/review.txt")
+    command(gate_case["repo"], "commit", "-m", "Synthetic candidate profile edit")
+    gate_case["head"] = command(gate_case["repo"], "rev-parse", "HEAD")
+    suite = model_suite(gate_case)
+    case = suite["cases"][0]
+    case["profile"] = "project-review"
+    case["policy"].update(repo_path=str(gate_case["repo"]), commit=gate_case["base"])
+    get_short_path = ctypes.WinDLL("kernel32", use_last_error=True).GetShortPathNameW
+    get_short_path.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+    get_short_path.restype = wintypes.DWORD
+    needed = get_short_path(str(gate_case["repo"]), None, 0)
+    assert needed, ctypes.get_last_error()
+    buffer = ctypes.create_unicode_buffer(needed)
+    written = get_short_path(str(gate_case["repo"]), buffer, needed)
+    assert 0 < written < needed, ctypes.get_last_error()
+    alias = Path(buffer.value)
+    if alias == gate_case["repo"]:
+        pytest.skip("Filesystem did not assign an 8.3 directory alias")
+    assert alias.samefile(gate_case["repo"])
+    target = case if selection == "source" else case["policy"]
+    target["repo_path"] = str(alias)
+    with pytest.raises(AssistantError, match="^gate_profile_change_requires_review$"):
+        execute(gate_case, suite, trials=1)
+    assert not gate_case["state"].exists()

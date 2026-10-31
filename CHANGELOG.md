@@ -2,6 +2,17 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+- Benchmark frozen local PR history with held-out labels, trial-count-bound
+  suite approvals, shared gate screening/policy/request/budget controls and
+  private attempt journals. Unknown attempts stop all remaining trials.
+- Score independently adjudicated history findings with severity weighting,
+  negative controls, trial agreement and cost/time per confirmed target hit;
+  compare matched source cases across model or external reviewer evaluations.
+- Include this repository's own reviewed PR history and two controls, plus
+  guidance for keeping adoption holdouts private and avoiding memorized cases.
+
 ## 0.5.0 - 2026-10-30
 
 - Add an explicitly opted-in model-review gate with pinned base policy bytes,

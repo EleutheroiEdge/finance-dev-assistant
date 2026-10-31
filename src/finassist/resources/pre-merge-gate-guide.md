@@ -95,6 +95,12 @@ review for confidential content, correctness and consistency with project canon;
 pattern screening cannot establish those properties. Version-1 checks policies
 and manual review configuration retain their existing profile behavior.
 
+For a history suite selecting a separate policy repository or commit, the profile
+comes from that policy selection and its immutable ignore rules also apply.
+A source file at the same relative path in a different repository remains source
+data; it cannot replace the policy profile. Same-repository profile changes stay
+guarded. The ordinary CLI/CI gate still has no separate-policy override.
+
 ## Calling it locally
 
 Use trusted installed package code, outside candidate-controlled imports:

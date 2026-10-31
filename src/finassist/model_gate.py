@@ -110,8 +110,69 @@ def refused_model_report(code: str) -> dict:
     return report
 
 
+def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_repo: Path | None = None) -> dict:
+    """Shared offline source construction; never reads a provider key or ledger."""
+    rules, config = policy.document["model_review"], policy.config
+    ancestor = git(repo, "merge-base", base, head)
+    paths = list(filter(None, git(repo, "diff", "--no-ext-diff", "--no-textconv", "--no-renames",
+                                 "--name-only", "-z", ancestor, head, binary=True).decode().split("\0")))
+    if not paths:
+        raise AssistantError("empty_review_scope")
+    if len(paths) > rules["max_files"]:
+        raise AssistantError("gate_file_count_exceeded")
+    guarded = set(paths)
+    guarded.update(filter(None, git(repo, "diff", "--no-ext-diff", "--no-textconv", "--no-renames",
+                                   "--name-only", "-z", base, head, binary=True).decode().split("\0")))
+    if policy.path in guarded:
+        raise AssistantError("gate_policy_change_requires_review")
+    profile_paths = [policy.profile_path] if policy.profile_path else []
+    same_source = policy_repo is None or policy_repo.samefile(repo)
+    source_profile_paths = profile_paths if same_source else []
+    if policy.profile_path in guarded and source_profile_paths:
+        raise AssistantError("gate_profile_change_requires_review")
+    if any(PurePosixPath(path).name == ".gitignore" for path in guarded):
+        raise AssistantError("gate_ignore_change_requires_review")
+    for path in paths:
+        _scope_path(path)
+        if any(path.startswith(prefix) if prefix.endswith("/") else path == prefix
+               for prefix in rules["deny_paths"]):
+            raise AssistantError("gate_denied_path")
+        if not config.allows(path):
+            raise AssistantError("gate_path_not_allowed")
+    _screen_ignores(repo, {base, ancestor}, paths + source_profile_paths)
+    if policy_repo is not None and (policy_repo != repo or policy.base != base):
+        _screen_ignores(policy_repo, {policy.base}, paths + profile_paths)
+    packet = build_packet(repo, base, head, config)
+    if packet["omitted"] or len(packet["files"]) != len(paths):
+        raise AssistantError("scope_incomplete")
+    return packet
+
+
+def prepare_model_request(policy, packet: dict) -> tuple[str, dict, str]:
+    """Bind screened source to the exact wire body; credentials stay out of hashes."""
+    config = policy.config
+    schema, system = review_schema(), config.instructions()
+    shape = request_shape(config, system, packet, schema)
+    request_hash, body = request_identity(*shape)
+    key = os.environ.get(config.key_name, "")
+    if key and any(_contains_key(value, key) for value in (packet, shape[0], shape[2])):
+        raise AssistantError("gate_key_in_source_context")
+    if len(body) > policy.document["model_review"]["max_request_bytes"]:
+        raise AssistantError("gate_request_bytes_exceeded")
+    return request_hash, schema, system
+
+
 def model_gate(repo: Path, base: str, head: str, policy_path: str, policy_pin: str, state_dir: Path,
-               *, environment=None, transport=None) -> dict:
+               *, environment=None, transport=None, expected_request_hash: str | None = None) -> dict:
+    """Ordinary CLI/CI gate: policy is always pinned at the source base."""
+    return _evaluate_model_gate(repo, base, head,
+                                lambda source: (load_model_policy(source, base, policy_path, policy_pin), source),
+                                state_dir, environment=environment, transport=transport,
+                                expected_request_hash=expected_request_hash)
+
+
+def _evaluate_model_gate(repo: Path, base: str, head: str, policy_loader, state_dir: Path,
+                         *, environment=None, transport=None, expected_request_hash: str | None = None) -> dict:
     """Evaluate all policy rules before approving/reserving one exact request.
 
     Caller-retained state is mandatory. Environment metadata is trusted caller
@@ -130,45 +191,14 @@ def model_gate(repo: Path, base: str, head: str, policy_path: str, policy_pin: s
         _context(repo, base, head, os.environ if environment is None else environment)
         if state_dir is None:
             raise AssistantError("gate_state_directory_required")
-        policy = load_model_policy(repo, base, policy_path, policy_pin)
+        policy, policy_repo = policy_loader(repo)
         report["policy_sha256"] = policy.sha256
         rules, config = policy.document["model_review"], policy.config
-        ancestor = git(repo, "merge-base", base, head)
-        paths = list(filter(None, git(repo, "diff", "--no-ext-diff", "--no-textconv", "--no-renames",
-                                     "--name-only", "-z", ancestor, head, binary=True).decode().split("\0")))
-        if not paths:
-            raise AssistantError("empty_review_scope")
-        if len(paths) > rules["max_files"]:
-            raise AssistantError("gate_file_count_exceeded")
-        guarded = set(paths)
-        guarded.update(filter(None, git(repo, "diff", "--no-ext-diff", "--no-textconv", "--no-renames",
-                                       "--name-only", "-z", base, head, binary=True).decode().split("\0")))
-        if policy.path in guarded:
-            raise AssistantError("gate_policy_change_requires_review")
-        if policy.profile_path in guarded:
-            raise AssistantError("gate_profile_change_requires_review")
-        if any(PurePosixPath(path).name == ".gitignore" for path in guarded):
-            raise AssistantError("gate_ignore_change_requires_review")
-        for path in paths:
-            _scope_path(path)
-            if any(path.startswith(prefix) if prefix.endswith("/") else path == prefix
-                   for prefix in rules["deny_paths"]):
-                raise AssistantError("gate_denied_path")
-            if not config.allows(path):
-                raise AssistantError("gate_path_not_allowed")
-        _screen_ignores(repo, {base, ancestor}, paths + ([policy.profile_path] if policy.profile_path else []))
-        packet = build_packet(repo, base, head, config)
-        if packet["omitted"] or len(packet["files"]) != len(paths):
-            raise AssistantError("scope_incomplete")
-        schema, system = review_schema(), config.instructions()
+        packet = prepare_model_source(repo, base, head, policy, policy_repo=policy_repo)
         # Keys are first accessed here, after identity, scope and screening.
-        shape = request_shape(config, system, packet, schema)
-        request_hash, body = request_identity(*shape)
-        key = os.environ.get(config.key_name, "")
-        if key and any(_contains_key(value, key) for value in (packet, shape[0], shape[2])):
-            raise AssistantError("gate_key_in_source_context")
-        if len(body) > rules["max_request_bytes"]:
-            raise AssistantError("gate_request_bytes_exceeded")
+        request_hash, schema, system = prepare_model_request(policy, packet)
+        if expected_request_hash is not None and request_hash != expected_request_hash:
+            raise AssistantError("gate_request_hash_mismatch")
         report["request_sha256"] = request_hash
         ledger_path = regular_path(Path(state_dir) / "audit.sqlite")
         result, reservation = call_model(
