@@ -4,6 +4,7 @@ import os
 import pytest
 
 from finassist import cli
+from finassist import triage_cli
 from finassist.security import canonical, digest
 from test_triage_contract import sample_case
 
@@ -143,3 +144,65 @@ def test_oversized_actual_file_is_rejected_before_contract_use(tmp_path, capsys)
     (tmp_path / "request.json").write_bytes(b" " * 2_000_001)
     assert cli.main(arguments(tmp_path)) == 2
     assert json.loads(capsys.readouterr().err)["code"] == "triage_document_too_large"
+
+
+def test_validation_report_binds_result_and_expected_model_and_exact_file_bytes(tmp_path):
+    documents = inputs(tmp_path)
+    path = tmp_path / "result.json"
+    path.write_text(json.dumps(documents["result"], indent=2) + "\n", encoding="utf-8")
+    assert cli.main(arguments(tmp_path)) == 0
+    report = json.loads((tmp_path / "report.json").read_text())
+    assert report["result_hash"] == digest(canonical(documents["result"]))
+    assert report["model_manifest"] == documents["model"]
+    assert report["model_manifest_hash"] == digest(canonical(documents["model"]))
+    assert report["input_file_hashes"] == {
+        key: digest((tmp_path / f"{name}.json").read_bytes())
+        for key, name in (("request", "request"), ("result", "result"), ("model_manifest", "model"))
+    }
+    assert report["input_file_hashes"]["result"] != report["result_hash"]
+    documents["result"]["probabilities"]["checks"][0]["probability"] = 0.85
+    path.write_bytes(canonical(documents["result"]))
+    assert cli.main(arguments(tmp_path, output="second.json")) == 0
+    changed = json.loads((tmp_path / "second.json").read_text())
+    assert changed["request_hash"] == report["request_hash"]
+    assert changed["result_hash"] != report["result_hash"]
+
+
+def test_evaluation_file_hashes_distinguish_serialization_from_semantic_hashes(tmp_path):
+    documents = inputs(tmp_path)
+    assert cli.main(arguments(tmp_path, "evaluate")) == 0
+    first = json.loads((tmp_path / "report.json").read_text())
+    assert first["input_file_hashes"] == {
+        key: digest((tmp_path / f"{name}.json").read_bytes())
+        for key, name in (("requests", "requests"), ("gold", "gold"),
+                          ("predictions", "predictions"), ("model_manifest", "model"))
+    }
+    for name in ("requests", "gold", "predictions", "model"):
+        value = dict(reversed(list(documents[name].items())))
+        (tmp_path / f"{name}.json").write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    assert cli.main(arguments(tmp_path, "evaluate", output="second.json")) == 0
+    second = json.loads((tmp_path / "second.json").read_text())
+    assert first["input_hashes"] == second["input_hashes"]
+    assert all(first["input_file_hashes"][key] != second["input_file_hashes"][key]
+               for key in first["input_file_hashes"])
+    assert not second["execution_authorized"]
+
+
+def test_file_digest_uses_the_same_bounded_read_as_parsing(tmp_path, monkeypatch):
+    documents = inputs(tmp_path)
+    path = tmp_path / "request.json"
+    original = path.read_bytes()
+    parse = triage_cli.parse_triage_json
+
+    def replace_after_read(raw):
+        value = parse(raw)
+        if "context" in value:
+            path.write_bytes(b"changed after the bounded read")
+        return value
+
+    monkeypatch.setattr(triage_cli, "parse_triage_json", replace_after_read)
+    assert cli.main(arguments(tmp_path)) == 0
+    report = json.loads((tmp_path / "report.json").read_text())
+    assert report["input_file_hashes"]["request"] == digest(original)
+    assert report["request_hash"] == digest(canonical(documents["request"]))
+    assert report["input_file_hashes"]["request"] != digest(path.read_bytes())

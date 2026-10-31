@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import Counter
 
 from .errors import AssistantError
+from .security import canonical, digest
 from .triage_contract import (
     candidate_ids,
     validate_gold,
@@ -21,6 +22,13 @@ from .triage_contract import (
 
 def _ratio(successes: int, total: int) -> dict:
     return {"successes": successes, "total": total, "rate": successes / total if total else None}
+
+
+def _input_hash(value: dict) -> str:
+    try:
+        return digest(canonical(value))
+    except (TypeError, ValueError, UnicodeError, RecursionError) as exc:
+        raise AssistantError("triage_input_not_canonical_json") from exc
 
 
 def _index(rows: list[dict], name: str) -> dict[str, dict]:
@@ -133,6 +141,13 @@ def evaluate_triage(
         raise AssistantError("triage_gold_coverage_invalid")
     if not set(prediction_map) <= set(request_map):
         raise AssistantError("triage_prediction_unknown_case")
+    input_hashes = {
+        "scheme": "sha256-finassist-canonical-json",
+        "requests": _input_hash({"schema_version": 1, "requests": requests}),
+        "gold": _input_hash({"schema_version": 1, "gold": gold}),
+        "predictions": _input_hash({"schema_version": 1, "predictions": predictions}),
+        "model_manifest": _input_hash(expected_model_manifest),
+    }
     rows = []
     for case_id, request in request_map.items():
         validate_request(request)
@@ -143,9 +158,9 @@ def evaluate_triage(
         if prediction is not None:
             try:
                 validate_result(request, prediction, expected_model_manifest=expected_model_manifest)
-                outcome = prediction["action"]
+                outcome = "declared_invalid" if prediction["action"] == "invalid" else prediction["action"]
             except AssistantError:
-                outcome = "invalid"
+                outcome = "contract_invalid"
         recommended = outcome == "recommend"
         selected = set(prediction["selected_checks"]) if recommended else set()
         required = set(labels["checks"]["required"])
@@ -169,9 +184,11 @@ def evaluate_triage(
         "schema_version": 1,
         "kind": "advisory-triage-evaluation",
         "advisory_only": True,
+        "execution_authorized": False,
         "deployment_certified": False,
         "fallback_evaluated": False,
         "model_manifest": dict(expected_model_manifest),
+        "input_hashes": input_hashes,
         "primary_endpoint": "required-check routing within predeclared count budget",
         "population": "supplied cases; independence and representativeness not verified",
         "real": _cohort([row for row in rows if row["gold"]["source_kind"] == "real"]),
