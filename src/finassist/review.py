@@ -15,6 +15,7 @@ import jsonschema
 
 from .config import Config
 from .errors import AssistantError
+from .forbidden_tokens import token_file_audit
 from .ledger import Ledger
 from .providers import invoke, request_identity, request_shape
 from .scope import triage, verify_packet, review_omissions
@@ -93,6 +94,7 @@ def call_model(
     approved_packet_hash: str | None,
     transport=None,
     policy_approval: PolicyRequestApproval | None = None,
+    token_guard=None,
 ):
     verify_packet(packet, config)
     config.validate()
@@ -119,6 +121,8 @@ def call_model(
         raise AssistantError("scope_incomplete")
     if not packet["files"]:
         raise AssistantError("empty_model_context")
+    if token_guard is not None:
+        token_guard.recheck(packet, system)
     shape = request_shape(config, system, packet, schema)  # credential/config preflight, no IO
     request_hash, request_body = request_identity(*shape)
     if policy_approval is not None:
@@ -138,8 +142,15 @@ def call_model(
         Decimal(str(config.output_usd_per_million)),
     )
     estimate = (Decimal(input_bound) * price_in + Decimal(config.max_output_tokens) * price_out) / 1_000_000
+    if token_guard is not None:
+        token_guard.recheck(packet, system)
     with Ledger(ledger_path) as ledger:
         ledger.verify()
+        if token_guard is not None:
+            token_guard.recheck(packet, system)
+            audit = token_file_audit(token_guard.snapshot)
+            if audit is not None:
+                ledger.append(audit)
         reservation = ledger.reserve(
             estimate,
             Decimal(str(config.daily_budget_usd)),

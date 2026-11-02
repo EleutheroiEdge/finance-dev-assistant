@@ -276,3 +276,67 @@ Fixture roots and fixture paths reject reserved components with compatibility
 Unicode spellings or trailing dots/spaces. Paths are compared without rewriting
 Git names. Enabling fixtures does not add fixture-only private-path restrictions
 to ordinary files in a v1 checks snapshot; all original screening still applies.
+
+
+## Confidential numeric tokens (policy-approved model gate)
+
+The optional base-policy `model_review.forbidden_token_file` names an absolute,
+operator-controlled file outside both the source and policy repositories and
+Git administrative directories. The strict UTF-8 file contains one numeric
+literal per line (LF or CRLF, optional final newline). Empty files/lines,
+malformed numbers, links, multiply linked files, special files, unavailable
+files and repository-contained paths refuse the request. Limits are 128 KiB,
+1,024 lines and 256 characters per literal. Keep this file private; do not
+commit it, upload it as an Action artifact or place it in a packet.
+
+Alternatively, `model_review.forbidden_token_hashes` accepts 1–1,024 unique,
+lowercase SHA256 hashes of canonical numeric strings encoded as UTF-8. If both
+options are declared, their deny sets are combined. Neither option changes
+network authorization, provider selection, approval or budget requirements.
+Hashes of low-entropy numbers can be guessed; they are not encryption.
+
+For example, the synthetic `6729102.50` and `$6,729,102.500` normalize to
+`6729102.5`, whose SHA256 is
+`5717d161608c9711d081c00901d8091210e5c7f00a77f0493cb873a8ba0f82b7`.
+Normalization uses decimal strings without floating-point rounding. It accepts
+Unicode decimal digits; an optional `$`, `€`, `£` or `¥` prefix; signs or
+accounting parentheses; dot decimals; comma or consistently spaced groups of
+three digits (ASCII space, NBSP or narrow NBSP); and decimal exponents up to
+absolute value 128. At most 128 digits are accepted. Leading integer zeros and
+trailing fractional zeros are removed; integer trailing zeros are preserved.
+Signs are preserved except for zero. Decimal commas, spelled-out amounts,
+hexadecimal, underscores and alternative encodings are not supported numeric
+forms. This is a bounded numeric screen, not a proof that arbitrary source
+cannot encode a confidential figure.
+
+The gate screens complete before/after source contents, including deleted lines,
+unchanged context, comments and allowed text fixtures, plus selected profile
+instructions. Only typed filename/revision/hash/control metadata is exempt:
+a filename containing a listed figure may pass, while the same filename spelled
+inside source content is screened. Ordinary mandatory privacy checks still apply.
+A match returns `BLOCKED` with `forbidden_token_present`, before credential lookup
+or a budget reservation. Invalid file configuration returns the generic
+`forbidden_token_file_invalid` without echoing the file contents or OS error.
+
+History evaluation screens every case before any credential lookup or dispatch.
+The execution path reloads the private list before request preparation and
+reservation. A changed snapshot refuses with
+`forbidden_token_configuration_changed`; even an equivalent file rewrite
+invalidates earlier screening. The base policy hash still identifies the exact
+base policy bytes, and the request hash still identifies the exact outgoing
+request. Neither hash attests the mutable private file contents. Filesystem
+checks are not an isolation boundary against a malicious process running as the
+same user; operators must protect the file and its parent directories.
+
+The file contents, token hashes and private file digest are never added to the
+request, report or audit. After source/request preflight passes, the private
+budget ledger records only the configured path and line count in a
+`forbidden_token_file_screened` event, alongside its standard event metadata.
+A path matching the deny set is replaced with `[redacted]`. Early refusals create
+no budget ledger or separate token-file audit record. Hash-only mode records no
+file event. Provider-returned free text is screened before findings are exposed;
+a refusal after a response preserves its recorded usage and settled charge.
+
+These declarations apply to the policy-approved model gate and history callers.
+They do not configure the legacy `review` command. When omitted, existing request
+bytes and offline/model-neutral defaults are unchanged.
