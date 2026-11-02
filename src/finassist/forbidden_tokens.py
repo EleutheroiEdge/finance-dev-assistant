@@ -100,7 +100,8 @@ def _read_token_file(value: str, excluded_roots: tuple[Path, ...]) -> tuple[byte
         before = path.stat()
         if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > MAX_TOKEN_BYTES:
             raise ValueError
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        flags = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+                 | getattr(os, "O_BINARY", 0))
         descriptor = os.open(path, flags)
         opened = os.fstat(descriptor)
         if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
@@ -117,8 +118,13 @@ def _read_token_file(value: str, excluded_roots: tuple[Path, ...]) -> tuple[byte
         after = os.fstat(descriptor)
         current = regular_path(candidate).stat()
         def identity(st):
-            return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
-        if size > MAX_TOKEN_BYTES or identity(opened) != identity(after) or identity(after) != identity(current):
+            return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
+        def metadata(st):
+            return (*identity(st), st.st_ctime_ns, st.st_nlink)
+        # Windows stat/fstat can expose different ctime semantics. Compare
+        # ctime within each API, and cross-check the shared object identity.
+        if (size > MAX_TOKEN_BYTES or metadata(opened) != metadata(after)
+                or metadata(before) != metadata(current) or identity(after) != identity(current)):
             raise ValueError
         return b"".join(chunks), path
     except (OSError, ValueError, AssistantError):

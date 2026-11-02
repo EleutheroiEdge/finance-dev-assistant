@@ -200,3 +200,37 @@ def test_changed_list_invalidates_guard_before_dispatch(tmp_path):
     path.write_text("89")
     with pytest.raises(AssistantError, match="^forbidden_token_configuration_changed$"):
         guard.recheck(packet, "review")
+
+
+
+def test_stat_and_fstat_ctime_semantics_can_differ(tmp_path, monkeypatch):
+    import os
+    from types import SimpleNamespace
+    from finassist.forbidden_tokens import load_token_snapshot
+    path = tmp_path / "numbers.txt"
+    path.write_bytes(b"12\r\n34\r\n")
+    original = os.fstat
+
+    def descriptor_stat(fd):
+        st = original(fd)
+        values = {key: getattr(st, key) for key in ("st_dev", "st_ino", "st_mode", "st_nlink",
+                                                   "st_size", "st_mtime_ns", "st_ctime_ns")}
+        values["st_ctime_ns"] += 1
+        return SimpleNamespace(**values)
+
+    monkeypatch.setattr("finassist.forbidden_tokens.os.fstat", descriptor_stat)
+    snapshot = load_token_snapshot({"forbidden_token_file": str(path)}, ())
+    assert snapshot.line_count == 2
+
+
+def test_token_file_uses_exact_binary_bytes(tmp_path):
+    import hashlib
+    from finassist.forbidden_tokens import load_token_snapshot
+    path = tmp_path / "numbers.txt"
+    raw = b"12\r\n34\r\n"
+    path.write_bytes(raw)
+    snapshot = load_token_snapshot({"forbidden_token_file": str(path)}, ())
+    assert snapshot.file_digest == hashlib.sha256(raw).hexdigest()
+    path.write_bytes(b"12\n\x1a89")
+    with pytest.raises(AssistantError, match="^forbidden_token_file_invalid$"):
+        load_token_snapshot({"forbidden_token_file": str(path)}, ())
