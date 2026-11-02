@@ -9,6 +9,7 @@ import sys
 import tempfile
 
 from ci_gate_smoke import exercise_ci_gate
+from triage_smoke import exercise_triage_cli
 import finassist
 from finassist.platform_support import clean_environment, find_tool
 from finassist.guides import GUIDES
@@ -68,6 +69,7 @@ with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
         )
         assert result.stdout.strip() == distribution.version, command
     assert cli("demo")[0]["status"] == "PASS"
+    exercise_triage_cli(cli, root)
     doctor = cli("doctor")[0]
     assert doctor["version"] == distribution.version
     assert doctor["provider"] == "offline" and not doctor["container_daemon_checked"]
@@ -210,6 +212,7 @@ print(
             "offline_package_smoke": "PASS",
             "commands_exercised": [
                 "demo",
+                "triage validate/evaluate (fictional offline artifacts; required matrix unchanged)",
                 "doctor",
                 "init",
                 "export-kit",

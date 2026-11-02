@@ -25,6 +25,8 @@ GUIDES = {
     "architecture": ("Architecture", "docs/architecture.md", "architecture-guide.md"),
     "dashboard": ("Dashboard", "docs/dashboard.md", "dashboard-guide.md"),
     "evaluation": ("Evaluation", "docs/evaluation.md", "evaluation-guide.md"),
+    "triage": ("Advisory triage contracts", "docs/triage-contract.md", "triage-contract-guide.md"),
+    "triage-research": ("Triage research and qualification", "docs/research/triage-research.md", "triage-research-guide.md"),
     "customize": ("Fork and customize", "docs/fork-and-customize.md", "customize-guide.md"),
     "integrations": ("Coding-agent integration", "docs/integrations.md", "integrations-guide.md"),
     "research-inputs": ("Research inputs", "docs/research-inputs.md", "research-inputs-guide.md"),
