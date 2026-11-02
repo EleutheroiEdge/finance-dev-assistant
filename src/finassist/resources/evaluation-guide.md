@@ -244,3 +244,11 @@ Older/unsupported builds refuse repositories with any `remote.*.promisor`,
 prepared complete local clone or a Git build supporting the guard; the evaluator
 does not fetch missing objects or repair Git configuration for you. These rules
 also protect ordinary source packet reads through the shared Git runner.
+
+
+For a single model gate report, `finassist score --report` counts local human
+dispositions and `finassist report trace` renders an escaped Markdown table.
+These commands do not change cohort scoring or the gate verdict. New gate IDs
+bind the request and finding position; new history results reuse those IDs,
+while archived history labels retain their original identities. See the
+[finding trace contract](pre-merge-gate.md#finding-identities-and-human-trace-tables).

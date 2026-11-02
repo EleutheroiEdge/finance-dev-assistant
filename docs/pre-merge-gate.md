@@ -244,7 +244,7 @@ created by this feature. Default `mode: checks-only` preserves the v1 adapter.
 
 ## Verdict contract
 
-The [version-1 report schema](../schemas/model-gate-report.schema.json) defines:
+The [version-2 report schema](../schemas/model-gate-report.schema.json) defines:
 
 | Verdict | Exit | Meaning |
 | --- | --- | --- |
@@ -276,3 +276,62 @@ Fixture roots and fixture paths reject reserved components with compatibility
 Unicode spellings or trailing dots/spaces. Paths are compared without rewriting
 Git names. Enabling fixtures does not add fixture-only private-path restrictions
 to ordinary files in a v1 checks snapshot; all original screening still applies.
+
+
+## Finding identities and human trace tables
+
+New model gate reports use `schema_version: 2` with a required `id` on each
+finding. Both `gate run` and the Action use the same report core. An ID is
+`f-` followed by SHA256 of canonical JSON containing `request_sha256`, the
+zero-based `index` and the public `finding` projection (severity, file, line,
+claim and evidence_status, excluding id). This preserves the history ID format
+while binding new IDs to the exact request. Identical requests and ordered
+findings have identical IDs; reordered, changed or duplicate findings have
+position-specific IDs. A model may produce different findings on a rerun.
+
+New history evaluations copy the gate IDs. Archived history evaluations and
+labels remain valid as stored; they are not rewritten. The validator also reads
+strict legacy v1 gate reports, which have no id. The trace command derives new
+request-bound IDs for those reports and marks this conversion in its output.
+Older readers that only support v1 need updating before consuming v2 reports.
+Report hashes remain hashes of the exact complete report, including new IDs.
+
+Use a private local JSON mapping from full finding ID to outcome and note:
+
+```json
+{
+  "f-REPLACE_WITH_THE_FULL_FINDING_SHA256": {
+    "outcome": "Confirmed",
+    "note": "Reproduced with the reviewed synthetic check."
+  }
+}
+```
+
+Allowed outcomes are `Confirmed`, `Partly right` and `Refuted`. Notes are limited
+to 2,000 characters. Omit a mapping entry to leave a finding `Unresolved`.
+Unknown IDs, invalid outcomes, extra fields and duplicate JSON keys are refused;
+a mapping for another request cannot silently adjudicate this report. Input
+files are bounded to 1 MB. Hashes bind bytes, not reviewer identity or truth.
+
+```sh
+finassist report trace --report .finassist/model-gate.json \
+  --adjudications .finassist/adjudications.json --output .finassist/trace.md
+finassist score --report .finassist/model-gate.json \
+  --adjudications .finassist/adjudications.json --output .finassist/dispositions.json
+```
+
+Both commands are offline; `--adjudications` is optional. The Markdown table has
+columns `#`, `Reviewer claim`, `Trace` and `Result`, including the full finding
+ID and file:line. Model text and notes are escaped as plain table text and line
+breaks are flattened. Invisible control characters are refused. Output paths
+must be new. No PR comment is posted and no source is executed. The Action still
+publishes metadata-only summaries; claims and notes remain in private artifacts.
+Inspect content for confidentiality before choosing to share a generated trace;
+escaping markup does not remove private information from human notes.
+
+`score --report` returns disposition counts and a completeness flag, never
+precision or recall. Missing judgments remain unresolved; a blocked review is
+never complete even if it returned no findings. Human dispositions do not change
+the original gate verdict or grant merge/deployment authority. Existing
+`score --evaluation --labels` contracts are unchanged; evaluation/compare flags
+cannot be mixed with report/adjudication mode.
