@@ -9,10 +9,11 @@ import re
 
 import jsonschema
 
-from .config import Config, load_config
+from .config import Config
 from .errors import AssistantError
 from .scope import read_entry
-from .security import canonical, check_path, check_text, digest, pinned_image, regular_path
+from .security import check_path, check_text, digest, pinned_image, regular_path
+from .policy_fixtures import FIXTURE_PROPERTIES, fixture_settings, load_policy_config
 from .workflow import parse_template
 
 _REPOSITORY = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
@@ -34,6 +35,7 @@ _SCHEMA = {
         "max_steps": {"type": "integer", "minimum": 1, "maximum": 64},
         "max_check_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
         "config": {"type": "object"}, "workflow": {"type": "object"},
+        **FIXTURE_PROPERTIES,
     },
 }
 
@@ -97,7 +99,7 @@ class CIPolicy:
     @property
     def guarded_paths(self) -> tuple[str, ...]:
         return tuple(dict.fromkeys((self.path, ".github/", *self.document["workflow"]["methodology"],
-                                    *self.document["guard_paths"])))
+                                    *self.document["guard_paths"], *getattr(self.config, "fixture_markers", {}))))
 
 
 def load_ci_policy(repo: Path, base: str, path: str, approved_sha256: str) -> CIPolicy:
@@ -131,7 +133,7 @@ def load_ci_policy(repo: Path, base: str, path: str, approved_sha256: str) -> CI
         for key in ("allow_network", "allow_partial_review", "allow_local_readiness")
     ):
         raise AssistantError("ci_policy_capability_forbidden")
-    config = load_config(content=canonical(document["config"]))
+    config = load_policy_config(document["config"], fixture_settings(repo, base, document))
     if config.provider != "offline" or config.allow_network or config.allow_partial_review or config.allow_local_readiness:
         raise AssistantError("ci_policy_capability_forbidden")
     pinned_image(config.runner_image)

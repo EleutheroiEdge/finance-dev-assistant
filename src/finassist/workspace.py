@@ -23,7 +23,7 @@ def export_snapshot(repo: Path, ref: str, destination: Path, config: Config) -> 
         if config.generated(path) or Path(path).suffix.lower() in PUBLIC_ASSETS:
             continue
         config.check_path(path)
-        data, mode = read_entry(repo, sha, path, config.max_file_bytes, config)
+        data, mode = read_entry(repo, sha, path, config.file_byte_limit(path), config)
         if data is None:
             raise AssistantError("snapshot_blob_missing")
         try:

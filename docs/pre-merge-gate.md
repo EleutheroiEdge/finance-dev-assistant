@@ -47,6 +47,135 @@ are excluded from this public identity; the named process variable is their
 authority. The provider rechecks the request hash immediately before dispatch.
 There is no approve-packet bypass or automatic provider fallback.
 
+## Project-owned review profiles
+
+The v2 `model_review` object keeps the required `profile` name. With no custom
+text it selects a shipped built-in checklist (`general`, `finance-saas`,
+`investment-research` or `quant-review`). To own the checklist, use either
+`profile_text` or the pair `profile_path` / `profile_sha256` in that same object.
+Do not supply both forms. Other required policy fields remain unchanged.
+
+For example, add these fields to your reviewed `model_review` object:
+
+```json
+{
+  "profile": "project-review",
+  "profile_text": [
+    "Trace cent rounding through preview, booking and final balances.",
+    "Use the project's approved objective and constraints; flag missing canon."
+  ]
+}
+```
+
+Alternatively, set `profile` to `project-review`, `profile_path` to a committed
+file such as `docs/review-checklist.txt`, and `profile_sha256` to the lowercase
+SHA-256 of that file's **exact raw bytes**. The file is UTF-8 plain text: each
+nonblank line is one instruction; blank lines are omitted. It is read from the
+same base commit as the policy, never from the worktree or PR head. Update and
+review the file and its policy pin together on the protected base first, then
+refresh the caller's policy-byte pin. Editing, deleting or renaming that profile
+in the PR blocks with `gate_profile_change_requires_review`, even when it is
+outside the source `allow_paths`. A missing file or mismatching pin also blocks.
+
+Compute file pins from the committed blob, including its original line endings:
+
+```sh
+git cat-file blob BASE:docs/review-checklist.txt | sha256sum
+```
+
+Replace `BASE` with the reviewed full commit SHA. Do not hash a CRLF-converted
+working copy. The policy pin similarly binds its exact committed blob bytes.
+
+Both forms accept 1–64 nonblank instruction lines, at most 2,000 characters per
+line. Each inline string must be exactly one line, including no trailing newline
+or Unicode line separator. Instruction lines reject Unicode control/format
+characters (`Cc`, `Cf`, `Zl`, `Zp`), including BOM and zero-width-only content;
+ordinary visible Unicode text is preserved. Profile files are split into lines
+before this validation. A profile file is capped at 128,000 bytes, and inline
+text counts toward the policy blob's existing 128,000-byte cap. Files must pass
+the mandatory text-path, UTF-8, Git-object and sensitive-content checks. Links,
+private/client/data paths, explicit policy `deny_paths`, and ignored files are
+refused, including immutable
+base/merge-base ignore rules removed from a dirty checkout. Custom text is
+included in the existing serialized request-size limit and exact request hash.
+Instructions never load code, read a local `profile_files` path or bypass screening.
+
+The custom text defines the named checklist (it may replace a built-in name).
+The fixed evidence-first reviewer preamble remains; the built-in `general`
+checklist is also prepended unless the selected name is `general`. To own all
+checklist lines, select `general` with your custom text. Neither form confers
+merge, execution or financial authority: the gate report schema fixes
+`merge_authority` to `false`. Profile text has **policy-author trust**: a hostile
+checklist can suppress useful findings despite the fixed preamble, but cannot
+grant execution or merge authority. Protect the profile and policy with
+`CODEOWNERS` and require trusted review of changes. Human-maintained checklists
+still need review for confidential content, correctness and consistency with project canon;
+pattern screening cannot establish those properties. Version-1 checks policies
+and manual review configuration retain their existing profile behavior.
+
+For a history suite selecting a separate policy repository or commit, the profile
+comes from that policy selection and its immutable ignore rules also apply.
+A source file at the same relative path in a different repository remains source
+data; it cannot replace the policy profile. Same-repository profile changes stay
+guarded. The ordinary CLI/CI gate still has no separate-policy override.
+
+## Policy-owned synthetic text fixtures
+
+Text-fixture exceptions are off by default and belong only to a reviewed,
+base-pinned policy. In a v2 policy, add `fixture_roots` and optionally
+`fixture_max_file_bytes` to `model_review`. A v1 checks policy uses the same fields
+at its top level, beside `config`; ordinary local configuration cannot grant this
+capability. For example:
+
+```json
+{
+  "fixture_roots": ["packages/engine/tests/fixtures/prices.csv", "synthetic-firm/"],
+  "fixture_max_file_bytes": 48000
+}
+```
+
+Each root is an exact repository-relative file or a literal directory prefix
+ending in `/`. Globs, absolute paths, `..`, links and special Git objects are
+refused. The match is literal: `tests/fixtures/public/` does not cover
+`tests/fixtures/public-extra/`, and an exact CSV does not admit its siblings.
+Only `.csv`, `.tsv`, `.yaml` and `.yml` qualify for the text-fixture exception.
+Other denied formats remain denied. Ordinary source `allow_paths`, v2
+`deny_paths`, coverage accounting and request/packet byte caps still apply.
+
+A root qualifies when one complete component is exactly `tests` or `fixtures`
+(nested roots such as `packages/x/tests/fixtures/` qualify; `tests-old/` does not).
+Otherwise place `.finledgerpoli-synthetic` in the listed directory, or beside an
+exact listed file, with its first line exactly:
+
+```text
+synthetic: true
+```
+
+Commit and review this UTF-8 marker on the pinned base before enabling the root.
+The marker is read only from that Git commit, capped at 4,096 bytes and screened;
+a marker in the working tree or PR head cannot qualify a root. Missing or invalid
+markers refuse the policy with `fixture_root_unqualified`. Marker edits/deletions
+in the candidate require separate policy review; marker bytes are never provider
+context or recipe inputs. History evaluations use the selected policy repository
+and commit for this qualification, as for their policy-owned review profiles.
+
+Every `data` component remains refused, case-insensitively, with
+`fixture_root_contains_data`, even inside a listed root. Private, client,
+household, holdings and credential locations, ignored paths, non-UTF-8 or NUL
+content, secret patterns and special Git objects remain refused. Both changed
+versions are screened; deterministic recipes use screened committed snapshots.
+The allowance is the policy author's attestation that the data are synthetic.
+Neither the path nor the marker proves confidentiality: review their contents
+and guard the policy and marker with trusted review/CODEOWNERS.
+
+`fixture_max_file_bytes` defaults to 48,000 and has a hard ceiling of 2,000,000.
+It applies per version of a listed text fixture, independently of the policy's
+ordinary `max_file_bytes` (also capped at 2,000,000). For example, a reviewed
+`max_file_bytes` of 200,000 can admit a large source module while fixtures retain
+the 48,000-byte default. Byte limits are enforced during construction, packet
+revalidation, model dispatch and recipe staging. Raising either limit does not
+raise the total request/packet caps or change offline/approval/budget defaults.
+
 ## Calling it locally
 
 Use trusted installed package code, outside candidate-controlled imports:
@@ -137,3 +266,13 @@ exit 2; these failures may prevent creation of a report file.
 
 Tests use synthetic source and fake transports. No live provider validation,
 financial approval, production secret setup or merge authorization is implied.
+
+Profile instructions accept visible Unicode letters, marks, numbers, punctuation
+and symbols plus ASCII space. Invisible fillers, variation selectors, private-use,
+unassigned and surrogate characters are refused. File instructions use LF or CRLF
+physical lines; other separators are refused rather than creating instructions.
+Synthetic markers require exactly `synthetic: true` before the first LF (or EOF).
+Fixture roots and fixture paths reject reserved components with compatibility
+Unicode spellings or trailing dots/spaces. Paths are compared without rewriting
+Git names. Enabling fixtures does not add fixture-only private-path restrictions
+to ordinary files in a v1 checks snapshot; all original screening still applies.

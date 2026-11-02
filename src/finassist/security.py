@@ -10,6 +10,7 @@ import re
 import tempfile
 import stat
 import sys
+import unicodedata
 
 from .errors import AssistantError
 from .platform_support import canonical_system_path
@@ -75,6 +76,9 @@ TEXT_SUFFIXES = {
     ".dockerfile",
 }
 PUBLIC_ASSETS = {".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif", ".ico"}
+# Assignment patterns start only at a whole label-token boundary. A word
+# boundary would retry the greedy prefix after every hyphen, causing quadratic
+# scans. Keep unbounded prefixes so long labels cannot hide sensitive suffixes.
 SECRET_PATTERNS = (
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
@@ -82,11 +86,11 @@ SECRET_PATTERNS = (
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"\bsk-[A-Za-z0-9_-]{24,}\b"),
     re.compile(
-        r"(?i)\b[A-Za-z0-9_-]*(?:api[_-]?key|password|secret|access[_-]?token|gh[_-]?token|github[_-](?:enterprise[_-])?token)\b[\"']?\s*[=:]\s*"
+        r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:api[_-]?key|password|secret|access[_-]?token|gh[_-]?token|github[_-](?:enterprise[_-])?token)\b[\"']?\s*[=:]\s*"
         r"(?:[\"'][^\"'\n]{12,}[\"']|[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
     ),
     re.compile(
-        r"(?i)\b[A-Za-z0-9_-]*(?:account[_ -]?(?:number|id)|routing[_ -]?number)[\"']?\s*[=:]\s*[\"']?\d{6,}"
+        r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:account[_ -]?(?:number|id)|routing[_ -]?number)[\"']?\s*[=:]\s*[\"']?\d{6,}"
     ),
     re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
 )
@@ -129,13 +133,19 @@ def check_path(
     metadata_only: bool = False,
     denied_parts=None,
     text_suffixes=None,
+    fixture_roots: tuple[str, ...] = (),
 ) -> str:
     name = safe_relative(value)
     check_text(name)
     parts = PurePosixPath(name).parts
+    fixture = is_text_fixture(name, fixture_roots)
+    if fixture:
+        check_fixture_private(name)
     if parts[-1].lower() in {"auth.json", "user.md", "memory.md", "session.md"}:
         raise AssistantError("private_profile_path")
     denied = DENIED_PARTS if denied_parts is None else denied_parts
+    if fixture:
+        denied = set(denied) | DENIED_PARTS
     suffixes = TEXT_SUFFIXES if text_suffixes is None else text_suffixes
     if any(
         p.lower() in denied or p.lower().startswith(".env") or p.lower() in {".git", ".finassist"}
@@ -143,16 +153,63 @@ def check_path(
     ):
         raise AssistantError("private_path")
     suffix = PurePosixPath(name).suffix.lower()
-    if suffix in DENIED_SUFFIXES and not (metadata_only and suffix in PUBLIC_ASSETS):
+    if suffix in DENIED_SUFFIXES and not fixture and not (metadata_only and suffix in PUBLIC_ASSETS):
         raise AssistantError("private_or_binary_path")
     if (
         source_only
         and suffix not in suffixes
+        and not fixture
         and parts[-1]
         not in {"LICENSE", "Dockerfile", "Makefile", ".gitignore", ".dockerignore", ".gitattributes"}
     ):
         raise AssistantError("unsupported_file_type")
     return name
+
+
+_PRIVATE = {"data", "private", "client", "clients", "household", "households",
+            "client-config", "client_config", "household-config", "household_config"}
+
+
+def is_text_fixture(path: str, roots: tuple[str, ...]) -> bool:
+    return PurePosixPath(path).suffix.lower() in {".csv", ".tsv", ".yaml", ".yml"} and any(
+        path.startswith(root) if root.endswith("/") else path == root for root in roots
+    )
+
+
+def _reserved_component(part: str) -> str:
+    # Compare aliases conservatively without rewriting the actual Git path.
+    return unicodedata.normalize("NFKC", part).rstrip(" .").casefold()
+
+
+def check_fixture_private(path: str) -> None:
+    parts = PurePosixPath(path).parts
+    if any(_reserved_component(part) == "data" for part in parts):
+        raise AssistantError("fixture_root_contains_data")
+    if any(_reserved_component(part) in {"tests", "fixtures"}
+           and part not in {"tests", "fixtures"} for part in parts):
+        raise AssistantError("fixture_root_invalid")
+    _check_model_private(path)
+
+
+def _check_model_private(path: str) -> None:
+    if len(path) > 512 or any(_reserved_component(part) in _PRIVATE for part in PurePosixPath(path).parts):
+        raise AssistantError("gate_private_path")
+    name = PurePosixPath(path).name.lower()
+    if name in {"client.json", "clients.json", "household.json", "households.json",
+                "credentials.json", "credential.json", "secrets.json"} or re.search(
+        r"(?:household|client)[_-]?(?:config|settings|profile)", name
+    ):
+        raise AssistantError("gate_private_path")
+
+
+def check_model_path(path: str, *, fixture_roots: tuple[str, ...] = (), source_only: bool = True) -> str:
+    """Mandatory model context path screening, including policy-owned profiles."""
+    if is_text_fixture(path, fixture_roots):
+        check_fixture_private(path)
+    check_path(path, fixture_roots=fixture_roots, source_only=source_only)
+    _check_model_private(path)
+    return path
+
 
 
 def check_text(text: str, *, extra_patterns: tuple[str, ...] = ()) -> None:
