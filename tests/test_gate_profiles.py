@@ -121,18 +121,21 @@ def test_profile_immutable_ignore_rules_cannot_be_removed_in_dirty_checkout(gate
     assert report["reasons"] == ["gate_ignored_path"] and not calls
 
 
-@pytest.mark.parametrize("extra", [
-    {"profile_text": []}, {"profile_text": [" "]}, {"profile_text": ["one\ntwo"]},
-    {"profile_text": [123]}, {"profile_path": "docs/review.txt"},
-    {"profile_sha256": "0" * 64},
-    {"profile_path": "docs/review.txt", "profile_sha256": "bad"},
-    {"profile_text": ["Check rounding."], "profile_path": "docs/review.txt", "profile_sha256": "0" * 64},
+@pytest.mark.parametrize("extra,reason", [
+    ({"profile_text": []}, "gate_policy_invalid"),
+    ({"profile_text": [" "]}, "gate_profile_line_invalid"),
+    ({"profile_text": ["one\ntwo"]}, "gate_policy_invalid"),
+    ({"profile_text": [123]}, "gate_policy_invalid"),
+    ({"profile_path": "docs/review.txt"}, "gate_policy_invalid"),
+    ({"profile_sha256": "0" * 64}, "gate_policy_invalid"),
+    ({"profile_path": "docs/review.txt", "profile_sha256": "bad"}, "gate_policy_invalid"),
+    ({"profile_text": ["Check rounding."], "profile_path": "docs/review.txt", "profile_sha256": "0" * 64}, "gate_policy_invalid"),
 ])
-def test_ambiguous_or_invalid_profile_forms_are_rejected(policy_case, extra):
+def test_ambiguous_or_invalid_profile_forms_are_rejected(policy_case, extra, reason):
     document = deepcopy(model_policy())
     document["model_review"].update(extra)
     repo, base, pin = policy_case(document)
-    with pytest.raises(AssistantError):
+    with pytest.raises(AssistantError, match="^" + reason + "$"):
         load_model_policy(repo, base, "gate-policy.json", pin)
 
 
@@ -313,3 +316,23 @@ def test_profile_guard_uses_repository_identity_across_short_names(gate_case, tm
     with pytest.raises(AssistantError, match="^gate_profile_change_requires_review$"):
         execute(gate_case, suite, trials=1)
     assert not gate_case["state"].exists()
+
+
+@pytest.mark.parametrize("label", ["key", "secret_key", "aws_secret_access_key", "X-Custom-access-key"])
+@pytest.mark.parametrize("source", ["inline", "file"])
+def test_key_suffix_assignments_in_profiles_never_reach_provider(gate_case, label, source):
+    text = label + ' = "' + "synthetic-value-" + "x" * 16 + '"'
+    if source == "inline":
+        change_policy(gate_case, profile_text=[text])
+    else:
+        profile_case(gate_case, raw=(text + "\n").encode())
+    report, calls = run(gate_case)
+    assert report["reasons"] == ["sensitive_content"] and not calls
+    assert not (gate_case["state"] / "audit.sqlite").exists()
+
+
+@pytest.mark.parametrize("raw", [b"\tCheck rounding.\n", b"\xef\xbb\xbfCheck rounding.\n"])
+def test_profile_tab_or_bom_refuses_whole_file(gate_case, raw):
+    profile_case(gate_case, raw=raw)
+    report, calls = run(gate_case)
+    assert report["reasons"] == ["gate_profile_line_invalid"] and not calls

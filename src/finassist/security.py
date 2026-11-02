@@ -89,6 +89,12 @@ SECRET_PATTERNS = (
         r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:api[_-]?key|password|secret|access[_-]?token|gh[_-]?token|github[_-](?:enterprise[_-])?token)\b[\"']?\s*[=:]\s*"
         r"(?:[\"'][^\"'\n]{12,}[\"']|[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
     ),
+    # Extend key-suffix labels without treating an unquoted function call as
+    # a literal credential. Existing patterns above retain their behavior.
+    re.compile(
+        r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*key\b[\"']?\s*[=:]\s*"
+        r"(?:[\"'][^\"'\n]{12,}[\"']|[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,}(?![A-Za-z0-9_./+=:@-]|\s*\())"
+    ),
     re.compile(
         r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:account[_ -]?(?:number|id)|routing[_ -]?number)[\"']?\s*[=:]\s*[\"']?\d{6,}"
     ),
