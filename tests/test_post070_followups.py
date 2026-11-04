@@ -153,11 +153,13 @@ def test_gate_retains_distinct_ids_for_duplicate_provider_findings(gate_case):
 def test_python_types_preserve_wire_bytes_and_pass_gate(gate_case, line):
     source = "# Synthetic annotation context.\n" + line + "\n"
     candidate(gate_case, source)
+    received = []
     def clear(packet):
-        assert packet["files"][0]["after"] == source
+        received.append(packet["files"][0]["after"])
         return envelope(json.dumps({"head": packet["head"], "summary": "Synthetic coverage",
                                    "reviewed_paths": [f["path"] for f in packet["files"]], "findings": []}))
     report, calls = run(gate_case, clear)
+    assert received == [source]
     assert report["verdict"] == "PASS" and len(calls) == 1
 
 
