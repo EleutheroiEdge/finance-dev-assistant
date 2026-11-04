@@ -262,12 +262,8 @@ def parser() -> argparse.ArgumentParser:
     evaluation.add_argument("--allow-network", action="store_true")
     evaluation.add_argument("--state-dir", type=Path, default=Path(".finassist"))
     evaluation.add_argument("--output", required=True)
-    scoring = commands.add_parser("score", help="Score an evaluation with independent operator judgments")
-    scoring.add_argument("--evaluation", required=True)
-    scoring.add_argument("--labels", required=True)
-    scoring.add_argument("--compare", help="Second history evaluation over the same frozen cases")
-    scoring.add_argument("--compare-labels", help="Independent judgments bound to the second evaluation")
-    scoring.add_argument("--output", required=True)
+    from .report_commands import add_report_commands
+    add_report_commands(commands)
     evidence = commands.add_parser(
         "evidence", help="Append local analyst evidence and record explicit approval"
     )
@@ -615,7 +611,23 @@ def execute(args, config: Config | None = None) -> int:
             run["status"] == "blocked" for case in result["cases"] for run in case["runs"]
         ):
             return 2
+    elif args.command == "report":
+        from .report_trace import read_trace_input, trace_markdown
+        report = read_trace_input(args.report)
+        judgments = read_trace_input(args.adjudications) if args.adjudications else None
+        write_private(args.output, trace_markdown(report, judgments).encode("utf-8"))
+        _emit({"report_hash": report["report_hash"], "written": True, "advisory_only": True})
     elif args.command == "score":
+        if args.report:
+            from .report_trace import read_trace_input, score_gate_report
+            if args.labels or args.compare or args.compare_labels:
+                raise AssistantError("score_input_mode_conflict")
+            report = read_trace_input(Path(args.report))
+            judgments = read_trace_input(Path(args.adjudications)) if args.adjudications else None
+            _emit(score_gate_report(report, judgments), args.output)
+            return 0
+        if not args.labels or args.adjudications:
+            raise AssistantError("score_labels_required")
         if bool(args.compare) != bool(args.compare_labels):
             raise AssistantError("history_comparison_labels_required")
         if args.compare:
