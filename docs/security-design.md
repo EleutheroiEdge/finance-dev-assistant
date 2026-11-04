@@ -49,3 +49,10 @@ characters and unquoted values; it excludes unquoted calls,
 dotted references and uppercase-leading identifier type-like annotations. Identifier-shaped values followed
 by `(` are excluded; quote literal credentials. Existing secret/password/token
 rules are unchanged. This supplements inspection, not a confidentiality proof.
+
+Confidential numeric screening in the policy-approved model gate and history
+compares listed magnitudes in source, allowed fixtures, profiles and provider
+free text before exposing findings. It fails closed on grouped short figures;
+legacy `review` and `propose` remain outside this opt-in guard. See the
+[pre-merge gate](pre-merge-gate.md#confidential-numeric-tokens-policy-approved-model-gate)
+for exact exemptions, encoding limits and private token-file rules.

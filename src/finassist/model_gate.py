@@ -11,6 +11,7 @@ import jsonschema
 
 from .ci_policy import read_document, revision
 from .errors import AssistantError
+from .forbidden_tokens import TokenGuard, load_token_snapshot, screen_packet, screen_text
 from .github_context import pull_request_context, verify_origin
 from .ledger import Ledger
 from .model_policy import load_model_policy
@@ -80,6 +81,25 @@ def refused_model_report(code: str) -> dict:
     return report
 
 
+def prepare_token_guard(policy, source_repo: Path | None = None) -> TokenGuard | None:
+    rules = policy.document["model_review"]
+    if not any(name in rules for name in ("forbidden_token_file", "forbidden_token_hashes")):
+        return None
+    roots = []
+    for repo in dict.fromkeys((source_repo, policy.repo)):
+        if repo is None:
+            continue
+        roots.append(repo)
+        common = Path(git(repo, "rev-parse", "--git-common-dir"))
+        roots.append(common if common.is_absolute() else repo / common)
+        # A linked checkout is part of the same repository, even when its path
+        # is outside the current checkout and common Git directory.
+        entries = git(repo, "worktree", "list", "--porcelain", "-z", binary=True).decode().split("\0")
+        roots.extend(Path(entry.removeprefix("worktree ")) for entry in entries if entry.startswith("worktree "))
+    guard = TokenGuard(dict(rules), tuple(roots), load_token_snapshot(rules, tuple(roots)))
+    return guard
+
+
 def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_repo: Path | None = None) -> dict:
     """Shared offline source construction; never reads a provider key or ledger."""
     rules, config = policy.document["model_review"], policy.config
@@ -118,13 +138,20 @@ def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_rep
     packet = build_packet(repo, base, head, config)
     if packet["omitted"] or len(packet["files"]) != len(paths):
         raise AssistantError("scope_incomplete")
+    guard = prepare_token_guard(policy, repo)
+    if guard is not None:
+        screen_packet(packet, config.instructions(), guard.snapshot)
     return packet
 
 
-def prepare_model_request(policy, packet: dict) -> tuple[str, dict, str]:
+def prepare_model_request(policy, packet: dict, *, source_repo: Path | None = None,
+                          token_guard: TokenGuard | None = None) -> tuple[str, dict, str]:
     """Bind screened source to the exact wire body; credentials stay out of hashes."""
     config = policy.config
     schema, system = review_schema(), config.instructions()
+    guard = token_guard or prepare_token_guard(policy, source_repo)
+    if guard is not None:
+        guard.recheck(packet, system)
     shape = request_shape(config, system, packet, schema)
     request_hash, body = request_identity(*shape)
     key = os.environ.get(config.key_name, "")
@@ -169,7 +196,8 @@ def _evaluate_model_gate(repo: Path, base: str, head: str, policy_loader, state_
         rules, config = policy.document["model_review"], policy.config
         packet = prepare_model_source(repo, base, head, policy, policy_repo=policy_repo)
         # Keys are first accessed here, after identity, scope and screening.
-        request_hash, schema, system = prepare_model_request(policy, packet)
+        token_guard = prepare_token_guard(policy, repo)
+        request_hash, schema, system = prepare_model_request(policy, packet, source_repo=repo, token_guard=token_guard)
         if expected_request_hash is not None and request_hash != expected_request_hash:
             raise AssistantError("gate_request_hash_mismatch")
         report["request_sha256"] = request_hash
@@ -178,6 +206,7 @@ def _evaluate_model_gate(repo: Path, base: str, head: str, policy_loader, state_
             packet, config, ledger_path, schema, system, network_approved=True,
             approved_packet_hash=packet["packet_hash"],
             policy_approval=PolicyRequestApproval(policy.sha256, request_hash), transport=transport,
+            token_guard=token_guard,
         )
         report["usage"] = {"input_tokens": result.input_tokens, "output_tokens": result.output_tokens}
         if result.input_tokens is None or result.output_tokens is None:
@@ -192,6 +221,11 @@ def _evaluate_model_gate(repo: Path, base: str, head: str, policy_loader, state_
         if key and _contains_key(data, key):
             raise AssistantError("gate_provider_echoed_key")
         validate_review(data, packet, config=config)
+        if token_guard is not None:
+            screen_text(data["summary"], token_guard.snapshot)
+            for finding in data["findings"]:
+                for field in ("claim", "impact", "reproduction"):
+                    screen_text(finding[field], token_guard.snapshot)
         report["findings"] = [{"severity": finding["severity"], "file": finding["path"],
                                "line": finding["line"], "claim": finding["claim"],
                                "evidence_status": "source-reference-validated-not-reproduced"}
