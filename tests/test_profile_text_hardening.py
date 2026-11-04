@@ -10,19 +10,34 @@ from test_model_policy import model_policy
 pytest_plugins = ("test_model_gate", "test_model_policy")
 
 
-@pytest.mark.parametrize("line", [
-    "Check rounding.\n", "Check\rrounding.", "Check\nrounding.",
-    "Check\u2028rounding.", "Check\u2029rounding.", "Check\x85rounding.",
-    "Check\x0brounding.", "Check\x0crounding.", "Check\x1crounding.",
-    "Check\x1drounding.", "Check\x1erounding.", "Check\trounding.",
-    "Check\x7frounding.", "Check\u200brounding.", "Check\u202erounding.",
-    "\ufeff", "\u200b", "\u200d", " \ufeff ", " \u200b ", "   ",
+@pytest.mark.parametrize("line,reason", [
+    ('Check rounding.\n', 'gate_profile_line_invalid'),
+    ('Check\rrounding.', 'gate_policy_invalid'),
+    ('Check\nrounding.', 'gate_policy_invalid'),
+    ('Check\u2028rounding.', 'gate_profile_line_invalid'),
+    ('Check\u2029rounding.', 'gate_profile_line_invalid'),
+    ('Check\x85rounding.', 'gate_profile_line_invalid'),
+    ('Check\x0brounding.', 'gate_profile_line_invalid'),
+    ('Check\x0crounding.', 'gate_profile_line_invalid'),
+    ('Check\x1crounding.', 'gate_profile_line_invalid'),
+    ('Check\x1drounding.', 'gate_profile_line_invalid'),
+    ('Check\x1erounding.', 'gate_profile_line_invalid'),
+    ('Check\trounding.', 'gate_profile_line_invalid'),
+    ('Check\x7frounding.', 'gate_profile_line_invalid'),
+    ('Check\u200brounding.', 'gate_profile_line_invalid'),
+    ('Check\u202erounding.', 'gate_profile_line_invalid'),
+    ('\ufeff', 'gate_profile_line_invalid'),
+    ('\u200b', 'gate_profile_line_invalid'),
+    ('\u200d', 'gate_profile_line_invalid'),
+    (' \ufeff ', 'gate_profile_line_invalid'),
+    (' \u200b ', 'gate_profile_line_invalid'),
+    ('   ', 'gate_profile_line_invalid'),
 ])
-def test_inline_profile_rejects_hidden_lines_and_controls(policy_case, line):
+def test_inline_profile_rejects_hidden_lines_and_controls(policy_case, line, reason):
     document = model_policy()
     document["model_review"]["profile_text"] = [line]
     repo, base, pin = policy_case(document)
-    with pytest.raises(AssistantError):
+    with pytest.raises(AssistantError, match="^" + reason + "$"):
         load_model_policy(repo, base, "gate-policy.json", pin)
 
 

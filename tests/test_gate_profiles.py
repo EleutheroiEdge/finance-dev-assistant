@@ -318,7 +318,7 @@ def test_profile_guard_uses_repository_identity_across_short_names(gate_case, tm
     assert not gate_case["state"].exists()
 
 
-@pytest.mark.parametrize("label", ["key", "secret_key", "aws_secret_access_key", "X-Custom-access-key"])
+@pytest.mark.parametrize("label", ["secret_key", "aws_secret_access_key", "X-Custom-access-key"])
 @pytest.mark.parametrize("source", ["inline", "file"])
 def test_key_suffix_assignments_in_profiles_never_reach_provider(gate_case, label, source):
     text = label + ' = "' + "synthetic-value-" + "x" * 16 + '"'

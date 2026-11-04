@@ -39,3 +39,13 @@ Adapt the [branch-protection template](maintainers/branch-protection-proposal.js
 - Native tests cover Windows, macOS and Linux; real OCI isolation is exercised on Linux. Runtime sharing, contexts and host/kernel safety remain your responsibility. Local recipes require trusted-code approval and have no OS sandbox.
 - Synthetic tests and mocked transports exercise contracts, not live protocol compatibility, model quality or the truth of findings. Version pins and release provenance do not replace complete dependency artifact-hash locking or security review.
 - Configuration and local evidence do not authorize merges, deployment, settings changes or financial actions. No settings-write command or hosted production target is provided.
+
+Credential key screening requires a credential word in the label: secret,
+private, signing, encryption, access, client, master, auth or api, optionally
+followed by access and then key (underscore/hyphen separators are supported).
+Bare key, primary/foreign/partition/sort/cache/idempotency keys are not secrets
+by name alone. The added matcher screens quoted literals of at least 12
+characters and non-identifier unquoted values; it excludes unquoted calls,
+dotted references and type-like annotations. Identifier-shaped values followed
+by `(` are excluded; quote literal credentials. Existing secret/password/token
+rules are unchanged. This supplements inspection, not a confidentiality proof.

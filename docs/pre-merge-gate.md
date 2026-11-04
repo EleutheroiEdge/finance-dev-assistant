@@ -119,14 +119,16 @@ checklist can suppress useful findings despite the fixed preamble, but cannot
 grant execution or merge authority. Protect the profile and policy with
 `CODEOWNERS` and require trusted review of changes. Human-maintained checklists
 still need review for confidential content, correctness and consistency with project canon;
-pattern screening cannot establish those properties. Assignment labels ending
-in `key` (including `secret_key` and `aws_secret_access_key`) are screened along
-with the existing password/secret/token labels when the value meets the existing
-length/shape threshold. The additional generic-key pattern excludes unquoted
-function-call expressions such as a credential lookup; existing patterns keep
-their prior behavior. This is conservative: a long nonsecret value assigned
-to such a label may also be refused. Short or differently formatted secrets can
-still escape pattern matching; this is not a complete credential detector.
+pattern screening cannot establish those properties. Credential-bearing key labels
+(`secret_key`, `aws_secret_access_key`, `access_key` and labels containing private,
+signing, encryption, client, master, auth or api) are screened when their values
+meet the length/shape threshold. Bare `key` and database/cache/idempotency key
+labels are not treated as credentials. The added rule excludes unquoted calls,
+dotted identifier references and identifier-shaped annotations; quote literal
+credential values to make their intent explicit. Identifier-shaped values followed
+by `(` stay excluded, while non-identifier literals remain screened. Existing
+password/secret/token patterns retain their prior behavior. Short or differently
+formatted secrets can still escape screening; inspect outgoing requests yourself.
 Profile selection and authorization contracts remain unchanged; common text
 screening also applies to version-1 checks and manual review.
 
