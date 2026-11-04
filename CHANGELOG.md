@@ -2,6 +2,69 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.7.0 - 2026-11-04
+
+### Added
+
+- Add offline advisory triage contracts (#44, #50). `finassist triage validate`
+  binds a supplied routing report to its exact request and a separately pinned
+  model manifest, and `finassist triage evaluate` scores independent gold without
+  calling a model. Missing, contract-invalid, declared-invalid, abstained,
+  candidate-omitted and budget-infeasible cases count as routing misses. Reports
+  bind canonical hashes of the complete request, gold and prediction collections
+  and the expected model; CLI reports also hash the exact input file bytes that
+  were parsed. Reports are advisory only and grant no execution authority.
+- Give gate findings stable `f-<sha256>` IDs bound to the request hash, in
+  `gate run`, the Action and history evaluation (#54). `finassist report trace`
+  renders a private Markdown adjudication table (`| # | Reviewer claim | Trace | Result |`)
+  from a report and a local adjudications file, escaping model text as literal
+  table text. `score --report` counts Confirmed, Partly right, Refuted and
+  unresolved findings. Foreign IDs, malformed adjudications and blocked reviews
+  never score as complete.
+- Document building and pinning a consumer runner image with exact hash-locked
+  dependencies, and selecting exact pytest node IDs on the read-only workspace (#55).
+
+### Security
+
+- Add the optional base-policy `forbidden_token_file` and `forbidden_token_hashes`
+  (#53). Policy-approved model gates and history evaluation refuse with
+  `forbidden_token_present` when a listed confidential figure appears, including
+  in common grouping, currency, sign, parenthesis and trailing-zero forms.
+  - Source, fixture and profile text is screened before credential lookup, budget
+    reservation or transport. A refusal there writes no ledger. A request that
+    proceeds records only the token file path and line count in the private audit.
+    Typed filenames are exempt.
+  - Provider-returned free text is screened after the call, before findings are
+    exposed. A refusal there happens after dispatch, so it keeps the recorded usage
+    and settled charge.
+- Detect credential-bearing key assignments such as `secret_key`, `access_key` and
+  `aws_secret_access_key` (#56). Ordinary database, cache and idempotency keys are
+  not treated as credentials, and scanning stays linear on adversarial input.
+- Pin exact refusal codes for profile and fixture-marker rejections, and add
+  regression tests for marker deletion, mode change, symlink replacement and
+  pre-marker forks (#56).
+
+### Upgrading
+
+No evidence-store migration; upgrades never edit project configuration or evidence.
+
+- Gate reports now use schema version 2, with a finding `id`. Update consumers
+  that accept only version 1. Archived version-1 reports remain readable;
+  `report trace` derives IDs for them that differ from the IDs stored in archived
+  history evaluations.
+- Content that 0.6.0 accepted can now be refused with `sensitive_content` if it
+  assigns a literal value of 12 or more characters to a key label that contains a
+  credential word (secret, private, signing, encryption, access, client, master,
+  auth or api), for example `signing_key = "..."`. Calls, dotted references and
+  type-name annotations are not refused. Move real secrets out of the reviewed source.
+- Confidential-figure screening is off unless the base-pinned policy declares
+  `forbidden_token_file` or `forbidden_token_hashes`.
+- Triage is new in this release. Its evaluation outcomes are `contract_invalid`
+  and `declared_invalid`; anyone who tested the unreleased pre-merge #44 revision
+  will see that the earlier combined `invalid` bucket has been split in two.
+- Install the release requirements with
+  `python -m pip install --require-hashes -r finledgerpoli-0.7.0-requirements.txt`.
+
 ## 0.6.0 - 2026-10-31
 
 ### Added
