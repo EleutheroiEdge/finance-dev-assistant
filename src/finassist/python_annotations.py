@@ -6,13 +6,19 @@ syntax are context, not proof that a repository contains no private information.
 import ast
 from pathlib import PurePosixPath
 import re
+import warnings
 
 
 def credential_screening_view(text: str, source_path: str | None) -> str:
     if source_path is None or PurePosixPath(source_path).suffix.lower() not in {".py", ".pyi"}:
         return text
     try:
-        tree = ast.parse(text)
+        # Python can warn about invalid escapes and echo the source line.
+        # Screening must not disclose candidate source through diagnostics.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            warnings.simplefilter("ignore", DeprecationWarning)
+            tree = ast.parse(text)
     except (SyntaxError, ValueError, RecursionError, MemoryError):
         return text  # Unparseable source retains strict generic screening.
     lines = re.findall(r"[^\r\n]*(?:\r\n|\r|\n|$)", text)

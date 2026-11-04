@@ -181,3 +181,14 @@ def test_context_never_exempts_yaml_comments_strings_or_assigned_credentials(gat
 def test_python_annotation_context_never_exempts_custom_patterns():
     with pytest.raises(AssistantError, match="^project_content_blocked$"):
         check_text("signing_" + "key: Ed25519PrivateKey", source_path="source.py", extra_patterns=("Ed25519",))
+
+
+def test_python_parser_never_echoes_source_in_warnings():
+    import warnings
+
+    source = 'text = "\\q"; signing_' + 'key = "Zq7Lm2Xp9Rt4Vw8"'
+    with warnings.catch_warnings(record=True) as emitted:
+        warnings.simplefilter("always")
+        with pytest.raises(AssistantError, match="^sensitive_content$"):
+            check_text(source, source_path="source.py")
+    assert not emitted
