@@ -296,3 +296,77 @@ def test_ci_marker_is_guarded_and_omitted_from_recipe_inputs(ci_case, tmp_path, 
     report = gate(ci_case, tmp_path / "second")
     assert "ci_guarded_change_requires_review" in report["blocking_reasons"]
     assert dispatch == ["unit", "cash"]
+
+
+@pytest.mark.parametrize("operation", ["delete", "mode", "symlink"])
+def test_marker_head_object_changes_require_review(gate_case, operation):
+    repo = gate_case["repo"]
+    name = "synthetic/.finledgerpoli-synthetic"
+    candidate(gate_case, name, b"synthetic: true\n")
+    change_policy(gate_case, allow_paths=["src/", "synthetic/"], fixture_roots=["synthetic/"])
+    if operation == "delete":
+        command(repo, "update-index", "--force-remove", name)
+    else:
+        oid = command(repo, "rev-parse", "HEAD:" + name)
+        command(repo, "update-index", "--cacheinfo", ("100755" if operation == "mode" else "120000") + "," + oid + "," + name)
+    command(repo, "commit", "-m", "Synthetic marker object change")
+    gate_case["head"] = command(repo, "rev-parse", "HEAD")
+    report, calls = run(gate_case)
+    assert report["reasons"] == ["gate_fixture_marker_change_requires_review"] and not calls
+
+
+def test_candidate_forked_before_base_marker_requires_review(gate_case):
+    change_policy(gate_case, allow_paths=["src/", "synthetic/"], fixture_roots=["synthetic/"])
+    fork_base, fork_head = gate_case["base"], gate_case["head"]
+    candidate(gate_case, "synthetic/.finledgerpoli-synthetic", b"synthetic: true\n")
+    gate_case["base"] = command(gate_case["repo"], "commit-tree", "HEAD^{tree}", "-p", fork_base, "-m", "Synthetic advanced marker base")
+    gate_case["head"] = fork_head
+    report, calls = run(gate_case)
+    assert report["reasons"] == ["gate_fixture_marker_change_requires_review"] and not calls
+
+
+@pytest.mark.parametrize("operation", ["delete", "mode", "symlink", "old-fork"])
+def test_ci_marker_object_changes_or_stale_head_never_dispatch(ci_case, tmp_path, dispatch, operation):
+    repo = ci_case["repo"]
+    command(repo, "config", "core.symlinks", "false")
+    name = "synthetic/.finledgerpoli-synthetic"
+    base_policy(ci_case, lambda p: p.update(fixture_roots=["synthetic/"], guard_paths=[]))
+    fork_base, fork_head = ci_case["context"].base_sha, ci_case["context"].head_sha
+    candidate(ci_case, name, b"synthetic: true\n")
+    ci_case["base"] = command(repo, "commit-tree", "HEAD^{tree}", "-p", fork_base, "-m", "Synthetic advanced marker base")
+    if operation == "old-fork":
+        ci_case["head"] = fork_head
+        command(repo, "checkout", "--detach", fork_head)
+    else:
+        if operation == "delete":
+            command(repo, "rm", name)
+        else:
+            oid = command(repo, "rev-parse", "HEAD:" + name)
+            command(repo, "update-index", "--cacheinfo", ("100755" if operation == "mode" else "120000") + "," + oid + "," + name)
+        command(repo, "commit", "-m", "Synthetic CI marker object change")
+        ci_case["head"] = command(repo, "rev-parse", "HEAD")
+        if operation != "delete":
+            command(repo, "restore", "--worktree", "--source=HEAD", "--", name)
+    ci_case["context"] = replace(ci_case["context"], base_sha=ci_case["base"], head_sha=ci_case["head"])
+    report = gate(ci_case, tmp_path)
+    assert "ci_guarded_change_requires_review" in report["blocking_reasons"]
+    assert not dispatch
+
+
+@pytest.mark.parametrize("raw,reason", [
+    (b"x" * 4097, "file_limit_exceeded"),
+    (b"synthetic: true\n\0", "binary_input"),
+    (b"synthetic: true\n" + b"secret_" + b"key=" + b"x" * 24, "sensitive_content"),
+])
+def test_marker_refusals_keep_specific_safety_codes(gate_case, raw, reason):
+    candidate(gate_case, "synthetic/.finledgerpoli-synthetic", raw)
+    change_policy(gate_case, fixture_roots=["synthetic/"])
+    report, calls = run(gate_case)
+    assert report["reasons"] == [reason] and not calls
+
+
+def test_directory_marker_is_a_nonregular_git_object(gate_case):
+    candidate(gate_case, "synthetic/.finledgerpoli-synthetic/child.txt", b"synthetic: true\n")
+    change_policy(gate_case, fixture_roots=["synthetic/"])
+    report, calls = run(gate_case)
+    assert report["reasons"] == ["linked_or_special_git_object"] and not calls

@@ -81,7 +81,14 @@ Compute file pins from the committed blob, including its original line endings:
 
 ```sh
 git cat-file blob BASE:docs/review-checklist.txt | sha256sum
+# macOS alternative:
+git cat-file blob BASE:docs/review-checklist.txt | shasum -a 256
 ```
+
+Copy only the 64 hexadecimal digest characters into `profile_sha256`. These
+stdin commands also print a filename field (`-`, shown as a trailing ` -` after
+the digest/spacing); that suffix is not part of the hash. Hash exact Git blob
+bytes, not a working-tree copy with potentially different line endings.
 
 Replace `BASE` with the reviewed full commit SHA. Do not hash a CRLF-converted
 working copy. The policy pin similarly binds its exact committed blob bytes.
@@ -90,8 +97,10 @@ Both forms accept 1–64 nonblank instruction lines, at most 2,000 characters pe
 line. Each inline string must be exactly one line, including no trailing newline
 or Unicode line separator. Instruction lines reject Unicode control/format
 characters (`Cc`, `Cf`, `Zl`, `Zp`), including BOM and zero-width-only content;
-ordinary visible Unicode text is preserved. Profile files are split into lines
-before this validation. A profile file is capped at 128,000 bytes, and inline
+ordinary visible Unicode text is preserved. A leading UTF-8 BOM or a tab-indented
+line refuses the entire profile file with `gate_profile_line_invalid`; neither
+is silently stripped. Only LF/CRLF delimit physical profile lines before validation.
+A profile file is capped at 128,000 bytes, and inline
 text counts toward the policy blob's existing 128,000-byte cap. Files must pass
 the mandatory text-path, UTF-8, Git-object and sensitive-content checks. Links,
 private/client/data paths, explicit policy `deny_paths`, and ignored files are
@@ -110,8 +119,18 @@ checklist can suppress useful findings despite the fixed preamble, but cannot
 grant execution or merge authority. Protect the profile and policy with
 `CODEOWNERS` and require trusted review of changes. Human-maintained checklists
 still need review for confidential content, correctness and consistency with project canon;
-pattern screening cannot establish those properties. Version-1 checks policies
-and manual review configuration retain their existing profile behavior.
+pattern screening cannot establish those properties. Credential-bearing key labels
+(`secret_key`, `aws_secret_access_key`, `access_key` and labels containing private,
+signing, encryption, client, master, auth or api) are screened when their values
+meet the length/shape threshold. Bare `key` and database/cache/idempotency key
+labels are not treated as credentials. The added rule excludes unquoted calls,
+dotted identifier references and identifier-shaped annotations; quote literal
+credential values to make their intent explicit. Identifier-shaped values followed
+by `(` stay excluded, while non-identifier literals remain screened. Existing
+password/secret/token patterns retain their prior behavior. Short or differently
+formatted secrets can still escape screening; inspect outgoing requests yourself.
+Profile selection and authorization contracts remain unchanged; common text
+screening also applies to version-1 checks and manual review.
 
 For a history suite selecting a separate policy repository or commit, the profile
 comes from that policy selection and its immutable ignore rules also apply.
@@ -135,8 +154,13 @@ capability. For example:
 ```
 
 Each root is an exact repository-relative file or a literal directory prefix
-ending in `/`. Globs, absolute paths, `..`, links and special Git objects are
-refused. The match is literal: `tests/fixtures/public/` does not cover
+ending in `/`. Globs, absolute paths and `..` are refused. Policy load checks
+the root's own Git entry (when present) and refuses links/special objects there;
+it does not walk each parent Git entry. A nested structural root below a linked
+parent can therefore pass this declaration check. All content reads use Git
+objects and never follow working-tree links; this is not permission to traverse
+a host symlink or to include its target. The match is literal:
+`tests/fixtures/public/` does not cover
 `tests/fixtures/public-extra/`, and an exact CSV does not admit its siblings.
 Only `.csv`, `.tsv`, `.yaml` and `.yml` qualify for the text-fixture exception.
 Other denied formats remain denied. Ordinary source `allow_paths`, v2
@@ -153,10 +177,25 @@ synthetic: true
 
 Commit and review this UTF-8 marker on the pinned base before enabling the root.
 The marker is read only from that Git commit, capped at 4,096 bytes and screened;
-a marker in the working tree or PR head cannot qualify a root. Missing or invalid
-markers refuse the policy with `fixture_root_unqualified`. Marker edits/deletions
-in the candidate require separate policy review; marker bytes are never provider
-context or recipe inputs. History evaluations use the selected policy repository
+a marker in the working tree or PR head cannot qualify a root. Refusals retain
+the underlying safety code:
+
+| Marker failure | Reason |
+| --- | --- |
+| Missing, invalid UTF-8 or nonexact first LF-delimited line | `fixture_root_unqualified` |
+| Link, tree or other nonregular Git object | `linked_or_special_git_object` |
+| More than 4,096 bytes | `file_limit_exceeded` |
+| NUL byte | `binary_input` |
+| Sensitive-content pattern | `sensitive_content` |
+
+Every refusal stops before provider dispatch. Candidate marker content edits,
+deletions, mode changes and symlink replacements require separate policy review.
+A candidate forked before the current base marker existed is also stale and must
+be integrated/reviewed against that base; it cannot inherit marker authority
+while omitting the marker from its own tree. As with other guarded changes, the
+model gate reports `gate_fixture_marker_change_requires_review`, while the
+checks gate reports `ci_guarded_change_requires_review`. Marker bytes are never
+provider context or recipe inputs. History evaluations use the selected policy repository
 and commit for this qualification, as for their policy-owned review profiles.
 
 Every `data` component remains refused, case-insensitively, with
