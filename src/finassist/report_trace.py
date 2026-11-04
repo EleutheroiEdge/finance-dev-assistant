@@ -1,8 +1,8 @@
 """Offline finding adjudication and escaped Markdown; never posts a review."""
 
-from html import escape
 from pathlib import Path
 import re
+import string
 import unicodedata
 
 from .ci_policy import read_document
@@ -22,12 +22,21 @@ def read_trace_input(path: Path) -> dict:
         raise AssistantError("trace_input_invalid") from None
 
 
-def _text(value: str) -> str:
-    if not isinstance(value, str) or any(unicodedata.category(c).startswith("C")
-                                       and c not in "\n\r\t" for c in value):
+def _text(value: str, *, operator_note: bool = False) -> str:
+    if not isinstance(value, str):
         raise AssistantError("trace_text_invalid")
-    text = escape(" ".join(value.split()), quote=True)
-    return re.sub(r"([\\`*_{}\[\]()#+.!|>~:@-])", r"\\\1", text)
+    visible = []
+    for char in value:
+        hidden = ((unicodedata.category(char).startswith("C") or char in "\u2028\u2029")
+                  and char not in "\n\r\t")
+        if hidden and operator_note:
+            raise AssistantError("trace_text_invalid")
+        visible.append(f"[U+{ord(char):04X}]" if hidden else char)
+    text = " ".join("".join(visible).split())
+    text = re.sub("([" + re.escape(string.punctuation) + "])", r"\\\1", text)
+    # Insert generated entities only after escaping, so their syntax survives.
+    # This breaks GitHub's rendered-text mention/reference recognition.
+    return text.replace(r"\@", "@&#8203;").replace(r"\#", "#&#8203;")
 
 
 def _rows(report: dict, adjudications: dict | None) -> list[dict]:
@@ -47,7 +56,7 @@ def _rows(report: dict, adjudications: dict | None) -> list[dict]:
                     or not isinstance(value["outcome"], str) or value["outcome"] not in OUTCOMES
                     or not isinstance(value["note"], str) or len(value["note"]) > 2000):
                 raise AssistantError("adjudications_invalid")
-            _text(value["note"])
+            _text(value["note"], operator_note=True)
         rows.append({**finding, "outcome": value["outcome"] if value is not None else "Unresolved",
                      "note": value["note"] if value is not None else ""})
     return rows
@@ -76,7 +85,7 @@ def trace_markdown(report: dict, adjudications: dict | None = None) -> str:
         lines.extend(["Review blocked; an empty table is not evidence of a clean review.", ""])
     lines.extend(["| # | Reviewer claim | Trace | Result |", "| --- | --- | --- | --- |"])
     for index, row in enumerate(rows, 1):
-        result = row["outcome"] + (" — " + _text(row["note"]) if row["note"] else "")
+        result = row["outcome"] + (" — " + _text(row["note"], operator_note=True) if row["note"] else "")
         lines.append(f"| {index} · {row['id']} | {_text(row['claim'])} | "
                      f"{_text(row['file'])}:{row['line']} | {result} |")
     if not rows:

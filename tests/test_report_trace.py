@@ -27,7 +27,7 @@ def test_trace_has_claim_identity_location_and_human_disposition(report):
     before = deepcopy(report)
     text = trace_markdown(report, judgment(report))
     assert "| # | Reviewer claim | Trace | Result |" in text
-    assert f"| 1 · {report['findings'][0]['id']} | Deposits subtract from cash | src/cash\\.py:2 | Confirmed — Synthetic check reproduced |" in text
+    assert f"| 1 · {report['findings'][0]['id']} | Deposits subtract from cash | src\\/cash\\.py:2 | Confirmed — Synthetic check reproduced |" in text
     assert report["request_sha256"] in text and report["report_hash"] in text
     assert report == before
 
@@ -68,7 +68,7 @@ def test_bad_judgments_are_refused(report, value):
 def test_model_and_note_markup_are_plain_table_text(report):
     text = trace_markdown(report, judgment(report, "Refuted", "<script>alert(1)</script> | [run](https://example.invalid)\n::warning::`boom`"))
     row = next(line for line in text.splitlines() if line.startswith("| 1 "))
-    assert "<script>" not in row and "&lt;script&gt;" in row
+    assert "<script>" not in row and r"\<script\>" in row
     assert "\\|" in row and "\\[run\\]" in row and "\\`boom\\`" in row
     assert "\\:\\:warning\\:\\:" in row
 
@@ -108,7 +108,7 @@ def test_claim_markup_is_escaped_after_identity_validation(report):
     finding["id"] = finding_identifier(report["request_sha256"], 0, finding)
     report["report_hash"] = digest(canonical({k: v for k, v in report.items() if k != "report_hash"}))
     text = trace_markdown(report)
-    assert "<img" not in text and "&lt;img" in text
+    assert r"\<img" in text
     assert "\\|" in text and "\\[click\\]" in text
 
 
@@ -123,3 +123,41 @@ def test_legacy_trace_derives_ids_without_mutating_archive(report):
     text = trace_markdown(legacy, {original_id: {"outcome": "Refuted", "note": "Synthetic refutation"}})
     assert "legacy v1 report" in text and original_id in text and "Refuted" in text
     assert canonical(legacy) == before
+
+
+def test_apostrophes_dollars_mentions_and_references_render_literally():
+    from finassist.report_trace import _text
+    assert _text("The account's balance") == r"The account\'s balance"
+    assert _text("Fee is $x^2$ and range $5-$10") == r"Fee is \$x\^2\$ and range \$5\-\$10"
+    assert _text("@octocat @org/team #12 owner/repo#5 GH-7") == (
+        r"@&#8203;octocat @&#8203;org\/team #&#8203;12 owner\/repo#&#8203;5 GH\-7")
+
+
+@pytest.mark.parametrize("char", ["\u200b", "\u00ad", "\u200d", "\x07", "\x85", "\u202e"])
+def test_invisible_model_claims_remain_traceable_but_operator_notes_refuse(report, char):
+    from finassist.finding_identity import finding_identifier
+    from finassist.security import digest
+    finding = report["findings"][0]
+    finding["claim"] = "Synthetic" + char + "claim"
+    finding["id"] = finding_identifier(report["request_sha256"], 0, finding)
+    report["report_hash"] = digest(canonical({k: v for k, v in report.items() if k != "report_hash"}))
+    before = canonical(report)
+    assert score_gate_report(report)["counts"]["Unresolved"] == 1
+    text = trace_markdown(report)
+    assert f"U\\+{ord(char):04X}" in text and char not in text
+    assert canonical(report) == before
+    with pytest.raises(AssistantError, match="^trace_text_invalid$"):
+        score_gate_report(report, judgment(report, note="Operator" + char + "note"))
+
+
+def test_rendered_cells_preserve_literal_punctuation_and_disable_html():
+    import comrak
+    from finassist.report_trace import _text
+    options = comrak.RenderOptions()
+    options.unsafe_ = True
+    raw = "The account's balance: $5-$10 <script>x</script> @octocat #12"
+    rendered = comrak.render_markdown(_text(raw), render_options=options)
+    assert "account's balance: $5-$10" in rendered
+    assert "&lt;script&gt;" in rendered and "<script>" not in rendered
+    assert "@\u200boctocat" in rendered and "#\u200b12" in rendered
+    assert "<a " not in rendered
