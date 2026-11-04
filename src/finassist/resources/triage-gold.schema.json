@@ -1,0 +1,231 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Advisory triage gold, version 1",
+  "description": "Data validation only; no model, plugin or execution authorization.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "case_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+      "not": {
+        "pattern": "[^A-Za-z0-9_-]"
+      }
+    },
+    "request_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "maxLength": 64
+    },
+    "source_kind": {
+      "enum": [
+        "real",
+        "synthetic"
+      ]
+    },
+    "family_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+      "not": {
+        "pattern": "[^A-Za-z0-9_-]"
+      }
+    },
+    "adjudication_status": {
+      "enum": [
+        "confirmed",
+        "unconfirmed",
+        "not_applicable"
+      ]
+    },
+    "applicability_reason": {
+      "enum": [
+        "applicable",
+        "pending_adjudication",
+        "budget_infeasible",
+        "outside_scope"
+      ]
+    },
+    "is_control": {
+      "type": "boolean"
+    },
+    "defect_status": {
+      "enum": [
+        "confirmed_defect",
+        "no_confirmed_defect",
+        "unknown"
+      ]
+    },
+    "catalog": {
+      "type": "object",
+      "properties": {
+        "patterns": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+            "not": {
+              "pattern": "[^A-Za-z0-9_-]"
+            }
+          },
+          "maxItems": 1024,
+          "uniqueItems": true
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+            "not": {
+              "pattern": "[^A-Za-z0-9_-]"
+            }
+          },
+          "maxItems": 1024,
+          "uniqueItems": true
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+            "not": {
+              "pattern": "[^A-Za-z0-9_-]"
+            }
+          },
+          "maxItems": 1024,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "patterns",
+        "files",
+        "checks"
+      ],
+      "additionalProperties": false
+    },
+    "patterns": {
+      "type": "object",
+      "properties": {
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+            "not": {
+              "pattern": "[^A-Za-z0-9_-]"
+            }
+          },
+          "maxItems": 1024,
+          "uniqueItems": true
+        },
+        "optional": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+            "not": {
+              "pattern": "[^A-Za-z0-9_-]"
+            }
+          },
+          "maxItems": 1024,
+          "uniqueItems": true
+        },
+        "forbidden": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+            "not": {
+              "pattern": "[^A-Za-z0-9_-]"
+            }
+          },
+          "maxItems": 1024,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "required",
+        "optional",
+        "forbidden"
+      ],
+      "additionalProperties": false
+    },
+    "checks": {
+      "type": "object",
+      "properties": {
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+            "not": {
+              "pattern": "[^A-Za-z0-9_-]"
+            }
+          },
+          "maxItems": 1024,
+          "uniqueItems": true
+        },
+        "optional": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+            "not": {
+              "pattern": "[^A-Za-z0-9_-]"
+            }
+          },
+          "maxItems": 1024,
+          "uniqueItems": true
+        },
+        "forbidden": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+            "not": {
+              "pattern": "[^A-Za-z0-9_-]"
+            }
+          },
+          "maxItems": 1024,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "required",
+        "optional",
+        "forbidden"
+      ],
+      "additionalProperties": false
+    },
+    "acceptable_first_files": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+        "not": {
+          "pattern": "[^A-Za-z0-9_-]"
+        }
+      },
+      "maxItems": 1024,
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "schema_version",
+    "case_id",
+    "request_hash",
+    "source_kind",
+    "family_id",
+    "adjudication_status",
+    "applicability_reason",
+    "is_control",
+    "defect_status",
+    "catalog",
+    "patterns",
+    "checks",
+    "acceptable_first_files"
+  ],
+  "additionalProperties": false
+}
