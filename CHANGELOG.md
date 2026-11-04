@@ -6,11 +6,13 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ### Fixed
 
-- Accept consistently underscore-grouped confidential numeric tokens, including
-  `1_234_567.89`, with the existing strict three-digit grouping and exact decimal
-  normalization. Mixed or malformed grouping remains invalid.
-- Screen uppercase-leading unquoted credential literals containing digits while
-  preserving digit-free type identifiers, calls and dotted references.
+- Accept underscores between any two digits in confidential numeric tokens,
+  including `6729_102.50`, `67_29_102.50` and `6_7_2_9_1_0_2.50`, using exact
+  decimal normalization. Other malformed grouping remains invalid.
+- Screen uppercase-leading unquoted credential literals containing digits and
+  complete candidate tokens. Preserve digit-bearing type names in parsed Python
+  variable/parameter annotations while still screening YAML, comments, strings,
+  assigned credential values and custom sensitive patterns.
 - Neutralize rendered `GH-<n>` trace autolinks; report an explicit input-mode
   conflict when evaluation scoring includes adjudications. Publish/export the
   strict legacy v1 gate report schema, and cover duplicate findings through the

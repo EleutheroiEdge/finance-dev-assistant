@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import hashlib
 import json
 import os
@@ -14,6 +15,7 @@ import unicodedata
 
 from .errors import AssistantError
 from .platform_support import canonical_system_path
+from .python_annotations import credential_screening_view
 
 DENIED_PARTS = {
     ".finassist",
@@ -79,6 +81,11 @@ PUBLIC_ASSETS = {".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif", ".ico"}
 # Assignment patterns start only at a whole label-token boundary. A word
 # boundary would retry the greedy prefix after every hyphen, causing quadratic
 # scans. Keep unbounded prefixes so long labels cannot hide sensitive suffixes.
+CREDENTIAL_KEY_PATTERN = re.compile(
+    r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:secret|private|signing|encryption|access|client|master|auth|api)[_-]?(?:access[_-]?)?key\b[\"']?\s*[=:]\s*"
+    r"(?:[\"'][^\"'\n]{12,}[\"']|(?![A-Za-z_][A-Za-z0-9_.]*\s*\()(?!(?-i:[A-Z][A-Za-z_]*)(?![A-Za-z0-9_./+=:@-]))(?!(?:[A-Za-z_][A-Za-z0-9_]*\.)+[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_.]))[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
+)
+
 SECRET_PATTERNS = (
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
@@ -89,12 +96,7 @@ SECRET_PATTERNS = (
         r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:api[_-]?key|password|secret|access[_-]?token|gh[_-]?token|github[_-](?:enterprise[_-])?token)\b[\"']?\s*[=:]\s*"
         r"(?:[\"'][^\"'\n]{12,}[\"']|[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
     ),
-    # Credential words distinguish secrets from ordinary database/cache keys.
-    # All exclusions run before consuming a value, avoiding repeated suffix scans.
-    re.compile(
-        r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:secret|private|signing|encryption|access|client|master|auth|api)[_-]?(?:access[_-]?)?key\b[\"']?\s*[=:]\s*"
-        r"(?:[\"'][^\"'\n]{12,}[\"']|(?![A-Za-z_][A-Za-z0-9_.]*\s*\()(?!(?-i:[A-Z][A-Za-z_]*)(?![A-Za-z0-9_./+=:@-]))(?!(?:[A-Za-z_][A-Za-z0-9_]*\.)+[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_.]))[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
-    ),
+    CREDENTIAL_KEY_PATTERN,
     re.compile(
         r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:account[_ -]?(?:number|id)|routing[_ -]?number)[\"']?\s*[=:]\s*[\"']?\d{6,}"
     ),
@@ -218,10 +220,24 @@ def check_model_path(path: str, *, fixture_roots: tuple[str, ...] = (), source_o
 
 
 
-def check_text(text: str, *, extra_patterns: tuple[str, ...] = ()) -> None:
+def check_text(text: str, *, extra_patterns: tuple[str, ...] = (), source_path: str | None = None) -> None:
+    _screen_text(text, credential_screening_view(text, source_path), extra_patterns)
+
+
+def check_context_document(document: dict, *, extra_patterns: tuple[str, ...] = (), records_key="files") -> None:
+    """Screen a validated typed envelope, retaining raw metadata/custom rules."""
+    view = deepcopy(document)
+    for item in view[records_key]:
+        for side in ("before", "after"):
+            if item[side] is not None:
+                item[side] = credential_screening_view(item[side], item["path"])
+    _screen_text(canonical(document).decode(), canonical(view).decode(), extra_patterns)
+
+
+def _screen_text(text: str, credential_text: str, extra_patterns: tuple[str, ...]) -> None:
     if "\0" in text:
         raise AssistantError("binary_input")
-    if any(p.search(text) for p in SECRET_PATTERNS):
+    if any(p.search(credential_text if p is CREDENTIAL_KEY_PATTERN else text) for p in SECRET_PATTERNS):
         raise AssistantError("sensitive_content")
     try:
         if any(re.search(p, text, re.IGNORECASE) for p in extra_patterns):

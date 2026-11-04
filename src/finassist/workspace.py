@@ -27,7 +27,7 @@ def export_snapshot(repo: Path, ref: str, destination: Path, config: Config) -> 
         if data is None:
             raise AssistantError("snapshot_blob_missing")
         try:
-            check_text(data.decode(), extra_patterns=config.extra_sensitive_patterns)
+            check_text(data.decode(), extra_patterns=config.extra_sensitive_patterns, source_path=path)
         except UnicodeError as exc:
             raise AssistantError("snapshot_non_text_blob") from exc
         target = destination / path

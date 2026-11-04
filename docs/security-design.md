@@ -46,10 +46,19 @@ followed by access and then key (underscore/hyphen separators are supported).
 Bare key, primary/foreign/partition/sort/cache/idempotency keys are not secrets
 by name alone. The added matcher screens quoted literals of at least 12
 characters and unquoted values; it excludes unquoted calls,
-dotted references and digit-free uppercase-leading identifier type-like annotations.
-Uppercase-leading unquoted literals containing digits are screened too. Identifier-shaped values followed
-by `(` are excluded; quote literal credentials. Existing secret/password/token
-rules are unchanged. This supplements inspection, not a confidentiality proof.
+dotted references and digit-free uppercase-leading whole identifiers. Whitespace,
+end of input and annotation punctuation (`[`, `]`, `)`, `,`, `;`) can end such an
+identifier; `/`, `+`, `=`, `-`, `:` and `@` continue a candidate literal.
+Uppercase-leading unquoted literals containing digits are screened too. Parseable
+Python source identified by a `.py`/`.pyi` path additionally permits bare type names
+containing digits in actual variable/parameter annotations. Only this heuristic
+uses that parsed context: assigned values, comments, strings and custom sensitive
+patterns remain screened, and source/request bytes remain unchanged. YAML and
+untyped text retain strict screening; a filename and syntax are not proof of privacy.
+Identifier-shaped values followed by `(` are excluded; quote literal credentials.
+Digit-free all-caps literal values can still resemble constants and escape this
+heuristic. Existing secret/password/token rules are unchanged. This supplements
+inspection, not a confidentiality proof.
 
 Confidential numeric screening in the policy-approved model gate and history
 compares listed magnitudes in source, allowed fixtures, profiles and provider

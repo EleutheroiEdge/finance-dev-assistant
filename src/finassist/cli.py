@@ -564,7 +564,7 @@ def execute(args, config: Config | None = None) -> int:
                     verify_public_image(path, images[name])
                     continue
                 content = read_utf8(path)
-                check_text(content, extra_patterns=config.extra_sensitive_patterns)
+                check_text(content, extra_patterns=config.extra_sensitive_patterns, source_path=name)
                 if any(value.casefold() in (name + "\n" + content).casefold() for value in args.forbid):
                     findings.append({"path": name, "code": "forbidden_publication_text"})
             except AssistantError as exc:

@@ -258,7 +258,7 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
             except UnicodeError as exc:
                 raise AssistantError("non_text_blob") from exc
             if text is not None:
-                check_text(text, extra_patterns=config.extra_sensitive_patterns)
+                check_text(text, extra_patterns=config.extra_sensitive_patterns, source_path=path)
             decoded.append(text)
         files.append(
             asdict(
@@ -385,7 +385,7 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
             if data is not None:
                 if len(data.encode()) > config.file_byte_limit(file["path"]):
                     raise AssistantError("file_limit_exceeded")
-                check_text(data, extra_patterns=config.extra_sensitive_patterns)
+                check_text(data, extra_patterns=config.extra_sensitive_patterns, source_path=file["path"])
 
 
 def triage(packet: dict, config: Config | None = None) -> dict:

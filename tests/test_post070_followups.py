@@ -23,21 +23,24 @@ pytest_plugins = ("test_model_gate", "test_model_policy")
 
 
 @pytest.mark.parametrize("raw,expected", [
-    ("1_234_567.89", "1234567.89"), ("$6_729_102.500", "6729102.5"),
+    ("1_234_567.89", "1234567.89"), ("6729_102.50", "6729102.5"),
+    ("67_29_102.50", "6729102.5"), ("6_7_2_9_1_0_2.50", "6729102.5"),
+    ("6_729_102.5_0", "6729102.5"), ("$6_729_102.500", "6729102.5"),
     ("(6_729_102.50)", "-6729102.5"), ("６_７２９_１０２.５０", "6729102.5"),
-    ("6_729_102.5e-2", "67291.025"),
+    ("6_729_102.5e-2", "67291.025"), ("6.7291025e0_6", "6729102.5"),
 ])
-def test_underscore_thousands_groups_normalize_without_rounding(raw, expected):
+def test_underscore_digit_separators_normalize_without_rounding(raw, expected):
     assert normalize_numeric_token(raw) == expected
 
 
-@pytest.mark.parametrize("raw", ["1_23", "1234_567", "1__234", "1_234,567", "1 234_567", "1.23_456", "_123", "123_"])
-def test_malformed_or_mixed_underscore_groups_remain_invalid(raw):
+@pytest.mark.parametrize("raw", ["1__234", "_123", "123_", "1_.23", "1._23", "1_e2", "1e_2"])
+def test_underscores_outside_digit_pairs_remain_invalid(raw):
     with pytest.raises(AssistantError, match="^forbidden_token_invalid$"):
         normalize_numeric_token(raw)
 
 
-@pytest.mark.parametrize("text", ["value = 6_729_102.50", "# $6_729_102.500", "1 6_729_102.50 2"])
+@pytest.mark.parametrize("text", ["value = 6_729_102.50", "# $6_729_102.500", "1 6_729_102.50 2", "value = 6729_102.50",
+                                  "value = 67_29_102.50", "value = 6_7_2_9_1_0_2.50", "value = 6.7291025e0_6"])
 def test_underscore_content_refuses_before_transport_or_reservation(gate_case, text):
     change_policy(gate_case, forbidden_token_hashes=[hashlib.sha256(b"6729102.5").hexdigest()])
     candidate(gate_case, text)
@@ -66,7 +69,7 @@ def test_underscore_grouping_does_not_change_a_distinct_value():
 
 
 @pytest.mark.parametrize("secret", ["AbcDefGhi1234567", "A12345678901234", "ABC_DEF_1234567",
-                                    "AbcDefGhi/1234567", "AbcDefGhi-1234567", "AbcDefGhi+1234567"])
+                                    "AbcDefGhi/1234567", "AbcDefGhi-1234567", "AbcDefGhi+1234567", "Zq7Lm2Xp9Rt4Vw8", "Zq7/Lm2+Xp9Rt4Vw8=="])
 def test_uppercase_leading_credential_literals_with_digits_are_screened(secret):
     with pytest.raises(AssistantError, match="^sensitive_content$"):
         check_text("access_" + "key = " + secret)
@@ -134,3 +137,47 @@ def test_gate_retains_distinct_ids_for_duplicate_provider_findings(gate_case):
     score = score_gate_report(report, {first["id"]: {"outcome": "Refuted", "note": "One duplicate checked"}})
     assert score["counts"]["Refuted"] == 1 and score["counts"]["Unresolved"] == 1
     assert not score["complete"]
+
+
+@pytest.mark.parametrize("line", [
+    "signing_" + "key: Ed25519PrivateKey", "private_" + "key: X25519PrivateKey = None",
+    "encryption_" + "key: Sha256Digest", "signing_" + "key: CryptographicKeyMaterial",
+    "signing_" + "key: Optional[SigningKey] = None", "signing_key = load_signing_key(path)",
+    "signing_key = settings.SIGNING_KEY", 'primary_key = "transaction_id"',
+    "π = 1; signing_" + "key: Ed25519PrivateKey = load_signing_key(path)",
+    "def sign(signing_" + "key: Ed25519PrivateKey): pass",
+    "text = 'synthetic\u2028value'; signing_" + "key: Ed25519PrivateKey",
+    "# Synthetic\r\nsigning_" + "key: Ed25519PrivateKey",
+    "# Synthetic\rsigning_" + "key: Ed25519PrivateKey",
+])
+def test_python_types_preserve_wire_bytes_and_pass_gate(gate_case, line):
+    source = "# Synthetic annotation context.\n" + line + "\n"
+    candidate(gate_case, source)
+    def clear(packet):
+        assert packet["files"][0]["after"] == source
+        return envelope(json.dumps({"head": packet["head"], "summary": "Synthetic coverage",
+                                   "reviewed_paths": [f["path"] for f in packet["files"]], "findings": []}))
+    report, calls = run(gate_case, clear)
+    assert report["verdict"] == "PASS" and len(calls) == 1
+
+
+@pytest.mark.parametrize("name,source", [
+    ("src/case.yaml", "aws_secret_access_" + "key: Zq7Lm2Xp9Rt4Vw8Yb3"),
+    ("src/case.yaml", "signing_" + "key: Ed25519PrivateKey"),
+    ("src/case.py", '# signing_' + 'key: Ed25519PrivateKey'),
+    ("src/case.py", 'text = "signing_' + 'key: Ed25519PrivateKey"'),
+    ("src/case.py", 'signing_' + 'key: (\n# private_' + 'key = "Zq7Lm2Xp9Rt4Vw8"\nEd25519PrivateKey)'),
+    ("src/case.py", 'signing_' + 'key: Ed25519Private' + 'Key = "Zq7Lm2Xp9Rt4Vw8"'),
+    ("src/case.py", 'signing_' + 'key: Ed25519Private' + 'Key = Zq7Lm2Xp9Rt4Vw8'),
+    ("src/case.py", 'def sign(signing_' + 'key: Ed25519Private' + 'Key = "Zq7Lm2Xp9Rt4Vw8"): pass'),
+])
+def test_context_never_exempts_yaml_comments_strings_or_assigned_credentials(gate_case, name, source):
+    candidate(gate_case, source, name)
+    report, calls = run(gate_case)
+    assert report["verdict"] == "BLOCKED" and not calls
+    assert not (gate_case["state"] / "audit.sqlite").exists()
+
+
+def test_python_annotation_context_never_exempts_custom_patterns():
+    with pytest.raises(AssistantError, match="^project_content_blocked$"):
+        check_text("signing_" + "key: Ed25519PrivateKey", source_path="source.py", extra_patterns=("Ed25519",))

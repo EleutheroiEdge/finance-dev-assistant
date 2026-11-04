@@ -124,9 +124,19 @@ pattern screening cannot establish those properties. Credential-bearing key labe
 signing, encryption, client, master, auth or api) are screened when their values
 meet the length/shape threshold. Bare `key` and database/cache/idempotency key
 labels are not treated as credentials. The added rule excludes unquoted calls,
-dotted identifier references and identifier-shaped annotations; quote literal
-credential values to make their intent explicit. Identifier-shaped values followed
-by `(` stay excluded, while non-identifier literals remain screened. Existing
+dotted identifier references and digit-free uppercase-leading whole identifiers.
+The whole-identifier exclusion ends at whitespace, end of input or annotation
+punctuation such as `[`, `]`, `)`, `,` or `;`; `/`, `+`, `=`, `-`, `:` and `@`
+continue a candidate literal. Uppercase-leading unquoted literals containing digits
+are screened. In parseable `.py`/`.pyi` source, a bare uppercase-leading type name
+in an actual variable or parameter annotation may contain digits (for example,
+`Ed25519PrivateKey`, `X25519PrivateKey` or `Sha256Digest`). This exception affects
+only the credential-key heuristic; assigned values, comments, strings, custom
+patterns and other secret rules still apply. YAML and text without a Python source
+path retain strict generic screening. Original source and request bytes are kept.
+Quote literal credential values to make their intent explicit. Digit-free all-caps
+values can still resemble constants and escape this heuristic. Identifier-shaped
+values followed by `(` stay excluded. Existing
 password/secret/token patterns retain their prior behavior. Short or differently
 formatted secrets can still escape screening; inspect outgoing requests yourself.
 Profile selection and authorization contracts remain unchanged; common text
@@ -403,8 +413,10 @@ For example, the synthetic `6729102.50`, `$6,729,102.500` and `6_729_102.50` nor
 Normalization uses decimal strings without floating-point rounding. It accepts
 Unicode decimal digits; an optional `$`, `€`, `£` or `¥` prefix; signs or
 accounting parentheses; dot decimals; groups of three digits using one consistent
-separator (comma, underscore, ASCII space, NBSP or narrow NBSP); and decimal exponents up to
-absolute value 128. At most 128 digits are accepted. Leading integer zeros and
+separator (comma, ASCII space, NBSP or narrow NBSP); underscores between any two
+digits, including `6729_102.50`, `67_29_102.50` and `6_7_2_9_1_0_2.50`; and decimal
+exponents up to absolute value 128. Inter-digit underscores are removed before
+validating the remaining number, including fractional and exponent digits. At most 128 digits are accepted. Leading integer zeros and
 trailing fractional zeros are removed; integer trailing zeros are preserved.
 Normalization preserves signs except for zero, but screening compares magnitude:
 a listed figure refuses regardless of sign, accounting parentheses or function-call

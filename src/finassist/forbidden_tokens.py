@@ -15,7 +15,7 @@ from .errors import AssistantError
 from .security import regular_path
 
 _CURRENCIES = "$€£¥"
-_GROUP_SEPARATORS = "   _"
+_GROUP_SEPARATORS = "   "
 _DECIMAL = re.compile(r"(?P<integer>[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)"
                       r"(?:\.(?P<fraction>[0-9]+))?(?:[eE](?P<exponent>[+-]?[0-9]{1,3}))?")
 
@@ -23,14 +23,15 @@ _DECIMAL = re.compile(r"(?P<integer>[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)"
 def normalize_numeric_token(value: str) -> str:
     """Return a dot-decimal canonical value, without floating-point rounding.
 
-    Only explicit dot decimals, comma/space/underscore thousands groups, Unicode decimal
-    digits, one currency prefix, signs, accounting parentheses and bounded
+    Only explicit dot decimals, comma/space thousands groups, underscores between
+    digits, Unicode decimal digits, one currency prefix, signs, parentheses and bounded
     decimal exponents are supported. Invalid input has a non-disclosing error.
     """
     if not isinstance(value, str) or not value or len(value) > 256:
         raise AssistantError("forbidden_token_invalid")
     value = value.strip(" ")
     value = "".join(str(unicodedata.decimal(c)) if c.isdecimal() else c for c in value)
+    value = re.sub(r"(?<=[0-9])_(?=[0-9])", "", value)
     negative = value.startswith("(") and value.endswith(")")
     if negative:
         value = value[1:-1]
@@ -177,11 +178,17 @@ _SPACED = re.compile(r"(?<![\d.,])(?:\()?[-+]?[$€£¥]?[-+]?\d{1,3}"
                      r"(?:\.\d+)?(?:[eE][-+]?\d+)?(?:\))?(?!\d|[,.]\d)")
 
 
+_DIGIT_SEPARATED = re.compile(
+    r"(?<![\d.])(?:\()?[-+]?[$€£¥]?[-+]?\d[\d_]*"
+    r"(?:\.[\d_]+)?(?:[eE][-+]?[\d_]+)?(?:\))?(?!\d)"
+)
+
+
 def screen_text(text: str, snapshot: TokenSnapshot) -> None:
     """Check content only; callers must select typed content, not filenames."""
     if not snapshot.hashes:
         return
-    for pattern in (_NUMBER, _UNGROUPED, _SPACED, _PLAIN):
+    for pattern in (_NUMBER, _UNGROUPED, _SPACED, _DIGIT_SEPARATED, _PLAIN):
         for match in pattern.finditer(text):
             try:
                 number = normalize_numeric_token(match.group())
