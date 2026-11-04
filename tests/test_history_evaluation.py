@@ -107,11 +107,11 @@ def test_every_request_is_preflighted_before_the_first_dispatch(gate_case, monke
     suite["cases"].append(second)
     original = module.prepare_model_request
     calls = []
-    def preflight(policy, packet):
+    def preflight(policy, packet, **kwargs):
         calls.append(True)
         if len(calls) == 2:
             raise AssistantError("gate_request_bytes_exceeded")
-        return original(policy, packet)
+        return original(policy, packet, **kwargs)
     monkeypatch.setattr(module, "prepare_model_request", preflight)
     monkeypatch.setattr(module, "run_history_gate", lambda *a, **k: pytest.fail("dispatch before complete preflight"))
     with pytest.raises(AssistantError, match="gate_request_bytes_exceeded"):
