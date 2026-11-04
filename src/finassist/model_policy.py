@@ -46,6 +46,11 @@ _PROFILE_PROPERTIES = {
     "profile_path": {"type": "string", "minLength": 1, "maxLength": 512},
     "profile_sha256": {"type": "string", "pattern": r"^[0-9a-f]{64}$"},
 }
+_TOKEN_PROPERTIES = {
+    "forbidden_token_file": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "forbidden_token_hashes": {"type": "array", "minItems": 1, "maxItems": 1024, "uniqueItems": True,
+                              "items": {"type": "string", "pattern": r"^[0-9a-f]{64}$"}},
+}
 _SCHEMA = {
     "type": "object", "additionalProperties": False,
     "required": ["schema_version", "model_review"],
@@ -53,7 +58,7 @@ _SCHEMA = {
         "schema_version": {"type": "integer", "const": 2},
         "model_review": {"type": "object", "additionalProperties": False,
                          "required": list(_PROPERTIES),
-                         "properties": {**_PROPERTIES, **_PROFILE_PROPERTIES, **FIXTURE_PROPERTIES},
+                         "properties": {**_PROPERTIES, **_PROFILE_PROPERTIES, **FIXTURE_PROPERTIES, **_TOKEN_PROPERTIES},
                          "dependentRequired": {"profile_path": ["profile_sha256"],
                                                "profile_sha256": ["profile_path"]},
                          "not": {"required": ["profile_text", "profile_path"]}},
@@ -69,6 +74,7 @@ class ModelGatePolicy:
     sha256: str
     base: str
     profile_path: str | None = None
+    repo: Path | None = None
 
 
 def _prefix(value: str, fixture_roots: tuple[str, ...] = ()) -> str:
@@ -173,4 +179,4 @@ def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePo
         profiles[model["profile"]] = profile_text
         config_fields["profiles"] = profiles
     config = load_policy_config(config_fields, settings)
-    return ModelGatePolicy(document, config, path, pin, base, profile_path)
+    return ModelGatePolicy(document, config, path, pin, base, profile_path, repo)
