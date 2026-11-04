@@ -163,8 +163,9 @@ def load_token_snapshot(rules: dict, excluded_roots: tuple[Path, ...]) -> TokenS
     return TokenSnapshot(frozenset(hashes), path, count, fingerprint)
 
 
-# Consume entire decimal candidates, including malformed separators, so a
-# longer digit sequence cannot be mistaken for a listed shorter value.
+# Broad passes cover grouping and exponents. The plain pass also finds a
+# literal beside punctuation/numeric CSV cells when a broad candidate is invalid.
+_PLAIN = re.compile(r"(?<!\d)\d+(?:\.\d+)?(?!\d)")
 _NUMBER = re.compile(r"(?<![\d.])(?:\()?[-+]?[$€£¥]?[-+]?\d+(?:[,. \u00a0\u202f]\d+)*(?:[eE][-+]?\d+)?(?:\))?(?!\d)")
 _UNGROUPED = re.compile(r"(?<![\d.,])(?:\()?[-+]?[$€£¥]?[-+]?\d+(?:[,.]\d+)*(?:[eE][-+]?\d+)?(?:\))?(?![\d,])")
 
@@ -180,13 +181,18 @@ def screen_text(text: str, snapshot: TokenSnapshot) -> None:
     """Check content only; callers must select typed content, not filenames."""
     if not snapshot.hashes:
         return
-    for pattern in (_NUMBER, _UNGROUPED, _SPACED):
+    for pattern in (_NUMBER, _UNGROUPED, _SPACED, _PLAIN):
         for match in pattern.finditer(text):
             try:
                 number = normalize_numeric_token(match.group())
             except AssistantError:
                 continue
-            if hashlib.sha256(number.encode("utf-8")).hexdigest() in snapshot.hashes:
+            magnitude = number.lstrip("-")
+            # Hash-only policies can list either sign. Compare both without
+            # recovering or retaining any configured plaintext value.
+            forms = {number, magnitude, "-" + magnitude} if magnitude != "0" else {"0"}
+            if any(hashlib.sha256(form.encode("utf-8")).hexdigest() in snapshot.hashes
+                   for form in forms):
                 raise AssistantError("forbidden_token_present")
 
 

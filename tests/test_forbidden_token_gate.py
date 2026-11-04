@@ -22,7 +22,10 @@ def candidate(case, text, name="src/cash.py"):
 
 @pytest.mark.parametrize("text", [
     "value = 6729102.50", "# $6,729,102.500", 'fixture = "6 729 102.50"',
-    "# src/6729102.50.py",
+    "# src/6729102.50.py", "total = approx(6729102.50)",
+    "# Q3 balance (6,729,102.50)", "loss = -6729102.50",
+    "round(6729102.50, 2)", "values = [6729102.50,2]",
+    "Rs.6729102.50", "# see ledger.6729102.50.csv",
 ])
 def test_numeric_hash_refuses_content_before_key_or_ledger(request, text, monkeypatch):
     case = request.getfixturevalue("gate_case")
@@ -61,13 +64,14 @@ def test_external_file_refuses_and_is_never_in_request(request, tmp_path):
     assert not calls and report["reasons"] == ["forbidden_token_present"]
 
 
-def test_provider_invented_number_is_removed_after_usage_settlement(request):
+@pytest.mark.parametrize("claim", ["Fictional value $6,729,102.500", "approx(6729102.50)"])
+def test_provider_invented_number_is_removed_after_usage_settlement(request, claim):
     case = request.getfixturevalue("gate_case")
     change_policy(case, forbidden_token_hashes=[hashlib.sha256(b"6729102.5").hexdigest()])
 
     def echo(packet):
         value = response(packet)
-        value["findings"][0]["claim"] = "Fictional value $6,729,102.500"
+        value["findings"][0]["claim"] = claim
         return envelope(json.dumps(value))
 
     report, calls = run(case, echo)
@@ -126,7 +130,7 @@ def test_token_file_change_after_request_preparation_blocks_dispatch(request, tm
     assert not (case["state"] / "audit.sqlite").exists()
 
 
-@pytest.mark.parametrize("name,expected", [("numbers.txt", None), ("6729102.50.txt", "[redacted]")])
+@pytest.mark.parametrize("name,expected", [("numbers.txt", None), ("6729102.50.txt", "[redacted]"), ("q-6729102.50.txt", "[redacted]")])
 def test_private_audit_contains_only_safe_path_and_count(request, tmp_path, name, expected):
     case = request.getfixturevalue("gate_case")
     path = tmp_path / name
@@ -150,7 +154,7 @@ def test_entire_before_after_and_allowed_fixture_are_screened(request, mode, mon
         changes.update(allow_paths=["src/", "tests/"], fixture_roots=["tests/fixtures/"])
         change_policy(case, **changes)
         from test_policy_text_fixtures import candidate as fixture_candidate
-        fixture_candidate(case, "tests/fixtures/numbers.csv", b"symbol,value\nSYNTHETIC,6729102.50\n")
+        fixture_candidate(case, "tests/fixtures/numbers.csv", b"symbol,value,count\nSYNTHETIC,6729102.50,100\n")
     else:
         # Put the figure in the base, so deletion and unchanged context must
         # both be screened even though neither adds it to the diff.
@@ -193,3 +197,20 @@ def test_deleted_token_file_after_preflight_refuses_without_reservation(request,
     report, calls = run(case)
     assert not calls and report["reasons"] == ["forbidden_token_file_invalid"]
     assert not (case["state"] / "audit.sqlite").exists()
+
+
+def test_history_token_file_in_separate_policy_repository_refused(request, tmp_path, monkeypatch):
+    from finassist.errors import AssistantError
+    from test_history_evaluation import execute, model_suite, policy_repository
+    from test_model_policy import model_policy
+    case = request.getfixturevalue("gate_case")
+    document = model_policy()
+    path = tmp_path / "policies" / "numbers.txt"
+    document["model_review"]["forbidden_token_file"] = str(path)
+    suite = model_suite(case)
+    suite["cases"][0]["policy"] = policy_repository(tmp_path, document=document)
+    path.write_text("6729102.50")
+    monkeypatch.setattr("finassist.model_gate.request_shape", lambda *a: pytest.fail("credential preflight"))
+    with pytest.raises(AssistantError, match="^forbidden_token_file_invalid$"):
+        execute(case, suite)
+    assert not case["state"].exists()

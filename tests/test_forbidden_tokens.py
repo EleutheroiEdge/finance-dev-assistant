@@ -167,6 +167,10 @@ def synthetic_snapshot():
     "fixture: ６７２９１０２.５０", "6729102.50 2", "6.7291025e6",
     "# src/6729102.50.py", "value6729102.50suffix",
     "1 6 729 102.50", "6 729 102.50 2",
+    "total = approx(6729102.50)", "# Q3 balance (6,729,102.50)",
+    "loss = -6729102.50", "round(6729102.50, 2)", "values = [6729102.50,2]",
+    "SYNTHETIC,6729102.50,100", "SYNTHETIC,100,6729102.50",
+    "Rs.6729102.50", "# see ledger.6729102.50.csv",
 ])
 def test_content_candidates_refused(text, synthetic_snapshot):
     from finassist.forbidden_tokens import screen_text
@@ -174,7 +178,7 @@ def test_content_candidates_refused(text, synthetic_snapshot):
         screen_text(text, synthetic_snapshot)
 
 
-@pytest.mark.parametrize("text", ["6729102.51", "16729102.50", "6729102.501", "-6729102.5", "unrelated = 12"])
+@pytest.mark.parametrize("text", ["6729102.51", "16729102.50", "6729102.501", "unrelated = 12"])
 def test_distinct_values_pass(text, synthetic_snapshot):
     from finassist.forbidden_tokens import screen_text
     screen_text(text, synthetic_snapshot)
@@ -234,3 +238,21 @@ def test_token_file_uses_exact_binary_bytes(tmp_path):
     path.write_bytes(b"12\n\x1a89")
     with pytest.raises(AssistantError, match="^forbidden_token_file_invalid$"):
         load_token_snapshot({"forbidden_token_file": str(path)}, ())
+
+
+@pytest.mark.parametrize("listed", ["6729102.5", "-6729102.5"])
+@pytest.mark.parametrize("candidate", ["6729102.50", "-6729102.50", "(6729102.50)"])
+def test_hash_only_tokens_compare_both_magnitudes(listed, candidate):
+    import hashlib
+    from finassist.forbidden_tokens import TokenSnapshot, screen_text
+    snapshot = TokenSnapshot(frozenset([hashlib.sha256(listed.encode()).hexdigest()]))
+    with pytest.raises(AssistantError, match="^forbidden_token_present$"):
+        screen_text(candidate, snapshot)
+
+
+def test_plain_pass_fails_closed_on_grouped_short_figure():
+    import hashlib
+    from finassist.forbidden_tokens import TokenSnapshot, screen_text
+    snapshot = TokenSnapshot(frozenset([hashlib.sha256(b"234").hexdigest()]))
+    with pytest.raises(AssistantError, match="^forbidden_token_present$"):
+        screen_text("amount = 1,234", snapshot)

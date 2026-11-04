@@ -284,7 +284,7 @@ The optional base-policy `model_review.forbidden_token_file` names an absolute,
 operator-controlled file outside both the source and policy repositories and
 Git administrative directories. The strict UTF-8 file contains one numeric
 literal per line (LF or CRLF, optional final newline). Empty files/lines,
-malformed numbers, links, multiply linked files, special files, unavailable
+malformed numbers, a BOM, links, multiply linked files, special files, unavailable
 files and repository-contained paths refuse the request. Limits are 128 KiB,
 1,024 lines and 256 characters per literal. Keep this file private; do not
 commit it, upload it as an Action artifact or place it in a packet.
@@ -304,14 +304,20 @@ accounting parentheses; dot decimals; comma or consistently spaced groups of
 three digits (ASCII space, NBSP or narrow NBSP); and decimal exponents up to
 absolute value 128. At most 128 digits are accepted. Leading integer zeros and
 trailing fractional zeros are removed; integer trailing zeros are preserved.
-Signs are preserved except for zero. Decimal commas, spelled-out amounts,
+Normalization preserves signs except for zero, but screening compares magnitude:
+a listed figure refuses regardless of sign, accounting parentheses or function-call
+parentheses. A plain digit-bounded pass also screens punctuation and CSV neighbours.
+It fails closed on short figures: listed `234` also refuses `1,234`; `0`, `1` and
+`12` can refuse ordinary constants. A longer uninterrupted digit sequence such as
+`91234567.89` does not match listed `1234567.89`. Decimal commas, spelled-out amounts,
 hexadecimal, underscores and alternative encodings are not supported numeric
 forms. This is a bounded numeric screen, not a proof that arbitrary source
 cannot encode a confidential figure.
 
 The gate screens complete before/after source contents, including deleted lines,
 unchanged context, comments and allowed text fixtures, plus selected profile
-instructions. Only typed filename/revision/hash/control metadata is exempt:
+instructions. The exempt outbound fields are the model id, schema text, allow paths, generated
+paths, profile name, SHAs and modes. Only typed metadata is exempt:
 a filename containing a listed figure may pass, while the same filename spelled
 inside source content is screened. Ordinary mandatory privacy checks still apply.
 A match returns `BLOCKED` with `forbidden_token_present`, before credential lookup
@@ -338,5 +344,5 @@ file event. Provider-returned free text is screened before findings are exposed;
 a refusal after a response preserves its recorded usage and settled charge.
 
 These declarations apply to the policy-approved model gate and history callers.
-They do not configure the legacy `review` command. When omitted, existing request
+They do not configure the legacy `review` or `propose` commands. When omitted, existing request
 bytes and offline/model-neutral defaults are unchanged.
