@@ -134,10 +134,12 @@ def test_cohort_identity_does_not_allow_cherry_picking(mutation):
         evaluate_triage(requests, labels, predictions, expected_model_manifest=manifest)
 
 
-def test_wrong_model_manifest_is_counted_as_invalid():
+def test_wrong_model_manifest_is_counted_as_contract_invalid():
     case = sample_case()
     case[1]["model_manifest"]["calibration_digest"] = "9" * 64
-    score = report([case])["real"]
+    evaluation = report([case])
+    assert evaluation["input_hashes"]["model_manifest"] == digest(canonical(case[3]))
+    score = evaluation["real"]
     assert score["outcomes"] == {"contract_invalid": 1}
     assert score["model_only_routing"]["rate"] == 0
 
@@ -220,3 +222,28 @@ def test_optional_labels_never_become_positive_or_negative_metric_judgments():
     label = report(cases)["real"]["per_check"]["check_b"]
     assert label == {"tp": 0, "fp": 0, "fn": 0, "tn": 0, "optional": 2,
                      "precision": None, "recall": None}
+
+
+@pytest.mark.parametrize("mutation", ["tuple", "float_subclass", "str_subclass"])
+def test_python_api_scores_the_same_plain_values_as_its_hashes(mutation):
+    import json
+    class Probability(float):
+        pass
+    class ForgedHash(str):
+        def __eq__(self, other):
+            return True
+        def __ne__(self, other):
+            return False
+    case = sample_case()
+    prediction = case[1]
+    if mutation == "tuple":
+        prediction["selected_checks"] = tuple(prediction["selected_checks"])
+    elif mutation == "float_subclass":
+        prediction["probabilities"]["checks"][0]["probability"] = Probability(
+            prediction["probabilities"]["checks"][0]["probability"])
+    else:
+        prediction["request_hash"] = ForgedHash("0" * 64)
+    plain = json.loads(canonical(case))
+    assert report([case]) == report([plain])
+    if mutation == "str_subclass":
+        assert report([case])["real"]["outcomes"] == {"contract_invalid": 1}

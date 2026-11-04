@@ -8,6 +8,7 @@ reduction, merge or deployment authority and performs no inference or fallback.
 from __future__ import annotations
 
 from collections import Counter
+import json
 
 from .errors import AssistantError
 from .security import canonical, digest
@@ -133,6 +134,16 @@ def evaluate_triage(
     routing endpoint. Gold must account for every request, even when still
     unconfirmed or explicitly inapplicable. No fallback result is synthesized.
     """
+    # Validate and score only plain JSON copies of the exact canonical inputs.
+    # Caller subclasses/tuples must not change behavior after hashes are bound.
+    try:
+        inputs = json.loads(canonical({"requests": requests, "gold": gold,
+                                       "predictions": predictions,
+                                       "manifest": expected_model_manifest}))
+    except (TypeError, ValueError, UnicodeError, RecursionError) as exc:
+        raise AssistantError("triage_input_not_canonical_json") from exc
+    requests, gold, predictions = (inputs[name] for name in ("requests", "gold", "predictions"))
+    expected_model_manifest = inputs["manifest"]
     validate_model_manifest(expected_model_manifest)
     request_map = _index(requests, "request")
     gold_map = _index(gold, "gold")

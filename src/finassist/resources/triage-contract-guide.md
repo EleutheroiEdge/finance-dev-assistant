@@ -54,8 +54,11 @@ guide offline.
 
 Validation reports bind `request_hash`, `result_hash`, the exact expected
 `model_manifest` and its `model_manifest_hash`. These hashes use SHA256 of
-`finassist.security.canonical`: UTF-8 JSON, sorted object keys, compact separators,
-ASCII-escaped Unicode and no non-finite numbers. Array order is preserved. Evaluation
+`finassist.security.canonical`: the UTF-8 encoded bytes of Python
+`json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)`.
+Python float representation applies (`0.00001` becomes `1e-05`); `1` and `1.0`
+hash differently. DEL and non-ASCII characters are escaped. Array order is
+preserved. The Python evaluator scores plain JSON copies of these bytes. Evaluation
 reports contain `input_hashes` with scheme `sha256-finassist-canonical-json` for
 each complete version 1 collection envelope (`requests`, `gold`, `predictions`)
 and the expected model-manifest object. Invalid but JSON-representable predictions
@@ -65,8 +68,9 @@ JSON representation fail with `triage_input_not_canonical_json`.
 Both CLI reports additionally contain `input_file_hashes`: SHA256 of each exact
 input file's bytes, including whitespace, key order and trailing newline. These
 digests come from the same bounded reads used for parsing, without reopening the
-files. Formatting changes affect file hashes but not semantic hashes; reordered
-arrays affect both. These bindings detect changes, not authenticity, completeness
+files. Whitespace and object-key order changes affect file hashes but not semantic
+hashes when parsed values are identical. Numeric type/representation changes
+such as `1` versus `1.0`, and reordered arrays, can affect semantic hashes too. These bindings detect changes, not authenticity, completeness
 or independently approved exclusions. Input files can still change after a read.
 
 ## Request and model boundary
