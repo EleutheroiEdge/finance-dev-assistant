@@ -2,6 +2,26 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+
+- Accept underscores between any two digits in confidential numeric tokens,
+  including `6729_102.50`, `67_29_102.50` and `6_7_2_9_1_0_2.50`, using exact
+  decimal normalization. Other malformed grouping remains invalid.
+- Screen uppercase-leading unquoted credential literals containing digits and
+  complete candidate tokens. Preserve digit-bearing type names in parsed Python
+  variable/parameter annotations, including unions and forward references. Screen
+  typed password, token, credential-key and account/routing assignments; preserve
+  comments and custom rules. Permit source-bound annotation quotes in review
+  output without hiding appended assigned values, including after union types;
+  screen complete patch post-images and active-policy rollback with
+  their Python paths, without changing request bytes or approval gates.
+- Neutralize rendered `GH-<n>` trace autolinks; report an explicit input-mode
+  conflict when evaluation scoring includes adjudications. Publish/export the
+  strict legacy v1 gate report schema, and cover duplicate findings through the
+  fake-provider gate so positional IDs and separate judgments remain intact.
+
 ## 0.7.0 - 2026-11-04
 
 ### Added

@@ -9,16 +9,16 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 
 from .config import Config
 from .platform_support import executable_modes_supported
 from .errors import AssistantError
 from .scope import git, git_command, git_environment, resolve
-from .security import canonical, check_text, digest, regular_path, write_private
+from .security import canonical, check_output_document, check_text, digest, regular_path, write_private
 
 
-def patch_paths(patch: str, config: Config) -> list[str]:
-    check_text(patch, extra_patterns=config.extra_sensitive_patterns)
+def _parse_patch_paths(patch: str, config: Config) -> list[str]:
     if len(patch.encode()) > config.max_packet_bytes:
         raise AssistantError("patch_limit_exceeded")
     paths = []
@@ -107,6 +107,48 @@ def patch_paths(patch: str, config: Config) -> list[str]:
     return paths
 
 
+def patch_paths(patch: str, config: Config, *, source_files: list[dict] | None = None) -> list[str]:
+    paths = _parse_patch_paths(patch, config)
+    if source_files is None:
+        check_text(patch, extra_patterns=config.extra_sensitive_patterns)
+        return paths
+    source = {item["path"]: item["after"] for item in source_files}
+    if not set(paths) <= set(source):
+        raise AssistantError("proposal_outside_review_scope")
+    images = []
+    # Git reconstructs complete post-images in a private disposable directory.
+    # No target worktree/index, hooks, filters, executable source or network is
+    # involved. Actual apply still performs its independent scope/apply checks.
+    with tempfile.TemporaryDirectory(prefix="finassist-patch-screen-") as temporary:
+        root = Path(temporary)
+        for name in paths:
+            before = source[name]
+            if before is not None:
+                check_text(before, source_path=name, extra_patterns=config.extra_sensitive_patterns)
+                target = root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(before.encode("utf-8"))
+        try:
+            subprocess.run(
+                git_command(root, "-c", "core.autocrlf=false", "-c",
+                            "core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol",
+                            "apply", "--no-index", "--whitespace=error", "-"),
+                input=patch.encode(), capture_output=True, timeout=15, check=True,
+                env={**git_environment(), "GIT_CEILING_DIRECTORIES": str(root.parent)},
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise AssistantError("patch_does_not_apply") from exc
+        for name in paths:
+            target = root / name
+            try:
+                after = target.read_bytes().decode("utf-8") if target.exists() else None
+            except UnicodeError as exc:
+                raise AssistantError("binary_input") from exc
+            images.append({"path": name, "before": source[name], "after": after})
+        check_output_document({"patch": patch}, images, extra_patterns=config.extra_sensitive_patterns, diff=True)
+    return paths
+
+
 def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config: Config) -> dict:
     config.validate()
     if digest(canonical(artifact)) != approved_hash:
@@ -150,7 +192,7 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
                 valid = False
             if not valid:
                 raise AssistantError("incomplete_patch_reconciliation_required")
-    paths = patch_paths(artifact["patch"], config)
+    paths = _parse_patch_paths(artifact["patch"], config)
     if not executable_modes_supported() and any(
         line.startswith(("old mode ", "new mode ", "new file mode 100755"))
         for line in artifact["patch"].splitlines()
@@ -186,6 +228,24 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
             raise AssistantError("patch_target_not_regular")
         backup[name] = base64.b64encode(target.read_bytes()).decode() if target.exists() else None
         modes[name] = target.stat().st_mode & 0o777 if target.exists() else None
+    source_files = []
+    for name in paths:
+        try:
+            before = base64.b64decode(backup[name]).decode("utf-8") if backup[name] is not None else None
+        except UnicodeError as exc:
+            raise AssistantError("binary_input") from exc
+        if before is not None:
+            check_text(before, source_path=name, extra_patterns=config.extra_sensitive_patterns)
+            # Patches describe committed blobs; the worktree can use CRLF under
+            # Git's newline policy. Keep backup bytes exact for actual rollback.
+            try:
+                before = git(repo, "show", artifact["head"] + ":" + name, binary=True).decode("utf-8")
+            except UnicodeError as exc:
+                raise AssistantError("binary_input") from exc
+        source_files.append({"path": name, "after": before})
+    patch_paths(artifact["patch"], config, source_files=source_files)
+    check_output_document({"summary": artifact["summary"]}, source_files,
+                          extra_patterns=config.extra_sensitive_patterns)
     # Git parses the entire patch before any mutation; --check is not an execution hook.
     command = git_command(repo, "apply", "--whitespace=error")
     command[1:1] = ["-c", "core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol"]
@@ -275,11 +335,11 @@ def rollback_patch(repo: Path, patch_hash: str, config: Config | None = None) ->
                 if encoded is not None:
                     check_text(
                         base64.b64decode(encoded, validate=True).decode("utf-8"),
-                        extra_patterns=config.extra_sensitive_patterns,
+                        extra_patterns=config.extra_sensitive_patterns, source_path=name,
                     )
             target = regular_path(repo / name)
             if target.is_file():
-                check_text(target.read_text(encoding="utf-8"), extra_patterns=config.extra_sensitive_patterns)
+                check_text(read_utf8(target), extra_patterns=config.extra_sensitive_patterns, source_path=name)
     for name, expected in receipt["after"].items():
         target = regular_path(repo / policy.check_path(name))
         actual = digest(target.read_bytes()) if target.exists() else None

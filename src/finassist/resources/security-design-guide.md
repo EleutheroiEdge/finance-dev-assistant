@@ -46,9 +46,38 @@ followed by access and then key (underscore/hyphen separators are supported).
 Bare key, primary/foreign/partition/sort/cache/idempotency keys are not secrets
 by name alone. The added matcher screens quoted literals of at least 12
 characters and unquoted values; it excludes unquoted calls,
-dotted references and uppercase-leading identifier type-like annotations. Identifier-shaped values followed
-by `(` are excluded; quote literal credentials. Existing secret/password/token
-rules are unchanged. This supplements inspection, not a confidentiality proof.
+dotted references and digit-free uppercase-leading whole identifiers. Whitespace,
+end of input and annotation punctuation (`[`, `]`, `)`, `,`, `;`) can end such an
+identifier; `/`, `+`, `=`, `-`, `:` and `@` continue a candidate literal.
+Uppercase-leading unquoted literals containing digits are screened too. Parseable
+Python source identified by a `.py`/`.pyi` path uses a parsed annotation-free
+view for label-assignment checks. Complete variable/parameter annotations,
+including unions, forward references and parenthesized expressions, are hidden
+from the credential-key heuristic. Other secret rules inspect both raw text and
+this view, so typed password, token, credential-key and account/routing assignments
+remain screened. Comments and custom patterns remain screened; source/request
+bytes are never rewritten. Unparseable Python, YAML and text without a Python path
+retain strict screening, including Markdown snippets, TypeScript and Kotlin.
+
+Review output may quote an exact credential-label match from a screened Python
+annotation in its hash-bound request; a value merely occurring elsewhere in source
+is insufficient. The screening view retains the label and hides the complete
+recorded annotation, including a union, so a new value appended after `=` remains
+subject to the assignment patterns. Shorter `label: Type` quotes also pass; an
+unrecorded union/subscript continuation is refused conservatively. This does not
+prove output confidentiality. Original output strings
+are screened before JSON escaping as well as in the serialized envelope. Proposed
+and approved patches are parsed and applied only to private disposable copies for
+screening each complete post-image with its path, before any target worktree
+mutation. Rollback screens the original and current file with their Python paths
+when an active policy is supplied. Approval, head, scope and recovery checks remain.
+
+Identifier-shaped values followed by `(` are excluded; quote literal credentials.
+Digit-free all-caps literal values can resemble constants and escape this heuristic.
+A credential written as the annotation itself, such as a bare key-shaped type name,
+is indistinguishable from a Python type reference and can escape the credential-key
+heuristic. Filename and syntax are not proof of privacy. This supplements inspection,
+not a confidentiality proof.
 
 Confidential numeric screening in the policy-approved model gate and history
 compares listed magnitudes in source, allowed fixtures, profiles and provider

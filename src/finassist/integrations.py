@@ -18,6 +18,7 @@ def export_kit(destination: Path) -> dict:
     mapping = {
         "schemas/finassist.schema.json": "finassist.schema.json",
         "schemas/model-gate-report.schema.json": "model-gate-report.schema.json",
+        "schemas/model-gate-report-v1.schema.json": "model-gate-report-v1.schema.json",
         "examples/model-gate/policy.json": "model-gate-policy.json",
         "examples/model-gate/caller.py": "model-gate-caller.py",
         "evidence-review/SKILL.md": "skill.md",

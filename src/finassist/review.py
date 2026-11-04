@@ -19,7 +19,7 @@ from .forbidden_tokens import token_file_audit
 from .ledger import Ledger
 from .providers import invoke, request_identity, request_shape
 from .scope import triage, verify_packet, review_omissions
-from .security import canonical, check_text, digest
+from .security import canonical, check_context_document, check_output_document, check_text, digest
 
 
 @dataclass(frozen=True)
@@ -80,7 +80,7 @@ def validate_review(
                 or evidence["line"] > max(1, len(file[evidence["side"]].splitlines()))
             ):
                 raise AssistantError("finding_evidence_invalid")
-    check_text(canonical(result).decode(), extra_patterns=extra_patterns)
+    check_output_document(result, packet["files"], extra_patterns=extra_patterns)
 
 
 def call_model(
@@ -98,7 +98,7 @@ def call_model(
 ):
     verify_packet(packet, config)
     config.validate()
-    check_text(canonical(packet).decode(), extra_patterns=config.extra_sensitive_patterns)
+    check_context_document(packet, extra_patterns=config.extra_sensitive_patterns)
     if approved_packet_hash != packet["packet_hash"]:
         raise AssistantError("packet_approval_required")
     if not config.allow_network or not network_approved:
@@ -114,7 +114,7 @@ def call_model(
             if file[side] is not None:
                 if len(file[side].encode()) > config.file_byte_limit(file["path"]):
                     raise AssistantError("file_limit_exceeded")
-                check_text(file[side], extra_patterns=config.extra_sensitive_patterns)
+                check_text(file[side], extra_patterns=config.extra_sensitive_patterns, source_path=file["path"])
     if not packet["changed_paths"]:
         raise AssistantError("empty_review_scope")
     if review_omissions(packet) and not config.allow_partial_review:
@@ -213,7 +213,7 @@ def review_packet(
 ) -> dict:
     verify_packet(packet, config)
     config.validate()
-    check_text(canonical(packet).decode(), extra_patterns=config.extra_sensitive_patterns)
+    check_context_document(packet, extra_patterns=config.extra_sensitive_patterns)
     triaged = triage(packet, config)
     if not packet["changed_paths"]:
         raise AssistantError("empty_review_scope")
