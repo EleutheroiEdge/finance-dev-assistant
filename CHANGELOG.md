@@ -2,33 +2,76 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.7.1 - 2026-11-04
+
+### Security
+
+- Close the confidential-figure gap for underscore-written figures (#59). A listed
+  figure now refuses with `forbidden_token_present` when underscores separate its
+  digits in any position, as in `6_729_102.50`, `6729_102.50` or `67_29_102.50`.
+  Other malformed grouping stays unsupported.
+- Close the credential-key gap for unquoted values that start with a capital
+  letter (#59). Such a value is screened when it contains a digit or continues
+  into `/`, `+`, `=`, `-`, `:` or `@`. A digit-free whole identifier, such as a
+  constant or type name, is not.
+- Screen typed Python assignments (#59). `password: str = "..."`,
+  `api_key: str = "..."`, typed parameter defaults and `account_number: int = ...`
+  now refuse. 0.7.0 missed them because the annotation separated the label from
+  its value.
+- In parseable `.py`/`.pyi` files, the credential-key rule ignores type
+  annotations, including unions, forward references and digit-bearing names such
+  as `Ed25519PrivateKey` (#59). Review output and proposed patches may quote the
+  reviewed source's own annotations, but a new value written after such a quote
+  still refuses. Patches and rollback screen each complete file with its path.
+- Refuse look-alike and hidden spellings of reserved paths (#58, #47 items 12–14).
+  - Reserved directories and private filenames are compared after Unicode
+    compatibility normalisation, case folding, trailing dot/space removal and a
+    pinned Unicode 18 confusable table. So Cyrillic-letter spellings of
+    `holdings`, `client.json.` and `secrets ./` stay private.
+  - Path components containing control, format, line or paragraph separator, or
+    default-ignorable characters refuse with `unsafe_path`.
+  - Four more blank-looking profile characters (U+13441, U+13442, U+16FE4 and
+    U+1BC9D) are refused.
+  - Actual Git names and request hashes are unchanged.
 
 ### Fixed
 
-- Refuse four additional blank-looking profile fillers before provider dispatch
-  or budget reservation (#47 items 12–14). Preserve visible combining text.
-- Screen reserved path and private-filename aliases consistently, including
-  trailing dots/spaces, pinned Unicode 18 ASCII-target confusables and embedded
-  default-ignorable/control/format characters and line/paragraph separators,
-  while preserving actual Git names.
-- Clarify exact lowercase fixture-root components and profile emoji restrictions
-  involving variation selectors and zero-width joiners in both guide copies.
-- Accept underscores between any two digits in confidential numeric tokens,
-  including `6729_102.50`, `67_29_102.50` and `6_7_2_9_1_0_2.50`, using exact
-  decimal normalization. Other malformed grouping remains invalid.
-- Screen uppercase-leading unquoted credential literals containing digits and
-  complete candidate tokens. Preserve digit-bearing type names in parsed Python
-  variable/parameter annotations, including unions and forward references. Screen
-  typed password, token, credential-key and account/routing assignments; preserve
-  comments and custom rules. Permit source-bound annotation quotes in review
-  output without hiding appended assigned values, including after union types;
-  screen complete patch post-images and active-policy rollback with
-  their Python paths, without changing request bytes or approval gates.
-- Neutralize rendered `GH-<n>` trace autolinks; report an explicit input-mode
-  conflict when evaluation scoring includes adjudications. Publish/export the
-  strict legacy v1 gate report schema, and cover duplicate findings through the
-  fake-provider gate so positional IDs and separate judgments remain intact.
+- `report trace` neutralises `GH-<n>` autolinks (#59).
+- `score --evaluation --labels --adjudications` reports `score_input_mode_conflict`
+  (#59).
+- Publish the strict legacy v1 gate report schema in `schemas/` and in
+  `export-kit` (#59).
+
+### Upgrading
+
+No evidence-store migration is needed, and the report format is unchanged (gate
+report schema version 2). Upgrades never edit project configuration or evidence.
+
+Content that 0.7.0 accepted can now be refused:
+
+- `forbidden_token_present` when a listed confidential figure is written with
+  underscores between its digits.
+- `sensitive_content` for:
+  - an unquoted credential-key value that starts with a capital letter and
+    contains a digit;
+  - a typed Python assignment or parameter default that holds a password, token,
+    credential key or account/routing number.
+- `unsafe_path` for a path component containing control, format, separator or
+  default-ignorable characters.
+- `private_path`, `gate_private_path` or `private_profile_path` for look-alike,
+  case-variant or trailing-dot/space spellings of reserved names.
+- `gate_profile_line_invalid` for the four additional blank-looking profile
+  characters.
+
+Markdown, TypeScript, Kotlin and other text without parsed Python context keep
+strict credential screening, and a key written as a Python annotation itself is
+not detected. Quote literal credentials.
+
+`score --evaluation --labels --adjudications` returned `score_labels_required` in
+0.7.0. It now returns `score_input_mode_conflict`.
+
+Install the release requirements with
+`python -m pip install --require-hashes -r finledgerpoli-0.7.1-requirements.txt`.
 
 ## 0.7.0 - 2026-11-04
 

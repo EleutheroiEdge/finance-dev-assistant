@@ -1,6 +1,6 @@
 """Evidence-first developer assistance. No import-time IO or provider selection."""
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
 DISTRIBUTION_NAME = "finledgerpoli"
 
