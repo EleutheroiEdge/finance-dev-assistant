@@ -7,10 +7,11 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 ### Fixed
 
 - Refuse four additional blank-looking profile fillers before provider dispatch
-  or budget reservation (#47 items12–14). Preserve visible combining text.
+  or budget reservation (#47 items 12–14). Preserve visible combining text.
 - Screen reserved path and private-filename aliases consistently, including
-  trailing dots/spaces, pinned Unicode18 ASCII-target confusables and embedded
-  default-ignorable/format characters, while preserving actual Git names.
+  trailing dots/spaces, pinned Unicode 18 ASCII-target confusables and embedded
+  default-ignorable/control/format characters and line/paragraph separators,
+  while preserving actual Git names.
 - Clarify exact lowercase fixture-root components and profile emoji restrictions
   involving variation selectors and zero-width joiners in both guide copies.
 

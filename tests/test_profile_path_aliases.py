@@ -44,7 +44,8 @@ def test_cross_script_reserved_paths_refuse_roots_and_candidates(part, reason):
         PolicyFixtureConfig(fixture_roots=("tests/",)).check_path(root + "one.csv")
 
 
-@pytest.mark.parametrize("codepoint", [0x200B, 0x034F, 0x115F, 0xFE0F, 0xE0001, 0x13441])
+@pytest.mark.parametrize("codepoint", [0x200B, 0x034F, 0x115F, 0xFE0F, 0xE0001, 0x13441,
+                                        0x000A, 0x0009, 0x001B, 0x007F, 0x0085, 0x2028, 0x2029])
 def test_hidden_path_components_refuse_source_roots_and_fixtures(codepoint):
     part = "da" + chr(codepoint) + "ta"
     for operation in (
@@ -106,3 +107,10 @@ def test_visible_unicode_and_custom_source_denylist_remain_supported():
     assert check_path("holdings/logic.py", denied_parts=set()) == "holdings/logic.py"
     with pytest.raises(AssistantError, match="^private_path$"):
         check_path("Custom ./logic.py", denied_parts={"CUSTOM"})
+
+
+@pytest.mark.parametrize("name", [".\u0435nv.local", "\uff0eenv.local"])
+def test_disguised_environment_prefix_remains_private(name):
+    for check in (check_path, check_model_path):
+        with pytest.raises(AssistantError, match="^private_path$"):
+            check(name, source_only=False)

@@ -191,7 +191,7 @@ def _reserved_component(part: str) -> str:
     normalized = unicodedata.normalize("NFKC", part)
     for char in part + normalized:
         code = ord(char)
-        if (unicodedata.category(char) == "Cf"
+        if (unicodedata.category(char) in {"Cc", "Cf", "Zl", "Zp"}
                 or code in {0x2800, 0x13441, 0x13442, 0x16FE4, 0x1BC9D}
                 or any(start <= code <= end for start, end in DEFAULT_IGNORABLE_RANGES)):
             raise AssistantError("unsafe_path")

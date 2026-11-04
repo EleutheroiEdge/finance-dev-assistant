@@ -317,10 +317,11 @@ combining accents and keycaps without a variation selector remain permitted.
 File instructions use LF or CRLF physical lines; other separators are refused
 rather than creating instructions.
 Synthetic markers require exactly `synthetic: true` before the first LF (or EOF).
-Source paths, fixture roots and fixture paths refuse format controls and pinned
-Unicode18 default-ignorable characters, including embedded zero-width spaces.
+Source paths, fixture roots and fixture paths refuse control and format characters,
+line/paragraph separators and pinned Unicode 18 default-ignorable characters,
+including embedded zero-width spaces.
 Reserved directory and private-filename comparisons use compatibility normalization,
-case folding, trailing-dot/space removal and a pinned ASCII-target Unicode18
+case folding, trailing-dot/space removal and a pinned ASCII-target Unicode 18
 confusable table. Thus Cyrillic-letter spellings of `data` or `client`, `holdings.`,
 `secrets .`, `client.json.` and `auth.json.` do not bypass their privacy checks.
 These comparisons can conservatively refuse visible lookalikes; they do not detect
