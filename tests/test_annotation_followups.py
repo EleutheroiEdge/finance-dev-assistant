@@ -185,3 +185,21 @@ def test_value_elsewhere_in_source_does_not_exempt_a_new_output_assignment(repos
     value["findings"] = []
     with pytest.raises(AssistantError, match="^sensitive_content$"):
         validate_review(value, packet)
+
+
+@pytest.mark.parametrize("label", ["password", "signing_" + "key", "account_number"])
+@pytest.mark.parametrize("annotation", ["tuple[\n # harmless note\n str, str]", "(\n # harmless note\n str)"])
+def test_annotation_comments_do_not_split_sensitive_assignments(label, annotation):
+    value = "12345678" if label == "account_number" else '\"Zq7Lm2Xp9Rt4Vw8\"'
+    with pytest.raises(AssistantError, match="^sensitive_content$"):
+        check_text(f"{label}: {annotation} = {value}", source_path="a.py")
+
+
+@pytest.mark.parametrize("label", ["password", "signing_" + "key", "account_number"])
+def test_new_typed_output_values_are_not_hidden_by_annotations(repository, label):
+    packet = annotated_packet(repository)
+    value = response(packet)
+    literal = "12345678" if label == "account_number" else '\"Zq7Lm2Xp9Rt4Vw8\"'
+    value["summary"] = f"{label}: str = {literal}"
+    with pytest.raises(AssistantError, match="^sensitive_content$"):
+        validate_review(value, packet)

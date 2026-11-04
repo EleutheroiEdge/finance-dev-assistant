@@ -57,7 +57,7 @@ def test_traditional_section_cannot_escape_approved_paths(repository):
 def test_git_parser_backstop_refuses_scope_mismatch_before_backup_or_mutation(repository, monkeypatch):
     repo, _, head = repository
     proposal, workflow = hidden_section(repo, head)
-    monkeypatch.setattr("finassist.patching.patch_paths", lambda *_: ["src/cash.py"])
+    monkeypatch.setattr("finassist.patching._parse_patch_paths", lambda *_: ["src/cash.py"])
     with pytest.raises(AssistantError, match="patch_scope_mismatch"):
         apply_patch_artifact(repo, proposal, digest(canonical(proposal)), Config())
     assert workflow.read_text(encoding="utf-8") == "name: original\n"

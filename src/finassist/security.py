@@ -270,6 +270,10 @@ def check_output_document(
             # JSON escaping can otherwise hide quoted secret values from a
             # regex. Screen original string values as well as the envelope.
             _screen_text(value, view, extra_patterns)
+            # A syntactically valid typed assignment in an output string must
+            # not conceal a new value. The first check above retains strict
+            # output screening: parsing alone never authorizes an annotation.
+            _screen_text(value, credential_screening_view(view, "output.py"), extra_patterns)
             return view
         if isinstance(value, list):
             return [screening_view(item) for item in value]

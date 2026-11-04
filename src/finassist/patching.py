@@ -234,6 +234,14 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
             before = base64.b64decode(backup[name]).decode("utf-8") if backup[name] is not None else None
         except UnicodeError as exc:
             raise AssistantError("binary_input") from exc
+        if before is not None:
+            check_text(before, source_path=name, extra_patterns=config.extra_sensitive_patterns)
+            # Patches describe committed blobs; the worktree can use CRLF under
+            # Git's newline policy. Keep backup bytes exact for actual rollback.
+            try:
+                before = git(repo, "show", artifact["head"] + ":" + name, binary=True).decode("utf-8")
+            except UnicodeError as exc:
+                raise AssistantError("binary_input") from exc
         source_files.append({"path": name, "after": before})
     patch_paths(artifact["patch"], config, source_files=source_files)
     check_output_document({"summary": artifact["summary"]}, source_files,
