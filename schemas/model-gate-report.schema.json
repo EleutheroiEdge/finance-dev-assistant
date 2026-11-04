@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "finledgerpoli model-review gate report v1",
+  "title": "finledgerpoli model-review gate report v2",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "mode", "verdict", "reasons", "base", "head", "policy_sha256", "request_sha256", "findings", "usage", "spend", "merge_authority", "deployment_authority", "summary", "report_hash"],
   "properties": {
-    "schema_version": {"type": "integer", "const": 1},
+    "schema_version": {"type": "integer", "const": 2},
     "mode": {"const": "model-review"},
     "verdict": {"enum": ["PASS", "FAIL", "BLOCKED"]},
     "reasons": {"type": "array", "maxItems": 128, "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,80}$"}},
@@ -16,13 +16,14 @@
     "summary": {"const": "Advisory model-review component only. Source references are checked; claims are not reproduced."},
     "findings": {"type": "array", "maxItems": 50, "items": {
       "type": "object", "additionalProperties": false,
-      "required": ["severity", "file", "line", "claim", "evidence_status"],
+      "required": ["severity", "file", "line", "claim", "evidence_status", "id"],
       "properties": {
         "severity": {"enum": ["critical", "high", "medium", "low", "info"]},
         "file": {"type": "string", "minLength": 1, "maxLength": 512},
         "line": {"type": "integer", "minimum": 1},
         "claim": {"type": "string", "minLength": 1, "maxLength": 2000},
-        "evidence_status": {"const": "source-reference-validated-not-reproduced"}
+        "evidence_status": {"const": "source-reference-validated-not-reproduced"},
+        "id": {"type": "string", "pattern": "^f-[0-9a-f]{64}$"}
       }
     }},
     "usage": {"type": "object", "additionalProperties": false, "required": ["input_tokens", "output_tokens"], "properties": {

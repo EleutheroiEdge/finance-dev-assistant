@@ -69,7 +69,7 @@ def evaluate_history(suite: dict, suite_directory: Path, config: Config, state_d
         # All source preflights have finished. Now validate every exact request,
         # including key-echo and wire-size checks, before reserving any spend.
         for source in prepared:
-            source["request_sha256"] = prepare_model_request(source["policy"], source["packet"])[0]
+            source["request_sha256"] = prepare_model_request(source["policy"], source["packet"], source_repo=source["repo"])[0]
     else:
         prepared = plan_history(suite, root, config, trials=trials)["cases"]
     cases = [{"id": case["id"], "base_sha": case["base_sha"], "head_sha": case["head_sha"],
@@ -126,9 +126,9 @@ def evaluate_history(suite: dict, suite_directory: Path, config: Config, state_d
             run["reason"] = report["reasons"]
             if report["verdict"] in {"PASS", "FAIL"}:
                 run["status"] = "complete"
-                run["findings"] = [{"id": "f-" + digest(canonical({"index": index, "finding": finding})),
+                run["findings"] = [{"id": finding["id"],
                                     "path": finding["file"], "severity": finding["severity"]}
-                                   for index, finding in enumerate(report["findings"])]
+                                   for finding in report["findings"]]
             write_private(journal, canonical(_signed(result)) + b"\n", replace=True)
             if run["status"] == "blocked":
                 return _signed(result)
