@@ -6,6 +6,14 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ### Fixed
 
+- Refuse four additional blank-looking profile fillers before provider dispatch
+  or budget reservation (#47 items 12–14). Preserve visible combining text.
+- Screen reserved path and private-filename aliases consistently, including
+  trailing dots/spaces, pinned Unicode 18 ASCII-target confusables and embedded
+  default-ignorable/control/format characters and line/paragraph separators,
+  while preserving actual Git names.
+- Clarify exact lowercase fixture-root components and profile emoji restrictions
+  involving variation selectors and zero-width joiners in both guide copies.
 - Accept underscores between any two digits in confidential numeric tokens,
   including `6729_102.50`, `67_29_102.50` and `6_7_2_9_1_0_2.50`, using exact
   decimal normalization. Other malformed grouping remains invalid.

@@ -185,6 +185,8 @@ Other denied formats remain denied. Ordinary source `allow_paths`, v2
 
 A root qualifies when one complete component is exactly `tests` or `fixtures`
 (nested roots such as `packages/x/tests/fixtures/` qualify; `tests-old/` does not).
+Case aliases are refused: `Tests/fixtures/` and `src/App.Tests/Fixtures/` are
+invalid roots even with a valid marker. Use the exact lowercase components.
 Otherwise place `.finledgerpoli-synthetic` in the listed directory, or beside an
 exact listed file, with its first line exactly:
 
@@ -324,13 +326,25 @@ Tests use synthetic source and fake transports. No live provider validation,
 financial approval, production secret setup or merge authorization is implied.
 
 Profile instructions accept visible Unicode letters, marks, numbers, punctuation
-and symbols plus ASCII space. Invisible fillers, variation selectors, private-use,
-unassigned and surrogate characters are refused. File instructions use LF or CRLF
-physical lines; other separators are refused rather than creating instructions.
+and symbols plus ASCII space. Invisible fillers (including U+13441, U+13442,
+U+16FE4 and U+1BC9D), variation selectors, private-use, unassigned and surrogate
+characters are refused. Emoji sequences containing VS16, such as the common
+VS16 keycap spelling, or a zero-width joiner are refused. Plain visible emoji,
+combining accents and keycaps without a variation selector remain permitted.
+File instructions use LF or CRLF physical lines; other separators are refused
+rather than creating instructions.
 Synthetic markers require exactly `synthetic: true` before the first LF (or EOF).
-Fixture roots and fixture paths reject reserved components with compatibility
-Unicode spellings or trailing dots/spaces. Paths are compared without rewriting
-Git names. Enabling fixtures does not add fixture-only private-path restrictions
+Source paths, fixture roots and fixture paths refuse control and format characters,
+line/paragraph separators and pinned Unicode 18 default-ignorable characters,
+including embedded zero-width spaces.
+Reserved directory and private-filename comparisons use compatibility normalization,
+case folding, trailing-dot/space removal and a pinned ASCII-target Unicode 18
+confusable table. Thus Cyrillic-letter spellings of `data` or `client`, `holdings.`,
+`secrets .`, `client.json.` and `auth.json.` do not bypass their privacy checks.
+These comparisons can conservatively refuse visible lookalikes; they do not detect
+every possible visual spoof or prove that other paths contain public data. The
+actual Git names and request hashes are preserved. Enabling fixtures does not add
+fixture-only private-path restrictions
 to ordinary files in a v1 checks snapshot; all original screening still applies.
 
 
