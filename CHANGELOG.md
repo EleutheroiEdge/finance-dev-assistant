@@ -28,12 +28,15 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 - Add the optional base-policy `forbidden_token_file` and `forbidden_token_hashes`
   (#53). Policy-approved model gates and history evaluation refuse with
-  `forbidden_token_present` when source, fixture or profile text, or provider
-  output, contains a listed confidential figure. The screen accepts common
-  grouping, currency, sign, parenthesis and trailing-zero forms, and refuses before
-  credential lookup, budget reservation or transport. A request that proceeds
-  records only the token file path and line count in the private audit; a refusal
-  before dispatch writes no ledger. Typed filenames are exempt.
+  `forbidden_token_present` when a listed confidential figure appears, including
+  in common grouping, currency, sign, parenthesis and trailing-zero forms.
+  - Source, fixture and profile text is screened before credential lookup, budget
+    reservation or transport. A refusal there writes no ledger. A request that
+    proceeds records only the token file path and line count in the private audit.
+    Typed filenames are exempt.
+  - Provider-returned free text is screened after the call, before findings are
+    exposed. A refusal there happens after dispatch, so it keeps the recorded usage
+    and settled charge.
 - Detect credential-bearing key assignments such as `secret_key`, `access_key` and
   `aws_secret_access_key` (#56). Ordinary database, cache and idempotency keys are
   not treated as credentials, and scanning stays linear on adversarial input.
