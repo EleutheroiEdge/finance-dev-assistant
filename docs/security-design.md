@@ -61,7 +61,11 @@ retain strict screening, including Markdown snippets, TypeScript and Kotlin.
 
 Review output may quote an exact credential-label match from a screened Python
 annotation in its hash-bound request; a value merely occurring elsewhere in source
-is insufficient. New credential-shaped values still refuse. Original output strings
+is insufficient. The screening view retains the label and hides the complete
+recorded annotation, including a union, so a new value appended after `=` remains
+subject to the assignment patterns. Shorter `label: Type` quotes also pass; an
+unrecorded union/subscript continuation is refused conservatively. This does not
+prove output confidentiality. Original output strings
 are screened before JSON escaping as well as in the serialized envelope. Proposed
 and approved patches are parsed and applied only to private disposable copies for
 screening each complete post-image with its path, before any target worktree

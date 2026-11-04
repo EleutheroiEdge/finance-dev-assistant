@@ -203,3 +203,32 @@ def test_new_typed_output_values_are_not_hidden_by_annotations(repository, label
     value["summary"] = f"{label}: str = {literal}"
     with pytest.raises(AssistantError, match="^sensitive_content$"):
         validate_review(value, packet)
+
+
+@pytest.mark.parametrize("tail", [
+    'Ed25519PrivateKey = Zq7Lm2Xp9Rt4Vw8',
+    'Ed25519PrivateKey = "Zq7Lm2Xp9Rt4Vw8"',
+    'Ed25519PrivateKey | None = Zq7Lm2Xp9Rt4Vw8',
+    'Ed25519PrivateKey  | None = "Zq7Lm2Xp9Rt4Vw8"',
+    'Ed25519PrivateKey | None | str = "Zq7Lm2Xp9Rt4Vw8"',
+    'Ed25519PrivateKey | NoneType = "Zq7Lm2Xp9Rt4Vw8"',
+    'Ed25519PrivateKey | None.member = "Zq7Lm2Xp9Rt4Vw8"',
+])
+@pytest.mark.parametrize("wrapper", ["{}", "Check `{}` here.", "```python\n{}\n```"])
+def test_allowed_annotation_quote_never_hides_an_appended_value(repository, tail, wrapper):
+    packet = annotated_packet(repository)
+    value = response(packet)
+    value["findings"][0]["claim"] = wrapper.format("signing_" + "key: " + tail)
+    with pytest.raises(AssistantError, match="^sensitive_content$"):
+        validate_review(value, packet)
+
+
+@pytest.mark.parametrize("tail", [
+    "Ed25519PrivateKey", "Ed25519PrivateKey | None", "Ed25519PrivateKey | None = None",
+])
+@pytest.mark.parametrize("wrapper", ["{}", "Check `{}` here.", "```python\n{}\n```"])
+def test_short_and_complete_source_annotation_quotes_stay_supported(repository, tail, wrapper):
+    packet = annotated_packet(repository)
+    value = response(packet)
+    value["findings"][0]["claim"] = wrapper.format("signing_" + "key: " + tail)
+    validate_review(value, packet)

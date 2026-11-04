@@ -14,7 +14,8 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   variable/parameter annotations, including unions and forward references. Screen
   typed password, token, credential-key and account/routing assignments; preserve
   comments and custom rules. Permit source-bound annotation quotes in review
-  output and screen complete patch post-images and active-policy rollback with
+  output without hiding appended assigned values, including after union types;
+  screen complete patch post-images and active-policy rollback with
   their Python paths, without changing request bytes or approval gates.
 - Neutralize rendered `GH-<n>` trace autolinks; report an explicit input-mode
   conflict when evaluation scoring includes adjudications. Publish/export the

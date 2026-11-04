@@ -244,7 +244,7 @@ def check_output_document(
     source must come from the caller's validated, hash-bound request/post-images.
     Other secret patterns and custom patterns always inspect original output.
     """
-    allowed = set()
+    allowed: dict[str, set[str]] = {}
     for item in source_files:
         for side in ("before", "after"):
             text = item.get(side)
@@ -253,20 +253,46 @@ def check_output_document(
             check_text(text, source_path=item["path"], extra_patterns=extra_patterns)
             view = credential_screening_view(text, item["path"])
             for match in CREDENTIAL_KEY_PATTERN.finditer(text):
-                if match.group() != view[match.start():match.end()]:
-                    allowed.add(match.group())
+                separator = text.find(":", match.start(), match.end())
+                if separator < 0 or view[separator] != " ":
+                    continue
+                # The source view retains positions and blanks the complete
+                # annotation. Keep its span, including unions/parentheses,
+                # without extending into an assigned value or following token.
+                end = separator
+                while end < len(text) and view[end].isspace():
+                    end += 1
+                quote = text[match.start():end].rstrip()
+                allowed.setdefault(match.group(), set()).add(quote)
 
     def screening_view(value):
         if isinstance(value, str):
-            def quote_view(match):
-                quote = match.group()
+            chars = list(value)
+            for match in CREDENTIAL_KEY_PATTERN.finditer(value):
+                quote, start = match.group(), match.start()
                 # A removed unified-diff line has one leading '-' that the
                 # label regex includes. Only the validated patch caller uses
                 # this context; arbitrary label prefixes stay literal data.
-                if diff and (match.start() == 0 or value[match.start() - 1] == "\n") and quote.startswith("-"):
-                    quote = quote[1:]
-                return " " * len(match.group()) if quote in allowed else match.group()
-            view = CREDENTIAL_KEY_PATTERN.sub(quote_view, value)
+                if diff and (start == 0 or value[start - 1] == "\n") and quote.startswith("-"):
+                    quote, start = quote[1:], start + 1
+                annotations = allowed.get(quote)
+                if not annotations:
+                    continue
+                full_ends = [start + len(full) for full in annotations if value.startswith(full, start)]
+                end = max(full_ends, default=match.end())
+                # A shorter label: Type quote can end here, but an unrecorded
+                # union/subscript continuation is not an exact source quote.
+                if value[end:].lstrip().startswith(("|", "[")) or (
+                    end < len(value) and (value[end].isalnum() or value[end] in "_./+@:-")
+                ):
+                    continue
+                separator = value.index(":", start, end)
+                # Retain the label so any following '= value' still meets the
+                # assignment rules. Whitespace replacement preserves offsets.
+                for index in range(separator, end):
+                    if chars[index] not in "\r\n":
+                        chars[index] = " "
+            view = "".join(chars)
             # JSON escaping can otherwise hide quoted secret values from a
             # regex. Screen original string values as well as the envelope.
             _screen_text(value, view, extra_patterns)

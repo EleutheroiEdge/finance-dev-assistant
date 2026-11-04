@@ -135,8 +135,10 @@ rules inspect both views to catch typed assignments. Comments and custom pattern
 still apply, and original source/request bytes are kept. Unparseable Python, YAML,
 Markdown snippets, TypeScript, Kotlin and other text without parsed Python context
 retain strict generic screening. Review output may quote exact credential-label
-matches from screened annotations in that request; new candidate values still
-refuse. Patches screen complete post-images with their paths before target writes;
+matches from screened annotations in that request. The view preserves the label
+and masks the complete recorded annotation, including unions, so a value appended
+after `=` still undergoes assignment screening. Shorter `label: Type` quotes pass;
+unrecorded union/subscript continuations are refused conservatively. Patches screen complete post-images with their paths before target writes;
 active-policy rollback screens both versions with their paths.
 
 Quote literal credential values to make their intent explicit. Digit-free all-caps
