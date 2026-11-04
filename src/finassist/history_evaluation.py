@@ -69,7 +69,7 @@ def evaluate_history(suite: dict, suite_directory: Path, config: Config, state_d
         # All source preflights have finished. Now validate every exact request,
         # including key-echo and wire-size checks, before reserving any spend.
         for source in prepared:
-            source["request_sha256"] = prepare_model_request(source["policy"], source["packet"])[0]
+            source["request_sha256"] = prepare_model_request(source["policy"], source["packet"], source_repo=source["repo"])[0]
     else:
         prepared = plan_history(suite, root, config, trials=trials)["cases"]
     cases = [{"id": case["id"], "base_sha": case["base_sha"], "head_sha": case["head_sha"],

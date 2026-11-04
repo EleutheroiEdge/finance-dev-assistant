@@ -39,3 +39,10 @@ Adapt the [branch-protection template](maintainers/branch-protection-proposal.js
 - Native tests cover Windows, macOS and Linux; real OCI isolation is exercised on Linux. Runtime sharing, contexts and host/kernel safety remain your responsibility. Local recipes require trusted-code approval and have no OS sandbox.
 - Synthetic tests and mocked transports exercise contracts, not live protocol compatibility, model quality or the truth of findings. Version pins and release provenance do not replace complete dependency artifact-hash locking or security review.
 - Configuration and local evidence do not authorize merges, deployment, settings changes or financial actions. No settings-write command or hosted production target is provided.
+
+Confidential numeric screening in the policy-approved model gate and history
+compares listed magnitudes in source, allowed fixtures, profiles and provider
+free text before exposing findings. It fails closed on grouped short figures;
+legacy `review` and `propose` remain outside this opt-in guard. See the
+[pre-merge gate](pre-merge-gate.md#confidential-numeric-tokens-policy-approved-model-gate)
+for exact exemptions, encoding limits and private token-file rules.
