@@ -206,19 +206,21 @@ def test_new_typed_output_values_are_not_hidden_by_annotations(repository, label
 
 
 @pytest.mark.parametrize("tail", [
-    'Ed25519PrivateKey = Zq7Lm2Xp9Rt4Vw8',
-    'Ed25519PrivateKey = "Zq7Lm2Xp9Rt4Vw8"',
-    'Ed25519PrivateKey | None = Zq7Lm2Xp9Rt4Vw8',
-    'Ed25519PrivateKey  | None = "Zq7Lm2Xp9Rt4Vw8"',
-    'Ed25519PrivateKey | None | str = "Zq7Lm2Xp9Rt4Vw8"',
-    'Ed25519PrivateKey | NoneType = "Zq7Lm2Xp9Rt4Vw8"',
-    'Ed25519PrivateKey | None.member = "Zq7Lm2Xp9Rt4Vw8"',
+    'Ed25519PrivateKey = {synthetic}',
+    'Ed25519PrivateKey = "{synthetic}"',
+    'Ed25519PrivateKey | None = {synthetic}',
+    'Ed25519PrivateKey  | None = "{synthetic}"',
+    'Ed25519PrivateKey | None | str = "{synthetic}"',
+    'Ed25519PrivateKey | NoneType = "{synthetic}"',
+    'Ed25519PrivateKey | None.member = "{synthetic}"',
 ])
 @pytest.mark.parametrize("wrapper", ["{}", "Check `{}` here.", "```python\n{}\n```"])
 def test_allowed_annotation_quote_never_hides_an_appended_value(repository, tail, wrapper):
     packet = annotated_packet(repository)
     value = response(packet)
-    value["findings"][0]["claim"] = wrapper.format("signing_" + "key: " + tail)
+    value["findings"][0]["claim"] = wrapper.format(
+        "signing_" + "key: " + tail.format(synthetic="Zq7Lm2Xp9Rt4Vw8")
+    )
     with pytest.raises(AssistantError, match="^sensitive_content$"):
         validate_review(value, packet)
 
