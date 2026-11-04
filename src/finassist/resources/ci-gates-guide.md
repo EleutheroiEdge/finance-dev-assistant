@@ -177,3 +177,125 @@ the 48,000-byte default and 2,000,000-byte hard ceiling. This is a synthetic-dat
 attestation, never permission for client/private/data paths. Existing guard paths
 still apply; the owner must review the intended fixture-change scope explicitly.
 CI checks retain isolated execution and never gain model/network authority.
+
+
+## Build and pin a consumer runner image
+
+The runtime never installs project dependencies or pulls an image while executing
+checks. Build a reviewed runner first, on a trusted build host, independently of
+candidate PR code. The following example targets Linux x86-64 / Python 3.13 and
+extends [examples/runner.Dockerfile](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/examples/runner.Dockerfile). Its upstream
+Python 3.13.7 image is already pinned there; this is an example baseline, not a
+claim that the old pin is the latest patched image. Review base-image updates
+and repeat validation before adopting a different pin.
+
+Create `requirements-runner.in` in a dedicated build directory containing only
+the Dockerfile and dependency files (no source checkout, credentials or data):
+
+```text
+pytest==9.2.0
+clarabel==0.11.1
+```
+
+These are direct version pins, not a complete lock. With a reviewed resolver
+(for example the repository's pinned uv 0.12.17), generate a lock for the target:
+
+```sh
+uv pip compile requirements-runner.in --python-version 3.13 \
+  --python-platform x86_64-unknown-linux-gnu --no-build --generate-hashes \
+  --output-file requirements-runner.lock
+```
+
+Inspect and retain the resulting exact versions and hashes of **all transitive
+dependencies**, including NumPy/SciPy/CFFI as selected for Clarabel. Add the
+consumer's other required packages to the input and regenerate/review the lock.
+Do not copy this product's development lock and assume it contains consumer
+packages. Resolution and installation need approved package access; check-time
+network isolation does not make image preparation offline. No generated consumer
+lock or verified consumer image is shipped by this example. Resolver target
+flags are best-effort compatibility selection: build and test on the actual
+CI platform. See [uv compilation](https://docs.astral.sh/uv/pip/compile/) and
+[target resolution](https://docs.astral.sh/uv/concepts/resolution/).
+
+Use this Dockerfile in that same small build directory:
+
+```dockerfile
+# Same reviewed Python baseline as examples/runner.Dockerfile.
+FROM python@sha256:5f55cdf0c5d9dc1a415637a5ccc4a9e18663ad203673173b8cda8f8dcacef689
+COPY requirements-runner.lock /tmp/requirements-runner.lock
+RUN python -m pip install --no-cache-dir --require-hashes --only-binary=:all: -r /tmp/requirements-runner.lock
+ENV PYTHONPATH=/workspace/src:/workspace
+ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+ENV PYTHONDONTWRITEBYTECODE=1
+USER 65534:65534
+WORKDIR /workspace
+```
+
+Missing compatible wheels fail the build; do not silently enable source builds
+or install candidate packages on the host to get past that failure. Dependencies
+must already exist in the image when the network-disabled check starts. If a
+reviewed pytest plugin is required, pin it in the lock and explicitly load it
+with `-p PLUGIN` in the recipe; automatic plugin loading stays disabled.
+
+```sh
+docker build --platform linux/amd64 --tag finassist-consumer-runner:reviewed .
+docker image inspect --format '{{.Id}}' finassist-consumer-runner:reviewed
+```
+
+The second command returns a local `sha256:...` image ID accepted by
+`runner_image` on that same daemon. A local ID is not a portable registry
+manifest digest. To distribute the image, use your separately approved registry
+publication process, then pull the reviewed registry reference on the target
+runner and inspect `docker image ls --digests` or `RepoDigests`. Record the
+matching `REGISTRY/REPOSITORY@sha256:...` reference, target platform, Dockerfile
+and lock bytes. Never substitute a mutable tag or invent a digest from a
+Dockerfile hash. Docker documents [digest pulls](https://docs.docker.com/reference/cli/docker/image/pull/)
+and [digest listings](https://docs.docker.com/reference/cli/docker/image/ls/).
+Prepare the exact pinned image in trusted CI setup; the gate uses `--pull=never`.
+
+### Exact test IDs on a read-only workspace
+
+This standalone configuration selects an existing synthetic fixture test by its
+full pytest node ID and keeps the separate mandatory cash invariant. Save it as
+`finassist.json` at the fixture project root for a local example. The all-`a`
+image ID below is a **schema-test placeholder**, not an available image: replace
+it with the actual inspected local ID or registry digest before execution.
+
+```json
+{
+  "provider": "offline",
+  "allow_network": false,
+  "runner_image": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "timeout_seconds": 30,
+  "recipes": {
+    "unit": ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "--basetemp=/tmp/pytest", "tests/test_unit.py::CashTests::test_no_activity"],
+    "cash": ["python", "-m", "tests.check_cash"]
+  },
+  "required_recipes": ["unit", "cash"]
+}
+```
+
+The fixture lives in `examples/github-actions/fixture`. For a consumer, replace
+its node ID with reviewed IDs from that consumer's collected suite; each ID is
+one argv element, including a complete `[parameter-id]` suffix if selecting a
+parameterized case. Recipes are argv arrays, not shell strings. Selecting a
+narrow reproduction must not remove required full-suite or financial checks.
+
+`-p no:cacheprovider` prevents `.pytest_cache` writes; disabled bytecode prevents
+`__pycache__` writes. `--basetemp=/tmp/pytest` uses the runner's per-container
+writable `/tmp` tmpfs, not the read-only `/workspace`. Configure any coverage,
+reporting or other plugin output explicitly under `/tmp`; flags cannot prevent
+a test that writes into its source directory from failing. The runner retains
+its non-root user, read-only filesystem/workspace, bounded tmpfs/resources and
+network isolation. A Windows/macOS Docker client still needs a Linux-container
+engine; this example does not describe native Windows containers.
+
+For a CI policy, copy the reviewed `runner_image`, recipes and required recipe
+names into its **config** object, and align workflow requirements/steps and time
+budgets. Commit the policy and trusted tests to the protected base through review,
+then recompute the exact policy-blob SHA256 as described above. Never generate a
+new approved pin from candidate PR bytes. Validate configuration, run the exact
+recipes in the pinned image with synthetic inputs and retain their results
+before adopting it. The offline documentation test validates the JSON and node
+ID against the fixture; it does not build an image, resolve packages, exercise
+Clarabel or establish financial correctness.

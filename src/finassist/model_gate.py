@@ -11,6 +11,8 @@ import jsonschema
 
 from .ci_policy import read_document, revision
 from .errors import AssistantError
+from .finding_identity import finding_identifier
+
 from .forbidden_tokens import TokenGuard, load_token_snapshot, screen_packet, screen_text
 from .github_context import pull_request_context, verify_origin
 from .ledger import Ledger
@@ -36,7 +38,11 @@ def _contains_key(value, key: str) -> bool:
 
 
 def validate_model_report(report: dict) -> None:
-    schema = json.loads(files("finassist").joinpath("resources/model-gate-report.schema.json").read_text(encoding="utf-8"))
+    if not isinstance(report, dict):
+        raise AssistantError("gate_report_invalid")
+    resource = ("model-gate-report-v1.schema.json" if report.get("schema_version") == 1
+                else "model-gate-report.schema.json")
+    schema = json.loads(files("finassist").joinpath("resources/" + resource).read_text(encoding="utf-8"))
     try:
         jsonschema.Draft202012Validator(schema).validate(report)
     except jsonschema.ValidationError as exc:
@@ -47,6 +53,14 @@ def validate_model_report(report: dict) -> None:
                 report["usage"]["output_tokens"], report["spend"]["actual_usd"],
             ))) or (report["verdict"] != "PASS" and not report["reasons"])):
         raise AssistantError("gate_report_invalid")
+
+    if report["schema_version"] == 2:
+        try:
+            if any(finding["id"] != finding_identifier(report["request_sha256"], index, finding)
+                   for index, finding in enumerate(report["findings"])):
+                raise AssistantError("gate_report_invalid")
+        except AssistantError:
+            raise AssistantError("gate_report_invalid") from None
 
 
 
@@ -63,7 +77,7 @@ def _context(repo: Path, base: str, head: str, environment) -> None:
 
 
 def _blank_report() -> dict:
-    return {"schema_version": 1, "mode": "model-review", "verdict": "BLOCKED", "reasons": [],
+    return {"schema_version": 2, "mode": "model-review", "verdict": "BLOCKED", "reasons": [],
             "base": None, "head": None, "policy_sha256": None, "request_sha256": None,
             "findings": [], "usage": {"input_tokens": None, "output_tokens": None},
             "spend": {"reserved_usd": None, "actual_usd": None, "scope": "caller-retained-ledger"},
@@ -230,6 +244,8 @@ def _evaluate_model_gate(repo: Path, base: str, head: str, policy_loader, state_
                                "line": finding["line"], "claim": finding["claim"],
                                "evidence_status": "source-reference-validated-not-reproduced"}
                               for finding in data["findings"]]
+        report["findings"] = [{**finding, "id": finding_identifier(request_hash, index, finding)}
+                              for index, finding in enumerate(report["findings"])]
         report["verdict"] = "FAIL" if any(f["severity"] in rules["blocking_severities"]
                                           for f in data["findings"]) else "PASS"
         if report["verdict"] == "FAIL":
