@@ -333,6 +333,8 @@ labels remain valid as stored; they are not rewritten. The validator also reads
 strict legacy v1 gate reports, which have no id. The trace command derives new
 request-bound IDs for those reports and marks this conversion in its output.
 Older readers that only support v1 need updating before consuming v2 reports.
+The strict legacy schema is published as `schemas/model-gate-report-v1.schema.json`
+and included at that path in `finassist export-kit`.
 Report hashes remain hashes of the exact complete report, including new IDs.
 
 Use a private local JSON mapping from full finding ID to outcome and note:
@@ -362,7 +364,9 @@ finassist score --report .finassist/model-gate.json \
 Both commands are offline; `--adjudications` is optional. The Markdown table has
 columns `#`, `Reviewer claim`, `Trace` and `Result`, including the full finding
 ID and file:line. Model text and notes are escaped as plain table text and line
-breaks are flattened. Invisible control characters are refused. Output paths
+breaks are flattened. Mentions, `#<n>` references and case-insensitive `GH-<n>`
+references are separated with generated zero-width entities to prevent rendered
+autolinks. Invisible control characters are refused. Output paths
 must be new. No PR comment is posted and no source is executed. The Action still
 publishes metadata-only summaries; claims and notes remain in private artifacts.
 Inspect content for confidentiality before choosing to share a generated trace;
@@ -373,7 +377,8 @@ precision or recall. Missing judgments remain unresolved; a blocked review is
 never complete even if it returned no findings. Human dispositions do not change
 the original gate verdict or grant merge/deployment authority. Existing
 `score --evaluation --labels` contracts are unchanged; evaluation/compare flags
-cannot be mixed with report/adjudication mode.
+cannot be mixed with report/adjudication mode. Supplying `--adjudications` with
+`--evaluation --labels` returns `score_input_mode_conflict` before reading inputs.
 
 ## Confidential numeric tokens (policy-approved model gate)
 
@@ -392,13 +397,13 @@ options are declared, their deny sets are combined. Neither option changes
 network authorization, provider selection, approval or budget requirements.
 Hashes of low-entropy numbers can be guessed; they are not encryption.
 
-For example, the synthetic `6729102.50` and `$6,729,102.500` normalize to
+For example, the synthetic `6729102.50`, `$6,729,102.500` and `6_729_102.50` normalize to
 `6729102.5`, whose SHA256 is
 `5717d161608c9711d081c00901d8091210e5c7f00a77f0493cb873a8ba0f82b7`.
 Normalization uses decimal strings without floating-point rounding. It accepts
 Unicode decimal digits; an optional `$`, `€`, `£` or `¥` prefix; signs or
-accounting parentheses; dot decimals; comma or consistently spaced groups of
-three digits (ASCII space, NBSP or narrow NBSP); and decimal exponents up to
+accounting parentheses; dot decimals; groups of three digits using one consistent
+separator (comma, underscore, ASCII space, NBSP or narrow NBSP); and decimal exponents up to
 absolute value 128. At most 128 digits are accepted. Leading integer zeros and
 trailing fractional zeros are removed; integer trailing zeros are preserved.
 Normalization preserves signs except for zero, but screening compares magnitude:
@@ -407,7 +412,7 @@ parentheses. A plain digit-bounded pass also screens punctuation and CSV neighbo
 It fails closed on short figures: listed `234` also refuses `1,234`; `0`, `1` and
 `12` can refuse ordinary constants. A longer uninterrupted digit sequence such as
 `91234567.89` does not match listed `1234567.89`. Decimal commas, spelled-out amounts,
-hexadecimal, underscores and alternative encodings are not supported numeric
+hexadecimal, malformed/mixed grouping and alternative encodings are not supported numeric
 forms. This is a bounded numeric screen, not a proof that arbitrary source
 cannot encode a confidential figure.
 

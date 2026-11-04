@@ -2,6 +2,20 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+
+- Accept consistently underscore-grouped confidential numeric tokens, including
+  `1_234_567.89`, with the existing strict three-digit grouping and exact decimal
+  normalization. Mixed or malformed grouping remains invalid.
+- Screen uppercase-leading unquoted credential literals containing digits while
+  preserving digit-free type identifiers, calls and dotted references.
+- Neutralize rendered `GH-<n>` trace autolinks; report an explicit input-mode
+  conflict when evaluation scoring includes adjudications. Publish/export the
+  strict legacy v1 gate report schema, and cover duplicate findings through the
+  fake-provider gate so positional IDs and separate judgments remain intact.
+
 ## 0.7.0 - 2026-11-04
 
 ### Added

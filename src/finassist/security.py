@@ -93,7 +93,7 @@ SECRET_PATTERNS = (
     # All exclusions run before consuming a value, avoiding repeated suffix scans.
     re.compile(
         r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:secret|private|signing|encryption|access|client|master|auth|api)[_-]?(?:access[_-]?)?key\b[\"']?\s*[=:]\s*"
-        r"(?:[\"'][^\"'\n]{12,}[\"']|(?![A-Za-z_][A-Za-z0-9_.]*\s*\()(?!(?-i:[A-Z][A-Za-z0-9_]*)(?![A-Za-z0-9_]))(?!(?:[A-Za-z_][A-Za-z0-9_]*\.)+[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_.]))[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
+        r"(?:[\"'][^\"'\n]{12,}[\"']|(?![A-Za-z_][A-Za-z0-9_.]*\s*\()(?!(?-i:[A-Z][A-Za-z_]*)(?![A-Za-z0-9_]))(?!(?:[A-Za-z_][A-Za-z0-9_]*\.)+[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_.]))[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
     ),
     re.compile(
         r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:account[_ -]?(?:number|id)|routing[_ -]?number)[\"']?\s*[=:]\s*[\"']?\d{6,}"

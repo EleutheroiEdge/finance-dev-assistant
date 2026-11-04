@@ -626,7 +626,9 @@ def execute(args, config: Config | None = None) -> int:
             judgments = read_trace_input(Path(args.adjudications)) if args.adjudications else None
             _emit(score_gate_report(report, judgments), args.output)
             return 0
-        if not args.labels or args.adjudications:
+        if args.adjudications:
+            raise AssistantError("score_input_mode_conflict")
+        if not args.labels:
             raise AssistantError("score_labels_required")
         if bool(args.compare) != bool(args.compare_labels):
             raise AssistantError("history_comparison_labels_required")

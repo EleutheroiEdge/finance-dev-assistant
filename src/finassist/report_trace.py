@@ -36,6 +36,7 @@ def _text(value: str, *, operator_note: bool = False) -> str:
     text = re.sub("([" + re.escape(string.punctuation) + "])", r"\\\1", text)
     # Insert generated entities only after escaping, so their syntax survives.
     # This breaks GitHub's rendered-text mention/reference recognition.
+    text = re.sub(r"(?i)(GH)(?=\\-[0-9])", r"\1&#8203;", text)
     return text.replace(r"\@", "@&#8203;").replace(r"\#", "#&#8203;")
 
 

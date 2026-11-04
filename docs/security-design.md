@@ -46,7 +46,8 @@ followed by access and then key (underscore/hyphen separators are supported).
 Bare key, primary/foreign/partition/sort/cache/idempotency keys are not secrets
 by name alone. The added matcher screens quoted literals of at least 12
 characters and unquoted values; it excludes unquoted calls,
-dotted references and uppercase-leading identifier type-like annotations. Identifier-shaped values followed
+dotted references and digit-free uppercase-leading identifier type-like annotations.
+Uppercase-leading unquoted literals containing digits are screened too. Identifier-shaped values followed
 by `(` are excluded; quote literal credentials. Existing secret/password/token
 rules are unchanged. This supplements inspection, not a confidentiality proof.
 

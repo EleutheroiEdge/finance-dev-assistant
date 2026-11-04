@@ -15,7 +15,7 @@ from .errors import AssistantError
 from .security import regular_path
 
 _CURRENCIES = "$€£¥"
-_GROUP_SPACES = "   "
+_GROUP_SEPARATORS = "   _"
 _DECIMAL = re.compile(r"(?P<integer>[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)"
                       r"(?:\.(?P<fraction>[0-9]+))?(?:[eE](?P<exponent>[+-]?[0-9]{1,3}))?")
 
@@ -23,7 +23,7 @@ _DECIMAL = re.compile(r"(?P<integer>[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)"
 def normalize_numeric_token(value: str) -> str:
     """Return a dot-decimal canonical value, without floating-point rounding.
 
-    Only explicit dot decimals, comma/space thousands groups, Unicode decimal
+    Only explicit dot decimals, comma/space/underscore thousands groups, Unicode decimal
     digits, one currency prefix, signs, accounting parentheses and bounded
     decimal exponents are supported. Invalid input has a non-disclosing error.
     """
@@ -45,7 +45,7 @@ def normalize_numeric_token(value: str) -> str:
             value = value[1:]
     # Grouping must use one separator throughout, with exactly three digits
     # after each separator. Whitespace never changes a decimal's magnitude.
-    used = [c for c in _GROUP_SPACES if c in value]
+    used = [c for c in _GROUP_SEPARATORS if c in value]
     if used:
         if len(used) != 1 or "," in value:
             raise AssistantError("forbidden_token_invalid")
@@ -166,14 +166,14 @@ def load_token_snapshot(rules: dict, excluded_roots: tuple[Path, ...]) -> TokenS
 # Broad passes cover grouping and exponents. The plain pass also finds a
 # literal beside punctuation/numeric CSV cells when a broad candidate is invalid.
 _PLAIN = re.compile(r"(?<!\d)\d+(?:\.\d+)?(?!\d)")
-_NUMBER = re.compile(r"(?<![\d.])(?:\()?[-+]?[$€£¥]?[-+]?\d+(?:[,. \u00a0\u202f]\d+)*(?:[eE][-+]?\d+)?(?:\))?(?!\d)")
-_UNGROUPED = re.compile(r"(?<![\d.,])(?:\()?[-+]?[$€£¥]?[-+]?\d+(?:[,.]\d+)*(?:[eE][-+]?\d+)?(?:\))?(?![\d,])")
+_NUMBER = re.compile(r"(?<![\d.])(?:\()?[-+]?[$€£¥]?[-+]?\d+(?:[,._ \u00a0\u202f]\d+)*(?:[eE][-+]?\d+)?(?:\))?(?!\d)")
+_UNGROUPED = re.compile(r"(?<![\d.,])(?:\()?[-+]?[$€£¥]?[-+]?\d+(?:[,._]\d+)*(?:[eE][-+]?\d+)?(?:\))?(?![\d,])")
 
 
 # A preceding/following separate number must not swallow a space-grouped value.
-# Match valid groups directly as well as the broad candidate pass above.
+# Match valid space/underscore groups directly as well as broad candidates.
 _SPACED = re.compile(r"(?<![\d.,])(?:\()?[-+]?[$€£¥]?[-+]?\d{1,3}"
-                     r"(?P<group>[ \u00a0\u202f])\d{3}(?:(?P=group)\d{3})*"
+                     r"(?P<group>[ _\u00a0\u202f])\d{3}(?:(?P=group)\d{3})*"
                      r"(?:\.\d+)?(?:[eE][-+]?\d+)?(?:\))?(?!\d|[,.]\d)")
 
 
