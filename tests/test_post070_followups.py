@@ -65,7 +65,8 @@ def test_underscore_grouping_does_not_change_a_distinct_value():
     screen_text("value = 6_729_102.51", snapshot)
 
 
-@pytest.mark.parametrize("secret", ["AbcDefGhi1234567", "A12345678901234", "ABC_DEF_1234567"])
+@pytest.mark.parametrize("secret", ["AbcDefGhi1234567", "A12345678901234", "ABC_DEF_1234567",
+                                    "AbcDefGhi/1234567", "AbcDefGhi-1234567", "AbcDefGhi+1234567"])
 def test_uppercase_leading_credential_literals_with_digits_are_screened(secret):
     with pytest.raises(AssistantError, match="^sensitive_content$"):
         check_text("access_" + "key = " + secret)
@@ -76,8 +77,9 @@ def test_identifier_and_expression_credential_references_remain_supported(expres
     check_text("access_" + "key = " + expression)
 
 
-def test_mixed_case_credential_source_never_dispatches_or_reserves(gate_case):
-    candidate(gate_case, "access_" + "key = " + "AbcDefGhi1234567")
+@pytest.mark.parametrize("secret", ["AbcDefGhi1234567", "AbcDefGhi/1234567"])
+def test_mixed_case_credential_source_never_dispatches_or_reserves(gate_case, secret):
+    candidate(gate_case, "access_" + "key = " + secret)
     report, calls = run(gate_case)
     assert report["verdict"] == "BLOCKED" and not calls
     assert not (gate_case["state"] / "audit.sqlite").exists()
