@@ -183,7 +183,7 @@ def _methodology_bindings(
 ) -> tuple[MethodologyBinding, ...]:
     bindings = []
     for path in template.methodology:
-        content, mode = read_entry(repo, head, path, config.max_file_bytes, config)
+        content, mode = read_entry(repo, head, path, config.file_byte_limit(path), config)
         if content is None:
             raise AssistantError("workflow_methodology_missing")
         try:

@@ -249,8 +249,8 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
         if not config.allows(path):
             omitted.append({"path": path, "reason": "outside_allowlist"})
             continue
-        before, before_mode = read_entry(repo, ancestor, path, config.max_file_bytes, config)
-        after, after_mode = read_entry(repo, head_sha, path, config.max_file_bytes, config)
+        before, before_mode = read_entry(repo, ancestor, path, config.file_byte_limit(path), config)
+        after, after_mode = read_entry(repo, head_sha, path, config.file_byte_limit(path), config)
         decoded = []
         for data in (before, after):
             try:
@@ -383,6 +383,8 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
             if (digest(data.encode()) if data is not None else None) != file[side + "_hash"]:
                 raise AssistantError("file_integrity_failed")
             if data is not None:
+                if len(data.encode()) > config.file_byte_limit(file["path"]):
+                    raise AssistantError("file_limit_exceeded")
                 check_text(data, extra_patterns=config.extra_sensitive_patterns)
 
 

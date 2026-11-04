@@ -326,6 +326,9 @@ class Config:
     def check_path(self, path: str, **kwargs) -> str:
         return check_path(path, denied_parts=self.denied_parts, text_suffixes=self.text_suffixes, **kwargs)
 
+    def file_byte_limit(self, path: str) -> int:
+        return self.max_file_bytes
+
     def instructions(self) -> str:
         from .profiles import instructions
 
@@ -341,7 +344,8 @@ class Config:
         return any(fnmatchcase(branch, pattern) for pattern in self.protected_branches)
 
 
-def load_config(path: Path | None = None, *, content: bytes | None = None) -> Config:
+def load_config(path: Path | None = None, *, content: bytes | None = None,
+                _policy_fixture_settings: dict | None = None) -> Config:
     if path is None and content is None:
         return Config().validate()
     try:
@@ -376,7 +380,13 @@ def load_config(path: Path | None = None, *, content: bytes | None = None) -> Co
         ):
             if key in raw and isinstance(raw[key], list):
                 raw[key] = tuple(raw[key])
-        config = Config(**raw)
+        if _policy_fixture_settings is None:
+            config = Config(**raw)
+        else:
+            # Only pinned policy loaders supply this private construction context.
+            # These fields are not accepted from ordinary JSON configuration.
+            from .policy_fixtures import PolicyFixtureConfig
+            config = PolicyFixtureConfig(**raw, **_policy_fixture_settings)
         if path is None:
             if config.profile_files:
                 raise AssistantError("profile_files_require_path")

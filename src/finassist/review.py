@@ -110,7 +110,7 @@ def call_model(
             raise AssistantError("scope_not_approved")
         for side in ("before", "after"):
             if file[side] is not None:
-                if len(file[side].encode()) > config.max_file_bytes:
+                if len(file[side].encode()) > config.file_byte_limit(file["path"]):
                     raise AssistantError("file_limit_exceeded")
                 check_text(file[side], extra_patterns=config.extra_sensitive_patterns)
     if not packet["changed_paths"]:

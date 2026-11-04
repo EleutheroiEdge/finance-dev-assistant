@@ -9,7 +9,8 @@ from .errors import OperationOutcomeUnknown
 from .github_context import PullRequestContext, verify_origin
 from .ledger import Ledger
 from .scope import build_packet, git, resolve, review_omissions
-from .security import canonical, digest, regular_path
+from .security import canonical, digest, regular_path, is_text_fixture
+from .policy_ignores import screen_ignores
 from .workflow import build_workflow_plan, preflight_workflow
 from .workflow_execution import create_run, execute_run
 from .workflow_state import WorkflowStore, unfinished_workflows
@@ -48,6 +49,23 @@ def ci_gate(repo: Path, context: PullRequestContext, policy_path: str, policy_sh
                 "SELECT seq,payload FROM events ORDER BY seq")]
             if ledger.open_reservations() or ledger.incomplete_runs() or unfinished_workflows(events):
                 blockers.add("ci_state_unresolved")
+    marker_paths = set(getattr(config, "fixture_markers", {}))
+    if not blockers and marker_paths:
+        ancestor = git(repo, "merge-base", context.base_sha, context.head_sha)
+        for start in {context.base_sha, ancestor}:
+            changed = set(filter(None, git(repo, "diff", "--no-ext-diff", "--no-textconv", "--no-renames",
+                                          "--name-only", "-z", start, context.head_sha, binary=True).decode().split("\0")))
+            if marker_paths.intersection(changed):
+                blockers.add("ci_guarded_change_requires_review")
+    fixture_roots = getattr(config, "fixture_roots", ())
+    if not blockers and fixture_roots:
+        ancestor = git(repo, "merge-base", context.base_sha, context.head_sha)
+        screened = set(marker_paths)
+        for revision in {context.base_sha, context.head_sha, ancestor}:
+            paths = git(repo, "ls-tree", "-r", "-z", "--name-only", revision, binary=True).decode().split("\0")
+            screened.update(path for path in paths if path and is_text_fixture(path, fixture_roots))
+        if screened:
+            screen_ignores(repo, {context.base_sha, ancestor}, sorted(screened))
     packet, plan, identifier, execution = None, None, None, None
     if not blockers:
         packet = build_packet(repo, context.base_sha, context.head_sha, config)

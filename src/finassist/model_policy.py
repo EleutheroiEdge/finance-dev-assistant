@@ -1,17 +1,21 @@
 """Opt-in model policy from pinned base bytes, independent of v1 checks policy."""
 
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import unicodedata
 from urllib.parse import urlsplit
 
 import jsonschema
 
 from .ci_policy import decode_document, revision
-from .config import Config, load_config
+from .config import Config
 from .errors import AssistantError
+from .policy_fixtures import FIXTURE_PROPERTIES, fixture_settings, load_policy_config
+from .profiles import PROFILES
 from .scope import read_entry
-from .security import canonical, check_path, check_text, digest
+from .security import canonical, check_model_path, check_path, check_text, digest
 
 _PATHS = {"type": "array", "maxItems": 128, "uniqueItems": True,
           "items": {"type": "string", "minLength": 1, "maxLength": 512}}
@@ -35,13 +39,24 @@ _PROPERTIES = {
     "blocking_severities": {"type": "array", "uniqueItems": True, "maxItems": 5,
                             "items": {"enum": ["critical", "high", "medium", "low", "info"]}},
 }
+_PROFILE_PROPERTIES = {
+    "profile_text": {"type": "array", "minItems": 1, "maxItems": 64,
+                     "items": {"type": "string", "minLength": 1, "maxLength": 2000,
+                               "pattern": r"^[^\r\n]+$"}},
+    "profile_path": {"type": "string", "minLength": 1, "maxLength": 512},
+    "profile_sha256": {"type": "string", "pattern": r"^[0-9a-f]{64}$"},
+}
 _SCHEMA = {
     "type": "object", "additionalProperties": False,
     "required": ["schema_version", "model_review"],
     "properties": {
         "schema_version": {"type": "integer", "const": 2},
         "model_review": {"type": "object", "additionalProperties": False,
-                         "required": list(_PROPERTIES), "properties": _PROPERTIES},
+                         "required": list(_PROPERTIES),
+                         "properties": {**_PROPERTIES, **_PROFILE_PROPERTIES, **FIXTURE_PROPERTIES},
+                         "dependentRequired": {"profile_path": ["profile_sha256"],
+                                               "profile_sha256": ["profile_path"]},
+                         "not": {"required": ["profile_text", "profile_path"]}},
     },
 }
 
@@ -53,13 +68,59 @@ class ModelGatePolicy:
     path: str
     sha256: str
     base: str
+    profile_path: str | None = None
 
 
-def _prefix(value: str) -> str:
+def _prefix(value: str, fixture_roots: tuple[str, ...] = ()) -> str:
     if any(character in value for character in "*?[]"):
         raise AssistantError("gate_policy_path_invalid")
-    check_path(value.removesuffix("/"), source_only=False)
+    check_path(value.removesuffix("/"), source_only=False, fixture_roots=fixture_roots)
     return value
+
+
+def _profile_lines(lines: list[str]) -> list[str]:
+    # Permit visible Unicode letters/marks/numbers/punctuation/symbols and ASCII
+    # space only. Some marks and letters are invisible despite their category.
+    invisible = {0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180F,
+                 0x2800, 0x3164, 0xFFA0}
+    for line in lines:
+        if not line.strip(" ") or any(
+            (char != " " and unicodedata.category(char)[0] not in "LMNPS")
+            or ord(char) in invisible
+            or 0x180B <= ord(char) <= 0x180D
+            or 0xFE00 <= ord(char) <= 0xFE0F
+            or 0xE0100 <= ord(char) <= 0xE01EF
+            for char in line
+        ):
+            raise AssistantError("gate_profile_line_invalid")
+    return lines
+
+
+def _profile(repo: Path, base: str, model: dict) -> tuple[list[str] | None, str | None]:
+    """Resolve only policy-owned text; never use a working-tree profile loader."""
+    if "profile_text" in model:
+        # Config validates every decoded line, including JSON-escaped secrets.
+        return _profile_lines(model["profile_text"]), None
+    if "profile_path" not in model:
+        return None, None
+    path = check_model_path(model["profile_path"])
+    if any(path.startswith(prefix) if prefix.endswith("/") else path == prefix
+           for prefix in model["deny_paths"]):
+        raise AssistantError("gate_denied_path")
+    raw, _ = read_entry(repo, base, path, 128_000)
+    if raw is None:
+        raise AssistantError("gate_profile_missing_at_base")
+    if digest(raw) != model["profile_sha256"]:
+        raise AssistantError("gate_profile_pin_mismatch")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeError as exc:
+        raise AssistantError("gate_profile_encoding_invalid") from exc
+    check_text(text)
+    # Only LF and CRLF delimit physical instruction lines. Other separators,
+    # including whitespace-only controls, must reach the line validator intact.
+    lines = text.replace("\r\n", "\n").split("\n")
+    return _profile_lines([line for line in lines if line.strip(" ")]), path
 
 
 def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePolicy:
@@ -88,8 +149,9 @@ def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePo
     # The only key material accepted by a policy is a variable NAME. All other
     # fields are screened, including unknown fields rejected by the schema.
     check_text(canonical(document).decode())
+    settings = fixture_settings(repo, base, model)
     for prefix in (*model["allow_paths"], *model["deny_paths"]):
-        _prefix(prefix)
+        _prefix(prefix, tuple(model.get("fixture_roots", ())))
     endpoint = urlsplit(model["endpoint"])
     if endpoint.hostname != model["allowed_host"]:
         raise AssistantError("gate_endpoint_host_mismatch")
@@ -105,5 +167,10 @@ def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePo
     config_fields.update(allow_network=True, allowed_hosts=[model["allowed_host"]], generated_paths=[],
                          max_packet_bytes=2_000_000,
                          monthly_budget_usd=1_000_000)
-    config = load_config(content=canonical(config_fields))
-    return ModelGatePolicy(document, config, path, pin, base)
+    profile_text, profile_path = _profile(repo, base, model)
+    if profile_text is not None:
+        profiles = deepcopy(PROFILES)
+        profiles[model["profile"]] = profile_text
+        config_fields["profiles"] = profiles
+    config = load_policy_config(config_fields, settings)
+    return ModelGatePolicy(document, config, path, pin, base, profile_path)
