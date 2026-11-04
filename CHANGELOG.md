@@ -11,8 +11,11 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   decimal normalization. Other malformed grouping remains invalid.
 - Screen uppercase-leading unquoted credential literals containing digits and
   complete candidate tokens. Preserve digit-bearing type names in parsed Python
-  variable/parameter annotations while still screening YAML, comments, strings,
-  assigned credential values and custom sensitive patterns.
+  variable/parameter annotations, including unions and forward references. Screen
+  typed password, token, credential-key and account/routing assignments; preserve
+  comments and custom rules. Permit source-bound annotation quotes in review
+  output and screen complete patch post-images and active-policy rollback with
+  their Python paths, without changing request bytes or approval gates.
 - Neutralize rendered `GH-<n>` trace autolinks; report an explicit input-mode
   conflict when evaluation scoring includes adjudications. Publish/export the
   strict legacy v1 gate report schema, and cover duplicate findings through the

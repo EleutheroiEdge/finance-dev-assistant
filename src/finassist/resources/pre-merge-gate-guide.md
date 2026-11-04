@@ -128,16 +128,21 @@ dotted identifier references and digit-free uppercase-leading whole identifiers.
 The whole-identifier exclusion ends at whitespace, end of input or annotation
 punctuation such as `[`, `]`, `)`, `,` or `;`; `/`, `+`, `=`, `-`, `:` and `@`
 continue a candidate literal. Uppercase-leading unquoted literals containing digits
-are screened. In parseable `.py`/`.pyi` source, a bare uppercase-leading type name
-in an actual variable or parameter annotation may contain digits (for example,
-`Ed25519PrivateKey`, `X25519PrivateKey` or `Sha256Digest`). This exception affects
-only the credential-key heuristic; assigned values, comments, strings, custom
-patterns and other secret rules still apply. YAML and text without a Python source
-path retain strict generic screening. Original source and request bytes are kept.
+are screened. Parseable `.py`/`.pyi` source uses a complete annotation-free view
+for label-assignment checks, including unions, forward references and parenthesized
+types. Only the credential-key rule uses that view alone; password/token/account
+rules inspect both views to catch typed assignments. Comments and custom patterns
+still apply, and original source/request bytes are kept. Unparseable Python, YAML,
+Markdown snippets, TypeScript, Kotlin and other text without parsed Python context
+retain strict generic screening. Review output may quote exact credential-label
+matches from screened annotations in that request; new candidate values still
+refuse. Patches screen complete post-images with their paths before target writes;
+active-policy rollback screens both versions with their paths.
+
 Quote literal credential values to make their intent explicit. Digit-free all-caps
-values can still resemble constants and escape this heuristic. Identifier-shaped
-values followed by `(` stay excluded. Existing
-password/secret/token patterns retain their prior behavior. Short or differently
+values can resemble constants and escape the heuristic. A key-shaped value written
+as the Python annotation itself can resemble a type reference and also escape it.
+Identifier-shaped values followed by `(` stay excluded. Short or differently
 formatted secrets can still escape screening; inspect outgoing requests yourself.
 Profile selection and authorization contracts remain unchanged; common text
 screening also applies to version-1 checks and manual review.

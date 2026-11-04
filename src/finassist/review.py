@@ -19,7 +19,7 @@ from .forbidden_tokens import token_file_audit
 from .ledger import Ledger
 from .providers import invoke, request_identity, request_shape
 from .scope import triage, verify_packet, review_omissions
-from .security import canonical, check_context_document, check_text, digest
+from .security import canonical, check_context_document, check_output_document, check_text, digest
 
 
 @dataclass(frozen=True)
@@ -80,7 +80,7 @@ def validate_review(
                 or evidence["line"] > max(1, len(file[evidence["side"]].splitlines()))
             ):
                 raise AssistantError("finding_evidence_invalid")
-    check_text(canonical(result).decode(), extra_patterns=extra_patterns)
+    check_output_document(result, packet["files"], extra_patterns=extra_patterns)
 
 
 def call_model(

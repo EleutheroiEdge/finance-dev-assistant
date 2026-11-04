@@ -234,11 +234,64 @@ def check_context_document(document: dict, *, extra_patterns: tuple[str, ...] = 
     _screen_text(canonical(document).decode(), canonical(view).decode(), extra_patterns)
 
 
+def check_output_document(
+    document: dict, source_files: list[dict], *, extra_patterns: tuple[str, ...] = (), diff: bool = False
+) -> None:
+    """Permit only exact credential-label quotes from screened annotations.
+
+    A match includes its label, separator and complete candidate value; a word
+    merely present elsewhere in source confers no output exception. Paths and
+    source must come from the caller's validated, hash-bound request/post-images.
+    Other secret patterns and custom patterns always inspect original output.
+    """
+    allowed = set()
+    for item in source_files:
+        for side in ("before", "after"):
+            text = item.get(side)
+            if text is None:
+                continue
+            check_text(text, source_path=item["path"], extra_patterns=extra_patterns)
+            view = credential_screening_view(text, item["path"])
+            for match in CREDENTIAL_KEY_PATTERN.finditer(text):
+                if match.group() != view[match.start():match.end()]:
+                    allowed.add(match.group())
+
+    def screening_view(value):
+        if isinstance(value, str):
+            def quote_view(match):
+                quote = match.group()
+                # A removed unified-diff line has one leading '-' that the
+                # label regex includes. Only the validated patch caller uses
+                # this context; arbitrary label prefixes stay literal data.
+                if diff and (match.start() == 0 or value[match.start() - 1] == "\n") and quote.startswith("-"):
+                    quote = quote[1:]
+                return " " * len(match.group()) if quote in allowed else match.group()
+            view = CREDENTIAL_KEY_PATTERN.sub(quote_view, value)
+            # JSON escaping can otherwise hide quoted secret values from a
+            # regex. Screen original string values as well as the envelope.
+            _screen_text(value, view, extra_patterns)
+            return view
+        if isinstance(value, list):
+            return [screening_view(item) for item in value]
+        if isinstance(value, dict):
+            return {key: screening_view(item) for key, item in value.items()}
+        return value
+
+    _screen_text(canonical(document).decode(), canonical(screening_view(document)).decode(), extra_patterns)
+
+
 def _screen_text(text: str, credential_text: str, extra_patterns: tuple[str, ...]) -> None:
     if "\0" in text:
         raise AssistantError("binary_input")
-    if any(p.search(credential_text if p is CREDENTIAL_KEY_PATTERN else text) for p in SECRET_PATTERNS):
-        raise AssistantError("sensitive_content")
+    for pattern in SECRET_PATTERNS:
+        if pattern is CREDENTIAL_KEY_PATTERN:
+            matched = pattern.search(credential_text)
+        else:
+            # Searching both views catches typed assignments without losing
+            # literal secret signatures or sensitive content in annotations.
+            matched = pattern.search(text) or pattern.search(credential_text)
+        if matched:
+            raise AssistantError("sensitive_content")
     try:
         if any(re.search(p, text, re.IGNORECASE) for p in extra_patterns):
             raise AssistantError("project_content_blocked")
