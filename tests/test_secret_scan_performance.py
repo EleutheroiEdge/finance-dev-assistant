@@ -77,3 +77,8 @@ def test_ordinary_finance_keys_and_credential_references_pass(text):
 def test_non_identifier_credential_literals_remain_screened(suffix):
     with pytest.raises(AssistantError, match="^sensitive_content$"):
         check_text("aws_secret_access_key=" + "synthetic/" + "x" * 20 + suffix)
+
+
+def test_lowercase_unquoted_secret_literal_remains_screened():
+    with pytest.raises(AssistantError, match="^sensitive_content$"):
+        check_text("secret_" + "key=" + "x" * 24)
