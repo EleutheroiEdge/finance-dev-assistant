@@ -88,7 +88,7 @@ def _profile_lines(lines: list[str]) -> list[str]:
     # Permit visible Unicode letters/marks/numbers/punctuation/symbols and ASCII
     # space only. Some marks and letters are invisible despite their category.
     invisible = {0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180F,
-                 0x2800, 0x3164, 0xFFA0}
+                 0x2800, 0x3164, 0xFFA0, 0x13441, 0x13442, 0x16FE4, 0x1BC9D}
     for line in lines:
         if not line.strip(" ") or any(
             (char != " " and unicodedata.category(char)[0] not in "LMNPS")

@@ -2,6 +2,18 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+
+- Refuse four additional blank-looking profile fillers before provider dispatch
+  or budget reservation (#47 items12–14). Preserve visible combining text.
+- Screen reserved path and private-filename aliases consistently, including
+  trailing dots/spaces, pinned Unicode18 ASCII-target confusables and embedded
+  default-ignorable/format characters, while preserving actual Git names.
+- Clarify exact lowercase fixture-root components and profile emoji restrictions
+  involving variation selectors and zero-width joiners in both guide copies.
+
 ## 0.7.0 - 2026-11-04
 
 ### Added

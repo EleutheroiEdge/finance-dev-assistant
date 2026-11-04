@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 import hashlib
 import json
 import os
@@ -14,6 +15,7 @@ import unicodedata
 
 from .errors import AssistantError
 from .platform_support import canonical_system_path
+from .path_alias_data import ASCII_CONFUSABLES, DEFAULT_IGNORABLE_RANGES
 
 DENIED_PARTS = {
     ".finassist",
@@ -147,14 +149,16 @@ def check_path(
     fixture = is_text_fixture(name, fixture_roots)
     if fixture:
         check_fixture_private(name)
-    if parts[-1].lower() in {"auth.json", "user.md", "memory.md", "session.md"}:
+    if _matches_reserved(parts[-1], {"auth.json", "user.md", "memory.md", "session.md"}):
         raise AssistantError("private_profile_path")
-    denied = DENIED_PARTS if denied_parts is None else denied_parts
+    denied = set(DENIED_PARTS if denied_parts is None else denied_parts)
     if fixture:
         denied = set(denied) | DENIED_PARTS
     suffixes = TEXT_SUFFIXES if text_suffixes is None else text_suffixes
     if any(
-        p.lower() in denied or p.lower().startswith(".env") or p.lower() in {".git", ".finassist"}
+        _matches_reserved(p, denied | {".git", ".finassist"})
+        or any(alias.startswith(prefix) for alias in _component_aliases(p)
+               for prefix in _component_aliases(".env"))
         for p in parts
     ):
         raise AssistantError("private_path")
@@ -183,27 +187,56 @@ def is_text_fixture(path: str, roots: tuple[str, ...]) -> bool:
 
 
 def _reserved_component(part: str) -> str:
-    # Compare aliases conservatively without rewriting the actual Git path.
-    return unicodedata.normalize("NFKC", part).rstrip(" .").casefold()
+    # Refuse hidden spelling changes; never strip them into a different Git path.
+    normalized = unicodedata.normalize("NFKC", part)
+    for char in part + normalized:
+        code = ord(char)
+        if (unicodedata.category(char) == "Cf"
+                or code in {0x2800, 0x13441, 0x13442, 0x16FE4, 0x1BC9D}
+                or any(start <= code <= end for start, end in DEFAULT_IGNORABLE_RANGES)):
+            raise AssistantError("unsafe_path")
+    return normalized.rstrip(" .").casefold()
+
+
+def _component_aliases(part: str) -> set[str]:
+    # Compare both case orders: e.g. Greek capital Nu and Cyrillic capital I
+    # have different confusable mappings after folding. ASCII mappings (m/rn,
+    # I/l, etc.) must also be applied to the reserved names being compared.
+    folded = _reserved_component(part)
+    normalized = unicodedata.normalize("NFKC", part).rstrip(" .")
+    return {folded, *(
+        unicodedata.normalize("NFD", value).translate(ASCII_CONFUSABLES).casefold().rstrip(" .")
+        for value in (normalized, folded)
+    )}
+
+
+@lru_cache(maxsize=128)
+def _reserved_aliases(reserved: frozenset[str]) -> frozenset[str]:
+    # Cache only policy/reserved labels, never candidate paths or source text.
+    return frozenset(alias for value in reserved for alias in _component_aliases(value))
+
+
+def _matches_reserved(part: str, reserved) -> bool:
+    return bool(_component_aliases(part) & _reserved_aliases(frozenset(reserved)))
 
 
 def check_fixture_private(path: str) -> None:
     parts = PurePosixPath(path).parts
-    if any(_reserved_component(part) == "data" for part in parts):
+    if any(_matches_reserved(part, {"data"}) for part in parts):
         raise AssistantError("fixture_root_contains_data")
-    if any(_reserved_component(part) in {"tests", "fixtures"}
+    if any(_matches_reserved(part, {"tests", "fixtures"})
            and part not in {"tests", "fixtures"} for part in parts):
         raise AssistantError("fixture_root_invalid")
     _check_model_private(path)
 
 
 def _check_model_private(path: str) -> None:
-    if len(path) > 512 or any(_reserved_component(part) in _PRIVATE for part in PurePosixPath(path).parts):
+    if len(path) > 512 or any(_matches_reserved(part, _PRIVATE) for part in PurePosixPath(path).parts):
         raise AssistantError("gate_private_path")
-    name = PurePosixPath(path).name.lower()
-    if name in {"client.json", "clients.json", "household.json", "households.json",
-                "credentials.json", "credential.json", "secrets.json"} or re.search(
-        r"(?:household|client)[_-]?(?:config|settings|profile)", name
+    names = _component_aliases(PurePosixPath(path).name)
+    if _matches_reserved(PurePosixPath(path).name, {"client.json", "clients.json", "household.json", "households.json",
+                "credentials.json", "credential.json", "secrets.json"}) or any(
+        re.search(r"(?:household|client)[_-]?(?:config|settings|profile)", name) for name in names
     ):
         raise AssistantError("gate_private_path")
 
