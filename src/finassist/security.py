@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from functools import lru_cache
 import hashlib
 import json
@@ -16,6 +17,7 @@ import unicodedata
 from .errors import AssistantError
 from .platform_support import canonical_system_path
 from .path_alias_data import ASCII_CONFUSABLES, DEFAULT_IGNORABLE_RANGES
+from .python_annotations import credential_screening_view
 
 DENIED_PARTS = {
     ".finassist",
@@ -81,6 +83,11 @@ PUBLIC_ASSETS = {".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif", ".ico"}
 # Assignment patterns start only at a whole label-token boundary. A word
 # boundary would retry the greedy prefix after every hyphen, causing quadratic
 # scans. Keep unbounded prefixes so long labels cannot hide sensitive suffixes.
+CREDENTIAL_KEY_PATTERN = re.compile(
+    r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:secret|private|signing|encryption|access|client|master|auth|api)[_-]?(?:access[_-]?)?key\b[\"']?\s*[=:]\s*"
+    r"(?:[\"'][^\"'\n]{12,}[\"']|(?![A-Za-z_][A-Za-z0-9_.]*\s*\()(?!(?-i:[A-Z][A-Za-z_]*)(?![A-Za-z0-9_./+=:@-]))(?!(?:[A-Za-z_][A-Za-z0-9_]*\.)+[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_.]))[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
+)
+
 SECRET_PATTERNS = (
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
@@ -91,12 +98,7 @@ SECRET_PATTERNS = (
         r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:api[_-]?key|password|secret|access[_-]?token|gh[_-]?token|github[_-](?:enterprise[_-])?token)\b[\"']?\s*[=:]\s*"
         r"(?:[\"'][^\"'\n]{12,}[\"']|[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
     ),
-    # Credential words distinguish secrets from ordinary database/cache keys.
-    # All exclusions run before consuming a value, avoiding repeated suffix scans.
-    re.compile(
-        r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:secret|private|signing|encryption|access|client|master|auth|api)[_-]?(?:access[_-]?)?key\b[\"']?\s*[=:]\s*"
-        r"(?:[\"'][^\"'\n]{12,}[\"']|(?![A-Za-z_][A-Za-z0-9_.]*\s*\()(?!(?-i:[A-Z][A-Za-z0-9_]*)(?![A-Za-z0-9_]))(?!(?:[A-Za-z_][A-Za-z0-9_]*\.)+[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_.]))[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
-    ),
+    CREDENTIAL_KEY_PATTERN,
     re.compile(
         r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:account[_ -]?(?:number|id)|routing[_ -]?number)[\"']?\s*[=:]\s*[\"']?\d{6,}"
     ),
@@ -251,11 +253,108 @@ def check_model_path(path: str, *, fixture_roots: tuple[str, ...] = (), source_o
 
 
 
-def check_text(text: str, *, extra_patterns: tuple[str, ...] = ()) -> None:
+def check_text(text: str, *, extra_patterns: tuple[str, ...] = (), source_path: str | None = None) -> None:
+    _screen_text(text, credential_screening_view(text, source_path), extra_patterns)
+
+
+def check_context_document(document: dict, *, extra_patterns: tuple[str, ...] = (), records_key="files") -> None:
+    """Screen a validated typed envelope, retaining raw metadata/custom rules."""
+    view = deepcopy(document)
+    for item in view[records_key]:
+        for side in ("before", "after"):
+            if item[side] is not None:
+                item[side] = credential_screening_view(item[side], item["path"])
+    _screen_text(canonical(document).decode(), canonical(view).decode(), extra_patterns)
+
+
+def check_output_document(
+    document: dict, source_files: list[dict], *, extra_patterns: tuple[str, ...] = (), diff: bool = False
+) -> None:
+    """Permit only exact credential-label quotes from screened annotations.
+
+    A match includes its label, separator and complete candidate value; a word
+    merely present elsewhere in source confers no output exception. Paths and
+    source must come from the caller's validated, hash-bound request/post-images.
+    Other secret patterns and custom patterns always inspect original output.
+    """
+    allowed: dict[str, set[str]] = {}
+    for item in source_files:
+        for side in ("before", "after"):
+            text = item.get(side)
+            if text is None:
+                continue
+            check_text(text, source_path=item["path"], extra_patterns=extra_patterns)
+            view = credential_screening_view(text, item["path"])
+            for match in CREDENTIAL_KEY_PATTERN.finditer(text):
+                separator = text.find(":", match.start(), match.end())
+                if separator < 0 or view[separator] != " ":
+                    continue
+                # The source view retains positions and blanks the complete
+                # annotation. Keep its span, including unions/parentheses,
+                # without extending into an assigned value or following token.
+                end = separator
+                while end < len(text) and view[end].isspace():
+                    end += 1
+                quote = text[match.start():end].rstrip()
+                allowed.setdefault(match.group(), set()).add(quote)
+
+    def screening_view(value):
+        if isinstance(value, str):
+            chars = list(value)
+            for match in CREDENTIAL_KEY_PATTERN.finditer(value):
+                quote, start = match.group(), match.start()
+                # A removed unified-diff line has one leading '-' that the
+                # label regex includes. Only the validated patch caller uses
+                # this context; arbitrary label prefixes stay literal data.
+                if diff and (start == 0 or value[start - 1] == "\n") and quote.startswith("-"):
+                    quote, start = quote[1:], start + 1
+                annotations = allowed.get(quote)
+                if not annotations:
+                    continue
+                full_ends = [start + len(full) for full in annotations if value.startswith(full, start)]
+                end = max(full_ends, default=match.end())
+                # A shorter label: Type quote can end here, but an unrecorded
+                # union/subscript continuation is not an exact source quote.
+                if value[end:].lstrip().startswith(("|", "[")) or (
+                    end < len(value) and (value[end].isalnum() or value[end] in "_./+@:-")
+                ):
+                    continue
+                separator = value.index(":", start, end)
+                # Retain the label so any following '= value' still meets the
+                # assignment rules. Whitespace replacement preserves offsets.
+                for index in range(separator, end):
+                    if chars[index] not in "\r\n":
+                        chars[index] = " "
+            view = "".join(chars)
+            # JSON escaping can otherwise hide quoted secret values from a
+            # regex. Screen original string values as well as the envelope.
+            _screen_text(value, view, extra_patterns)
+            # A syntactically valid typed assignment in an output string must
+            # not conceal a new value. The first check above retains strict
+            # output screening: parsing alone never authorizes an annotation.
+            _screen_text(value, credential_screening_view(view, "output.py"), extra_patterns)
+            return view
+        if isinstance(value, list):
+            return [screening_view(item) for item in value]
+        if isinstance(value, dict):
+            return {key: screening_view(item) for key, item in value.items()}
+        return value
+
+    _screen_text(canonical(document).decode(), canonical(screening_view(document)).decode(), extra_patterns)
+
+
+def _screen_text(text: str, credential_text: str, extra_patterns: tuple[str, ...]) -> None:
     if "\0" in text:
         raise AssistantError("binary_input")
-    if any(p.search(text) for p in SECRET_PATTERNS):
-        raise AssistantError("sensitive_content")
+    for pattern in SECRET_PATTERNS:
+        if pattern is CREDENTIAL_KEY_PATTERN:
+            matched = pattern.search(credential_text)
+        else:
+            # Searching both views catches typed assignments without losing
+            # literal secret signatures or sensitive content in annotations.
+            matched = pattern.search(text) or pattern.search(credential_text)
+        if matched:
+            raise AssistantError("sensitive_content")
     try:
         if any(re.search(p, text, re.IGNORECASE) for p in extra_patterns):
             raise AssistantError("project_content_blocked")

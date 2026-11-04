@@ -130,7 +130,7 @@ def test_apostrophes_dollars_mentions_and_references_render_literally():
     assert _text("The account's balance") == r"The account\'s balance"
     assert _text("Fee is $x^2$ and range $5-$10") == r"Fee is \$x\^2\$ and range \$5\-\$10"
     assert _text("@octocat @org/team #12 owner/repo#5 GH-7") == (
-        r"@&#8203;octocat @&#8203;org\/team #&#8203;12 owner\/repo#&#8203;5 GH\-7")
+        r"@&#8203;octocat @&#8203;org\/team #&#8203;12 owner\/repo#&#8203;5 GH&#8203;\-7")
 
 
 @pytest.mark.parametrize("char", ["\u200b", "\u00ad", "\u200d", "\x07", "\x85", "\u202e"])

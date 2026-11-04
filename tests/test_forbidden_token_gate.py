@@ -14,7 +14,7 @@ from finassist.security import canonical
 
 
 def candidate(case, text, name="src/cash.py"):
-    (case["repo"] / name).write_text(text, encoding="utf-8")
+    (case["repo"] / name).write_text(text, encoding="utf-8", newline="")
     command(case["repo"], "add", name)
     command(case["repo"], "commit", "-m", "Synthetic numeric screening case")
     case["head"] = command(case["repo"], "rev-parse", "HEAD")
