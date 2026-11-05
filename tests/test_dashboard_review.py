@@ -56,12 +56,13 @@ def test_plan_and_check_the_assistants_own_committed_tree(tmp_path, operation):
     # Retain the 48 KB file ceiling. A whole-repository change needs a larger
     # packet ceiling, independently of the generated bundle exclusion. The bundled
     # guide copies are excluded like generated files: test_guides.py proves each
-    # copy matches its source document, and the source documents stay in scope.
+    # copy matches its source document, and every source document stays in scope.
+    # SECURITY.md is outside the default allow list, so this test adds it.
     from finassist.guides import GUIDES
-    guide_copies = {"src/finassist/resources/" + resource for _title, _source, resource in GUIDES.values()}
-    generated = (*Config().generated_paths, *sorted(guide_copies))
+    copies = {"src/finassist/resources/" + resource: source for _title, source, resource in GUIDES.values()}
+    generated = (*Config().generated_paths, *sorted(copies))
     config = replace(Config(), max_packet_bytes=2_000_000, recipes={"scope": [sys.executable, "-c", script]},
-                     generated_paths=generated)
+                     generated_paths=generated, allow_paths=(*Config().allow_paths, "SECURITY.md"))
     path, output = tmp_path / "configuration.json", tmp_path / "result.json"
     save_config(path, config)
     args = [
@@ -85,7 +86,8 @@ def test_plan_and_check_the_assistants_own_committed_tree(tmp_path, operation):
     if operation == "plan":
         assert any(row["reason"] == "generated_artifact_excluded" for row in result["omitted"])
         excluded = {row["path"] for row in result["omitted"] if row["reason"] == "generated_artifact_excluded"}
-        assert guide_copies <= excluded
+        assert set(copies) <= excluded
+        assert set(copies.values()) <= {row["path"] for row in result["files"]}
         assert not any(
             row["path"].startswith("src/finassist/resources/dashboard/") for row in result["files"]
         )
