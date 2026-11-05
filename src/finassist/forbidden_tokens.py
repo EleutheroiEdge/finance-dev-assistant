@@ -13,7 +13,7 @@ import tokenize
 import unicodedata
 
 from .errors import AssistantError
-from .python_source import (MAX_FIGURE_DIGITS, constant_number_texts, hidden_fstring_fields, is_python_path,
+from .python_source import (MAX_FIGURE_DIGITS, fstring_constant_texts, hidden_fstring_fields, is_python_path,
                             number_text, python_tokens, python_tree)
 from .security import regular_path
 
@@ -203,10 +203,12 @@ _LEADING_ZEROS = re.compile(r"(?<![0-9.,])0+(?=[0-9])")
 def _without_zero_padding(candidate: str) -> str:
     """Drop leading integer zeros and trailing fraction zeros, which never change a value.
 
-    Underscores between digits are removed first, so `1.20_1` stays 1.201. The
+    Unicode decimal digits become ASCII and underscores between digits are removed
+    first, so Arabic-Indic zero padding is trimmed and `1.20_1` stays 1.201. The
     fraction is trimmed in one linear pass.
     """
-    compact = _LEADING_ZEROS.sub("", re.sub(r"(?<=[0-9])_(?=[0-9])", "", candidate))
+    ascii_digits = "".join(str(unicodedata.decimal(c)) if c.isdecimal() else c for c in candidate)
+    compact = _LEADING_ZEROS.sub("", re.sub(r"(?<=[0-9])_(?=[0-9])", "", ascii_digits))
     point = compact.rfind(".")
     if point < 0:
         return compact
@@ -247,13 +249,13 @@ def screen_source(text: str, path: str | None, snapshot: TokenSnapshot) -> None:
         # Never fall back silently: an unreadable Python file is refused.
         raise AssistantError("forbidden_token_python_unreadable")
     numbers = [number_text(token.string) for token in tokens if token.type == tokenize.NUMBER]
-    tree = python_tree(text)
-    if tree is not None:
-        # The AST also sees numbers inside f-string fields, which tokenizers
-        # before Python 3.12 keep inside one STRING token.
-        numbers += constant_number_texts(tree, text)
-    elif hidden_fstring_fields(tokens):
-        raise AssistantError("forbidden_token_python_unreadable")
+    if hidden_fstring_fields(tokens):
+        # Before Python 3.12 numbers inside f-string fields stay inside one STRING
+        # token, so only the AST can read them.
+        tree = python_tree(text)
+        if tree is None:
+            raise AssistantError("forbidden_token_python_unreadable")
+        numbers += fstring_constant_texts(tree, text)
     for plain in numbers:
         if plain is None:
             continue

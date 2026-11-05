@@ -380,3 +380,47 @@ def test_account_integers_compare_by_magnitude(value, refused):
         refuses(source, "src/settings.py")
     else:
         check_text(source, source_path="src/settings.py")   # 99,999: under six digits
+
+
+# --- Codex review of #62, round 3: findings 1-3 ----------------------------------
+
+ARABIC_INDIC_PADDED_42 = "٠" * 300 + "٤٢"   # 42, padded with Arabic-Indic zeros
+
+
+@pytest.mark.parametrize("path,source", [
+    ("data.csv", "amount\n" + ARABIC_INDIC_PADDED_42 + "\n"),
+    ("src/cash.py", f"amount = {Q}{ARABIC_INDIC_PADDED_42}{Q}\n"),
+])
+def test_unicode_zero_padding_cannot_hide_a_listed_figure(path, source):
+    with pytest.raises(AssistantError, match="^forbidden_token_present$"):
+        screen_source(source, path, LISTED_42)
+
+
+def test_unicode_padded_fixture_is_refused_before_key_or_ledger(gate_case, monkeypatch):
+    from test_policy_text_fixtures import candidate as fixture_candidate
+    change_policy(gate_case, forbidden_token_hashes=[hashlib.sha256(b"42").hexdigest()],
+                  allow_paths=["src/", "tests/"], fixture_roots=["tests/fixtures/"])
+    fixture_candidate(gate_case, "tests/fixtures/padded.csv",
+                      ("symbol,value\nSYNTHETIC," + ARABIC_INDIC_PADDED_42 + "\n").encode("utf-8"))
+    monkeypatch.delenv("REVIEW_PROVIDER_KEY")
+    report, calls = run(gate_case)
+    assert not calls and report["reasons"] == ["forbidden_token_present"]
+    assert not (gate_case["state"] / "audit.sqlite").exists()
+
+
+@pytest.mark.parametrize("template", ["x = {}\n", 'm = f"{{{}}}"\n'])
+def test_out_of_range_exact_values_are_not_their_rounded_neighbours(template):
+    listed_one = _listing("1")
+    near_miss = "1." + "0" * 270 + "1"          # greater than 1; beyond the figure bounds
+    exactly_one = "1." + "0" * 270              # equal to 1
+    screen_source(template.format(near_miss), "src/cash.py", listed_one)
+    with pytest.raises(AssistantError, match="^forbidden_token_present$"):
+        screen_source(template.format(exactly_one), "src/cash.py", listed_one)
+
+
+def test_many_literals_screen_in_linear_time():
+    import time
+    source = "x = 7\n" * 20_000 + 'y = f"{7}"\n' * 20_000
+    started = time.perf_counter()
+    screen_source(source, "src/cash.py", LISTED_42)
+    assert time.perf_counter() - started < 5

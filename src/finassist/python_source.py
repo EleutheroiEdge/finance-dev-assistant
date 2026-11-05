@@ -127,50 +127,86 @@ def number_text(token: str) -> str | None:
         return None
 
 
-def _spelled_number(node: ast.Constant, source: str) -> str | None:
-    """Exact text of a numeric constant from its source spelling, if that spelling checks out."""
-    segment = ast.get_source_segment(source, node)
+class _SourceIndex:
+    """Single-line source spans by AST position, without re-splitting the file per node."""
+
+    def __init__(self, source: str):
+        self._lines = _normalized(source).split("\n")  # the text python_tree parsed
+        self._encoded: dict[int, bytes] = {}
+
+    def segment(self, node: ast.AST) -> str | None:
+        # A numeric literal is one token, so it never spans lines.
+        if getattr(node, "end_lineno", None) != node.lineno or node.end_col_offset is None:
+            return None
+        row = node.lineno - 1
+        if not 0 <= row < len(self._lines):
+            return None
+        data = self._encoded.get(row)
+        if data is None:
+            data = self._encoded[row] = self._lines[row].encode("utf-8")
+        try:  # AST columns count UTF-8 bytes
+            return data[node.col_offset:node.end_col_offset].decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+
+
+_UNAVAILABLE = object()
+
+
+def _spelled_number(node: ast.Constant, index: _SourceIndex):
+    """Exact text of a numeric constant from its source spelling.
+
+    Returns the plain text, None when the exact value is outside the figure bounds
+    (so it can never be listed), or _UNAVAILABLE when no spelling checks out.
+    """
+    segment = index.segment(node)
     if not segment:
-        return None
-    plain = number_text(segment)
-    if plain is None:
-        return None
+        return _UNAVAILABLE
     actual = node.value.imag if isinstance(node.value, complex) and node.value.real == 0 else node.value
     spelled = segment.replace("_", "").lower().rstrip("j")
     # The spelling must be the literal this node was parsed from. Integers compare
     # exactly; floats compare after Python's own rounding of the spelled value.
     try:
         if isinstance(actual, int):
-            return plain if int(spelled, 0) == actual else None
-        return plain if float(Decimal(spelled)) == float(actual) else None
+            matches = int(spelled, 0) == actual
+        else:
+            matches = float(Decimal(spelled)) == float(actual)
     except (ValueError, InvalidOperation, OverflowError):
-        return None
+        return _UNAVAILABLE
+    return number_text(segment) if matches else _UNAVAILABLE
 
 
-def constant_number_texts(tree: ast.AST, source: str) -> list[str]:
-    """Plain decimal text of every numeric constant, including those inside f-strings."""
-    source = _normalized(source)  # the text python_tree parsed, so positions line up
-    texts = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Constant) or isinstance(node.value, bool):
+def fstring_constant_texts(tree: ast.AST, source: str) -> list[str]:
+    """Plain decimal text of numeric constants inside f-string fields.
+
+    Only needed before Python 3.12, where those numbers are not NUMBER tokens;
+    every other numeric constant is a NUMBER token already.
+    """
+    index = _SourceIndex(source)
+    seen, texts = set(), []
+    for joined in ast.walk(tree):
+        if not isinstance(joined, ast.JoinedStr):
             continue
-        value = node.value
-        if not isinstance(value, (int, float, complex)):
-            continue
-        spelled = _spelled_number(node, source)
-        if spelled is not None:
-            texts.append(spelled)
-            continue
-        # Fallback when no exact spelling is recoverable: integers stay exact,
-        # floats use their shortest round-trip text.
-        parts = [value.real, value.imag] if isinstance(value, complex) else [value]
-        for part in parts:
-            if isinstance(part, int):
-                text = _plain_integer(part)
-            else:
-                text = _plain_decimal(Decimal(repr(part))) if part == part else None
-            if text is not None:
-                texts.append(text)
+        for node in ast.walk(joined):
+            if (id(node) in seen or not isinstance(node, ast.Constant) or isinstance(node.value, bool)
+                    or not isinstance(node.value, (int, float, complex))):
+                continue
+            seen.add(id(node))
+            spelled = _spelled_number(node, index)
+            if spelled is not _UNAVAILABLE:
+                if spelled is not None:  # None: exact value outside the bounds, never listed
+                    texts.append(spelled)
+                continue
+            # No checked spelling: integers stay exact, floats use their
+            # shortest round-trip text.
+            value = node.value
+            for part in ([value.real, value.imag] if isinstance(value, complex) else [value]):
+                if isinstance(part, int):
+                    text = _plain_integer(part)
+                else:
+                    text = _plain_decimal(Decimal(repr(part))) if part == part else None
+                if text is not None:
+                    texts.append(text)
     return texts
 
 
