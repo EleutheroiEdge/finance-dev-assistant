@@ -55,7 +55,9 @@ def test_plan_and_check_the_assistants_own_committed_tree(tmp_path, operation):
     script = "from pathlib import Path; assert Path('src/finassist/config.py').is_file(); assert not Path('src/finassist/resources/dashboard/assets').exists(); print('Synthetic scope check: PASS')"
     # Retain the 48 KB file ceiling. A whole-repository change needs a larger
     # packet ceiling, independently of the generated bundle exclusion.
-    config = replace(Config(), max_packet_bytes=2_000_000, recipes={"scope": [sys.executable, "-c", script]})
+    # A synthetic budget for packing the whole committed tree; raise it as the
+    # repository grows. The product default limit is unchanged.
+    config = replace(Config(), max_packet_bytes=3_000_000, recipes={"scope": [sys.executable, "-c", script]})
     path, output = tmp_path / "configuration.json", tmp_path / "result.json"
     save_config(path, config)
     args = [
