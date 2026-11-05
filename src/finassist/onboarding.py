@@ -432,11 +432,12 @@ class _Preflight:
                                 stopped = single.code
                                 break
                             ignored.add(path)
-                    if stopped is None:
-                        # The gate stops here before reading content; the preflight does too.
+                    for path in sorted(ignored):  # Named once, whatever their row shows.
+                        self.block_path("gate_ignored_path", _shown(path))
+                    if stopped is None and ignored.difference(paths):
+                        # An ignored profile or fixture marker is a screening input the gate
+                        # refuses before reading any content, so the preflight reads none.
                         stopped = "gate_ignored_path"
-                        for path in ignored.difference(paths):
-                            self.block_path("gate_ignored_path", _shown(path))
         rows = [self._classify(repo, (ancestor, head), path, model, config, guard, ignored, stopped)
                 for path in paths[:_MAX_ROWS]]
         self.report["paths"] = rows
@@ -445,7 +446,7 @@ class _Preflight:
         self.report["coverage_complete"] = (not names_not_utf8 and len(paths) <= _MAX_ROWS
                                             and all(row["status"] == "included" for row in rows))
         for row in rows:
-            if row["status"] == "refused":
+            if row["status"] == "refused" and row["code"] != "gate_ignored_path":  # Ignored paths are named above.
                 self.block_path(row["code"], row["path"], row.get("hint"))
         return None
 

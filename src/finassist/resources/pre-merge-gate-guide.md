@@ -246,9 +246,10 @@ It reports every blocker the gate would hit for that range in one run, each with
 `hint`, and exits 0 when the range is ready and 1 when it is blocked. It also lists:
 - **Each changed path** as `included`, `refused` (with the code and any limit or size)
   or `unchecked`. A path is `unchecked` when a screening step can't run, for example an
-  unreadable token file, too many files, an ignored path, or a change in the range to
-  the policy, its profile, a fixture marker or a `.gitignore` file. These stop the gate
-  before it reads content, so the preflight reads none either. At most
+  unreadable token file, too many files, an ignored profile or fixture marker, or a
+  change in the range to the policy, its profile, a fixture marker or a `.gitignore`
+  file. These stop the gate before it reads content, so the preflight reads none
+  either. An ignored changed file is refused and named. At most
   2,000 paths are listed. Path refusals are grouped by code, each with a `count` and
   up to 20 example `paths`. A changed name that isn't UTF-8 is counted, never shown.
 - **Every policy schema error,** with its field and allowed values. Current values are never echoed.

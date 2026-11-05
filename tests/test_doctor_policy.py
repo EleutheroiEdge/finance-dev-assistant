@@ -465,7 +465,7 @@ def with_entry(repo, commit: str, parent: str, name: bytes, content: bytes) -> s
 
 
 def test_names_that_are_not_utf8_never_stop_or_appear_in_the_report(gate_case):
-    repo, name = gate_case["repo"], b"caf\xe9.txt"
+    repo, name = gate_case["repo"], b"zqodd\xe9.txt"
     base = with_entry(repo, gate_case["base"], gate_case["base"], name, b"unchanged\n")
     head = with_entry(repo, gate_case["head"], base, name, b"unchanged\n")
     unrelated = preflight({**gate_case, "base": base, "head": head})
@@ -475,7 +475,7 @@ def test_names_that_are_not_utf8_never_stop_or_appear_in_the_report(gate_case):
     assert {"code": "path_name_not_utf8", "count": 1} in [
         {key: entry[key] for key in ("code", "count")} for entry in report["blockers"] if "count" in entry]
     assert report["coverage_complete"] is False and report["status"] == "blocked"
-    assert "caf" not in canonical(report).decode()
+    assert "zqodd" not in canonical(report).decode()
 
 
 @pytest.mark.parametrize("change", ["gitignore", "policy"])
@@ -541,11 +541,29 @@ def test_rejected_fixture_rules_never_read_the_profile(gate_case, monkeypatch):
 def test_a_name_that_is_not_utf8_only_against_base_still_blocks(gate_case, monkeypatch):
     repo = gate_case["repo"]
     # The base moves on after the candidate branched; only base..head sees the odd name.
-    diverged = with_entry(repo, gate_case["base"], gate_case["base"], b"caf\xe9.txt", b"base only\n")
+    diverged = with_entry(repo, gate_case["base"], gate_case["base"], b"zqodd\xe9.txt", b"base only\n")
     seen = recording_reads(monkeypatch)
     report = preflight({**gate_case, "base": diverged})
     assert {"code": "path_name_not_utf8", "count": 1} in [
         {key: entry[key] for key in ("code", "count")} for entry in report["blockers"] if "count" in entry]
     assert report["coverage_complete"] is False and report["status"] == "blocked"
     assert {"path": "src/cash.py", "status": "unchecked", "reason": "path_name_not_utf8"} in report["paths"]
-    assert "src/cash.py" not in seen and "caf" not in canonical(report).decode()
+    assert "src/cash.py" not in seen and "zqodd" not in canonical(report).decode()
+
+
+def test_an_ignored_changed_file_is_named_without_stopping_other_checks(gate_case, monkeypatch):
+    (gate_case["repo"] / ".gitignore").write_text(".finassist/\n*.log\n", encoding="utf-8")
+    command(gate_case["repo"], "add", ".gitignore")
+    command(gate_case["repo"], "commit", "-m", "Synthetic ignore rule")
+    change_policy(gate_case)
+    (gate_case["repo"] / "src/run.log").write_text("synthetic\n", encoding="utf-8")
+    command(gate_case["repo"], "add", "-f", "src/run.log")
+    command(gate_case["repo"], "commit", "-m", "Synthetic force-added ignored file")
+    gate_case["head"] = command(gate_case["repo"], "rev-parse", "HEAD")
+    seen = recording_reads(monkeypatch)
+    report = preflight(gate_case)
+    ignored = next(entry for entry in report["blockers"] if entry["code"] == "gate_ignored_path")
+    assert ignored["paths"] == ["src/run.log"] and ignored["count"] == 1
+    rows = {row["path"]: row for row in report["paths"]}
+    assert rows["src/cash.py"] == {"path": "src/cash.py", "status": "included"} and "src/cash.py" in seen
+    assert rows["src/run.log"]["status"] == "refused"
