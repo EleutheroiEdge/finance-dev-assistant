@@ -29,7 +29,11 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
     pinned Unicode 18 confusable table. So Cyrillic-letter spellings of
     `holdings`, `client.json.` and `secrets ./` stay private.
   - Path components containing control, format, line or paragraph separator, or
-    default-ignorable characters refuse with `unsafe_path`.
+    default-ignorable characters, or the blank fillers U+2800, U+13441, U+13442,
+    U+16FE4 and U+1BC9D, refuse with `unsafe_path`.
+  - Look-alike `data`, `tests` and `fixtures` components inside an opted-in
+    fixture path or root are refused, so fixture markers keep their exact
+    lowercase spelling.
   - Four more blank-looking profile characters (U+13441, U+13442, U+16FE4 and
     U+1BC9D) are refused.
   - Actual Git names and request hashes are unchanged.
@@ -53,13 +57,19 @@ Content that 0.7.0 accepted can now be refused:
   underscores between its digits.
 - `sensitive_content` for:
   - an unquoted credential-key value that starts with a capital letter and
-    contains a digit;
+    either contains a digit or continues into `/`, `+`, `=`, `-`, `:` or `@`;
   - a typed Python assignment or parameter default that holds a password, token,
     credential key or account/routing number.
-- `unsafe_path` for a path component containing control, format, separator or
-  default-ignorable characters.
+- `unsafe_path` for a path component containing control, format, line or
+  paragraph separator, or default-ignorable characters, or the blank fillers
+  U+2800, U+13441, U+13442, U+16FE4 and U+1BC9D.
 - `private_path`, `gate_private_path` or `private_profile_path` for look-alike,
   case-variant or trailing-dot/space spellings of reserved names.
+- `fixture_root_contains_data` for a look-alike `data` component inside an
+  opted-in fixture path or fixture root.
+- `fixture_root_invalid` for a look-alike `tests` or `fixtures` component inside
+  an opted-in fixture path or root. These markers must use exact lowercase
+  spelling.
 - `gate_profile_line_invalid` for the four additional blank-looking profile
   characters.
 
