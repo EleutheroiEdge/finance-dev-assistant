@@ -5,6 +5,7 @@ contains no credential-shaped literal of its own.
 """
 import hashlib
 import json
+import re
 import sys
 import warnings
 
@@ -289,9 +290,12 @@ def test_huge_integers_stay_bounded():
 @pytest.mark.parametrize("path", ["notes.txt", "src/notes.py"])
 def test_custom_patterns_read_the_intact_serialized_packet(path):
     document = {"files": [{"path": path, "before": None, "after": "marker-left\nmarker-right\n"}]}
+    # Matches only the serialized packet: a literal backslash then "n", the JSON escape.
+    serialized_only = re.escape("marker-left" + "\\" + "nmarker-right")
+    assert not re.search(serialized_only, document["files"][0]["after"])
     check_context_document(document)
     with pytest.raises(AssistantError, match="^project_content_blocked$"):
-        check_context_document(document, extra_patterns=(r"marker-left\nmarker-right",))
+        check_context_document(document, extra_patterns=(serialized_only,))
 
 
 def test_long_credential_names_keep_the_vocabulary():
