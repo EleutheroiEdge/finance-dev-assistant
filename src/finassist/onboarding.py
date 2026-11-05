@@ -156,15 +156,15 @@ def _matches(path, prefix):
     return path.startswith(prefix) if prefix.endswith(slash) else path == prefix
 
 
-def _names(raw: bytes) -> tuple[list[str], int]:
-    """Git -z names as text, plus how many are not UTF-8 (never decoded for display)."""
-    names, undecodable = [], 0
+def _names(raw: bytes) -> tuple[list[str], set[bytes]]:
+    """Git -z names as text, plus the raw names that are not UTF-8 (never decoded for display)."""
+    names, undecodable = [], set()
     for part in raw.split(b"\0"):
         if part:
             try:
                 names.append(part.decode("utf-8"))
             except UnicodeDecodeError:
-                undecodable += 1
+                undecodable.add(part)
     return names, undecodable
 
 
@@ -320,19 +320,14 @@ class _Preflight:
             self.warn("fixture_limit_without_roots")
         if not usable or (self.pin is not None and self.report["policy"]["pin"] != "matches"):
             return None  # Nothing an unscreened or unconfirmed policy selects is read.
-        settings, profile_text, profile_path = None, None, None
         try:
             settings = fixture_settings(repo, base, model)
         except AssistantError as exc:
-            usable = False
-            self.failed(exc, field="/model_review/fixture_roots")
+            return self.failed(exc, field="/model_review/fixture_roots")  # The profile is not read either.
         try:
             profile_text, profile_path = _profile(repo, base, model)
         except AssistantError as exc:
-            usable = False
-            self.failed(exc, field="/model_review/profile_path")
-        if not usable:
-            return None  # A rejected fixture rule or profile stops every later read.
+            return self.failed(exc, field="/model_review/profile_path")  # Nothing later is read.
         try:
             config = load_policy_config(policy_config_fields(model, profile_text), settings)
         except AssistantError as exc:
@@ -372,26 +367,36 @@ class _Preflight:
 
         ancestor = git(repo, "merge-base", base, head)
         paths, undecodable = changed(ancestor, head)
+        base_names, base_undecodable = changed(base, head)
         # A reason that stops every content read; affected paths are reported unchecked.
         stopped = None
-        if undecodable:
-            self.block("path_name_not_utf8", count=undecodable)
+        names_not_utf8 = undecodable | base_undecodable  # Both comparisons, each name once.
+        if names_not_utf8:
+            self.block("path_name_not_utf8", count=len(names_not_utf8))
             stopped = "path_name_not_utf8"
         if not paths and not undecodable:
             return self.block("empty_review_scope")
-        if len(paths) + undecodable > model["max_files"]:
-            self.block("gate_file_count_exceeded", files=len(paths) + undecodable, limit=model["max_files"])
+        if len(paths) + len(undecodable) > model["max_files"]:
+            self.block("gate_file_count_exceeded", files=len(paths) + len(undecodable), limit=model["max_files"])
             stopped = stopped or "gate_file_count_exceeded"
-        guarded = set(paths).union(changed(base, head)[0])
+        # A change to the rules that screen the range stops the gate before it reads
+        # any content, so the preflight reads none either.
+        guarded = set(paths).union(base_names)
+        markers = list(getattr(config, "fixture_markers", {}))
+        rule_changes = []
         if policy.path in guarded:
-            self.block_path("gate_policy_change_requires_review", _shown(policy.path))
+            rule_changes.append(("gate_policy_change_requires_review", policy.path))
         if policy.profile_path and policy.profile_path in guarded:
-            self.block_path("gate_profile_change_requires_review", _shown(policy.profile_path))
+            rule_changes.append(("gate_profile_change_requires_review", policy.profile_path))
         for name in sorted(guarded):
-            if name in getattr(config, "fixture_markers", {}):
-                self.block_path("gate_fixture_marker_change_requires_review", _shown(name))
+            if name in markers:
+                rule_changes.append(("gate_fixture_marker_change_requires_review", name))
             if PurePosixPath(name).name == ".gitignore":
-                self.block_path("gate_ignore_change_requires_review", _shown(name))
+                rule_changes.append(("gate_ignore_change_requires_review", name))
+        for code, name in rule_changes:
+            self.block_path(code, _shown(name))
+        if rule_changes:
+            stopped = stopped or rule_changes[0][0]
         guard = None
         if stopped is None and "forbidden_token_file" in model and self.pin is None:
             # A file the policy points outside the repository is opened only once the
@@ -409,14 +414,16 @@ class _Preflight:
                 stopped = exc.code
         ignored = set()
         if stopped is None:
+            # The gate's ignore scope: changed paths plus the policy's profile and fixture markers.
+            scope = paths + ([policy.profile_path] if policy.profile_path else []) + markers
             try:
-                screen_ignores(repo, {base, ancestor}, paths)
+                screen_ignores(repo, {base, ancestor}, scope)
             except AssistantError as exc:
                 if exc.code != "gate_ignored_path":
                     self.failed(exc)
                     stopped = exc.code
                 else:  # Name the ignored paths; this slower pass runs only when one exists.
-                    for path in paths:
+                    for path in dict.fromkeys(scope):
                         try:
                             screen_ignores(repo, {base, ancestor}, [path])
                         except AssistantError as single:
@@ -425,12 +432,17 @@ class _Preflight:
                                 stopped = single.code
                                 break
                             ignored.add(path)
+                    if stopped is None:
+                        # The gate stops here before reading content; the preflight does too.
+                        stopped = "gate_ignored_path"
+                        for path in ignored.difference(paths):
+                            self.block_path("gate_ignored_path", _shown(path))
         rows = [self._classify(repo, (ancestor, head), path, model, config, guard, ignored, stopped)
                 for path in paths[:_MAX_ROWS]]
         self.report["paths"] = rows
         if len(paths) > _MAX_ROWS:
             self.report["paths_not_listed"] = len(paths) - _MAX_ROWS
-        self.report["coverage_complete"] = (not undecodable and len(paths) <= _MAX_ROWS
+        self.report["coverage_complete"] = (not names_not_utf8 and len(paths) <= _MAX_ROWS
                                             and all(row["status"] == "included" for row in rows))
         for row in rows:
             if row["status"] == "refused":
@@ -448,10 +460,10 @@ class _Preflight:
                 raise AssistantError("gate_denied_path")
             if not config.allows(path):
                 raise AssistantError("gate_path_not_allowed")
-            if stopped is not None:
-                return {**row, "status": "unchecked", "reason": stopped}
             if path in ignored:
                 raise AssistantError("gate_ignored_path")
+            if stopped is not None:
+                return {**row, "status": "unchecked", "reason": stopped}
             sides = {}
             for side, revision in (("before", ancestor), ("after", head)):
                 data, _ = read_entry(repo, revision, path, config.file_byte_limit(path), config)

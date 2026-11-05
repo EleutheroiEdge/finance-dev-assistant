@@ -15,6 +15,7 @@ from conftest import command
 from test_model_gate import change_policy, run
 from test_model_policy import model_policy
 from finassist import maintenance, model_gate, onboarding, providers, review
+from finassist import model_policy as policy_module
 from finassist.errors import AssistantError
 from finassist.cli import main
 from finassist.config import Config
@@ -410,9 +411,12 @@ def test_a_failed_single_ignore_check_is_not_reported_as_ignored(gate_case, monk
     monkeypatch.setattr(onboarding, "screen_ignores", screen)
     seen = recording_reads(monkeypatch)
     report = preflight(gate_case)
-    assert "gate_ignore_check_unavailable" in codes(report) and "gate_ignored_path" not in codes(report)
-    assert {row["status"] for row in report["paths"]} == {"unchecked"}
-    assert {row["reason"] for row in report["paths"]} == {"gate_ignore_check_unavailable"}
+    assert "gate_ignore_check_unavailable" in codes(report)
+    rows = {row["path"]: row for row in report["paths"]}
+    # Only the path its own check reported is ignored; the failed check's path is not.
+    assert rows["src/a.py"]["code"] == "gate_ignored_path"
+    assert rows["src/b.py"] == {"path": "src/b.py", "status": "unchecked", "reason": "gate_ignore_check_unavailable"}
+    assert rows["src/cash.py"]["status"] == "unchecked"
     assert not [path for path in seen if path.startswith("src/")]
 
 
@@ -472,3 +476,76 @@ def test_names_that_are_not_utf8_never_stop_or_appear_in_the_report(gate_case):
         {key: entry[key] for key in ("code", "count")} for entry in report["blockers"] if "count" in entry]
     assert report["coverage_complete"] is False and report["status"] == "blocked"
     assert "caf" not in canonical(report).decode()
+
+
+@pytest.mark.parametrize("change", ["gitignore", "policy"])
+def test_a_screening_rule_change_in_the_range_stops_content_reads(gate_case, monkeypatch, change):
+    if change == "gitignore":
+        (gate_case["repo"] / "src/.gitignore").write_text("*.tmp\n", encoding="utf-8")
+        command(gate_case["repo"], "add", "src/.gitignore")
+        expected = "gate_ignore_change_requires_review"
+    else:
+        changed = model_policy()
+        changed["model_review"]["model"] = "unreviewed-head-model"
+        (gate_case["repo"] / "gate-policy.json").write_bytes(canonical(changed))
+        command(gate_case["repo"], "add", "gate-policy.json")
+        expected = "gate_policy_change_requires_review"
+    command(gate_case["repo"], "commit", "-m", "Synthetic rule change in the range")
+    gate_case["head"] = command(gate_case["repo"], "rev-parse", "HEAD")
+    seen = recording_reads(monkeypatch)
+    report = preflight(gate_case)
+    assert expected in codes(report) and report["coverage_complete"] is False
+    assert {"path": "src/cash.py", "status": "unchecked", "reason": expected} in report["paths"]
+    assert "src/cash.py" not in seen
+    assert run(gate_case)[0]["reasons"] == [expected]
+
+
+def committed_profile(case) -> str:
+    (case["repo"] / "profiles").mkdir(exist_ok=True)
+    (case["repo"] / "profiles/review.txt").write_text("Check every total.\n", encoding="utf-8")
+    command(case["repo"], "add", "-f", "profiles/review.txt")
+    command(case["repo"], "commit", "-m", "Synthetic profile")
+    return digest((case["repo"] / "profiles/review.txt").read_bytes())
+
+
+def test_an_ignored_profile_stops_content_reads_like_the_gate(gate_case, monkeypatch):
+    (gate_case["repo"] / ".gitignore").write_text(".finassist/\nprofiles/\n", encoding="utf-8")
+    command(gate_case["repo"], "add", ".gitignore")
+    command(gate_case["repo"], "commit", "-m", "Synthetic ignore rule")
+    change_policy(gate_case, profile_path="profiles/review.txt", profile_sha256=committed_profile(gate_case))
+    seen = recording_reads(monkeypatch)
+    report = preflight(gate_case)
+    ignored = next(entry for entry in report["blockers"] if entry["code"] == "gate_ignored_path")
+    assert ignored["paths"] == ["profiles/review.txt"] and report["coverage_complete"] is False
+    assert {"path": "src/cash.py", "status": "unchecked", "reason": "gate_ignored_path"} in report["paths"]
+    assert "src/cash.py" not in seen
+    assert run(gate_case)[0]["reasons"] == ["gate_ignored_path"]
+
+
+def test_rejected_fixture_rules_never_read_the_profile(gate_case, monkeypatch):
+    pin = committed_profile(gate_case)
+    change_policy(gate_case, fixture_roots=["data/fixtures/"], profile_path="profiles/review.txt", profile_sha256=pin)
+    seen = recording_reads(monkeypatch)
+    profile_reads, original = [], policy_module.read_entry
+
+    def recording(repo, revision, path, *args, **kwargs):
+        profile_reads.append(path)
+        return original(repo, revision, path, *args, **kwargs)
+
+    monkeypatch.setattr(policy_module, "read_entry", recording)
+    report = preflight(gate_case)
+    assert "fixture_root_contains_data" in codes(report) and report["paths"] == []
+    assert "profiles/review.txt" not in seen + profile_reads
+
+
+def test_a_name_that_is_not_utf8_only_against_base_still_blocks(gate_case, monkeypatch):
+    repo = gate_case["repo"]
+    # The base moves on after the candidate branched; only base..head sees the odd name.
+    diverged = with_entry(repo, gate_case["base"], gate_case["base"], b"caf\xe9.txt", b"base only\n")
+    seen = recording_reads(monkeypatch)
+    report = preflight({**gate_case, "base": diverged})
+    assert {"code": "path_name_not_utf8", "count": 1} in [
+        {key: entry[key] for key in ("code", "count")} for entry in report["blockers"] if "count" in entry]
+    assert report["coverage_complete"] is False and report["status"] == "blocked"
+    assert {"path": "src/cash.py", "status": "unchecked", "reason": "path_name_not_utf8"} in report["paths"]
+    assert "src/cash.py" not in seen and "caf" not in canonical(report).decode()
