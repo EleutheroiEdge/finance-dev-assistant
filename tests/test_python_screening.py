@@ -22,6 +22,8 @@ pytest_plugins = ("test_model_gate", "test_model_policy")
 KEY = "".join(["Zq7Lm2", "Xp9Rt4", "Vw8"])
 CAPS = "".join(["ZQLMXP", "RTVWYBCDEF"])
 TOKEN = "ghp_" + "a" * 36
+# Labels are split so this file's own strings never pair a label with a value.
+SK, PK, PW = "signing_" + "key", "private_" + "key", "pass" + "word"
 Q = '"'
 FIGURE = "6729102.50"
 SNAPSHOT = TokenSnapshot(frozenset({hashlib.sha256(normalize_numeric_token(FIGURE).encode()).hexdigest()}))
@@ -48,7 +50,7 @@ def refuses(text, path):
     f"user, password = {Q}alice{Q}, {Q}{KEY}{Q}\n",
     f"if (password := {Q}{KEY}{Q}):\n    pass\n",
     f"password = os.getenv({Q}PW{Q}, {Q}{KEY}{Q})\n",
-    f"password = os.environ.get({Q}PW{Q}, {Q}{KEY}{Q})\n",
+    f"{PW} = os.environ.get({Q}PW{Q}, {Q}{KEY}{Q})\n",
     f"api_key: str = Field(default={Q}{KEY}{Q})\n",
     f"apiKey = {Q}{KEY}{Q}\n",
     f"auth_key = {Q}{CAPS}{Q}\n",                               # quoted all-caps literal
@@ -64,14 +66,14 @@ def test_python_credential_literals_refuse(source):
 
 
 @pytest.mark.parametrize("source", [
-    "signing_key: Ed25519PrivateKey | None = None\n",          # annotation only
-    "def sign(private_key: X25519PrivateKey | None = None):\n    pass\n",
-    'signing_key: "Ed25519PrivateKey"\n',                     # forward reference
+    f"{SK}: Ed25519PrivateKey | None = None\n",                # annotation only
+    f"def sign({PK}: X25519PrivateKey | None = None):\n    pass\n",
+    f'{SK}: "Ed25519PrivateKey"\n',                           # forward reference
     "signing_key: Optional[SigningKey] = None\n",
     f"signing_key = {KEY}\n",                                  # unquoted name, not a literal
     f"auth_key = {CAPS}\n",
-    "password = get_password_from_vault()\n",                  # call result, not a literal
-    f"password = request.form.get({Q}password{Q})\n",
+    f"{PW} = get_password_from_vault()\n",                     # call result, not a literal
+    f"{PW} = request.form.get({Q}password{Q})\n",
     f"api_key = os.environ[{Q}API_KEY{Q}]\n",
     f"password = {Q}short{Q}\n",                               # under the length threshold
     f"password_hash = {Q}{KEY}{Q}\n",                          # name does not end in a credential word
@@ -85,18 +87,18 @@ def test_python_non_literals_and_annotations_pass(source):
 def test_python_known_formats_and_custom_patterns_still_read_raw_text():
     refuses(f"bootstrap = {Q}{TOKEN}{Q}\n", "src/settings.py")
     with pytest.raises(AssistantError, match="^project_content_blocked$"):
-        check_text("signing_key: Ed25519PrivateKey\n", source_path="a.py", extra_patterns=("Ed25519",))
+        check_text(f"{SK}: Ed25519PrivateKey\n", source_path="a.py", extra_patterns=("Ed25519",))
 
 
 def test_unparseable_python_keeps_the_strict_text_rules():
-    refuses("signing_key: Ed25519PrivateKey\nif x\n", "src/broken.py")
+    refuses(f"{SK}: Ed25519PrivateKey\nif x\n", "src/broken.py")
     refuses(f"password = {KEY} (\n", "src/broken.py")  # unparseable: the text rule reads unquoted values
 
 
 @pytest.mark.parametrize("name,source,refused", [
     ("c.yaml", f"aws_secret_access_key: {KEY}Yb3\n", True),
-    ("c.yaml", "signing_key: Ed25519PrivateKey\n", True),       # documented text-rule limit
-    ("README.md", "```python\nsigning_key: Ed25519PrivateKey\n```\n", True),
+    ("c.yaml", f"{SK}: Ed25519PrivateKey\n", True),             # documented text-rule limit
+    ("README.md", f"```python\n{SK}: Ed25519PrivateKey\n```\n", True),
     ("README.md", f"```python\npassword: str = {Q}{KEY}{Q}\n```\n", False),  # documented gap
     ("c.yaml", f"auth_key: {CAPS}\n", False),                   # documented gap
 ])
@@ -109,8 +111,8 @@ def test_non_python_files_keep_the_text_rules(name, source, refused):
 
 def test_context_document_does_not_undo_python_decisions():
     document = {"files": [{"path": "a.py", "before": None,
-                           "after": "signing_key: Ed25519PrivateKey | None = None\n"
-                                    "password = get_password_from_vault()\n"}]}
+                           "after": f"{SK}: Ed25519PrivateKey | None = None\n"
+                                    f"{PW} = get_password_from_vault()\n"}]}
     check_context_document(document)
     document["files"][0]["after"] += f"api_key: str = {Q}{KEY}{Q}\n"
     with pytest.raises(AssistantError, match="^sensitive_content$"):
@@ -132,8 +134,8 @@ def test_typed_default_never_dispatches_or_reserves(gate_case):
 
 
 def test_annotations_and_call_results_pass_the_gate(gate_case):
-    source = ("signing_key: Ed25519PrivateKey | None = None\n"
-              "password = get_password_from_vault()\n")
+    source = (f"{SK}: Ed25519PrivateKey | None = None\n"
+              f"{PW} = get_password_from_vault()\n")
     candidate(gate_case, source)
 
     def clear(packet):
