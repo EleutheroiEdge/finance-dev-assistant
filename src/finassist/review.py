@@ -37,6 +37,20 @@ class PolicyRequestApproval:
             raise AssistantError("request_approval_mismatch")
 
 
+def spend_estimate(packet: dict, system: str, request_body: bytes, config: Config,
+                   *, policy_bound: bool) -> tuple[int, Decimal]:
+    """A conservative byte-based estimate plus envelope allowance is a planning
+    reservation, not a provider-enforced billing cap or tokenizer guarantee."""
+    input_bound = len(canonical(packet)) + len(system.encode()) + 16_384
+    if policy_bound:
+        input_bound = max(input_bound, len(request_body) + 16_384)
+    price_in, price_out = (
+        Decimal(str(config.input_usd_per_million)),
+        Decimal(str(config.output_usd_per_million)),
+    )
+    return input_bound, (Decimal(input_bound) * price_in + Decimal(config.max_output_tokens) * price_out) / 1_000_000
+
+
 def review_schema() -> dict:
     return json.loads(read_utf8(files("finassist").joinpath("resources/review.schema.json")))
 
@@ -134,16 +148,12 @@ def call_model(
                                "output_usd_per_million": config.output_usd_per_million})
     if not config.allow_network or not network_approved:
         raise network_not_approved(config.allow_network, network_approved)
-    # A conservative byte-based estimate plus envelope allowance is a planning
-    # reservation, not a provider-enforced billing cap or tokenizer guarantee.
-    input_bound = len(canonical(packet)) + len(system.encode()) + 16_384
-    if policy_approval is not None:
-        input_bound = max(input_bound, len(request_body) + 16_384)
+    input_bound, estimate = spend_estimate(packet, system, request_body, config,
+                                           policy_bound=policy_approval is not None)
     price_in, price_out = (
         Decimal(str(config.input_usd_per_million)),
         Decimal(str(config.output_usd_per_million)),
     )
-    estimate = (Decimal(input_bound) * price_in + Decimal(config.max_output_tokens) * price_out) / 1_000_000
     if token_guard is not None:
         token_guard.recheck(packet, system)
     with Ledger(ledger_path) as ledger:

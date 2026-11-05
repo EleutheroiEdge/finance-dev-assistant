@@ -234,6 +234,33 @@ the 48,000-byte default. Byte limits are enforced during construction, packet
 revalidation, model dispatch and recipe staging. Raising either limit does not
 raise the total request/packet caps or change offline/approval/budget defaults.
 
+## Checking readiness first
+
+Before the first `gate run` on a range, run the preflight:
+
+```sh
+finassist doctor --policy gate-policy.json --repo . --base BASE --head HEAD
+```
+
+It reports every blocker the gate would hit for that range in one run, each with a
+`hint`, and exits 0 when the range is ready and 1 when it is blocked. It also lists:
+- **Each changed path** as `included` or `refused`, with the code and any limit or size.
+- **Every policy schema error,** with its field and allowed values. Current values are never echoed.
+- **The size of the exact request body** against `max_request_bytes`.
+- **The reserved spend estimate** against `max_run_usd` and `daily_budget_usd`.
+  Spend already recorded in a state directory is not read.
+- **The policy's sha256 at base,** to pass as `--policy-sha256`. The full commit hashes
+  `gate run` needs are given too.
+- **Whether the key variable is set.** The preflight checks that it is set, never its value.
+- **Settings that have no effect,** such as a prefix that matches no file.
+
+The preflight makes no network call, reads no key value, opens no ledger and spends
+nothing. Path names appear only in its local output, and a name that fails
+screening is shown as `[redacted]`. They never enter a packet, gate report or audit
+row. Once its own checks pass, it runs the gate's policy loader and source builder
+too, so `ready` means `gate run` will accept the range up to the provider call. The
+provider's answer, the key's value and prior spend are not checked.
+
 ## Calling it locally
 
 Use trusted installed package code, outside candidate-controlled imports:

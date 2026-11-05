@@ -14,6 +14,16 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   These fields never include values, paths or file contents.
 - **`doctor` (#64).** It now reports `config_source` (`file` or `defaults`) and `config_warnings`. The warnings cover a `finassist.json` that was not passed with `--config`, a `text_suffixes` entry the deny list always refuses, and a paid provider with zero prices.
 
+- **`doctor --policy` preflight (#64).** `finassist doctor --policy P --repo R --base B --head H` reports every gate blocker for one range in one run, each with a hint. That covers:
+  - each changed path and why it is refused, named only in local output;
+  - every policy schema error with its allowed values;
+  - the request size;
+  - the reserved spend;
+  - the policy's sha256;
+  - whether the key variable is set.
+
+  It makes no network call, reads no key value, opens no ledger and spends nothing. It exits 0 when ready and 1 when blocked.
+
 ### Upgrading
 - **Scripts reading stderr errors.** They should key on `code`; refusal objects may now carry extra fields.
 
