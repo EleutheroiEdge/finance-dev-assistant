@@ -753,7 +753,9 @@ def main(argv: list[str] | None = None) -> int:
                 _emit(result)
                 outcome["exit_code"] = 0 if result["installer_exit_code"] == 0 else 1
                 return outcome["exit_code"]
-        if args.command == "doctor" and any((args.policy, args.policy_sha256, args.repo, args.base, args.head)):
+        if args.command == "doctor" and any(
+            value is not None for value in (args.policy, args.policy_sha256, args.repo, args.base, args.head)
+        ):
             from .onboarding import run_policy_doctor
 
             return run_policy_doctor(args)

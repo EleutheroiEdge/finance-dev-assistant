@@ -244,7 +244,10 @@ finassist doctor --policy gate-policy.json --repo . --base BASE --head HEAD
 
 It reports every blocker the gate would hit for that range in one run, each with a
 `hint`, and exits 0 when the range is ready and 1 when it is blocked. It also lists:
-- **Each changed path** as `included` or `refused`, with the code and any limit or size.
+- **Each changed path** as `included`, `refused` (with the code and any limit or size)
+  or `unchecked`. A path is `unchecked` when a screening step can't run, for example an
+  unreadable token file or too many files. Its contents are then not read. At most
+  2,000 paths are listed.
 - **Every policy schema error,** with its field and allowed values. Current values are never echoed.
 - **The size of the exact request body** against `max_request_bytes`.
 - **The reserved spend estimate** against `max_run_usd` and `daily_budget_usd`.
@@ -257,7 +260,15 @@ It reports every blocker the gate would hit for that range in one run, each with
 The preflight makes no network call, reads no key value, opens no ledger and spends
 nothing. Path names appear only in its local output, and a name that fails
 screening is shown as `[redacted]`. They never enter a packet, gate report or audit
-row. Once its own checks pass, it runs the gate's policy loader and source builder
+row.
+
+The pin decides what the policy may make it read:
+- **A supplied `--policy-sha256` that is invalid or does not match.** Only checks on
+  the policy bytes run. Nothing the policy selects is read.
+- **No pin.** The policy's sha256 is shown, but a `forbidden_token_file` outside the
+  repository is not opened until you confirm the policy with `--policy-sha256`.
+
+Once its own checks pass, it runs the gate's policy loader and source builder
 too, so `ready` means `gate run` will accept the range up to the provider call. The
 provider's answer, the key's value and prior spend are not checked.
 

@@ -12,6 +12,7 @@ from decimal import Decimal
 import os
 from pathlib import Path, PurePosixPath
 import re
+import unicodedata
 from urllib.parse import urlsplit
 
 import jsonschema
@@ -27,7 +28,8 @@ from .policy_ignores import screen_ignores
 from .providers import request_payload
 from .review import review_schema, spend_estimate
 from .scope import git, read_entry, resolve
-from .security import canonical, check_model_path, check_path, check_text, digest, regular_path, safe_relative
+from .security import (TEXT_FIXTURE_SUFFIXES, canonical, check_fixture_private, check_model_path, check_path,
+                       check_text, digest, regular_path, safe_relative)
 
 HINTS = {
     "invalid_revision": "Pass a commit that exists in this repository.",
@@ -56,8 +58,7 @@ HINTS = {
     "gate_ignore_change_requires_review": "The range changes a .gitignore file. Land that change on its own first.",
     "gate_path_not_allowed": "Add a prefix covering this path to allow_paths, or keep the file out of the range.",
     "gate_denied_path": "deny_paths excludes this path. Keep the file out of the range.",
-    "private_or_binary_path": "Data and binary formats are always refused, whatever text_suffixes says. "
-                              "Admit synthetic fixtures with fixture_roots.",
+    "private_or_binary_path": "Data and binary formats are always refused, whatever text_suffixes says.",
     "gate_private_path": "Paths with a private component (data, private, client, household) are never reviewed.",
     "private_path": "This path is always private and is never reviewed.",
     "unsupported_file_type": "Only text source suffixes are reviewed.",
@@ -84,6 +85,30 @@ WARNINGS = {
     "fixture_limit_without_roots": "fixture_max_file_bytes has no effect without fixture_roots.",
 }
 _BOUNDS = ("type", "minimum", "maximum", "minLength", "maxLength", "minItems", "maxItems", "enum", "const", "pattern")
+_MAX_ROWS = 2000  # The most changed files a policy can allow; longer ranges are summarized.
+
+
+def _format_hint(path: str) -> str:
+    """The remedy that can actually work for a refused data or binary file."""
+    if PurePosixPath(path).suffix.lower() in TEXT_FIXTURE_SUFFIXES:
+        try:
+            check_fixture_private(path)
+        except AssistantError:
+            return "This is private data. It is never reviewed; keep it out of the range."
+        return ("A synthetic fixture in this format can be admitted with fixture_roots: a root under a tests "
+                "or fixtures directory, or one with a .finledgerpoli-synthetic marker.")
+    return "This format is always refused and can't be admitted as a fixture; keep it out of the range."
+
+
+def _shown_argument(value: str) -> str:
+    """A local command-line argument for display, or a placeholder when it fails screening."""
+    try:
+        if any(unicodedata.category(char) in {"Cc", "Cf"} for char in value):
+            raise AssistantError("unsafe_path")
+        check_text(value)
+    except AssistantError:
+        return "<repository>"
+    return value
 
 
 def _shown(name) -> str:
@@ -129,7 +154,10 @@ def _matches(path: str, prefix: str) -> bool:
 class _Preflight:
     def __init__(self, repo: Path, base: str, head: str, policy_path: str, pin: str | None, environment):
         self.repo, self.base_ref, self.head_ref = repo, base, head
-        self.policy_path, self.pin, self.environment = policy_path, pin, environment
+        self.policy_path, self.pin = policy_path, pin
+        # Names only, taken once. Iterating an environment mapping yields names, while
+        # a membership test on os.environ looks up and decodes the value.
+        self.environment_names = frozenset(iter(environment))
         self.report = {
             "schema_version": 1, "mode": "gate-preflight", "status": "blocked", "base": None, "head": None,
             "policy": {"path": _shown(policy_path), "sha256": None,
@@ -140,7 +168,8 @@ class _Preflight:
         }
 
     def block(self, code: str, **details) -> None:
-        entry = {"code": code, **details, "hint": HINTS.get(code, _DEFAULT_HINT)}
+        entry = {"code": code, **details}
+        entry.setdefault("hint", HINTS.get(code, _DEFAULT_HINT))
         if entry not in self.report["blockers"]:
             self.report["blockers"].append(entry)
 
@@ -159,7 +188,7 @@ class _Preflight:
         self.report["status"] = "ready" if ready else "blocked"
         if ready:
             self.report["next_step"] = {"command": [
-                "finassist", "gate", "run", "--repo", str(self.repo), "--base", self.report["base"],
+                "finassist", "gate", "run", "--repo", _shown_argument(str(self.repo)), "--base", self.report["base"],
                 "--head", self.report["head"], "--policy", self.report["policy"]["path"],
                 "--policy-sha256", self.report["policy"]["sha256"],
                 "--state-dir", "<private state directory>", "--output", "<new report file>"]}
@@ -181,8 +210,9 @@ class _Preflight:
             return None
         self._prefix_warnings(repo, head, policy.document["model_review"])
         self._paths(repo, base, head, policy)
-        caller_side = {"provider_key_missing", "gate_policy_pin_mismatch", "gate_policy_pin_required"}
-        if all(entry["code"] in caller_side for entry in self.report["blockers"]):
+        # The gate's own loader and source builder run only once nothing else blocks.
+        # A missing key variable is the one exception: it doesn't change the source.
+        if all(entry["code"] == "provider_key_missing" for entry in self.report["blockers"]):
             self._gate_source(repo, base, head, policy)
         return None
 
@@ -225,12 +255,7 @@ class _Preflight:
             check_text(canonical(document).decode())
         except AssistantError as exc:
             self.failed(exc, field="/")
-        settings, settings_valid = None, True
-        try:
-            settings = fixture_settings(repo, base, model)
-        except AssistantError as exc:
-            settings_valid = False
-            self.failed(exc, field="/model_review/fixture_roots")
+        # Checks on the policy bytes alone, with no reads it directs.
         roots = tuple(model.get("fixture_roots", ()))
         for name in ("allow_paths", "deny_paths"):
             for index, prefix in enumerate(model[name]):
@@ -243,17 +268,25 @@ class _Preflight:
         prices = {name: model[name] for name in ("input_usd_per_million", "output_usd_per_million")}
         if model["provider"] != "ollama" and any(value <= 0 for value in prices.values()):
             self.block("provider_prices_required", missing=sorted(k for k, v in prices.items() if v <= 0))
-        profile_text, profile_path = None, None
-        try:
-            profile_text, profile_path = _profile(repo, base, model)
-        except AssistantError as exc:
-            self.failed(exc, field="/model_review/profile_path")
         if model["max_file_bytes"] > model["max_request_bytes"]:
             self.warn("file_limit_above_request_limit")
         if model["daily_budget_usd"] < model["max_run_usd"]:
             self.warn("daily_budget_below_run_budget")
         if "fixture_max_file_bytes" in model and not roots:
             self.warn("fixture_limit_without_roots")
+        if self.pin is not None and self.report["policy"]["pin"] != "matches":
+            return None  # A rejected pin: nothing this policy selects is read.
+        settings, settings_valid = None, True
+        try:
+            settings = fixture_settings(repo, base, model)
+        except AssistantError as exc:
+            settings_valid = False
+            self.failed(exc, field="/model_review/fixture_roots")
+        profile_text, profile_path = None, None
+        try:
+            profile_text, profile_path = _profile(repo, base, model)
+        except AssistantError as exc:
+            self.failed(exc, field="/model_review/profile_path")
         if not settings_valid:
             return None  # Without valid fixture rules, per-path results would mislead.
         try:
@@ -263,12 +296,11 @@ class _Preflight:
         key = config.key_name
         self.report["provider"] = {
             "provider": model["provider"], "key_variable": key,
-            # Membership only: the value is never read.
-            "key_variable_set": bool(key) and key in self.environment,
+            "key_variable_set": bool(key) and key in self.environment_names,
             "allowed_host": model["allowed_host"],
             "prices_configured": model["provider"] == "ollama" or all(value > 0 for value in prices.values()),
         }
-        if key and key not in self.environment:
+        if key and key not in self.environment_names:
             self.block("provider_key_missing", variable=key)
         return ModelGatePolicy(document, config, path, sha, base, profile_path, repo)
 
@@ -296,8 +328,11 @@ class _Preflight:
         paths = changed(ancestor, head)
         if not paths:
             return self.block("empty_review_scope")
+        # A reason that stops every content read; affected paths are reported unchecked.
+        stopped = None
         if len(paths) > model["max_files"]:
             self.block("gate_file_count_exceeded", files=len(paths), limit=model["max_files"])
+            stopped = "gate_file_count_exceeded"
         guarded = set(paths).union(changed(base, head))
         if policy.path in guarded:
             self.block("gate_policy_change_requires_review", path=_shown(policy.path))
@@ -309,42 +344,58 @@ class _Preflight:
             if PurePosixPath(name).name == ".gitignore":
                 self.block("gate_ignore_change_requires_review", path=_shown(name))
         guard = None
-        try:
-            guard = prepare_token_guard(policy, repo)
-            if guard is not None:
-                screen_packet({"files": []}, config.instructions(), guard.snapshot)
-        except AssistantError as exc:
-            self.failed(exc, field="/model_review")
+        if stopped is None and "forbidden_token_file" in model and self.pin is None:
+            # A file the policy points outside the repository is opened only once the
+            # caller has confirmed the policy bytes with --policy-sha256.
+            self.block("gate_policy_pin_required", field="/model_review/forbidden_token_file",
+                       hint="Pass --policy-sha256 so the preflight may open the policy's token file.")
+            stopped = "gate_policy_pin_required"
+        if stopped is None:
+            try:
+                guard = prepare_token_guard(policy, repo)
+                if guard is not None:
+                    screen_packet({"files": []}, config.instructions(), guard.snapshot)
+            except AssistantError as exc:
+                self.failed(exc, field="/model_review")
+                stopped = exc.code
         ignored = set()
-        try:
-            screen_ignores(repo, {base, ancestor}, paths)
-        except AssistantError as exc:
-            if exc.code != "gate_ignored_path":
-                self.failed(exc)
-            else:  # Name the ignored paths; this slower pass runs only when one exists.
-                for path in paths:
-                    try:
-                        screen_ignores(repo, {base, ancestor}, [path])
-                    except AssistantError:
-                        ignored.add(path)
-        rows = [self._classify(repo, (ancestor, head), path, model, config, guard, ignored) for path in paths]
+        if stopped is None:
+            try:
+                screen_ignores(repo, {base, ancestor}, paths)
+            except AssistantError as exc:
+                if exc.code != "gate_ignored_path":
+                    self.failed(exc)
+                    stopped = exc.code
+                else:  # Name the ignored paths; this slower pass runs only when one exists.
+                    for path in paths:
+                        try:
+                            screen_ignores(repo, {base, ancestor}, [path])
+                        except AssistantError:
+                            ignored.add(path)
+        rows = [self._classify(repo, (ancestor, head), path, model, config, guard, ignored, stopped)
+                for path in paths[:_MAX_ROWS]]
         self.report["paths"] = rows
-        self.report["coverage_complete"] = all(row["status"] == "included" for row in rows)
+        if len(paths) > _MAX_ROWS:
+            self.report["paths_not_listed"] = len(paths) - _MAX_ROWS
+        self.report["coverage_complete"] = len(paths) <= _MAX_ROWS and all(row["status"] == "included" for row in rows)
         for row in rows:
-            if row["status"] != "included":
+            if row["status"] == "refused":
                 self.block(row["code"], **{key: value for key, value in row.items() if key not in {"status", "code"}})
         return None
 
     def _classify(self, repo: Path, revisions: tuple[str, str], path: str, model: dict, config, guard,
-                  ignored: set[str]) -> dict:
+                  ignored: set[str], stopped: str | None) -> dict:
         ancestor, head = revisions
         row = {"path": _shown(path)}
         try:
+            # Name-only rules first: they read nothing.
             check_model_path(path, fixture_roots=getattr(config, "fixture_roots", ()))
             if any(_matches(path, prefix) for prefix in model["deny_paths"]):
                 raise AssistantError("gate_denied_path")
             if not config.allows(path):
                 raise AssistantError("gate_path_not_allowed")
+            if stopped is not None:
+                return {**row, "status": "unchecked", "reason": stopped}
             if path in ignored:
                 raise AssistantError("gate_ignored_path")
             sides = {}
@@ -362,7 +413,10 @@ class _Preflight:
             if guard is not None:
                 screen_packet({"files": [{"path": path, **sides}]}, "", guard.snapshot)
         except AssistantError as exc:
-            return {**row, "status": "refused", "code": exc.code, **exc.public_details}
+            refused = {**row, "status": "refused", "code": exc.code, **exc.public_details}
+            if exc.code == "private_or_binary_path":
+                refused["hint"] = _format_hint(path)
+            return refused
         return {**row, "status": "included"}
 
     def _gate_source(self, repo: Path, base: str, head: str, policy: ModelGatePolicy) -> None:
@@ -395,11 +449,12 @@ def policy_preflight(repo: Path, base: str, head: str, policy_path: str, policy_
 
 
 def run_policy_doctor(args) -> int:
-    if args.policy is None:
-        raise AssistantError("doctor_policy_required")
-    if args.config or args.fix or args.check_updates or args.state_dir:
+    """Validate every preflight option before anything else runs; empty values count as missing."""
+    if args.config is not None or args.fix or args.check_updates or args.state_dir is not None:
         raise AssistantError("doctor_policy_options_conflict")
-    if not (args.repo and args.base and args.head):
+    if not args.policy:
+        raise AssistantError("doctor_policy_required")
+    if args.repo is None or not str(args.repo) or not args.base or not args.head:
         raise AssistantError("doctor_policy_range_required")
     report = policy_preflight(args.repo, args.base, args.head, args.policy, args.policy_sha256)
     print(canonical(report).decode())
