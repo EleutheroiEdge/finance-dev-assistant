@@ -418,6 +418,20 @@ def test_out_of_range_exact_values_are_not_their_rounded_neighbours(template):
         screen_source(template.format(exactly_one), "src/cash.py", listed_one)
 
 
+def test_many_numeric_credential_values_screen_in_linear_time():
+    import time
+    account, api = "account_" + "id", "api_" + "key"
+    # Every value passes: account values under six digits, secret values under 12 characters.
+    passing = f"{account} = 7\n{account} = 7.5\n{api} = 7\n{SK} = 7.25\n" * 5_000
+    started = time.perf_counter()
+    check_text(passing, source_path="src/settings.py")
+    assert time.perf_counter() - started < 5
+    # A qualifying literal late in the same file still refuses.
+    refuses(passing + f"{account} = 12_345_678\n", "src/settings.py")
+    refuses(passing + f"{account} = 12345678.0\n", "src/settings.py")
+    refuses(passing + f"{api} = 123456789012\n", "src/settings.py")
+
+
 def test_many_literals_screen_in_linear_time():
     import time
     source = "x = 7\n" * 20_000 + 'y = f"{7}"\n' * 20_000

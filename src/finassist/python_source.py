@@ -264,7 +264,7 @@ def _value_node(node: ast.AST) -> ast.AST | None:
     return None
 
 
-def _value_text(node: ast.AST | None, source: str) -> str | None:
+def _value_text(node: ast.AST | None, index: _SourceIndex) -> str | None:
     """Text of a literal value. Numbers keep their source spelling, never str(int)."""
     if isinstance(node, ast.Constant):
         value = node.value
@@ -273,7 +273,8 @@ def _value_text(node: ast.AST | None, source: str) -> str | None:
         if isinstance(value, bytes):
             return value.decode("latin-1")
         if isinstance(value, (int, float, complex)) and not isinstance(value, bool):
-            return ast.get_source_segment(source, node)
+            # One token on one line: read from the per-file index, not the whole file.
+            return index.segment(node)
         return None
     if isinstance(node, ast.JoinedStr) and all(isinstance(part, ast.Constant) for part in node.values):
         return "".join(str(part.value) for part in node.values)
@@ -325,17 +326,19 @@ def _labelled_values(tree: ast.AST):
                     yield key.value, value
 
 
-def _is_account_value(node: ast.AST, text: str | None) -> bool:
+def _is_account_value(node: ast.AST, index: _SourceIndex) -> bool:
     if (isinstance(node, ast.Constant) and isinstance(node.value, int)
             and not isinstance(node.value, bool)):
         # Magnitude, not spelling: 123_456_789 and 0x1E240 both count, and no
-        # decimal conversion of a huge integer is needed.
+        # decimal conversion of a huge integer or source lookup is needed.
         return abs(node.value) >= _MIN_ACCOUNT_VALUE
+    text = _value_text(node, index)
     return text is not None and re.match(r"\d{6,}", text.replace("_", "")) is not None
 
 
 def credential_literal_present(tree: ast.AST, source: str) -> bool:
     """True when a credential-named target is given a literal value."""
+    index = _SourceIndex(source)
     for name, node in _labelled_values(tree):
         kind = _label_kind(name)
         if kind is None:
@@ -343,9 +346,11 @@ def credential_literal_present(tree: ast.AST, source: str) -> bool:
         value = _value_node(node)
         if value is None:
             continue
-        text = _value_text(value, source)
-        if kind == "secret" and text is not None and len(text) >= _MIN_SECRET_LENGTH:
-            return True
-        if kind == "account" and _is_account_value(value, text):
+        if kind == "account":
+            if _is_account_value(value, index):
+                return True
+            continue
+        text = _value_text(value, index)
+        if text is not None and len(text) >= _MIN_SECRET_LENGTH:
             return True
     return False
