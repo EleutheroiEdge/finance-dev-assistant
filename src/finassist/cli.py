@@ -16,7 +16,7 @@ import time
 
 from . import installed_version
 from .auditing import command_audit
-from .config import Config, PROVIDERS, load_config, save_config
+from .config import Config, load_config, save_config
 from .demo import run_demo
 from .health import doctor_report
 from .errors import AssistantError
@@ -88,17 +88,8 @@ def parser() -> argparse.ArgumentParser:
     migrate = config_actions.add_parser("migrate", help="Keep exact backup bytes before applying reviewed key renames")
     migrate.add_argument("--path", type=Path, help="Configuration file; otherwise --config or finassist.json")
     migrate.add_argument("--dry-run", action="store_true")
-    init = commands.add_parser("init", help="Create offline-by-default configuration")
-    init.add_argument("--output", default="finassist.json")
-    init.add_argument("--provider", choices=sorted(PROVIDERS), default="offline")
-    init.add_argument("--model", default="")
-    init.add_argument("--profile", help="Name in the configured profile registry")
-    doctor = commands.add_parser(
-        "doctor", help="Check runtime, provider setup and container availability without network"
-    )
-    doctor.add_argument("--fix", action="store_true", help="Apply only explicit safe reversible local migrations")
-    doctor.add_argument("--state-dir", type=Path)
-    doctor.add_argument("--check-updates", action="store_true", help="Check PyPI once when project network use is allowed")
+    from .onboarding_commands import add_onboarding_commands
+    add_onboarding_commands(commands)
     update = commands.add_parser("update", help="Inspect installation or explicitly upgrade; never migrate project data")
     update.add_argument("update_action", nargs="?", choices=["status"])
     update.add_argument("--json", action="store_true", help="Emit JSON (also the default output contract)")

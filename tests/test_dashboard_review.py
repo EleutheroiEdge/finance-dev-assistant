@@ -54,8 +54,14 @@ def test_plan_and_check_the_assistants_own_committed_tree(tmp_path, operation):
     assert command(root, "rev-parse", candidate + "^{tree}") == tree
     script = "from pathlib import Path; assert Path('src/finassist/config.py').is_file(); assert not Path('src/finassist/resources/dashboard/assets').exists(); print('Synthetic scope check: PASS')"
     # Retain the 48 KB file ceiling. A whole-repository change needs a larger
-    # packet ceiling, independently of the generated bundle exclusion.
-    config = replace(Config(), max_packet_bytes=2_000_000, recipes={"scope": [sys.executable, "-c", script]})
+    # packet ceiling, independently of the generated bundle exclusion. The bundled
+    # guide copies are excluded like generated files: test_guides.py proves each
+    # copy matches its source document, and the source documents stay in scope.
+    from finassist.guides import GUIDES
+    guide_copies = {"src/finassist/resources/" + resource for _title, _source, resource in GUIDES.values()}
+    generated = (*Config().generated_paths, *sorted(guide_copies))
+    config = replace(Config(), max_packet_bytes=2_000_000, recipes={"scope": [sys.executable, "-c", script]},
+                     generated_paths=generated)
     path, output = tmp_path / "configuration.json", tmp_path / "result.json"
     save_config(path, config)
     args = [
@@ -78,6 +84,8 @@ def test_plan_and_check_the_assistants_own_committed_tree(tmp_path, operation):
     result = json.loads(output.read_text(encoding="utf-8"))
     if operation == "plan":
         assert any(row["reason"] == "generated_artifact_excluded" for row in result["omitted"])
+        excluded = {row["path"] for row in result["omitted"] if row["reason"] == "generated_artifact_excluded"}
+        assert guide_copies <= excluded
         assert not any(
             row["path"].startswith("src/finassist/resources/dashboard/") for row in result["files"]
         )
