@@ -247,7 +247,8 @@ It reports every blocker the gate would hit for that range in one run, each with
 - **Each changed path** as `included`, `refused` (with the code and any limit or size)
   or `unchecked`. A path is `unchecked` when a screening step can't run, for example an
   unreadable token file or too many files. Its contents are then not read. At most
-  2,000 paths are listed.
+  2,000 paths are listed. Path refusals are grouped by code, each with a `count` and
+  up to 20 example `paths`. A changed name that isn't UTF-8 is counted, never shown.
 - **Every policy schema error,** with its field and allowed values. Current values are never echoed.
 - **The size of the exact request body** against `max_request_bytes`.
 - **The reserved spend estimate** against `max_run_usd` and `daily_budget_usd`.
@@ -267,6 +268,8 @@ The pin decides what the policy may make it read:
   the policy bytes run. Nothing the policy selects is read.
 - **No pin.** The policy's sha256 is shown, but a `forbidden_token_file` outside the
   repository is not opened until you confirm the policy with `--policy-sha256`.
+- **A policy that fails screening, path rules, fixture rules or its profile.** Its
+  blockers are reported, and nothing else it selects is read.
 
 Once its own checks pass, it runs the gate's policy loader and source builder
 too, so `ready` means `gate run` will accept the range up to the provider call. The

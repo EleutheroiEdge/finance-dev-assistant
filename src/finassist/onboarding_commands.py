@@ -19,6 +19,6 @@ def add_onboarding_commands(commands) -> None:
     preflight = doctor.add_argument_group("gate preflight", "Report every gate blocker for one range, offline and without reading a key")
     preflight.add_argument("--policy", help="Gate policy path, read at --base")
     preflight.add_argument("--policy-sha256", help="Expected sha256 of the policy bytes at base")
-    preflight.add_argument("--repo", type=Path)
+    preflight.add_argument("--repo", help="Repository checkout; checked before it is used as a path")
     preflight.add_argument("--base")
     preflight.add_argument("--head")

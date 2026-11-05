@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 import hashlib
 import json
+import subprocess
 
 import pytest
 
@@ -19,6 +20,7 @@ from finassist.cli import main
 from finassist.config import Config
 from finassist.forbidden_tokens import normalize_numeric_token
 from finassist.onboarding import policy_preflight
+from finassist.scope import git_command, git_environment
 from finassist.security import canonical, digest
 
 pytest_plugins = ("test_model_gate", "test_model_policy")
@@ -115,7 +117,7 @@ def test_one_run_lists_every_adopter_blocker(adopter_case):
     assert rows["engine/walkdown.py"]["limit"] == 200_000 and rows["engine/walkdown.py"]["bytes"] > 200_000
     assert rows["tests/fixtures/prices.csv"]["code"] == "private_or_binary_path"
     assert rows["data/master.csv"]["code"] in {"private_or_binary_path", "gate_private_path"}
-    found = {(entry["code"], entry.get("path")) for entry in report["blockers"]}
+    found = {(entry["code"], path) for entry in report["blockers"] for path in entry.get("paths", [None])}
     assert ("provider_prices_required", None) in found
     assert {("gate_path_not_allowed", "app.py"), ("file_limit_exceeded", "engine/walkdown.py"),
             ("private_or_binary_path", "tests/fixtures/prices.csv")} <= found
@@ -187,8 +189,8 @@ def test_a_policy_change_inside_the_range_is_named(gate_case):
     command(gate_case["repo"], "commit", "-m", "Unreviewed policy change")
     gate_case["head"] = command(gate_case["repo"], "rev-parse", "HEAD")
     report = preflight(gate_case)
-    assert {"code": "gate_policy_change_requires_review", "path": "gate-policy.json"} in [
-        {key: entry[key] for key in ("code", "path")} for entry in report["blockers"] if "path" in entry]
+    change = next(entry for entry in report["blockers"] if entry["code"] == "gate_policy_change_requires_review")
+    assert change["paths"] == ["gate-policy.json"] and change["count"] == 1
     assert run(gate_case)[0]["reasons"] == ["gate_policy_change_requires_review"]
 
 
@@ -342,9 +344,15 @@ def test_empty_preflight_options_never_reach_plain_doctor(gate_case, capsys, mon
         (["doctor", "--base", ""], "doctor_policy_required"),
         (["doctor", "--policy", "gate-policy.json", "--repo", str(gate_case["repo"]), "--base", "",
           "--head", gate_case["head"]], "doctor_policy_range_required"),
+        (["doctor", "--policy", "gate-policy.json", "--repo", "", "--base", gate_case["base"],
+          "--head", gate_case["head"]], "doctor_policy_range_required"),
     ):
         assert main(argv) == 2
         assert json.loads(capsys.readouterr().err)["code"] == code
+    monkeypatch.chdir(gate_case["repo"])
+    assert main(["doctor", "--policy", "gate-policy.json", "--repo", ".", "--base", gate_case["base"],
+                 "--head", gate_case["head"]]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "ready"
 
 
 def test_the_next_command_screens_the_repository_argument(gate_case):
@@ -353,3 +361,114 @@ def test_the_next_command_screens_the_repository_argument(gate_case):
     report = preflight(gate_case)
     assert report["status"] == "ready" and report["next_step"]["command"][4] == "<repository>"
     assert "ghp_" not in canonical(report).decode()
+
+
+def recording_reads(monkeypatch) -> list[str]:
+    seen, original = [], onboarding.read_entry
+
+    def recording(repo, revision, path, *args, **kwargs):
+        seen.append(path)
+        return original(repo, revision, path, *args, **kwargs)
+
+    monkeypatch.setattr(onboarding, "read_entry", recording)
+    return seen
+
+
+@pytest.mark.parametrize("failure", ["screening", "profile"])
+def test_a_policy_failing_screening_or_its_profile_reads_nothing_else(gate_case, monkeypatch, failure):
+    if failure == "screening":
+        change_policy(gate_case, deny_paths=["ghp_" + "a" * 36 + "/"])
+        expected = "sensitive_content"
+    else:
+        (gate_case["repo"] / "profiles").mkdir()
+        (gate_case["repo"] / "profiles/review.txt").write_text("Check every total.\n", encoding="utf-8")
+        command(gate_case["repo"], "add", "profiles/review.txt")
+        command(gate_case["repo"], "commit", "-m", "Synthetic profile")
+        change_policy(gate_case, profile_path="profiles/review.txt", profile_sha256="0" * 64)
+        expected = "gate_profile_pin_mismatch"
+    seen = recording_reads(monkeypatch)
+    monkeypatch.setattr(onboarding, "prepare_token_guard", refuse)
+    report = preflight(gate_case)
+    assert expected in codes(report) and report["status"] == "blocked"
+    assert report["paths"] == [] and report["coverage_complete"] is None
+    assert not [path for path in seen if path.startswith("src/")]
+
+
+def test_a_failed_single_ignore_check_is_not_reported_as_ignored(gate_case, monkeypatch):
+    for name in ("src/a.py", "src/b.py"):
+        (gate_case["repo"] / name).write_text("VALUE = 1\n", encoding="utf-8")
+        command(gate_case["repo"], "add", name)
+    command(gate_case["repo"], "commit", "-m", "Synthetic extra files")
+    gate_case["head"] = command(gate_case["repo"], "rev-parse", "HEAD")
+
+    def screen(repo, revisions, paths):
+        if len(paths) > 1 or paths == ["src/a.py"]:
+            raise AssistantError("gate_ignored_path")
+        if paths == ["src/b.py"]:
+            raise AssistantError("gate_ignore_check_unavailable")
+
+    monkeypatch.setattr(onboarding, "screen_ignores", screen)
+    seen = recording_reads(monkeypatch)
+    report = preflight(gate_case)
+    assert "gate_ignore_check_unavailable" in codes(report) and "gate_ignored_path" not in codes(report)
+    assert {row["status"] for row in report["paths"]} == {"unchecked"}
+    assert {row["reason"] for row in report["paths"]} == {"gate_ignore_check_unavailable"}
+    assert not [path for path in seen if path.startswith("src/")]
+
+
+def test_the_report_stays_bounded_for_a_large_range(gate_case, monkeypatch):
+    monkeypatch.setattr(onboarding, "_MAX_ROWS", 5)
+    monkeypatch.setattr(onboarding, "_EXAMPLES", 3)
+    change_policy(gate_case, max_files=20)
+    for index in range(8):
+        target = gate_case["repo"] / f"src/part{index}/.gitignore"
+        target.parent.mkdir(parents=True)
+        target.write_text("*.tmp\n", encoding="utf-8")
+        command(gate_case["repo"], "add", str(target.relative_to(gate_case["repo"])))
+    command(gate_case["repo"], "commit", "-m", "Synthetic nested ignore files")
+    gate_case["head"] = command(gate_case["repo"], "rev-parse", "HEAD")
+    report = preflight(gate_case)
+    assert len(report["paths"]) == 5 and report["paths_not_listed"] == 4 and report["coverage_complete"] is False
+    group = next(entry for entry in report["blockers"] if entry["code"] == "gate_ignore_change_requires_review")
+    assert group["count"] == 8 and len(group["paths"]) == 3
+    assert all(len(entry.get("paths", ())) <= 3 for entry in report["blockers"])
+
+
+def test_a_malformed_endpoint_is_reported_at_its_field(gate_case, capsys):
+    change_policy(gate_case, endpoint="https://[")
+    report = preflight(gate_case)
+    assert {"code": "gate_policy_invalid", "field": "/model_review/endpoint", "rule": "url"} in [
+        {key: entry[key] for key in ("code", "field", "rule")} for entry in report["blockers"] if "rule" in entry]
+    assert "preflight_check_failed" not in codes(report)
+    assert main(["doctor", "--policy", "gate-policy.json", "--repo", str(gate_case["repo"]),
+                 "--base", gate_case["base"], "--head", gate_case["head"]]) == 1
+    assert json.loads(capsys.readouterr().out)["status"] == "blocked"
+
+
+def plumbing(repo, *args, data: bytes | None = None) -> bytes:
+    identity = ("-c", "user.name=Synthetic Tester", "-c", "user.email=tester@example.invalid")
+    return subprocess.run(git_command(repo, *identity, *args), input=data, capture_output=True,
+                          env=git_environment(), timeout=30, check=True).stdout.strip()
+
+
+def with_entry(repo, commit: str, parent: str, name: bytes, content: bytes) -> str:
+    """A commit with commit's tree plus one root entry whose name need not be UTF-8."""
+    blob = plumbing(repo, "hash-object", "-w", "--stdin", data=content)
+    entries = [entry for entry in plumbing(repo, "ls-tree", "-z", commit).split(b"\0") if entry]
+    entries = [entry for entry in entries if entry.split(b"\t", 1)[1] != name]
+    tree = plumbing(repo, "mktree", "-z", data=b"\0".join([*entries, b"100644 blob " + blob + b"\t" + name]) + b"\0")
+    return plumbing(repo, "commit-tree", tree.decode(), "-p", parent, "-m", "Synthetic entry").decode()
+
+
+def test_names_that_are_not_utf8_never_stop_or_appear_in_the_report(gate_case):
+    repo, name = gate_case["repo"], b"caf\xe9.txt"
+    base = with_entry(repo, gate_case["base"], gate_case["base"], name, b"unchanged\n")
+    head = with_entry(repo, gate_case["head"], base, name, b"unchanged\n")
+    unrelated = preflight({**gate_case, "base": base, "head": head})
+    assert unrelated["status"] == "ready" and unrelated["paths"] == [{"path": "src/cash.py", "status": "included"}]
+    changed = with_entry(repo, gate_case["head"], base, name, b"changed\n")
+    report = preflight({**gate_case, "base": base, "head": changed})
+    assert {"code": "path_name_not_utf8", "count": 1} in [
+        {key: entry[key] for key in ("code", "count")} for entry in report["blockers"] if "count" in entry]
+    assert report["coverage_complete"] is False and report["status"] == "blocked"
+    assert "caf" not in canonical(report).decode()
