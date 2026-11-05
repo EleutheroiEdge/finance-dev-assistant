@@ -40,24 +40,35 @@ Adapt the [branch-protection template](maintainers/branch-protection-proposal.js
 - Synthetic tests and mocked transports exercise contracts, not live protocol compatibility, model quality or the truth of findings. Version pins and release provenance do not replace complete dependency artifact-hash locking or security review.
 - Configuration and local evidence do not authorize merges, deployment, settings changes or financial actions. No settings-write command or hosted production target is provided.
 
+Secret and confidential-figure screening is a backstop, not the control that keeps
+data private. The primary controls are the path allowlist, keeping secrets in
+gitignored files or a secret manager, and a policy that keeps client data out of
+reviewed source. A pass means only that no rule matched.
+
+In parseable `.py`/`.pyi` source, credential screening reads code with Python's own
+parser. A credential-named target given a literal value is refused: an assignment,
+typed assignment, walrus target, keyword argument, function default, dictionary
+key, attribute or subscript, including a literal fallback in `os.getenv(NAME, ...)`
+or `os.environ.get(NAME, ...)` and a literal `default=` argument. Credential names
+use the label vocabulary below. A string or integer value must have at least 12
+characters; account and routing numbers need at least six leading digits. Type
+annotations are never inspected, so a `signing_key` field annotated
+`Ed25519PrivateKey | None` passes. Unquoted names and call results are not literals and pass. Comments,
+docstrings and other string text are screened with the text rules, and known
+secret formats are screened across the whole file. Python that does not tokenize
+and parse keeps the strict text rules.
+
 Credential key screening requires a credential word in the label: secret,
 private, signing, encryption, access, client, master, auth or api, optionally
 followed by access and then key (underscore/hyphen separators are supported).
 Bare key, primary/foreign/partition/sort/cache/idempotency keys are not secrets
-by name alone. The added matcher screens quoted literals of at least 12
+by name alone. In text, the matcher screens quoted literals of at least 12
 characters and unquoted values; it excludes unquoted calls,
 dotted references and digit-free uppercase-leading whole identifiers. Whitespace,
 end of input and annotation punctuation (`[`, `]`, `)`, `,`, `;`) can end such an
 identifier; `/`, `+`, `=`, `-`, `:` and `@` continue a candidate literal.
-Uppercase-leading unquoted literals containing digits are screened too. Parseable
-Python source identified by a `.py`/`.pyi` path uses a parsed annotation-free
-view for label-assignment checks. Complete variable/parameter annotations,
-including unions, forward references and parenthesized expressions, are hidden
-from the credential-key heuristic. Other secret rules inspect both raw text and
-this view, so typed password, token, credential-key and account/routing assignments
-remain screened. Comments and custom patterns remain screened; source/request
-bytes are never rewritten. Unparseable Python, YAML and text without a Python path
-retain strict screening, including Markdown snippets, TypeScript and Kotlin.
+Uppercase-leading unquoted literals containing digits are screened too.
+Source/request bytes are never rewritten.
 
 Review output may quote an exact credential-label match from a screened Python
 annotation in its hash-bound request; a value merely occurring elsewhere in source
@@ -72,16 +83,31 @@ screening each complete post-image with its path, before any target worktree
 mutation. Rollback screens the original and current file with their Python paths
 when an active policy is supplied. Approval, head, scope and recovery checks remain.
 
-Identifier-shaped values followed by `(` are excluded; quote literal credentials.
-Digit-free all-caps literal values can resemble constants and escape this heuristic.
-A credential written as the annotation itself, such as a bare key-shaped type name,
-is indistinguishable from a Python type reference and can escape the credential-key
-heuristic. Filename and syntax are not proof of privacy. This supplements inspection,
-not a confidentiality proof.
+Known limits of the text rules, which are no longer extended:
+
+- A typed assignment in non-Python text, such as `password: str = "..."` in a
+  Markdown code block, is not detected.
+- A credential-named label followed by a digit-bearing type name, such as
+  `signing_key` annotated `Ed25519PrivateKey`, is refused in Markdown, YAML,
+  TypeScript or Kotlin.
+- Digit-free all-caps unquoted values resemble constants and are not detected.
+- Labels outside the vocabulary (for example `auth_token` or `pwd`) and values
+  shorter than the threshold are not detected.
+- Values split across lines, encoded or built at runtime are not detected.
+
+Known limits of the Python check: values computed at runtime (concatenation,
+variables and calls other than the two fallback forms above) are not literals and
+pass, and a credential written as a type annotation is not inspected.
+
+Quote literal credentials. Filename and syntax are not proof of privacy. This
+supplements inspection, not a confidentiality proof.
 
 Confidential numeric screening in the policy-approved model gate and history
 compares listed magnitudes in source, allowed fixtures, profiles and provider
-free text before exposing findings. It fails closed on grouped short figures;
+free text before exposing findings. Every file is screened as text; in Python files
+each numeric literal is also read with Python's own tokenizer and compared by exact
+value, and a `.py` file that cannot be tokenized is refused. It fails closed on grouped
+short figures;
 legacy `review` and `propose` remain outside this opt-in guard. See the
 [pre-merge gate](pre-merge-gate.md#confidential-numeric-tokens-policy-approved-model-gate)
 for exact exemptions, encoding limits and private token-file rules.

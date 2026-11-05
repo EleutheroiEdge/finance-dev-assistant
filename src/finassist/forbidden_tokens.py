@@ -9,9 +9,11 @@ import os
 from pathlib import Path
 import re
 import stat
+import tokenize
 import unicodedata
 
 from .errors import AssistantError
+from .python_source import is_python_path, number_text, python_tokens
 from .security import regular_path
 
 _CURRENCIES = "$€£¥"
@@ -184,6 +186,14 @@ _DIGIT_SEPARATED = re.compile(
 )
 
 
+def _listed(number: str, snapshot: TokenSnapshot) -> bool:
+    magnitude = number.lstrip("-")
+    # Hash-only policies can list either sign. Compare both without
+    # recovering or retaining any configured plaintext value.
+    forms = {number, magnitude, "-" + magnitude} if magnitude != "0" else {"0"}
+    return any(hashlib.sha256(form.encode("utf-8")).hexdigest() in snapshot.hashes for form in forms)
+
+
 def screen_text(text: str, snapshot: TokenSnapshot) -> None:
     """Check content only; callers must select typed content, not filenames."""
     if not snapshot.hashes:
@@ -194,13 +204,35 @@ def screen_text(text: str, snapshot: TokenSnapshot) -> None:
                 number = normalize_numeric_token(match.group())
             except AssistantError:
                 continue
-            magnitude = number.lstrip("-")
-            # Hash-only policies can list either sign. Compare both without
-            # recovering or retaining any configured plaintext value.
-            forms = {number, magnitude, "-" + magnitude} if magnitude != "0" else {"0"}
-            if any(hashlib.sha256(form.encode("utf-8")).hexdigest() in snapshot.hashes
-                   for form in forms):
+            if _listed(number, snapshot):
                 raise AssistantError("forbidden_token_present")
+
+
+def screen_source(text: str, path: str | None, snapshot: TokenSnapshot) -> None:
+    """Screen one file's text; in Python, also read every number as Python does."""
+    if not snapshot.hashes:
+        return
+    # What leaves the machine is text, so the text screen runs on every file,
+    # Python included: `(6,729,102.50)` is a tuple in code but reads as the figure.
+    screen_text(text, snapshot)
+    if not is_python_path(path):
+        return
+    tokens = python_tokens(text)
+    if tokens is None:
+        # Never fall back silently: an unreadable Python file is refused.
+        raise AssistantError("forbidden_token_python_unreadable")
+    for token in tokens:
+        if token.type != tokenize.NUMBER:
+            continue
+        plain = number_text(token.string)
+        if plain is None:
+            continue
+        try:
+            number = normalize_numeric_token(plain)
+        except AssistantError:
+            continue
+        if _listed(number, snapshot):
+            raise AssistantError("forbidden_token_present")
 
 
 def screen_packet(packet: dict, system: str, snapshot: TokenSnapshot) -> None:
@@ -209,7 +241,7 @@ def screen_packet(packet: dict, system: str, snapshot: TokenSnapshot) -> None:
     for item in packet["files"]:
         for side in ("before", "after"):
             if item[side] is not None:
-                screen_text(item[side], snapshot)
+                screen_source(item[side], item.get("path"), snapshot)
 
 
 @dataclass(frozen=True)
