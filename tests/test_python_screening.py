@@ -224,7 +224,7 @@ def test_hexadecimal_whole_figure_is_refused_before_key_or_ledger(gate_case, mon
     ("6_729_102.50", "6729102.5"), ("67291025e-1", "6729102.5"), ("6729102.50j", "6729102.5"),
     ("0x1F", "31"), ("0b101", "5"), ("0o17", "15"),
     ("0x" + "0" * 300 + "2A", "42"), ("6729102.5" + "0" * 300, "6729102.5"),  # padding is value-neutral
-    ("1e999999999", None), ("9" * 400, None), ("0x" + "F" * 200, None),
+    ("1e999999999", None), ("9" * 400, None), ("0x" + "F" * 240, None),     # beyond any listed value
 ])
 def test_number_text_reads_exact_values_within_bounds(token, expected):
     assert number_text(token) == expected
@@ -313,3 +313,70 @@ def test_tokens_read_numbers_when_the_file_does_not_parse():
     # No f-string fields, so the token stream alone is complete on every version.
     with pytest.raises(AssistantError, match="^forbidden_token_present$"):
         screen_source(f"n = {hex(6729102)}\nif x\n", "src/cash.py", WHOLE)
+
+
+# --- Codex review of #62, round 2: findings 1-6 ----------------------------------
+
+def _listing(*values):
+    return TokenSnapshot(frozenset(hashlib.sha256(normalize_numeric_token(v).encode()).hexdigest()
+                                   for v in values))
+
+
+@pytest.mark.parametrize("source", ['m = f"{.1234567890123456789}"\n', "m = .1234567890123456789\n"])
+def test_precise_decimals_keep_their_spelling(source):
+    with pytest.raises(AssistantError, match="^forbidden_token_present$"):
+        screen_source(source, "src/cash.py", _listing("0.1234567890123456789"))
+    # The float rounding of the same literal is a different value and must not refuse.
+    screen_source(source, "src/cash.py", _listing("0.12345678901234568"))
+
+
+def test_exponent_policy_entries_cover_base_prefixed_literals(tmp_path):
+    from finassist.forbidden_tokens import load_token_snapshot
+    entry = tmp_path / "figures.txt"
+    entry.write_text("1000000000000e128\n1e128\n", encoding="utf-8")
+    snapshot = load_token_snapshot({"forbidden_token_file": str(entry)}, ())
+    for source in (f"n = {hex(10 ** 140)}\n", f"n = {hex(10 ** 128)}\n", f"n = {10 ** 140}\n"):
+        with pytest.raises(AssistantError, match="^forbidden_token_present$"):
+            screen_source(source, "src/cash.py", snapshot)
+    with pytest.raises(AssistantError, match="^forbidden_token_present$"):
+        screen_source(f"amount\n{10 ** 140}\n", "data.csv", snapshot)
+
+
+def test_exponent_policy_entry_is_refused_before_key_or_ledger(gate_case, monkeypatch):
+    listed = normalize_numeric_token("1000000000000e128")
+    change_policy(gate_case, forbidden_token_hashes=[hashlib.sha256(listed.encode()).hexdigest()])
+    candidate(gate_case, f"LIMIT = {hex(10 ** 140)}\n")
+    monkeypatch.delenv("REVIEW_PROVIDER_KEY")
+    report, calls = run(gate_case)
+    assert not calls and report["reasons"] == ["forbidden_token_present"]
+    assert not (gate_case["state"] / "audit.sqlite").exists()
+
+
+@pytest.mark.parametrize("path", ["src/cash.py", "data.csv"])
+def test_separated_decimals_keep_their_value(path):
+    listed = _listing("1.21")
+    screen_source("n = 1.20_1\n", path, listed)          # 1.201, not 1.21
+    with pytest.raises(AssistantError, match="^forbidden_token_present$"):
+        screen_source("n = 1.2_1\n", path, listed)       # 1.21
+
+
+@pytest.mark.parametrize("path", ["src/cash.py", "data.csv"])
+def test_long_zero_runs_screen_in_linear_time(path):
+    import time
+    started = time.perf_counter()
+    screen_source("n = 1." + "0" * 200_000 + "1\n", path, SNAPSHOT)
+    assert time.perf_counter() - started < 5
+
+
+def test_unicode_credential_names_keep_released_coverage():
+    refuses(f"café_{PW} = {Q}synthetic_example{Q}\n", "src/settings.py")
+    refuses("café_account_" + "number = 12345678\n", "src/settings.py")
+
+
+@pytest.mark.parametrize("value,refused", [("123_456_789", True), ("0x1E240", True), ("0x1869F", False)])
+def test_account_integers_compare_by_magnitude(value, refused):
+    source = "account_" + f"number = {value}\n"
+    if refused:
+        refuses(source, "src/settings.py")
+    else:
+        check_text(source, source_path="src/settings.py")   # 99,999: under six digits

@@ -50,9 +50,10 @@ parser. A credential-named target given a literal value is refused: an assignmen
 typed assignment, walrus target, keyword argument, function default, dictionary
 key, attribute or subscript, including a literal fallback in `os.getenv(NAME, ...)`
 or `os.environ.get(NAME, ...)` and a literal `default=` argument. Credential names
-use the label vocabulary below, at any name length. A string or numeric value must
+use the label vocabulary below: a name matches when it ends with a credential word,
+at any length and whatever characters come first. A string or numeric value must
 have at least 12 characters, counted in its source spelling; account and routing
-numbers need at least six leading digits. Type
+numbers need at least six digits, and integers count by magnitude. Type
 annotations are never inspected, so a `signing_key` field annotated
 `Ed25519PrivateKey | None` passes. Unquoted names and call results are not literals and pass. Comments,
 docstrings and other string text are screened with the text rules, and known

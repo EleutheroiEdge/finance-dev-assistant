@@ -131,9 +131,10 @@ parser. A credential-named target given a literal value is refused: an assignmen
 typed assignment, walrus target, keyword argument, function default, dictionary
 key, attribute or subscript, including a literal fallback in `os.getenv(NAME, ...)`
 or `os.environ.get(NAME, ...)` and a literal `default=` argument. Credential names
-use the label vocabulary below, at any name length. A string or numeric value must
+use the label vocabulary below: a name matches when it ends with a credential word,
+at any length and whatever characters come first. A string or numeric value must
 have at least 12 characters, counted in its source spelling; account and routing
-numbers need at least six leading digits. Type
+numbers need at least six digits, and integers count by magnitude. Type
 annotations are never inspected, so a `signing_key` field annotated
 `Ed25519PrivateKey | None` passes. Unquoted names and call results are not literals and pass. Comments,
 docstrings and other string text are screened with the text rules, and known
@@ -485,7 +486,8 @@ numeric literal, including one inside an f-string field, is also read with Pytho
 tokenizer and parser and its exact value compared with the deny list. So forms the
 text screen does not parse are refused too, such as underscores in any position and
 integers in any base (for example a hexadecimal literal of a listed whole number).
-Leading and trailing zeros never change a value, in text or in code. While screening
+Leading and trailing zeros never change a value, in text or in code, and values as
+long as any policy entry can expand to (up to 256 digits) are compared. While screening
 is enabled, a `.py` file that Python cannot tokenize is refused with
 `forbidden_token_python_unreadable` instead of being screened another way. On Python
 before 3.12, a file that tokenizes but does not parse is refused the same way when it

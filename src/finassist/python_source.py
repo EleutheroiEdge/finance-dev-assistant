@@ -23,21 +23,22 @@ PYTHON_SUFFIXES = frozenset({".py", ".pyi"})
 _TEXT_TOKENS = frozenset({"STRING", "COMMENT", "FSTRING_MIDDLE", "TSTRING_MIDDLE"})
 _ENVIRONMENT_READERS = frozenset({"getenv", "getenvb"})
 
-# The credential vocabulary is the one the text rules already use. A name must
-# consist of label characters and end with the credential word, as the text
-# rules require. Only the bounded tail is searched, so long names stay linear.
-_SECRET_CHARS = re.compile(r"[A-Za-z0-9_-]+\Z")
+# The credential vocabulary is the one the text rules use. As there, the name
+# must end with the credential word; any other characters may come before it,
+# including non-ASCII letters. Only a bounded tail is searched.
 _SECRET_SUFFIX = re.compile(
     r"(?:api[_-]?key|password|secret|access[_-]?token|gh[_-]?token|github[_-](?:enterprise[_-])?token"
     r"|(?:secret|private|signing|encryption|access|client|master|auth|api)[_-]?(?:access[_-]?)?key)\Z",
     re.IGNORECASE)
-_ACCOUNT_CHARS = re.compile(r"[A-Za-z0-9_ -]+\Z")
 _ACCOUNT_SUFFIX = re.compile(r"(?:account[_ -]?(?:number|id)|routing[_ -]?number)\Z", re.IGNORECASE)
 _SUFFIX_WINDOW = 48
 _MIN_SECRET_LENGTH = 12
-# Listed figures have at most 128 digits. 2**430 has 130 digits, so a larger
-# integer can never equal a listed figure and is never converted to decimal.
-_MAX_INTEGER_BITS = 430
+_MIN_ACCOUNT_VALUE = 100_000  # at least six digits
+# The deny list accepts up to 128 input digits with an exponent of up to 128,
+# so a listed value can have up to 256 digits. Beyond these bounds a value can
+# never equal a listed figure, and an integer is never converted to decimal.
+MAX_FIGURE_DIGITS = 260
+_MAX_INTEGER_BITS = 870  # 2**870 > 10**261
 
 
 def is_python_path(path: str | None) -> bool:
@@ -93,14 +94,15 @@ def hidden_fstring_fields(tokens: list[tokenize.TokenInfo]) -> bool:
 
 
 def _plain_decimal(number: Decimal) -> str | None:
-    """Plain decimal text of an exact value with at most 128 digits, or None."""
-    if not number.is_finite() or not -129 <= number.adjusted() <= 128:
+    """Plain decimal text of an exact value within the figure bounds, or None."""
+    if not number.is_finite() or not -(MAX_FIGURE_DIGITS + 1) <= number.adjusted() <= MAX_FIGURE_DIGITS:
         return None
-    # Bounded: the exponent is within 128 and the coefficient is the literal's own.
+    # Bounded: the exponent is within the figure bounds and the coefficient is
+    # the literal's own digits.
     plain = format(number, "f")
     if "." in plain:
         plain = plain.rstrip("0").rstrip(".")
-    if len(plain.replace(".", "").lstrip("0")) > 128:
+    if len(plain.replace(".", "").lstrip("0")) > MAX_FIGURE_DIGITS:
         return None
     return plain or "0"
 
@@ -111,7 +113,7 @@ def _plain_integer(value: int) -> str | None:
 
 
 def number_text(token: str) -> str | None:
-    """Plain decimal text of a NUMBER token's exact value, or None if it cannot be a listed figure."""
+    """Plain decimal text of a numeric literal's exact value, or None if it cannot be a listed figure."""
     value = token.replace("_", "").lower()
     if value.endswith("j"):
         value = value[:-1]
@@ -125,21 +127,48 @@ def number_text(token: str) -> str | None:
         return None
 
 
-def constant_number_texts(tree: ast.AST) -> list[str]:
+def _spelled_number(node: ast.Constant, source: str) -> str | None:
+    """Exact text of a numeric constant from its source spelling, if that spelling checks out."""
+    segment = ast.get_source_segment(source, node)
+    if not segment:
+        return None
+    plain = number_text(segment)
+    if plain is None:
+        return None
+    actual = node.value.imag if isinstance(node.value, complex) and node.value.real == 0 else node.value
+    spelled = segment.replace("_", "").lower().rstrip("j")
+    # The spelling must be the literal this node was parsed from. Integers compare
+    # exactly; floats compare after Python's own rounding of the spelled value.
+    try:
+        if isinstance(actual, int):
+            return plain if int(spelled, 0) == actual else None
+        return plain if float(Decimal(spelled)) == float(actual) else None
+    except (ValueError, InvalidOperation, OverflowError):
+        return None
+
+
+def constant_number_texts(tree: ast.AST, source: str) -> list[str]:
     """Plain decimal text of every numeric constant, including those inside f-strings."""
+    source = _normalized(source)  # the text python_tree parsed, so positions line up
     texts = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Constant) or isinstance(node.value, bool):
             continue
         value = node.value
+        if not isinstance(value, (int, float, complex)):
+            continue
+        spelled = _spelled_number(node, source)
+        if spelled is not None:
+            texts.append(spelled)
+            continue
+        # Fallback when no exact spelling is recoverable: integers stay exact,
+        # floats use their shortest round-trip text.
         parts = [value.real, value.imag] if isinstance(value, complex) else [value]
         for part in parts:
             if isinstance(part, int):
                 text = _plain_integer(part)
-            elif isinstance(part, float):
-                text = _plain_decimal(Decimal(repr(part))) if part == part else None
             else:
-                text = None
+                text = _plain_decimal(Decimal(repr(part))) if part == part else None
             if text is not None:
                 texts.append(text)
     return texts
@@ -165,10 +194,37 @@ def python_screen(text: str) -> PythonScreen | None:
 
 def _label_kind(name: str) -> str | None:
     tail = name[-_SUFFIX_WINDOW:]
-    if _ACCOUNT_CHARS.match(name) and _ACCOUNT_SUFFIX.search(tail):
+    if _ACCOUNT_SUFFIX.search(tail):
         return "account"
-    if _SECRET_CHARS.match(name) and _SECRET_SUFFIX.search(tail):
+    if _SECRET_SUFFIX.search(tail):
         return "secret"
+    return None
+
+
+def _environment_lookup(func: ast.AST) -> bool:
+    if isinstance(func, ast.Name):
+        return func.id in _ENVIRONMENT_READERS
+    if isinstance(func, ast.Attribute):
+        if func.attr in _ENVIRONMENT_READERS:
+            return True
+        owner = func.value
+        owner_name = owner.id if isinstance(owner, ast.Name) else owner.attr if isinstance(owner, ast.Attribute) else ""
+        return func.attr in {"get", "setdefault"} and owner_name in {"environ", "environb"}
+    return False
+
+
+def _value_node(node: ast.AST) -> ast.AST | None:
+    """The literal node assigned, unwrapping a literal getenv/environ fallback or default=."""
+    if isinstance(node, (ast.Constant, ast.JoinedStr)):
+        return node
+    if isinstance(node, ast.Call):
+        # A literal fallback in os.getenv(NAME, "...") or Field(default="...") is
+        # still a hardcoded value for the credential-named target.
+        for keyword in node.keywords:
+            if keyword.arg == "default":
+                return keyword.value
+        if _environment_lookup(node.func) and len(node.args) >= 2:
+            return node.args[1]
     return None
 
 
@@ -185,32 +241,6 @@ def _value_text(node: ast.AST | None, source: str) -> str | None:
         return None
     if isinstance(node, ast.JoinedStr) and all(isinstance(part, ast.Constant) for part in node.values):
         return "".join(str(part.value) for part in node.values)
-    return None
-
-
-def _environment_lookup(func: ast.AST) -> bool:
-    if isinstance(func, ast.Name):
-        return func.id in _ENVIRONMENT_READERS
-    if isinstance(func, ast.Attribute):
-        if func.attr in _ENVIRONMENT_READERS:
-            return True
-        owner = func.value
-        owner_name = owner.id if isinstance(owner, ast.Name) else owner.attr if isinstance(owner, ast.Attribute) else ""
-        return func.attr in {"get", "setdefault"} and owner_name in {"environ", "environb"}
-    return False
-
-
-def _value_literal(node: ast.AST, source: str) -> str | None:
-    literal = _value_text(node, source)
-    if literal is not None or not isinstance(node, ast.Call):
-        return literal
-    # A literal fallback in os.getenv(NAME, "...") or Field(default="...") is
-    # still a hardcoded value for the credential-named target.
-    for keyword in node.keywords:
-        if keyword.arg == "default":
-            return _value_text(keyword.value, source)
-    if _environment_lookup(node.func) and len(node.args) >= 2:
-        return _value_text(node.args[1], source)
     return None
 
 
@@ -259,17 +289,27 @@ def _labelled_values(tree: ast.AST):
                     yield key.value, value
 
 
+def _is_account_value(node: ast.AST, text: str | None) -> bool:
+    if (isinstance(node, ast.Constant) and isinstance(node.value, int)
+            and not isinstance(node.value, bool)):
+        # Magnitude, not spelling: 123_456_789 and 0x1E240 both count, and no
+        # decimal conversion of a huge integer is needed.
+        return abs(node.value) >= _MIN_ACCOUNT_VALUE
+    return text is not None and re.match(r"\d{6,}", text.replace("_", "")) is not None
+
+
 def credential_literal_present(tree: ast.AST, source: str) -> bool:
     """True when a credential-named target is given a literal value."""
     for name, node in _labelled_values(tree):
         kind = _label_kind(name)
         if kind is None:
             continue
-        text = _value_literal(node, source)
-        if text is None:
+        value = _value_node(node)
+        if value is None:
             continue
-        if kind == "secret" and len(text) >= _MIN_SECRET_LENGTH:
+        text = _value_text(value, source)
+        if kind == "secret" and text is not None and len(text) >= _MIN_SECRET_LENGTH:
             return True
-        if kind == "account" and re.match(r"\d{6,}", text):
+        if kind == "account" and _is_account_value(value, text):
             return True
     return False
