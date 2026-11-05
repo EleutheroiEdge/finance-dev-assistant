@@ -9,12 +9,16 @@ from .config import Config
 from .platform_support import tool_present, private_state_protection
 
 
-def config_warnings(config: Config, config_path: Path | None = None) -> list[dict]:
-    """Settings that have no effect or block later steps, each with what to do instead."""
+def config_warnings(config: Config, config_path: Path | None = None, *, file_selected: bool = False) -> list[dict]:
+    """Settings that have no effect or block later steps, each with what to do instead.
+
+    file_selected means a configuration file was chosen, even if it then failed to
+    load; only a run that never chose a file is told to pass one.
+    """
     from .security import DENIED_SUFFIXES, TEXT_FIXTURE_SUFFIXES
 
     warnings = []
-    if config_path is None and Path("finassist.json").is_file():
+    if config_path is None and not file_selected and Path("finassist.json").is_file():
         warnings.append({"code": "config_file_not_loaded",
                          "hint": "Defaults are reported. Pass --config finassist.json to check that file."})
     for suffix in sorted(set(config.text_suffixes) & DENIED_SUFFIXES):
@@ -32,7 +36,8 @@ def config_warnings(config: Config, config_path: Path | None = None) -> list[dic
     return warnings
 
 
-def doctor_report(config: Config, *, update_check: dict | None = None, config_path: Path | None = None) -> dict:
+def doctor_report(config: Config, *, update_check: dict | None = None, config_path: Path | None = None,
+                  file_selected: bool = False) -> dict:
     from .updater import update_status
 
     updates = update_status()
@@ -53,7 +58,7 @@ def doctor_report(config: Config, *, update_check: dict | None = None, config_pa
         "profile": config.profile,
         "deprecated_config_options": list(getattr(config, "_deprecated_options", ())),
         "config_source": "defaults" if config_path is None else "file",
-        "config_warnings": config_warnings(config, config_path),
+        "config_warnings": config_warnings(config, config_path, file_selected=file_selected),
         "updates": updates,
         "private_state_protection": private_state_protection(),
         "next_step": "inspect a plan packet before enabling any provider or running a recipe",
