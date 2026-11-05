@@ -174,7 +174,8 @@ class DashboardState:
         except (AssistantError, OSError, ValueError, TypeError):
             config, source = Config(), None  # The defaults are shown, so they are named as such.
             status = {"valid": False, "code": "configuration_invalid"}
-        return {"doctor": doctor_report(config, config_path=source), "configuration": status}
+        # The dashboard always selects a file, so it never asks for one to be passed.
+        return {"doctor": doctor_report(config, config_path=source, file_selected=True), "configuration": status}
 
 
 class DashboardServer(ThreadingHTTPServer):
