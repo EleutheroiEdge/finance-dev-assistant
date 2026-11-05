@@ -131,8 +131,9 @@ parser. A credential-named target given a literal value is refused: an assignmen
 typed assignment, walrus target, keyword argument, function default, dictionary
 key, attribute or subscript, including a literal fallback in `os.getenv(NAME, ...)`
 or `os.environ.get(NAME, ...)` and a literal `default=` argument. Credential names
-use the label vocabulary below. A string or integer value must have at least 12
-characters; account and routing numbers need at least six leading digits. Type
+use the label vocabulary below, at any name length. A string or numeric value must
+have at least 12 characters, counted in its source spelling; account and routing
+numbers need at least six leading digits. Type
 annotations are never inspected, so a `signing_key` field annotated
 `Ed25519PrivateKey | None` passes. Unquoted names and call results are not literals and pass. Comments,
 docstrings and other string text are screened with the text rules, and known
@@ -150,7 +151,8 @@ digit-free uppercase-leading whole identifiers. The whole-identifier exclusion e
 at whitespace, end of input or annotation punctuation such as `[`, `]`, `)`, `,` or
 `;`; `/`, `+`, `=`, `-`, `:` and `@` continue a candidate literal. Uppercase-leading
 unquoted literals containing digits are screened. Custom patterns apply to every
-file, and original source/request bytes are kept. Review output may quote exact credential-label
+file, and known formats and custom patterns also read the complete serialized packet
+the model receives. Original source/request bytes are kept. Review output may quote exact credential-label
 matches from screened annotations in that request. The view preserves the label
 and masks the complete recorded annotation, including unions, so a value appended
 after `=` still undergoes assignment screening. Shorter `label: Type` quotes pass;
@@ -479,12 +481,15 @@ numeric forms.
 
 Every file is screened as text, because what leaves the machine is text: the tuple
 `(6,729,102.50)` in Python code still reads as the figure. In `.py`/`.pyi` files, each
-numeric literal is also read with Python's own tokenizer and its exact value compared
-with the deny list. So forms the text screen does not parse are refused too, such as
-underscores in any position and integers in any base (for example a hexadecimal
-literal of a listed whole number). While screening is enabled, a `.py` file that
-Python cannot tokenize is refused with `forbidden_token_python_unreadable` instead of
-being screened another way.
+numeric literal, including one inside an f-string field, is also read with Python's own
+tokenizer and parser and its exact value compared with the deny list. So forms the
+text screen does not parse are refused too, such as underscores in any position and
+integers in any base (for example a hexadecimal literal of a listed whole number).
+Leading and trailing zeros never change a value, in text or in code. While screening
+is enabled, a `.py` file that Python cannot tokenize is refused with
+`forbidden_token_python_unreadable` instead of being screened another way. On Python
+before 3.12, a file that tokenizes but does not parse is refused the same way when it
+has f-string fields, because only the parser can read numbers inside them there.
 
 This is a bounded backstop, not a proof that arbitrary source cannot encode a
 confidential figure. The primary control is keeping client figures out of reviewed

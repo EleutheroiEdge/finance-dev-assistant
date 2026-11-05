@@ -14,9 +14,11 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   are never inspected. Comments and strings keep the text rules, known secret
   formats are screened across the whole file, and Python that does not tokenize and
   parse keeps the strict text rules.
-- In Python files, each numeric literal is also read with Python's tokenizer and its
-  exact value compared with the confidential-figure deny list (#61). Every file is
-  still screened as text.
+- In Python files, each numeric literal, including one inside an f-string field, is
+  also read with Python's tokenizer and parser and its exact value compared with the
+  confidential-figure deny list (#61). Every file is still screened as text, and
+  leading or trailing zero padding no longer hides a listed figure in text or code.
+- Known formats and custom patterns also read the complete serialized packet (#61).
 - Document that secret and figure screening is a backstop behind path allowlists,
   gitignored secrets and the policy, and list the text rules' known limits (#61).
 

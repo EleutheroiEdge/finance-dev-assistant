@@ -50,8 +50,9 @@ parser. A credential-named target given a literal value is refused: an assignmen
 typed assignment, walrus target, keyword argument, function default, dictionary
 key, attribute or subscript, including a literal fallback in `os.getenv(NAME, ...)`
 or `os.environ.get(NAME, ...)` and a literal `default=` argument. Credential names
-use the label vocabulary below. A string or integer value must have at least 12
-characters; account and routing numbers need at least six leading digits. Type
+use the label vocabulary below, at any name length. A string or numeric value must
+have at least 12 characters, counted in its source spelling; account and routing
+numbers need at least six leading digits. Type
 annotations are never inspected, so a `signing_key` field annotated
 `Ed25519PrivateKey | None` passes. Unquoted names and call results are not literals and pass. Comments,
 docstrings and other string text are screened with the text rules, and known
@@ -105,8 +106,9 @@ supplements inspection, not a confidentiality proof.
 Confidential numeric screening in the policy-approved model gate and history
 compares listed magnitudes in source, allowed fixtures, profiles and provider
 free text before exposing findings. Every file is screened as text; in Python files
-each numeric literal is also read with Python's own tokenizer and compared by exact
-value, and a `.py` file that cannot be tokenized is refused. It fails closed on grouped
+each numeric literal, including one inside an f-string field, is also read with Python's
+own tokenizer and parser and compared by exact value, zero padding included, and a
+`.py` file that cannot be read is refused. It fails closed on grouped
 short figures;
 legacy `review` and `propose` remain outside this opt-in guard. See the
 [pre-merge gate](pre-merge-gate.md#confidential-numeric-tokens-policy-approved-model-gate)

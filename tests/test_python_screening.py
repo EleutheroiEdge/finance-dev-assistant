@@ -5,6 +5,7 @@ contains no credential-shaped literal of its own.
 """
 import hashlib
 import json
+import sys
 import warnings
 
 import pytest
@@ -28,6 +29,7 @@ Q = '"'
 FIGURE = "6729102.50"
 SNAPSHOT = TokenSnapshot(frozenset({hashlib.sha256(normalize_numeric_token(FIGURE).encode()).hexdigest()}))
 WHOLE = TokenSnapshot(frozenset({hashlib.sha256(b"6729102").hexdigest()}))
+LISTED_42 = TokenSnapshot(frozenset({hashlib.sha256(b"42").hexdigest()}))
 UNTOKENIZABLE = 'note = "unterminated\n'
 
 
@@ -218,8 +220,9 @@ def test_hexadecimal_whole_figure_is_refused_before_key_or_ledger(gate_case, mon
 # --- Tokenizer helpers ----------------------------------------------------------
 
 @pytest.mark.parametrize("token,expected", [
-    ("6_729_102.50", "6729102.50"), ("67291025e-1", "6729102.5"), ("6729102.50j", "6729102.50"),
+    ("6_729_102.50", "6729102.5"), ("67291025e-1", "6729102.5"), ("6729102.50j", "6729102.5"),
     ("0x1F", "31"), ("0b101", "5"), ("0o17", "15"),
+    ("0x" + "0" * 300 + "2A", "42"), ("6729102.5" + "0" * 300, "6729102.5"),  # padding is value-neutral
     ("1e999999999", None), ("9" * 400, None), ("0x" + "F" * 200, None),
 ])
 def test_number_text_reads_exact_values_within_bounds(token, expected):
@@ -230,3 +233,79 @@ def test_unterminated_source_never_yields_a_partial_token_stream():
     assert python_tokens(UNTOKENIZABLE) is None
     assert python_tokens("x = (1,\n") is None
     assert python_tokens("x = 1\r\ny = 2\r") is not None
+
+
+# --- Codex review of #62: findings 1-5 -------------------------------------------
+
+@pytest.mark.parametrize("source", [
+    'message = f"{0x2A}"\n',
+    'message = f"{value:{0x2A}}"\n',            # format-spec expression
+    'message = f"{0b101010!r} total"\n',
+])
+def test_numbers_inside_fstring_fields_compare_by_value(source):
+    with pytest.raises(AssistantError, match="^forbidden_token_present$"):
+        screen_source(source, "src/cash.py", LISTED_42)
+
+
+@pytest.mark.skipif(sys.version_info >= (3, 12), reason="3.12+ tokenizes f-string fields")
+def test_unparseable_fstring_fields_are_unreadable_before_python_312():
+    with pytest.raises(AssistantError, match="^forbidden_token_python_unreadable$"):
+        screen_source('message = f"{0x2A}"\nif x\n', "src/cash.py", LISTED_42)
+
+
+def test_fstring_field_number_is_refused_before_key_or_ledger(gate_case, monkeypatch):
+    change_policy(gate_case, forbidden_token_hashes=[hashlib.sha256(b"42").hexdigest()])
+    candidate(gate_case, 'message = f"{0x2A}"\n')
+    monkeypatch.delenv("REVIEW_PROVIDER_KEY")
+    report, calls = run(gate_case)
+    assert not calls and report["reasons"] == ["forbidden_token_present"]
+    assert not (gate_case["state"] / "audit.sqlite").exists()
+
+
+def test_padded_python_literals_compare_by_value():
+    with pytest.raises(AssistantError, match="^forbidden_token_present$"):
+        screen_source("n = 0x" + "0" * 300 + "2A\n", "src/cash.py", LISTED_42)
+    with pytest.raises(AssistantError, match="^forbidden_token_present$"):
+        screen_source("total = 6729102.5" + "0" * 300 + "\n", "src/cash.py", SNAPSHOT)
+    big = 10 ** 93 + 7                                   # a 94-digit synthetic integer
+    listed = TokenSnapshot(frozenset({hashlib.sha256(str(big).encode()).hexdigest()}))
+    assert len(bin(big)) > 300
+    with pytest.raises(AssistantError, match="^forbidden_token_present$"):
+        screen_source(f"n = {bin(big)}\n", "src/cash.py", listed)
+
+
+@pytest.mark.parametrize("source", ["amount\n6729102.5" + "0" * 300 + "\n", "amount\n0000006729102.50\n"])
+def test_zero_padded_text_figures_are_refused(source):
+    with pytest.raises(AssistantError, match="^forbidden_token_present$"):
+        screen_source(source, "data.csv", SNAPSHOT)
+
+
+def test_huge_integers_stay_bounded():
+    huge = "0x" + "F" * 4000
+    screen_source(f"n = {huge}\n", "src/cash.py", LISTED_42)   # too large to be a listed figure
+    refuses(f"{PW} = {huge}\n", "src/settings.py")             # a literal, refused without int-to-str
+
+
+@pytest.mark.parametrize("path", ["notes.txt", "src/notes.py"])
+def test_custom_patterns_read_the_intact_serialized_packet(path):
+    document = {"files": [{"path": path, "before": None, "after": "marker-left\nmarker-right\n"}]}
+    check_context_document(document)
+    with pytest.raises(AssistantError, match="^project_content_blocked$"):
+        check_context_document(document, extra_patterns=(r"marker-left\nmarker-right",))
+
+
+def test_long_credential_names_keep_the_vocabulary():
+    name = "x" * 250 + "_" + PW
+    refuses(f"{name} = {Q}synthetic_example{Q}\n", "src/settings.py")
+    check_text(f"{name}_hash = {Q}synthetic_example{Q}\n", source_path="src/settings.py")
+
+
+@pytest.mark.parametrize("source", ["account_" + "number = 12345678.0\n", "routing_" + "number = 12345678j\n"])
+def test_numeric_account_literals_keep_their_source_spelling(source):
+    refuses(source, "src/settings.py")
+
+
+def test_tokens_read_numbers_when_the_file_does_not_parse():
+    # No f-string fields, so the token stream alone is complete on every version.
+    with pytest.raises(AssistantError, match="^forbidden_token_present$"):
+        screen_source(f"n = {hex(6729102)}\nif x\n", "src/cash.py", WHOLE)

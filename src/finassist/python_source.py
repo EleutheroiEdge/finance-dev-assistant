@@ -1,8 +1,9 @@
 """Read Python source the way Python itself does, for screening only.
 
-Numbers come from the standard tokenizer and credential literals from the
-standard AST, so no regex has to guess Python's syntax. Neither result replaces
-source or request bytes, and neither proves that a file holds no private data.
+Numbers come from the standard tokenizer and AST, and credential literals from
+the standard AST, so no regex has to guess Python's syntax. Neither result
+replaces source or request bytes, and neither proves that a file holds no
+private data.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from decimal import Decimal, InvalidOperation
 import io
 from pathlib import PurePosixPath
 import re
+import sys
 import tokenize
 import warnings
 
@@ -22,17 +24,20 @@ _TEXT_TOKENS = frozenset({"STRING", "COMMENT", "FSTRING_MIDDLE", "TSTRING_MIDDLE
 _ENVIRONMENT_READERS = frozenset({"getenv", "getenvb"})
 
 # The credential vocabulary is the one the text rules already use. A name must
-# end with the credential word, as the text rules require for a label.
-_SECRET_LABELS = (
-    re.compile(r"[A-Za-z0-9_-]*(?:api[_-]?key|password|secret|access[_-]?token|gh[_-]?token"
-               r"|github[_-](?:enterprise[_-])?token)", re.IGNORECASE),
-    re.compile(r"[A-Za-z0-9_-]*(?:secret|private|signing|encryption|access|client|master|auth|api)"
-               r"[_-]?(?:access[_-]?)?key", re.IGNORECASE),
-)
-_ACCOUNT_LABEL = re.compile(r"[A-Za-z0-9_ -]*(?:account[_ -]?(?:number|id)|routing[_ -]?number)",
-                            re.IGNORECASE)
+# consist of label characters and end with the credential word, as the text
+# rules require. Only the bounded tail is searched, so long names stay linear.
+_SECRET_CHARS = re.compile(r"[A-Za-z0-9_-]+\Z")
+_SECRET_SUFFIX = re.compile(
+    r"(?:api[_-]?key|password|secret|access[_-]?token|gh[_-]?token|github[_-](?:enterprise[_-])?token"
+    r"|(?:secret|private|signing|encryption|access|client|master|auth|api)[_-]?(?:access[_-]?)?key)\Z",
+    re.IGNORECASE)
+_ACCOUNT_CHARS = re.compile(r"[A-Za-z0-9_ -]+\Z")
+_ACCOUNT_SUFFIX = re.compile(r"(?:account[_ -]?(?:number|id)|routing[_ -]?number)\Z", re.IGNORECASE)
+_SUFFIX_WINDOW = 48
 _MIN_SECRET_LENGTH = 12
-_MAX_LABEL_LENGTH = 256
+# Listed figures have at most 128 digits. 2**430 has 130 digits, so a larger
+# integer can never equal a listed figure and is never converted to decimal.
+_MAX_INTEGER_BITS = 430
 
 
 def is_python_path(path: str | None) -> bool:
@@ -56,32 +61,88 @@ def python_tokens(text: str) -> list[tokenize.TokenInfo] | None:
     return tokens
 
 
+def python_tree(text: str) -> ast.AST | None:
+    """Parse with warnings suppressed (they can echo source), or return None."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return ast.parse(_normalized(text))
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return None
+
+
 def text_segments(tokens: list[tokenize.TokenInfo]) -> list[str]:
     """Comment and string token text, which the text rules screen as text."""
     return [token.string for token in tokens if tokenize.tok_name.get(token.type) in _TEXT_TOKENS]
 
 
+def hidden_fstring_fields(tokens: list[tokenize.TokenInfo]) -> bool:
+    """True when this Python tokenizes f-string fields as part of one STRING token.
+
+    Before Python 3.12 the tokenizer yields no NUMBER token inside an f-string
+    replacement field, so only the AST can read those numbers.
+    """
+    if sys.version_info >= (3, 12):
+        return False
+    for token in tokens:
+        if token.type == tokenize.STRING and "{" in token.string:
+            prefix = re.match(r"[A-Za-z]*", token.string).group().lower()
+            if "f" in prefix:
+                return True
+    return False
+
+
+def _plain_decimal(number: Decimal) -> str | None:
+    """Plain decimal text of an exact value with at most 128 digits, or None."""
+    if not number.is_finite() or not -129 <= number.adjusted() <= 128:
+        return None
+    # Bounded: the exponent is within 128 and the coefficient is the literal's own.
+    plain = format(number, "f")
+    if "." in plain:
+        plain = plain.rstrip("0").rstrip(".")
+    if len(plain.replace(".", "").lstrip("0")) > 128:
+        return None
+    return plain or "0"
+
+
+def _plain_integer(value: int) -> str | None:
+    value = abs(value)
+    return None if value.bit_length() > _MAX_INTEGER_BITS else str(value)
+
+
 def number_text(token: str) -> str | None:
-    """Plain decimal text of a NUMBER token's exact value, or None if out of bounds."""
+    """Plain decimal text of a NUMBER token's exact value, or None if it cannot be a listed figure."""
     value = token.replace("_", "").lower()
     if value.endswith("j"):
         value = value[:-1]
-    if not value or len(value) > 300:
+    if not value:
         return None
     try:
         if value.startswith(("0x", "0o", "0b")):
-            whole = int(value, 0)
-            if whole.bit_length() > 430:  # more than 128 decimal digits
-                return None
-            number = Decimal(whole)
-        else:
-            number = Decimal(value)
+            return _plain_integer(int(value, 0))
+        return _plain_decimal(Decimal(value))
     except (ValueError, InvalidOperation):
         return None
-    # Listed figures have at most 128 digits; never expand a huge exponent.
-    if not number.is_finite() or len(number.as_tuple().digits) > 128 or not -129 <= number.adjusted() <= 128:
-        return None
-    return format(number, "f")
+
+
+def constant_number_texts(tree: ast.AST) -> list[str]:
+    """Plain decimal text of every numeric constant, including those inside f-strings."""
+    texts = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Constant) or isinstance(node.value, bool):
+            continue
+        value = node.value
+        parts = [value.real, value.imag] if isinstance(value, complex) else [value]
+        for part in parts:
+            if isinstance(part, int):
+                text = _plain_integer(part)
+            elif isinstance(part, float):
+                text = _plain_decimal(Decimal(repr(part))) if part == part else None
+            else:
+                text = None
+            if text is not None:
+                texts.append(text)
+    return texts
 
 
 @dataclass(frozen=True)
@@ -96,35 +157,31 @@ def python_screen(text: str) -> PythonScreen | None:
     """Tokenize and parse once, or return None so the caller screens strictly."""
     normalized = _normalized(text)
     tokens = python_tokens(normalized)
-    if tokens is None:
+    tree = python_tree(normalized) if tokens is not None else None
+    if tree is None:
         return None
-    try:
-        with warnings.catch_warnings():
-            # Invalid escapes can warn and echo the source line; never let them.
-            warnings.simplefilter("ignore")
-            tree = ast.parse(normalized)
-    except (SyntaxError, ValueError, RecursionError, MemoryError):
-        return None
-    return PythonScreen(tuple(text_segments(tokens)), credential_literal_present(tree))
+    return PythonScreen(tuple(text_segments(tokens)), credential_literal_present(tree, normalized))
 
 
 def _label_kind(name: str) -> str | None:
-    if not name or len(name) > _MAX_LABEL_LENGTH:
-        return None
-    if _ACCOUNT_LABEL.fullmatch(name):
+    tail = name[-_SUFFIX_WINDOW:]
+    if _ACCOUNT_CHARS.match(name) and _ACCOUNT_SUFFIX.search(tail):
         return "account"
-    if any(label.fullmatch(name) for label in _SECRET_LABELS):
+    if _SECRET_CHARS.match(name) and _SECRET_SUFFIX.search(tail):
         return "secret"
     return None
 
 
-def _plain_literal(node: ast.AST | None) -> str | int | None:
+def _value_text(node: ast.AST | None, source: str) -> str | None:
+    """Text of a literal value. Numbers keep their source spelling, never str(int)."""
     if isinstance(node, ast.Constant):
         value = node.value
+        if isinstance(value, str):
+            return value
         if isinstance(value, bytes):
             return value.decode("latin-1")
-        if isinstance(value, str) or (isinstance(value, int) and not isinstance(value, bool)):
-            return value
+        if isinstance(value, (int, float, complex)) and not isinstance(value, bool):
+            return ast.get_source_segment(source, node)
         return None
     if isinstance(node, ast.JoinedStr) and all(isinstance(part, ast.Constant) for part in node.values):
         return "".join(str(part.value) for part in node.values)
@@ -143,17 +200,17 @@ def _environment_lookup(func: ast.AST) -> bool:
     return False
 
 
-def _value_literal(node: ast.AST) -> str | int | None:
-    literal = _plain_literal(node)
+def _value_literal(node: ast.AST, source: str) -> str | None:
+    literal = _value_text(node, source)
     if literal is not None or not isinstance(node, ast.Call):
         return literal
     # A literal fallback in os.getenv(NAME, "...") or Field(default="...") is
     # still a hardcoded value for the credential-named target.
     for keyword in node.keywords:
         if keyword.arg == "default":
-            return _plain_literal(keyword.value)
+            return _value_text(keyword.value, source)
     if _environment_lookup(node.func) and len(node.args) >= 2:
-        return _plain_literal(node.args[1])
+        return _value_text(node.args[1], source)
     return None
 
 
@@ -202,16 +259,15 @@ def _labelled_values(tree: ast.AST):
                     yield key.value, value
 
 
-def credential_literal_present(tree: ast.AST) -> bool:
+def credential_literal_present(tree: ast.AST, source: str) -> bool:
     """True when a credential-named target is given a literal value."""
     for name, node in _labelled_values(tree):
         kind = _label_kind(name)
         if kind is None:
             continue
-        literal = _value_literal(node)
-        if literal is None:
+        text = _value_literal(node, source)
+        if text is None:
             continue
-        text = str(literal)
         if kind == "secret" and len(text) >= _MIN_SECRET_LENGTH:
             return True
         if kind == "account" and re.match(r"\d{6,}", text):

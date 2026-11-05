@@ -13,7 +13,8 @@ import tokenize
 import unicodedata
 
 from .errors import AssistantError
-from .python_source import is_python_path, number_text, python_tokens
+from .python_source import (constant_number_texts, hidden_fstring_fields, is_python_path, number_text,
+                            python_tokens, python_tree)
 from .security import regular_path
 
 _CURRENCIES = "$€£¥"
@@ -194,18 +195,30 @@ def _listed(number: str, snapshot: TokenSnapshot) -> bool:
     return any(hashlib.sha256(form.encode("utf-8")).hexdigest() in snapshot.hashes for form in forms)
 
 
+_LEADING_ZEROS = re.compile(r"(?<![0-9.,_])0+(?=[0-9])")
+_TRAILING_FRACTION_ZEROS = re.compile(r"(\.[0-9]*?)0+(?![0-9])")
+
+
+def _without_zero_padding(candidate: str) -> str:
+    """Drop leading integer zeros and trailing fraction zeros, which never change a value."""
+    compact = _LEADING_ZEROS.sub("", candidate)
+    return _TRAILING_FRACTION_ZEROS.sub(lambda m: m.group(1) if len(m.group(1)) > 1 else "", compact)
+
+
 def screen_text(text: str, snapshot: TokenSnapshot) -> None:
     """Check content only; callers must select typed content, not filenames."""
     if not snapshot.hashes:
         return
     for pattern in (_NUMBER, _UNGROUPED, _SPACED, _DIGIT_SEPARATED, _PLAIN):
         for match in pattern.finditer(text):
-            try:
-                number = normalize_numeric_token(match.group())
-            except AssistantError:
-                continue
-            if _listed(number, snapshot):
-                raise AssistantError("forbidden_token_present")
+            candidate = match.group()
+            for form in {candidate, _without_zero_padding(candidate)}:
+                try:
+                    number = normalize_numeric_token(form)
+                except AssistantError:
+                    continue
+                if _listed(number, snapshot):
+                    raise AssistantError("forbidden_token_present")
 
 
 def screen_source(text: str, path: str | None, snapshot: TokenSnapshot) -> None:
@@ -221,10 +234,15 @@ def screen_source(text: str, path: str | None, snapshot: TokenSnapshot) -> None:
     if tokens is None:
         # Never fall back silently: an unreadable Python file is refused.
         raise AssistantError("forbidden_token_python_unreadable")
-    for token in tokens:
-        if token.type != tokenize.NUMBER:
-            continue
-        plain = number_text(token.string)
+    numbers = [number_text(token.string) for token in tokens if token.type == tokenize.NUMBER]
+    tree = python_tree(text)
+    if tree is not None:
+        # The AST also sees numbers inside f-string fields, which tokenizers
+        # before Python 3.12 keep inside one STRING token.
+        numbers += constant_number_texts(tree)
+    elif hidden_fstring_fields(tokens):
+        raise AssistantError("forbidden_token_python_unreadable")
+    for plain in numbers:
         if plain is None:
             continue
         try:

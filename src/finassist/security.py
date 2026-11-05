@@ -282,6 +282,13 @@ def check_context_document(document: dict, *, extra_patterns: tuple[str, ...] = 
                 item[side] = ""
     envelope_text = canonical(envelope).decode()
     _screen_text(envelope_text, envelope_text, extra_patterns)
+    # The model receives the complete serialized packet, so known formats and
+    # custom patterns also read it intact, JSON escapes included. Label rules stay
+    # path-aware above.
+    intact = canonical(document).decode()
+    if any(pattern.search(intact) for pattern in FORMAT_PATTERNS):
+        raise AssistantError("sensitive_content")
+    _screen_extra(intact, extra_patterns)
 
 
 def check_output_document(
