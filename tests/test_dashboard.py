@@ -128,7 +128,7 @@ def test_python_serves_prebuilt_assets_and_offline_health(dashboard):
     assert "img-src 'self';" in headers["Content-Security-Policy"]
     assert "data:" not in headers["Content-Security-Policy"]
     assert headers["Cache-Control"] == "no-store"
-    assert request("GET", "/api/health")[1]["doctor"] == doctor_report(Config())
+    assert request("GET", "/api/health")[1]["doctor"] == doctor_report(Config(), config_path=state.config_path)
     assert request("GET", "/api/health")[1]["configuration"]["valid"]
     assert not state.ledger_path.exists()  # Read-only pages don't create fake audit runs.
     assert request("GET", "/../config.py", token=False)[0] == 404

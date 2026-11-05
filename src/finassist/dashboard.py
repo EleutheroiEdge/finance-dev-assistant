@@ -173,7 +173,8 @@ class DashboardState:
         except (AssistantError, OSError, ValueError, TypeError):
             config = Config()
             status = {"valid": False, "code": "configuration_invalid"}
-        return {"doctor": doctor_report(config), "configuration": status}
+        source = self.config_path if self.config_path.exists() else None
+        return {"doctor": doctor_report(config, config_path=source), "configuration": status}
 
 
 class DashboardServer(ThreadingHTTPServer):

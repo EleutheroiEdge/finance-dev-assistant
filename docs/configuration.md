@@ -120,7 +120,18 @@ policy configuration problems. `profile_file_unavailable`, `profile_file_invalid
 loading problems. Errors never print file contents, credentials or private paths.
 An allowed/protected prefix must also satisfy the configured path policy.
 Configuration files are bounded to 2 MB. Budget values must be finite and nonnegative;
-limits must be positive integers. Unknown configuration keys are rejected.
+limits must be integers from 1 to 2,000,000. A limit error names the option and its
+allowed range, for example `{"code":"invalid_limit","option":"max_file_bytes","minimum":1,"maximum":2000000}`.
+Unknown configuration keys are rejected.
+
+`finassist doctor` reports defaults unless you pass `--config`, and says so in
+`config_source`. Its `config_warnings` list settings that have no effect:
+- **`config_file_not_loaded`:** a `finassist.json` is present but was not passed with `--config`.
+- **`text_suffix_always_denied`:** a `text_suffixes` entry, such as `.csv`, that the
+  built-in deny list always refuses. Admit synthetic fixtures with `fixture_roots` in a
+  gate policy instead.
+- **`provider_prices_missing`:** a paid provider whose prices are zero. Reviews are
+  refused until both are set.
 
 ## Editor schema
 

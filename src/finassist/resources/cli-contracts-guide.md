@@ -44,6 +44,18 @@ with the actual stable exception class. The code family/keys are the contract;
 raw provider errors, secrets and private paths are not included. A nonzero exit
 can follow a mutation or uncertain provider call: inspect audit/state before retrying.
 
+Some refusals add bounded fields beside `code`. These are option names, numbers and
+booleans, never values, paths or contents:
+- limit errors (`invalid_limit`, `invalid_evidence_age`, `invalid_cost_limit` and
+  `invalid_fixture_limit`) add `option` and the allowed `minimum`, plus `maximum`
+  where there is one;
+- `file_limit_exceeded` adds the `limit` and the file's `bytes`;
+- `provider_prices_required` adds `missing`, the price fields that are still zero;
+- `network_not_approved` adds `allow_network` (the configuration) and
+  `allow_network_flag` (the command's `--allow-network`), so you can see which is missing.
+
+Scripts should key on `code`; more detail fields may be added.
+
 ## Commands
 
 The fields below name the result's integration surface; nested full artifact
@@ -57,7 +69,7 @@ means other documented/context-specific fields can exist, not a literal JSON val
 | `ci` | `ci gate` returns a version-1 deterministic-check report: status, exact policy/source/plan/configuration hashes, required/completed counts, model-review status and blockers. With `--output`, stdout is `{output, status, report_hash}`. Reads a pinned base policy, not workspace config. See [CI gates](ci-gates.md). | 0, 1, 2 |
 | `guide` | Without a topic: stdout `{topics: [{topic, title}]}`. With a topic: bundled UTF-8 Markdown, not JSON. No config, state writes or network. Unknown topics return `unknown_guide` on stderr. | 0, 2 |
 | `init` | stdout `{created: string, network_enabled: false}`; writes validated config JSON. | 0, 2 |
-| `doctor` | stdout health object: version/runtime/provider metadata, network/key-presence booleans, recipes/profile, deprecated keys, cached `updates` and private-state warning. Explicit `--check-updates` requests one fixed PyPI check when configuration permits network; failures remain `not checked`. Explicit `--fix` preflights safe reversible local migrations without network; combining it with `--check-updates` refuses. | 0, 2 |
+| `doctor` | stdout health object: version/runtime/provider metadata, network/key-presence booleans, recipes/profile, deprecated keys, cached `updates` and private-state warning. `config_source` is `file` or `defaults`, and `config_warnings` lists settings with no effect, each with a `code` and `hint`. Explicit `--check-updates` requests one fixed PyPI check when configuration permits network; failures remain `not checked`. Explicit `--fix` preflights safe reversible local migrations without network; combining it with `--check-updates` refuses. | 0, 2 |
 | `update` | `update [status] [--json]` emits cached status: installed/latest versions, `checked_at`, `stale`, reason, user setting/environment override, install method, exact `upgrade_command`/`upgrade_argv`, execution availability and `automatic_installs: false`. Missing latest is null. No network/installer/audit writes. `--dry-run` previews the same command; omit project `--config`. Incompatible status/install flags refuse. | 0, 2 |
 | `update --yes` | Explicit package manager with metadata audit; stdout `installer-succeeded`/`installer-failed`, installer exit code, command/method and restart flag, with configuration/evidence migration flags false. Unsupported/editable installs refuse. Timeout returns `upgrade_outcome_unknown_inspect_installation` and retains an open audit run. No retry/fallback or captured installer output. | 0, 1, 2 |
 | `demo` | result `{status, data_class: "synthetic", checks: array, counterexamples_detected: array, model_called: false, trade_execution: false, qualification, tax_example}`. | 0, 1, 2 |

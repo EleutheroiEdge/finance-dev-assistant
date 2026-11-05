@@ -11,7 +11,7 @@ import jsonschema
 
 from .ci_policy import decode_document, revision
 from .config import Config
-from .errors import AssistantError
+from .errors import AssistantError, prices_required
 from .policy_fixtures import FIXTURE_PROPERTIES, fixture_settings, load_policy_config
 from .profiles import PROFILES
 from .scope import read_entry
@@ -161,10 +161,9 @@ def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePo
     endpoint = urlsplit(model["endpoint"])
     if endpoint.hostname != model["allowed_host"]:
         raise AssistantError("gate_endpoint_host_mismatch")
-    if model["provider"] != "ollama" and any(
-        model[field] <= 0 for field in ("input_usd_per_million", "output_usd_per_million")
-    ):
-        raise AssistantError("provider_prices_required")
+    prices = {field: model[field] for field in ("input_usd_per_million", "output_usd_per_million")}
+    if model["provider"] != "ollama" and any(value <= 0 for value in prices.values()):
+        raise prices_required(prices)
     config_fields = {key: model[key] for key in (
         "provider", "model", "endpoint", "api_key_env", "profile", "allow_paths",
         "max_file_bytes", "max_output_tokens", "timeout_seconds", "max_run_usd", "daily_budget_usd",

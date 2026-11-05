@@ -371,7 +371,7 @@ def execute(args, config: Config | None = None) -> int:
         from .update_check import check_once
 
         checked = check_once(network_allowed=config.allow_network) if args.check_updates else None
-        _emit(doctor_report(config, update_check=checked))
+        _emit(doctor_report(config, update_check=checked, config_path=args.config))
     elif args.command == "demo":
         result = run_demo()
         _emit(result, args.output)
@@ -853,10 +853,7 @@ def main(argv: list[str] | None = None) -> int:
             outcome["exit_code"] = execute(args, config)
             return outcome["exit_code"]
     except AssistantError as exc:
-        from .config_compat import ConfigCompatibilityError
-        from .evidence_schema import EvidenceSchemaError
-
-        details = exc.public_details if isinstance(exc, (ConfigCompatibilityError, EvidenceSchemaError)) else {}
+        details = getattr(exc, "public_details", {})
         print(json.dumps({"status": "error", "code": exc.code, **details}), file=sys.stderr)
         return 2
     except (OSError, ValueError, TypeError, KeyError, InvalidOperation, sqlite3.Error) as exc:

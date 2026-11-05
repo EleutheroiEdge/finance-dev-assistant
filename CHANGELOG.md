@@ -2,6 +2,21 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Changed
+- **Error details (#64).** Some refusals now add bounded fields beside `code`:
+  - limit errors give the option and its allowed range;
+  - `file_limit_exceeded` gives the limit and the file's size;
+  - `provider_prices_required` lists the price fields that are still zero;
+  - `network_not_approved` says whether the configuration, the `--allow-network` flag, or both are missing.
+
+  These fields never include values, paths or file contents.
+- **`doctor` (#64).** It now reports `config_source` (`file` or `defaults`) and `config_warnings`. The warnings cover a `finassist.json` that was not passed with `--config`, a `text_suffixes` entry the deny list always refuses, and a paid provider with zero prices.
+
+### Upgrading
+- **Scripts reading stderr errors.** They should key on `code`; refusal objects may now carry extra fields.
+
 ## 0.7.1 - 2026-11-04
 
 ### Security

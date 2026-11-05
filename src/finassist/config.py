@@ -205,12 +205,13 @@ class Config:
             "timeout_seconds",
         ):
             if type(getattr(self, key)) is not int or not 0 < getattr(self, key) <= 2_000_000:
-                raise AssistantError("invalid_limit")
+                raise AssistantError("invalid_limit", {"option": key, "minimum": 1, "maximum": 2_000_000})
         if (
             type(self.readiness_max_age_seconds) is not int
             or not 1 <= self.readiness_max_age_seconds <= 2_000_000
         ):
-            raise AssistantError("invalid_evidence_age")
+            raise AssistantError("invalid_evidence_age",
+                                 {"option": "readiness_max_age_seconds", "minimum": 1, "maximum": 2_000_000})
         if any(
             type(getattr(self, key)) is not bool
             for key in ("allow_network", "allow_partial_review", "allow_local_readiness")
@@ -230,7 +231,7 @@ class Config:
                 or not math.isfinite(value)
                 or value < 0
             ):
-                raise AssistantError("invalid_cost_limit")
+                raise AssistantError("invalid_cost_limit", {"option": key, "minimum": 0})
         for key in (
             "allow_paths",
             "generated_paths",

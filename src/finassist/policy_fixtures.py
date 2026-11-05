@@ -24,6 +24,9 @@ class _MarkerReadConfig(Config):
         return check_model_path(path, source_only=False)
 
 
+_FIXTURE_LIMIT = {"option": "fixture_max_file_bytes", "minimum": 1, "maximum": 2_000_000}
+
+
 @dataclass(frozen=True)
 class PolicyFixtureConfig(Config):
     fixture_roots: tuple[str, ...] = ()
@@ -32,7 +35,7 @@ class PolicyFixtureConfig(Config):
 
     def validate(self) -> Config:
         if type(self.fixture_max_file_bytes) is not int or not 1 <= self.fixture_max_file_bytes <= 2_000_000:
-            raise AssistantError("invalid_fixture_limit")
+            raise AssistantError("invalid_fixture_limit", _FIXTURE_LIMIT)
         return super().validate()
 
     def check_path(self, path: str, **kwargs) -> str:
@@ -52,7 +55,7 @@ def fixture_settings(repo: Path, base: str, options: dict) -> dict | None:
     roots = tuple(options.get("fixture_roots", ()))
     limit = options.get("fixture_max_file_bytes", 48_000)
     if type(limit) is not int or not 1 <= limit <= 2_000_000:
-        raise AssistantError("invalid_fixture_limit")
+        raise AssistantError("invalid_fixture_limit", _FIXTURE_LIMIT)
     if not roots:
         return None
     markers = {}

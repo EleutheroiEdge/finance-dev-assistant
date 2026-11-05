@@ -35,5 +35,5 @@ def fix_local_state(config_path: Path | None, state_dir: Path) -> dict:
         outcome["exit_code"] = 0
     if config_result:
         config_result = {key: value for key, value in config_result.items() if key != "diff"}
-    return {**doctor_report(config), "fixes": {"configuration": config_result, "evidence": evidence_result},
+    return {**doctor_report(config, config_path=config_path), "fixes": {"configuration": config_result, "evidence": evidence_result},
             "network_called": False}

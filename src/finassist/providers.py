@@ -11,7 +11,7 @@ from urllib.parse import quote
 import httpx
 
 from .config import Config
-from .errors import AssistantError
+from .errors import AssistantError, network_not_approved
 from .security import canonical, digest
 
 
@@ -184,7 +184,7 @@ def invoke(
 ) -> ModelResult:
     config.validate()
     if not config.allow_network or not network_approved:
-        raise AssistantError("network_not_approved")
+        raise network_not_approved(config.allow_network, network_approved)
     url, headers, payload = request_shape(config, system, packet, schema)
     request_hash, body = request_identity(url, headers, payload)
     if approved_request_hash is not None and approved_request_hash != request_hash:
