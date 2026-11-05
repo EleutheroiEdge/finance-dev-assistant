@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from test_model_policy import model_policy, policy_case  # noqa: F401 - fixture registration
+from test_model_policy import model_policy
 from finassist.cli import main
 from finassist.config import Config, save_config
 from finassist.errors import AssistantError
@@ -15,6 +15,7 @@ from finassist.policy_fixtures import fixture_settings
 from finassist.review import call_model, review_schema
 from finassist.scope import build_packet
 
+pytest_plugins = ("test_model_policy",)
 RANGE = {"minimum": 1, "maximum": 2_000_000}
 PRICES = ["input_usd_per_million", "output_usd_per_million"]
 
