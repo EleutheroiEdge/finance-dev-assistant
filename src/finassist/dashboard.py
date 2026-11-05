@@ -168,12 +168,12 @@ class DashboardState:
 
     def health(self):
         try:
-            config, _ = self.configuration()
+            config, _, raw = self._configuration_snapshot()
             status = {"valid": True, "code": None}
+            source = self.config_path if raw is not None else None
         except (AssistantError, OSError, ValueError, TypeError):
-            config = Config()
+            config, source = Config(), None  # The defaults are shown, so they are named as such.
             status = {"valid": False, "code": "configuration_invalid"}
-        source = self.config_path if self.config_path.exists() else None
         return {"doctor": doctor_report(config, config_path=source), "configuration": status}
 
 

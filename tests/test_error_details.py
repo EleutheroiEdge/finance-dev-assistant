@@ -100,14 +100,24 @@ def test_doctor_reports_its_config_source_and_settings_with_no_effect(tmp_path, 
     assert report["config_source"] == "defaults" and report["config_warnings"] == []
     path = tmp_path / "finassist.json"
     save_config(path, replace(Config(), provider="google", model="synthetic-model",
-                              text_suffixes=(*Config().text_suffixes, ".csv")))
+                              text_suffixes=(*Config().text_suffixes, ".csv", ".pem")))
     assert main(["doctor"]) == 0
     report = json.loads(capsys.readouterr().out)
     assert [warning["code"] for warning in report["config_warnings"]] == ["config_file_not_loaded"]
     assert main(["--config", str(path), "doctor"]) == 0
     report = json.loads(capsys.readouterr().out)
-    warnings = {warning["code"]: warning for warning in report["config_warnings"]}
-    assert report["config_source"] == "file" and set(warnings) == {"text_suffix_always_denied", "provider_prices_missing"}
-    assert warnings["text_suffix_always_denied"]["suffix"] == ".csv"
-    assert "fixture_roots" in warnings["text_suffix_always_denied"]["hint"]
-    assert warnings["provider_prices_missing"]["missing"] == PRICES
+    codes = [warning["code"] for warning in report["config_warnings"]]
+    assert report["config_source"] == "file"
+    assert codes == ["text_suffix_always_denied", "text_suffix_always_denied", "provider_prices_missing"]
+    suffixes = {warning["suffix"]: warning["hint"] for warning in report["config_warnings"] if "suffix" in warning}
+    assert "fixture_roots" in suffixes[".csv"]
+    assert "fixture_roots" not in suffixes[".pem"] and "remove it from text_suffixes" in suffixes[".pem"]
+    assert "can't be admitted" in suffixes[".pem"] and "can't be admitted" not in suffixes[".csv"]
+    assert report["config_warnings"][-1]["missing"] == PRICES
+
+
+def test_public_details_are_bounded_and_never_replace_the_code():
+    error = AssistantError("synthetic_code", {"code": "other", "status": "ok", "Bad-Key": 1, "option": "x",
+                                              "limit": 10, "items": ("a", "b"), "nested": {"a": 1},
+                                              "long": "x" * 300})
+    assert error.public_details == {"option": "x", "limit": 10, "items": ["a", "b"]}
