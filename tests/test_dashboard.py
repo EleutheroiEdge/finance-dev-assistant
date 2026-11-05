@@ -345,7 +345,8 @@ def test_invalid_config_health_remains_available(dashboard):
     state, _, request = dashboard
     state.config_path.write_text("invalid JSON", encoding="utf-8", newline="\n")
     assert request("GET", "/api/config")[0] == 409
-    assert request("GET", "/api/health")[1]["configuration"]["valid"] is False
+    health = request("GET", "/api/health")[1]
+    assert health["configuration"]["valid"] is False and health["doctor"]["config_source"] == "defaults"
 
 
 def test_sensitive_patterns_can_be_configured_without_matching_their_own_definition(dashboard):

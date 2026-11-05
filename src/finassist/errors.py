@@ -1,3 +1,18 @@
+import re
+
+_DETAIL_KEY = re.compile(r"[a-z][a-z0-9_]{0,40}")
+
+
+def _bounded(value) -> bool:
+    if isinstance(value, (bool, int, float)) or value is None:
+        return True
+    if isinstance(value, str):
+        return len(value) <= 256
+    return isinstance(value, (list, tuple)) and len(value) <= 64 and all(
+        isinstance(item, (bool, int, float, str)) and (not isinstance(item, str) or len(item) <= 256)
+        for item in value)
+
+
 class AssistantError(Exception):
     """Public errors contain a fixed code, never payload or credential values.
 
@@ -7,7 +22,14 @@ class AssistantError(Exception):
 
     def __init__(self, code: str, details: dict | None = None):
         self.code = code
-        self.public_details = dict(details) if details else {}
+        # Producers still choose only non-secret facts; this keeps the shape bounded
+        # and stops a detail from replacing the reserved code or status keys.
+        self.public_details = {
+            key: list(value) if isinstance(value, tuple) else value
+            for key, value in (details or {}).items()
+            if isinstance(key, str) and _DETAIL_KEY.fullmatch(key) and key not in {"code", "status"}
+            and _bounded(value)
+        }
         super().__init__(code)
 
 
