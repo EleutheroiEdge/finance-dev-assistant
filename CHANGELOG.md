@@ -32,6 +32,13 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 - **Names that could display as another name** are redacted in `doctor --policy` and `init --detect` output. That covers names with a control or format character, such as a right-to-left override.
 - **Literal error codes.** Every code now appears literally in the source, so it can be found with a text search. The codes themselves are unchanged.
 
+### Added
+- **`private_paths: skip-and-report` (#64).** It is opt-in; the default is still `refuse`.
+  - A private path in the range is withheld by its name before anything is read, instead of refusing the whole review.
+  - Packets, requests, reports and audit records carry only the withheld count. `plan` and `doctor --policy` name the paths in local output only.
+  - Every coverage check stays incomplete.
+  - It works in configuration and in a gate policy's `model_review`, and the gate report adds `coverage`.
+
 ### Fixed
 - **`score`** reported a traceback when a labels file's `outcomes` was a list instead of an object. It now refuses with `invalid_adjudication` (#69).
 - **Supervised runs.** A recipe could start briefly on a platform where its exit can't be observed without reaping it. The platform is now checked before launch, with `non_reaping_wait_required` (#69).

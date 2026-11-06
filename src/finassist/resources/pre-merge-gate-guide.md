@@ -349,6 +349,14 @@ before enabling paid unattended review. Do not restore budget/audit state from
 untrusted PR-controlled caches. No persistence backend, secret or workflow is
 created by this feature. Default `mode: checks-only` preserves the v1 adapter.
 
+## Withheld private paths
+
+A policy can set `"private_paths": "skip-and-report"` in `model_review`. Private paths in
+the range are then withheld unread instead of refusing the run, and the report adds
+`coverage: {complete: false, withheld: N}`. The default, `refuse`, keeps the run blocked. The
+preflight lists withheld paths as `withheld`, warns with `private_paths_withheld`, and doesn't
+treat them as blockers. See [skipping private paths](configuration.md#skipping-private-paths).
+
 ## Verdict contract
 
 The [version-2 report schema](../schemas/model-gate-report.schema.json) defines:

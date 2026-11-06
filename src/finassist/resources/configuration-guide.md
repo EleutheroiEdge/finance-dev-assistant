@@ -29,6 +29,7 @@ commands and the `doctor --check-updates` network gate.
 | `github_host` | GitHub DNS hostname, without scheme, path or port. Defaults to github.com; Enterprise uses existing gh auth. |
 | `allow_network` | Enable potential network use. Each command still needs its own explicit network approval. |
 | `allow_partial_review` | Permit model calls with explicitly accounted-for omissions. Readiness still requires complete coverage. |
+| `private_paths` | `refuse` (default): a private path in the range, such as a data file or a path under a private directory, refuses the whole review. `skip-and-report`: such a path is never read or sent; the packet carries only how many were withheld, and names appear only in local output. Coverage is then incomplete. See [skipping private paths](#skipping-private-paths). |
 | `allowed_hosts` | Additional approved MODEL endpoint hostnames; distinct from github_host. |
 | `generated_paths` | Exact relative files or directory prefixes excluded from review and snapshot source. Defaults to src/finassist/resources/dashboard/. No globs; rebuild/integrity CI must verify these artifacts. |
 | `allow_paths` | Exact source paths or prefixes ending in /. Denied components still apply. |
@@ -112,6 +113,30 @@ bytes remain subject to publication scans and build-integrity CI. `.gitattribute
 is reviewable and protected by default.
 Runtime/Git internals, environment files, private profile filenames, credential
 formats and binary restrictions remain intrinsic protections. There is no bypass switch.
+
+## Skipping private paths
+
+By default a private path anywhere in the range refuses the whole review. That covers a data
+or credential file, or a path under a private directory such as `data/` or `credentials/`.
+Set `private_paths` to `skip-and-report` to review the rest of the range instead. The same field
+works in a gate policy's `model_review` object. What happens to a withheld path:
+
+- It is recognised by its name alone, before anything is read. Its contents are never read,
+  hashed, sized or sent.
+- The packet, request, report and audit record carry only how many paths were withheld, never
+  their names, extensions, directories or sizes. `plan` names them in its local summary
+  (`withheld_paths`) and `doctor --policy` lists them as `withheld`. A name that could display
+  as a different one is shown as `[redacted]`.
+- Coverage is incomplete wherever it is checked:
+  - the review is `partial-review`;
+  - readiness, workflow plans and the CI gate block with their coverage codes;
+  - a gate report carries `coverage: {complete: false, withheld: N}`.
+- Other refusals are unchanged. A changed file outside `allow_paths`, a denied path, or a name
+  that itself looks like a credential still refuses.
+- A range in which every changed file is private refuses with `review_scope_entirely_withheld`.
+
+Use `refuse` when a review must cover every changed file. Text inside a reviewed file that
+mentions a private file is outside this guarantee; it is screened like any other source.
 
 ## Custom profiles
 

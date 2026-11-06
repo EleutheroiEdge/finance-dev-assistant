@@ -18,7 +18,7 @@ from .errors import AssistantError, network_not_approved, prices_required
 from .forbidden_tokens import token_file_audit
 from .ledger import Ledger
 from .providers import invoke, request_identity, request_shape
-from .scope import triage, verify_packet, review_omissions
+from .scope import WITHHELD_REASON, triage, verify_packet, review_omissions
 from .security import canonical, check_context_document, check_output_document, check_text, digest
 
 
@@ -130,9 +130,13 @@ def call_model(
                 if size > limit:
                     raise AssistantError("file_limit_exceeded", {"limit": limit, "bytes": size})
                 check_text(file[side], extra_patterns=config.extra_sensitive_patterns, source_path=file["path"])
+    if not packet["changed_paths"] and packet.get("withheld"):
+        raise AssistantError("review_scope_entirely_withheld")
     if not packet["changed_paths"]:
         raise AssistantError("empty_review_scope")
-    if review_omissions(packet) and not config.allow_partial_review:
+    # skip-and-report already chose to review without withheld private paths; any
+    # other omission still needs allow_partial_review.
+    if [row for row in review_omissions(packet) if row["reason"] != WITHHELD_REASON] and not config.allow_partial_review:
         raise AssistantError("scope_incomplete")
     if not packet["files"]:
         raise AssistantError("empty_model_context")
@@ -227,6 +231,8 @@ def review_packet(
     config.validate()
     check_context_document(packet, extra_patterns=config.extra_sensitive_patterns)
     triaged = triage(packet, config)
+    if not packet["changed_paths"] and packet.get("withheld"):
+        raise AssistantError("review_scope_entirely_withheld")
     if not packet["changed_paths"]:
         raise AssistantError("empty_review_scope")
     if config.provider == "offline":
@@ -237,6 +243,7 @@ def review_packet(
             "provider": "offline",
             "triage": triaged,
             "findings": [],
+            **({"withheld": packet["withheld"]} if "withheld" in packet else {}),
             "qualification": "No model review or test execution performed.",
             "merge_authority": False,
         }
@@ -270,6 +277,7 @@ def review_packet(
         "reservation": reservation,
         "merge_authority": False,
         "omitted": packet["omitted"],
+        **({"withheld": packet["withheld"]} if "withheld" in packet else {}),
         "qualification": "Source-bound advisory findings. Reproductions have not been executed.",
     }
     with Ledger(ledger_path) as ledger:

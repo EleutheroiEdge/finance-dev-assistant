@@ -19,7 +19,7 @@ from .ledger import Ledger
 from .model_policy import load_model_policy
 from .providers import request_identity, request_shape
 from .review import PolicyRequestApproval, call_model, review_schema, validate_review
-from .scope import build_packet, git, resolve
+from .scope import WITHHELD_CODES, build_packet, git, resolve
 from .policy_ignores import screen_ignores as _screen_ignores
 from .security import canonical, check_model_path as _scope_path, digest, regular_path
 
@@ -139,19 +139,32 @@ def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_rep
         raise AssistantError("gate_profile_change_requires_review")
     if any(PurePosixPath(path).name == ".gitignore" for path in guarded):
         raise AssistantError("gate_ignore_change_requires_review")
+    skipping = config.private_paths == "skip-and-report"
+    withhold = set()
     for path in paths:
-        _scope_path(path, fixture_roots=getattr(config, "fixture_roots", ()))
+        try:
+            _scope_path(path, fixture_roots=getattr(config, "fixture_roots", ()))
+        except AssistantError as exc:
+            # skip-and-report: a private path is withheld by name; it is never read or sent.
+            if skipping and exc.code in WITHHELD_CODES:
+                withhold.add(path)
+                continue
+            raise
         if any(path.startswith(prefix) if prefix.endswith("/") else path == prefix
                for prefix in rules["deny_paths"]):
             raise AssistantError("gate_denied_path")
         if not config.allows(path):
             raise AssistantError("gate_path_not_allowed")
-    _screen_ignores(repo, {base, ancestor}, paths + source_profile_paths + (marker_paths if same_source else []))
+    reviewed = [path for path in paths if path not in withhold]
+    _screen_ignores(repo, {base, ancestor}, reviewed + source_profile_paths + (marker_paths if same_source else []))
     if policy_repo is not None and (policy_repo != repo or policy.base != base):
-        _screen_ignores(policy_repo, {policy.base}, paths + profile_paths + marker_paths)
-    packet = build_packet(repo, base, head, config)
-    if packet["omitted"] or len(packet["files"]) != len(paths):
+        _screen_ignores(policy_repo, {policy.base}, reviewed + profile_paths + marker_paths)
+    packet = build_packet(repo, base, head, config, withhold=frozenset(withhold))
+    withheld = packet.get("withheld", {}).get("count", 0)
+    if packet["omitted"] or withheld != len(withhold) or len(packet["files"]) != len(reviewed):
         raise AssistantError("scope_incomplete")
+    if not packet["files"]:
+        raise AssistantError("review_scope_entirely_withheld")
     guard = prepare_token_guard(policy, repo)
     if guard is not None:
         screen_packet(packet, config.instructions(), guard.snapshot)
@@ -209,6 +222,9 @@ def _evaluate_model_gate(repo: Path, base: str, head: str, policy_loader, state_
         report["policy_sha256"] = policy.sha256
         rules, config = policy.document["model_review"], policy.config
         packet = prepare_model_source(repo, base, head, policy, policy_repo=policy_repo)
+        if packet.get("withheld"):
+            # A count only: the names stay in local output. Coverage is never complete here.
+            report["coverage"] = {"complete": False, "withheld": packet["withheld"]["count"]}
         # Keys are first accessed here, after identity, scope and screening.
         token_guard = prepare_token_guard(policy, repo)
         request_hash, schema, system = prepare_model_request(policy, packet, source_repo=repo, token_guard=token_guard)

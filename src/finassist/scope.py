@@ -215,7 +215,25 @@ class ContextFile:
     after_mode: str | None
 
 
-def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
+# Path refusals that mean "private", which skip-and-report withholds instead of refusing.
+# Any other refusal, including a name that itself looks like a credential, still refuses.
+WITHHELD_CODES = frozenset({"private_path", "private_or_binary_path", "private_profile_path", "gate_private_path"})
+WITHHELD_REASON = "private_path_policy"
+
+
+def _private_name(config: Config, path: str) -> bool:
+    """Whether this name alone makes the path private. Never reads the file."""
+    try:
+        config.check_path(path, source_only=False, metadata_only=True)
+    except AssistantError as exc:
+        return exc.code in WITHHELD_CODES
+    return False
+
+
+def build_packet(
+    repo: Path, base: str, head: str, config: Config, *, withhold: frozenset = frozenset(),
+    withheld_names: list | None = None,
+) -> dict:
     """Review the head's own change from its merge base, not unrelated base additions."""
     config.validate()
     base_sha, head_sha = resolve(repo, base), resolve(repo, head)
@@ -238,8 +256,16 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
     if len(tokens) // 2 > 2000:
         raise AssistantError("packet_file_count_limit")
     files, omitted, changed = [], [], []
+    withheld = 0
+    skipping = config.private_paths == "skip-and-report"
     for pos in range(0, len(tokens) - 1, 2):
         status, path = tokens[pos : pos + 2]
+        if skipping and (path in withhold or _private_name(config, path)):
+            # Withheld before anything is read: no blob, size or hash, and no name in the packet.
+            withheld += 1
+            if withheld_names is not None:
+                withheld_names.append(path)
+            continue
         changed.append(path)
         config.check_path(path, source_only=False, metadata_only=True)
         check_text(path, extra_patterns=config.extra_sensitive_patterns)
@@ -290,6 +316,8 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
         "data_class": "screened-source",
         "classification_limit": "Pattern screening does not prove source contains no private information.",
     }
+    if withheld:
+        packet["withheld"] = {"count": withheld, "reason": WITHHELD_REASON}
     encoded = canonical(packet)
     if len(encoded) > config.max_packet_bytes:
         raise AssistantError("packet_limit_exceeded")
@@ -315,6 +343,8 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
     }
     if isinstance(packet, dict) and "allow_paths" in packet:
         keys.add("allow_paths")
+    if isinstance(packet, dict) and "withheld" in packet:
+        keys.add("withheld")
     if (
         not isinstance(packet, dict)
         or set(packet) != keys
@@ -332,6 +362,14 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
     changed = packet["changed_paths"]
     if any(not isinstance(path, str) for path in changed) or len(set(changed)) != len(changed):
         raise AssistantError("packet_coverage_invalid")
+    if "withheld" in packet:
+        withheld = packet["withheld"]
+        if config.private_paths != "skip-and-report":
+            raise AssistantError("packet_withheld_not_allowed")
+        if (not isinstance(withheld, dict) or set(withheld) != {"count", "reason"}
+                or type(withheld["count"]) is not int or not 1 <= withheld["count"] <= 2000 - len(changed)
+                or withheld["reason"] != WITHHELD_REASON):
+            raise AssistantError("packet_schema_invalid")
     if packet["generated_paths"] != list(config.generated_paths):
         raise AssistantError("packet_generated_paths_mismatch")
     if "allow_paths" not in packet:
@@ -416,5 +454,12 @@ def triage(packet: dict, config: Config | None = None) -> dict:
 
 
 def review_omissions(packet: dict) -> list[dict]:
-    """Call after verification: configured generated artifacts are outside scope."""
-    return [row for row in packet["omitted"] if row["reason"] != "generated_artifact_excluded"]
+    """Call after verification: configured generated artifacts are outside scope.
+
+    Withheld private paths are an omission too, so every coverage check (readiness,
+    workflows, the CI gate) stays incomplete. The row carries a count, never a name.
+    """
+    rows = [row for row in packet["omitted"] if row["reason"] != "generated_artifact_excluded"]
+    if packet.get("withheld"):
+        rows.append({"path": None, "reason": WITHHELD_REASON, "count": packet["withheld"]["count"]})
+    return rows

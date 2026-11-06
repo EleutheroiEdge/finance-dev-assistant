@@ -256,6 +256,25 @@ def check_model_path(path: str, *, fixture_roots: tuple[str, ...] = (), source_o
 
 
 
+def local_name(name) -> str:
+    """A repo-relative name for local output only, or [redacted].
+
+    A name is redacted when it fails screening itself, or when it has a control or
+    format character (such as a right-to-left override) that can make it display as
+    a different name.
+    """
+    try:
+        if not isinstance(name, str) or not name or len(name) > 512:
+            raise AssistantError("unsafe_path")
+        if any(unicodedata.category(character) in {"Cc", "Cf", "Co", "Cs", "Zl", "Zp"} for character in name):
+            raise AssistantError("unsafe_path")
+        safe_relative(name.removesuffix("/"))
+        check_text(name)
+    except AssistantError:
+        return "[redacted]"
+    return name
+
+
 def check_text(text: str, *, extra_patterns: tuple[str, ...] = (), source_path: str | None = None) -> None:
     _screen_text(text, credential_screening_view(text, source_path), extra_patterns)
 

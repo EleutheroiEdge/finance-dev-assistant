@@ -224,6 +224,15 @@
       "title": "Output usd per million",
       "type": "number"
     },
+    "private_paths": {
+      "default": "refuse",
+      "enum": [
+        "refuse",
+        "skip-and-report"
+      ],
+      "title": "Private paths",
+      "type": "string"
+    },
     "profile": {
       "default": "finance-saas",
       "title": "Profile",
