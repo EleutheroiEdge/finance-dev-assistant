@@ -9,14 +9,14 @@ from urllib.parse import quote
 
 from .config import Config
 from .platform_support import find_tool
-from .errors import AssistantError
+from .errors import AssistantError, network_not_approved
 from .security import canonical, digest
 
 
 def inspect_github(repository: str, branch: str, config: Config, *, network_approved: bool) -> dict:
     config.validate()
     if not config.allow_network or not network_approved:
-        raise AssistantError("network_not_approved")
+        raise network_not_approved(config.allow_network, network_approved)
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*", repository):
         raise AssistantError("github_repository_invalid")
     if (

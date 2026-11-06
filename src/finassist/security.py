@@ -189,8 +189,11 @@ _PRIVATE = {"data", "private", "client", "clients", "household", "households",
             "client-config", "client_config", "household-config", "household_config"}
 
 
+TEXT_FIXTURE_SUFFIXES = frozenset({".csv", ".tsv", ".yaml", ".yml"})
+
+
 def is_text_fixture(path: str, roots: tuple[str, ...]) -> bool:
-    return PurePosixPath(path).suffix.lower() in {".csv", ".tsv", ".yaml", ".yml"} and any(
+    return PurePosixPath(path).suffix.lower() in TEXT_FIXTURE_SUFFIXES and any(
         path.startswith(root) if root.endswith("/") else path == root for root in roots
     )
 

@@ -5,7 +5,24 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 ## Unreleased
 
 ### Changed
+- **Error details (#64).** Some refusals now add bounded fields beside `code`:
+  - limit errors give the option and its allowed range;
+  - `file_limit_exceeded` gives the limit and the file's size;
+  - `provider_prices_required` lists the price fields that are still zero;
+  - `network_not_approved` says whether the configuration, the `--allow-network` flag, or both are missing.
 
+  These fields never include values, paths or file contents.
+- **`doctor` (#64).** It now reports `config_source` (`file` or `defaults`) and `config_warnings`. The warnings cover a `finassist.json` that was not passed with `--config`, a `text_suffixes` entry the deny list always refuses, and a paid provider with zero prices.
+
+- **`doctor --policy` preflight (#64).** `finassist doctor --policy P --repo R --base B --head H` reports every gate blocker for one range in one run, each with a hint. That covers:
+  - each changed path and why it is refused, named only in local output;
+  - every policy schema error with its allowed values;
+  - the request size;
+  - the reserved spend;
+  - the policy's sha256;
+  - whether the key variable is set.
+
+  It makes no network call, reads no key value, opens no ledger and spends nothing. It exits 0 when ready and 1 when blocked.
 - In parseable `.py`/`.pyi` files, credential screening reads code with Python's own
   parser instead of regex (#61). A credential-named target given a literal value
   refuses: assignments, typed assignments, walrus targets, keyword arguments,
@@ -23,6 +40,7 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   gitignored secrets and the policy, and list the text rules' known limits (#61).
 
 ### Upgrading
+- **Scripts reading stderr errors.** They should key on `code`; refusal objects may now carry extra fields.
 
 Content that 0.7.1 accepted can now be refused:
 

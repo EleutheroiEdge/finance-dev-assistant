@@ -11,7 +11,7 @@ from urllib.parse import quote
 import httpx
 
 from .config import Config
-from .errors import AssistantError
+from .errors import AssistantError, network_not_approved
 from .security import canonical, digest
 
 
@@ -26,19 +26,12 @@ def _usage(value) -> int | None:
     return value if type(value) is int and 0 < value <= 2_000_000 else None
 
 
-def request_shape(config: Config, system: str, packet: dict, schema: dict) -> tuple[str, dict, dict]:
+def request_payload(config: Config, system: str, packet: dict, schema: dict) -> dict:
+    """The exact request body for one provider. It never reads a credential."""
     content = json.dumps(packet, sort_keys=True, allow_nan=False)
     model = config.model
-    headers = {"Content-Type": "application/json"}
-    key = os.environ.get(config.key_name, "") if config.key_name else ""
-    if config.key_name and not key:
-        raise AssistantError("provider_key_missing")
-    if "\r" in key or "\n" in key:
-        raise AssistantError("invalid_provider_key")
-    url = config.resolved_endpoint
     if config.provider == "openai":
-        headers["Authorization"] = "Bearer " + key
-        payload = {
+        return {
             "model": model,
             "instructions": system,
             "input": content,
@@ -53,17 +46,14 @@ def request_shape(config: Config, system: str, packet: dict, schema: dict) -> tu
                 }
             },
         }
-    elif config.provider == "anthropic":
-        headers.update({"x-api-key": key, "anthropic-version": "2023-06-01"})
-        payload = {
+    if config.provider == "anthropic":
+        return {
             "model": model,
             "system": system + "\nOutput JSON matching: " + json.dumps(schema),
             "messages": [{"role": "user", "content": content}],
             "max_tokens": config.max_output_tokens,
         }
-    elif config.provider == "google":
-        headers["x-goog-api-key"] = key
-        url += "/models/" + quote(model, safe="") + ":generateContent"
+    if config.provider == "google":
         payload = {
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": content}]}],
@@ -73,9 +63,8 @@ def request_shape(config: Config, system: str, packet: dict, schema: dict) -> tu
             },
         }
         payload["systemInstruction"]["parts"][0]["text"] += "\nJSON schema: " + json.dumps(schema)
-    elif config.provider in {"compatible", "ollama"}:
-        if key:
-            headers["Authorization"] = "Bearer " + key
+        return payload
+    if config.provider in {"compatible", "ollama"}:
         payload = {
             "model": model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}],
@@ -88,8 +77,28 @@ def request_shape(config: Config, system: str, packet: dict, schema: dict) -> tu
                 {"max_tokens": config.max_output_tokens, "response_format": {"type": "json_object"}}
             )
             payload["messages"][0]["content"] += "\nJSON schema: " + json.dumps(schema)
-    else:
-        raise AssistantError("provider_not_remote")
+        return payload
+    raise AssistantError("provider_not_remote")
+
+
+def request_shape(config: Config, system: str, packet: dict, schema: dict) -> tuple[str, dict, dict]:
+    headers = {"Content-Type": "application/json"}
+    key = os.environ.get(config.key_name, "") if config.key_name else ""
+    if config.key_name and not key:
+        raise AssistantError("provider_key_missing")
+    if "\r" in key or "\n" in key:
+        raise AssistantError("invalid_provider_key")
+    url = config.resolved_endpoint
+    payload = request_payload(config, system, packet, schema)
+    if config.provider == "openai":
+        headers["Authorization"] = "Bearer " + key
+    elif config.provider == "anthropic":
+        headers.update({"x-api-key": key, "anthropic-version": "2023-06-01"})
+    elif config.provider == "google":
+        headers["x-goog-api-key"] = key
+        url += "/models/" + quote(config.model, safe="") + ":generateContent"
+    elif key:  # compatible and ollama; request_payload refused every other provider
+        headers["Authorization"] = "Bearer " + key
     if key and config.provider in {"openai", "compatible"} and config.auth_header != "Authorization":
         headers.pop("Authorization", None)
         headers[config.auth_header] = key
@@ -184,7 +193,7 @@ def invoke(
 ) -> ModelResult:
     config.validate()
     if not config.allow_network or not network_approved:
-        raise AssistantError("network_not_approved")
+        raise network_not_approved(config.allow_network, network_approved)
     url, headers, payload = request_shape(config, system, packet, schema)
     request_hash, body = request_identity(url, headers, payload)
     if approved_request_hash is not None and approved_request_hash != request_hash:

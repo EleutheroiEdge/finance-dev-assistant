@@ -11,7 +11,7 @@ import jsonschema
 
 from .ci_policy import decode_document, revision
 from .config import Config
-from .errors import AssistantError
+from .errors import AssistantError, prices_required
 from .policy_fixtures import FIXTURE_PROPERTIES, fixture_settings, load_policy_config
 from .profiles import PROFILES
 from .scope import read_entry
@@ -161,10 +161,16 @@ def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePo
     endpoint = urlsplit(model["endpoint"])
     if endpoint.hostname != model["allowed_host"]:
         raise AssistantError("gate_endpoint_host_mismatch")
-    if model["provider"] != "ollama" and any(
-        model[field] <= 0 for field in ("input_usd_per_million", "output_usd_per_million")
-    ):
-        raise AssistantError("provider_prices_required")
+    prices = {field: model[field] for field in ("input_usd_per_million", "output_usd_per_million")}
+    if model["provider"] != "ollama" and any(value <= 0 for value in prices.values()):
+        raise prices_required(prices)
+    profile_text, profile_path = _profile(repo, base, model)
+    config = load_policy_config(policy_config_fields(model, profile_text), settings)
+    return ModelGatePolicy(document, config, path, pin, base, profile_path, repo)
+
+
+def policy_config_fields(model: dict, profile_text: list[str] | None) -> dict:
+    """The gate's Config fields: network, hosts and packet bounds are fixed by policy."""
     config_fields = {key: model[key] for key in (
         "provider", "model", "endpoint", "api_key_env", "profile", "allow_paths",
         "max_file_bytes", "max_output_tokens", "timeout_seconds", "max_run_usd", "daily_budget_usd",
@@ -173,10 +179,8 @@ def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePo
     config_fields.update(allow_network=True, allowed_hosts=[model["allowed_host"]], generated_paths=[],
                          max_packet_bytes=2_000_000,
                          monthly_budget_usd=1_000_000)
-    profile_text, profile_path = _profile(repo, base, model)
     if profile_text is not None:
         profiles = deepcopy(PROFILES)
         profiles[model["profile"]] = profile_text
         config_fields["profiles"] = profiles
-    config = load_policy_config(config_fields, settings)
-    return ModelGatePolicy(document, config, path, pin, base, profile_path, repo)
+    return config_fields

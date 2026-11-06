@@ -54,11 +54,16 @@ def test_plan_and_check_the_assistants_own_committed_tree(tmp_path, operation):
     assert command(root, "rev-parse", candidate + "^{tree}") == tree
     script = "from pathlib import Path; assert Path('src/finassist/config.py').is_file(); assert not Path('src/finassist/resources/dashboard/assets').exists(); print('Synthetic scope check: PASS')"
     # Retain the 48 KB file ceiling. A whole-repository change needs a larger
-    # packet ceiling, independently of the generated bundle exclusion.
-    # The whole tree is near the 2,000,000-byte packet maximum, so the generated
-    # Unicode alias table is excluded too (its generator script stays in scope).
+    # packet ceiling, independently of the generated bundle exclusion. The bundled
+    # guide copies are excluded like generated files: test_guides.py proves each
+    # copy matches its source document, and every source document stays in scope.
+    # The generated Unicode alias table is excluded too (its generator script stays
+    # in scope). SECURITY.md is outside the default allow list, so this test adds it.
+    from finassist.guides import GUIDES
+    copies = {"src/finassist/resources/" + resource: source for _title, source, resource in GUIDES.values()}
+    generated = (*Config().generated_paths, "src/finassist/path_alias_data.py", *sorted(copies))
     config = replace(Config(), max_packet_bytes=2_000_000, recipes={"scope": [sys.executable, "-c", script]},
-                     generated_paths=("src/finassist/resources/dashboard/", "src/finassist/path_alias_data.py"))
+                     generated_paths=generated, allow_paths=(*Config().allow_paths, "SECURITY.md"))
     path, output = tmp_path / "configuration.json", tmp_path / "result.json"
     save_config(path, config)
     args = [
@@ -81,6 +86,9 @@ def test_plan_and_check_the_assistants_own_committed_tree(tmp_path, operation):
     result = json.loads(output.read_text(encoding="utf-8"))
     if operation == "plan":
         assert any(row["reason"] == "generated_artifact_excluded" for row in result["omitted"])
+        excluded = {row["path"] for row in result["omitted"] if row["reason"] == "generated_artifact_excluded"}
+        assert set(copies) <= excluded
+        assert set(copies.values()) <= {row["path"] for row in result["files"]}
         assert not any(
             row["path"].startswith("src/finassist/resources/dashboard/") for row in result["files"]
         )
