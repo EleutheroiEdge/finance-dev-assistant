@@ -476,4 +476,3 @@ def test_private_files_outside_the_proposed_scope_are_warned_about(tmp_path, cap
     if warned:
         assert codes["private_paths_outside_scope"] == {"code": "private_paths_outside_scope", "count": 1}
         assert not proposal["gate_policy_draft"]["model_review"]["deny_paths"]
-
