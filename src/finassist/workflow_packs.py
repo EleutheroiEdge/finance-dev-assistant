@@ -106,7 +106,8 @@ def read_bundle(path: Path) -> dict:
         raise AssistantError("workflow_bundle_too_large")
     try:
         value = json.loads(content.decode("utf-8"), object_pairs_hook=_unique_object, parse_constant=_invalid_constant)
-    except (ValueError, RecursionError) as exc:
+    except (ValueError, RecursionError, AssistantError) as exc:
+        # The shared JSON hooks raise pack codes; a bundle reports its own.
         raise AssistantError("workflow_bundle_invalid") from exc
     _validate(value, _BUNDLE_SCHEMA, "workflow_bundle_invalid")
     return value

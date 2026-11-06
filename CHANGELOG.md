@@ -63,6 +63,9 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 - **Supervised runs.** A recipe could start briefly on a platform where its exit can't be observed without reaping it. The platform is now checked before launch, with `non_reaping_wait_required` (#69).
 - **`plan`** built packets for ranges of more than 2,000 changed files, which every later command refused. It now refuses them with `packet_file_count_limit` before reading any file (#69).
 - **Workflow run files.** A damaged run file was reported as generic `invalid_input`. It is now `workflow_artifact_missing_or_changed`, like any other changed artifact (#69).
+- **`min_version` on a development build.** A development, pre-release or local build refused every configuration with a floor as `invalid_min_version`, blaming a valid file. The build is now compared by its release, and a pre-release or development build counts as earlier than its release (#69).
+- **GitHub Action output errors.** An invalid report path or report was always shown as `ci_action_output_unavailable`. It now shows `ci_output_path_invalid` or `ci_report_invalid` (#69).
+- **Workflow bundles.** A duplicate key or NaN in a bundle reported pack codes. It now reports `workflow_bundle_invalid` (#69).
 
 ### Upgrading
 - **`init` with a paid provider** now needs `--input-usd-per-million` and `--output-usd-per-million`. Without them it refuses with `provider_prices_required` instead of writing a configuration every review would refuse.

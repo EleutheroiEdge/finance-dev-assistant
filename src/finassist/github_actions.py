@@ -133,6 +133,11 @@ def run_github_action(environment) -> int:
         if mode != "checks-only":
             return _run_model_action(environment)
         return _run_github_action(environment)
+    except AssistantError as exc:
+        # Output-path and report codes are fixed strings, so they are safe to show.
+        code = exc.code if exc.code in {"ci_output_path_invalid", "ci_report_invalid"} else "ci_action_output_unavailable"
+        print(json.dumps({"status": "error", "code": code}))
+        return 2
     except Exception:
         # Invalid/unwritable runner output paths must fail without a traceback
         # revealing path values or accidentally leaving a successful job exit.
