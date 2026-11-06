@@ -23,9 +23,14 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   - whether the key variable is set.
 
   It makes no network call, reads no key value, opens no ledger and spends nothing. It exits 0 when ready and 1 when blocked.
+- **A hint for every error code (#64).** Each error record on stderr now carries a `hint`: fixed, packaged text that says what to do. It never contains anything from the run.
+  - `finassist explain CODE` explains a code offline: what happened, how to fix it, related codes and the guide to read. It also accepts a pasted error record.
+  - `finassist explain --list` lists every code. A test fails when a code the package raises or reports has no hint.
+  - A new [troubleshooting guide](docs/troubleshooting.md) (`finassist guide troubleshooting`) covers the codes most often seen on a first run.
+- **Literal error codes.** Every code now appears literally in the source, so it can be found with a text search. The codes themselves are unchanged.
 
 ### Upgrading
-- **Scripts reading stderr errors.** They should key on `code`; refusal objects may now carry extra fields.
+- **Scripts reading stderr errors.** They should key on `code`; refusal objects may now carry extra fields, including `hint`. Hint wording can change between releases; codes don't.
 
 ## 0.7.1 - 2026-11-04
 

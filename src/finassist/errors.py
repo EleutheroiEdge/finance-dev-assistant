@@ -27,7 +27,7 @@ class AssistantError(Exception):
         self.public_details = {
             key: list(value) if isinstance(value, tuple) else value
             for key, value in (details or {}).items()
-            if isinstance(key, str) and _DETAIL_KEY.fullmatch(key) and key not in {"code", "status"}
+            if isinstance(key, str) and _DETAIL_KEY.fullmatch(key) and key not in {"code", "status", "hint"}
             and _bounded(value)
         }
         super().__init__(code)

@@ -27,6 +27,7 @@ from .policy_fixtures import fixture_settings, load_policy_config
 from .policy_ignores import screen_ignores
 from .providers import request_payload
 from .review import review_schema, spend_estimate
+from .error_hints import error_fields
 from .scope import git, read_entry, resolve
 from .security import (TEXT_FIXTURE_SUFFIXES, canonical, check_fixture_private, check_model_path, check_path,
                        check_text, digest, regular_path, safe_relative)
@@ -190,14 +191,14 @@ class _Preflight:
 
     def block(self, code: str, **details) -> None:
         entry = {"code": code, **details}
-        entry.setdefault("hint", HINTS.get(code, _DEFAULT_HINT))
+        entry.setdefault("hint", HINTS.get(code) or error_fields(code).get("hint", _DEFAULT_HINT))
         key = canonical(entry)
         if key not in self._seen:
             self._seen.add(key)
             self.report["blockers"].append(entry)
 
     def block_path(self, code: str, path: str, hint: str | None = None) -> None:
-        hint = hint or HINTS.get(code, _DEFAULT_HINT)
+        hint = hint or HINTS.get(code) or error_fields(code).get("hint", _DEFAULT_HINT)
         group = self._grouped.setdefault((code, hint), {"code": code, "count": 0, "paths": [], "hint": hint})
         group["count"] += 1
         if len(group["paths"]) < _EXAMPLES:

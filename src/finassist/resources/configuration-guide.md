@@ -24,7 +24,7 @@ commands and the `doctor --check-updates` network gate.
 | `profile` | Selected name from the resolved profiles registry. |
 | `profiles` | Registry of names to nonempty checklist arrays. Replaces built-ins when supplied; general is required. |
 | `profile_files` | JSON registry files, strict relative POSIX .json paths inside this config directory. Definitions overlay profiles; duplicate paths, names and empty files fail. |
-| `denied_parts` | Lowercase private path component names (matched case-insensitively). Remove portfolios only for approved source code; .git and .finledgerpoli remain required. |
+| `denied_parts` | Lowercase private path component names (matched case-insensitively). Remove portfolios only for approved source code; .git and .finassist remain required. |
 | `text_suffixes` | Lowercase source suffixes including the dot. Add .tf/.cs explicitly. Binary/credential file restrictions remain. |
 | `github_host` | GitHub DNS hostname, without scheme, path or port. Defaults to github.com; Enterprise uses existing gh auth. |
 | `allow_network` | Enable potential network use. Each command still needs its own explicit network approval. |

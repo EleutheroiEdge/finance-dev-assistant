@@ -20,6 +20,7 @@ from .config import Config, load_config, save_config
 from .demo import run_demo
 from .health import doctor_report
 from .errors import AssistantError
+from .error_hints import add_explain_command, error_fields, run_explain
 from .evaluation import evaluate, score
 from .evidence_store import EvidenceStore
 from .finance import cash_check, observation_check, tax_estimate, weights_check
@@ -90,6 +91,7 @@ def parser() -> argparse.ArgumentParser:
     migrate.add_argument("--dry-run", action="store_true")
     from .onboarding_commands import add_onboarding_commands
     add_onboarding_commands(commands)
+    add_explain_command(commands)
     update = commands.add_parser("update", help="Inspect installation or explicitly upgrade; never migrate project data")
     update.add_argument("update_action", nargs="?", choices=["status"])
     update.add_argument("--json", action="store_true", help="Emit JSON (also the default output contract)")
@@ -725,6 +727,8 @@ def execute(args, config: Config | None = None) -> int:
 def main(argv: list[str] | None = None) -> int:
     try:
         args = parser().parse_args(argv)
+        if args.command == "explain":
+            return run_explain(args)
         if args.command == "triage":
             from .triage_cli import execute_triage
 
@@ -860,12 +864,13 @@ def main(argv: list[str] | None = None) -> int:
             return outcome["exit_code"]
     except AssistantError as exc:
         details = getattr(exc, "public_details", {})
-        print(json.dumps({"status": "error", "code": exc.code, **details}), file=sys.stderr)
+        print(json.dumps({"status": "error", "code": exc.code, **details, **error_fields(exc.code)}), file=sys.stderr)
         return 2
     except (OSError, ValueError, TypeError, KeyError, InvalidOperation, sqlite3.Error) as exc:
         # Report a stable class, never raw provider errors, source or private paths.
         print(
-            json.dumps({"status": "error", "code": "invalid_input", "kind": type(exc).__name__}),
+            json.dumps({"status": "error", "code": "invalid_input", "kind": type(exc).__name__,
+                        **error_fields("invalid_input")}),
             file=sys.stderr,
         )
         return 2

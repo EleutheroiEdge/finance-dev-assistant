@@ -58,32 +58,47 @@ def test_plan_and_check_the_assistants_own_committed_tree(tmp_path, operation):
     # guide copies are excluded like generated files: test_guides.py proves each
     # copy matches its source document, and every source document stays in scope.
     # SECURITY.md is outside the default allow list, so this test adds it.
+    # The whole tree no longer fits one 2,000,000-byte packet, so it is planned in
+    # two parts that split the allow list; together they must cover every file.
     from finassist.guides import GUIDES
     copies = {"src/finassist/resources/" + resource: source for _title, source, resource in GUIDES.values()}
     generated = (*Config().generated_paths, *sorted(copies))
-    config = replace(Config(), max_packet_bytes=2_000_000, recipes={"scope": [sys.executable, "-c", script]},
-                     generated_paths=generated, allow_paths=(*Config().allow_paths, "SECURITY.md"))
-    path, output = tmp_path / "configuration.json", tmp_path / "result.json"
-    save_config(path, config)
-    args = [
-        "--config",
-        str(path),
-        "--audit-dir",
-        str(tmp_path / "audit"),
-        operation,
-        "--repo",
-        str(root),
-        "--output",
-        str(output),
-    ]
-    args += (
-        ["--base", base, "--head", candidate]
-        if operation == "plan"
-        else ["--recipe", "scope", "--backend", "local", "--approve-local"]
-    )
-    assert main(args) == 0
-    result = json.loads(output.read_text(encoding="utf-8"))
+    allow = (*Config().allow_paths, "SECURITY.md")
+    parts = (("src/",), tuple(prefix for prefix in allow if prefix != "src/"))
+    assert sorted(parts[0] + parts[1]) == sorted(allow)
+    results = []
+    for index, part in enumerate(parts if operation == "plan" else (allow,)):
+        config = replace(Config(), max_packet_bytes=2_000_000, recipes={"scope": [sys.executable, "-c", script]},
+                         generated_paths=generated, allow_paths=part)
+        path, output = tmp_path / f"configuration-{index}.json", tmp_path / f"result-{index}.json"
+        save_config(path, config)
+        args = [
+            "--config",
+            str(path),
+            "--audit-dir",
+            str(tmp_path / "audit"),
+            operation,
+            "--repo",
+            str(root),
+            "--output",
+            str(output),
+        ]
+        args += (
+            ["--base", base, "--head", candidate]
+            if operation == "plan"
+            else ["--recipe", "scope", "--backend", "local", "--approve-local"]
+        )
+        assert main(args) == 0
+        results.append(json.loads(output.read_text(encoding="utf-8")))
     if operation == "plan":
+        planned = [{row["path"] for row in result["files"]} for result in results]
+        outside = [{row["path"] for row in result["omitted"] if row["reason"] == "outside_allowlist"} for result in results]
+        assert not planned[0] & planned[1]
+        # A file outside one part is planned by the other, or is outside both.
+        assert outside[0] - planned[1] == outside[1] - planned[0] == outside[0] & outside[1]
+        assert not any(Config().allows(name) for name in outside[0] & outside[1] if name != "SECURITY.md")
+        result = {"files": [row for part in results for row in part["files"]],
+                  "omitted": [row for row in results[0]["omitted"] if row["reason"] != "outside_allowlist"]}
         assert any(row["reason"] == "generated_artifact_excluded" for row in result["omitted"])
         excluded = {row["path"] for row in result["omitted"] if row["reason"] == "generated_artifact_excluded"}
         assert set(copies) <= excluded
@@ -92,7 +107,7 @@ def test_plan_and_check_the_assistants_own_committed_tree(tmp_path, operation):
             row["path"].startswith("src/finassist/resources/dashboard/") for row in result["files"]
         )
     else:
-        assert result["receipt"]["passed"] and result["receipt"]["cleanup_verified"]
+        assert results[0]["receipt"]["passed"] and results[0]["receipt"]["cleanup_verified"]
 
 
 def test_generated_paths_are_configurable_bound_and_not_missing_coverage(repository):

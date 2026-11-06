@@ -86,6 +86,7 @@ def test_documented_commands_track_parser_and_real_exit_streams(capsys, tmp_path
     bad.write_text("{}", encoding="utf-8", newline="\n")
     assert main(["finance-check", "--kind", "cash", "--input", str(bad)]) == 2
     error = json.loads(capsys.readouterr().err)
+    assert error.pop("hint")
     assert error == {"status": "error", "code": "invalid_input", "kind": "TypeError"}
     with pytest.raises(SystemExit) as usage:
         main(["not-a-command"])

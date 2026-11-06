@@ -39,7 +39,9 @@ def test_unknown_guide_cannot_read_arbitrary_paths(topic, capsys):
     assert main(["guide", topic]) == 2
     result = capsys.readouterr()
     assert result.out == ""
-    assert json.loads(result.err) == {"status": "error", "code": "unknown_guide"}
+    record = json.loads(result.err)
+    assert record.pop("hint")
+    assert record == {"status": "error", "code": "unknown_guide"}
 
 
 def test_exported_guides_match_offline_guides(tmp_path, capsys):

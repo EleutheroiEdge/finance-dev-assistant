@@ -13,8 +13,8 @@ Provider settings:
 - `provider`: `offline`, `openai`, `anthropic`, `google`, `compatible`, `ollama`.
 - `model`: the exact identifier available to your account; no vendor is preferred.
 - `endpoint`: optional for built-in services; mandatory for `compatible`.
-- `allowed_hosts`: exact hostnames for custom endpoints. HTTPS is required except
-  local loopback Ollama. Credentials in URLs, redirects and proxy inheritance are refused.
+- `allowed_hosts`: exact hostnames for custom endpoints. HTTPS is required, except that an `ollama` or `compatible`
+  endpoint on loopback (127.0.0.1, localhost or ::1) may use plain HTTP. Credentials in URLs, redirects and proxy inheritance are refused.
 - `api_key_env`: the variable name, never its value. Built-in adapters use
   `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GEMINI_API_KEY`. Compatible services
   can select their own variable. An empty name means no authentication header.

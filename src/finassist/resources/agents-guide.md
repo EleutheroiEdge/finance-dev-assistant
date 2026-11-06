@@ -7,6 +7,7 @@ Use finledgerpoli to give a coding agent screened source, repeatable checks and 
 | Task | Command and result |
 | --- | --- |
 | Discover help without a checkout | `finassist guide` lists topics as JSON; `finassist guide agents` prints this bundled Markdown guide. No configuration, audit writes or network are needed. |
+| Understand an error | `finassist explain CODE` says what an error code means and how to fix it, offline. It also accepts the whole stderr error record. Error records already carry a short `hint`. Fix the cause the hint names; never weaken screening, approvals or pins to make an error go away. |
 | Inspect local setup | `finassist doctor` reports JSON health, configuration and key-presence booleans; it does not contact a provider or daemon. |
 | Learn the workflow | `finassist demo` runs synthetic deterministic checks and prints JSON. |
 | Inspect committed changes | `finassist plan --repo . --base main --head HEAD --output .finassist/request.json` produces a screened outgoing request and JSON hash/coverage summary. |
