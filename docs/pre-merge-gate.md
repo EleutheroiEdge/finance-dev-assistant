@@ -124,33 +124,65 @@ checklist can suppress useful findings despite the fixed preamble, but cannot
 grant execution or merge authority. Protect the profile and policy with
 `CODEOWNERS` and require trusted review of changes. Human-maintained checklists
 still need review for confidential content, correctness and consistency with project canon;
-pattern screening cannot establish those properties. Credential-bearing key labels
-(`secret_key`, `aws_secret_access_key`, `access_key` and labels containing private,
-signing, encryption, client, master, auth or api) are screened when their values
-meet the length/shape threshold. Bare `key` and database/cache/idempotency key
-labels are not treated as credentials. The added rule excludes unquoted calls,
-dotted identifier references and digit-free uppercase-leading whole identifiers.
-The whole-identifier exclusion ends at whitespace, end of input or annotation
-punctuation such as `[`, `]`, `)`, `,` or `;`; `/`, `+`, `=`, `-`, `:` and `@`
-continue a candidate literal. Uppercase-leading unquoted literals containing digits
-are screened. Parseable `.py`/`.pyi` source uses a complete annotation-free view
-for label-assignment checks, including unions, forward references and parenthesized
-types. Only the credential-key rule uses that view alone; password/token/account
-rules inspect both views to catch typed assignments. Comments and custom patterns
-still apply, and original source/request bytes are kept. Unparseable Python, YAML,
-Markdown snippets, TypeScript, Kotlin and other text without parsed Python context
-retain strict generic screening. Review output may quote exact credential-label
+pattern screening cannot establish those properties.
+
+Secret and confidential-figure screening is a backstop, not the control that keeps
+data private. The primary controls are the path allowlist, keeping secrets in
+gitignored files or a secret manager, and a policy that keeps client data out of
+reviewed source. A pass means only that no rule matched.
+
+In parseable `.py`/`.pyi` source, credential screening reads code with Python's own
+parser. A credential-named target given a literal value is refused: an assignment,
+typed assignment, walrus target, keyword argument, function default, dictionary
+key, attribute or subscript, including a literal fallback in `os.getenv(NAME, ...)`
+or `os.environ.get(NAME, ...)` and a literal `default=` argument. Credential names
+use the label vocabulary below: a name matches when it ends with a credential word,
+at any length and whatever characters come first. A string or numeric value must
+have at least 12 characters, counted in its source spelling; account and routing
+numbers need at least six digits, and integers count by magnitude. Type
+annotations are never inspected, so a `signing_key` field annotated
+`Ed25519PrivateKey | None` passes. Unquoted names and call results are not literals and pass. Comments,
+docstrings and other string text are screened with the text rules, and known
+secret formats are screened across the whole file. Python that does not tokenize
+and parse keeps the strict text rules.
+
+Other files (YAML, JSON, Markdown, TypeScript, Kotlin and so on) use the text
+rules. Credential-bearing key labels (`secret_key`, `aws_secret_access_key`,
+`access_key` and labels containing private, signing, encryption, client, master,
+auth or api), and password, secret, API-key and access/GitHub-token labels, are
+screened when their values meet the length/shape threshold. Bare `key` and
+database/cache/idempotency key labels are not treated as credentials. The
+credential-key text rule excludes unquoted calls, dotted identifier references and
+digit-free uppercase-leading whole identifiers. The whole-identifier exclusion ends
+at whitespace, end of input or annotation punctuation such as `[`, `]`, `)`, `,` or
+`;`; `/`, `+`, `=`, `-`, `:` and `@` continue a candidate literal. Uppercase-leading
+unquoted literals containing digits are screened. Custom patterns apply to every
+file, and known formats and custom patterns also read the complete serialized packet
+the model receives. Original source/request bytes are kept. Review output may quote exact credential-label
 matches from screened annotations in that request. The view preserves the label
 and masks the complete recorded annotation, including unions, so a value appended
 after `=` still undergoes assignment screening. Shorter `label: Type` quotes pass;
 unrecorded union/subscript continuations are refused conservatively. Patches screen complete post-images with their paths before target writes;
 active-policy rollback screens both versions with their paths.
 
-Quote literal credential values to make their intent explicit. Digit-free all-caps
-values can resemble constants and escape the heuristic. A key-shaped value written
-as the Python annotation itself can resemble a type reference and also escape it.
-Identifier-shaped values followed by `(` stay excluded. Short or differently
-formatted secrets can still escape screening; inspect outgoing requests yourself.
+Known limits of the text rules, which are no longer extended:
+
+- A typed assignment in non-Python text, such as `password: str = "..."` in a
+  Markdown code block, is not detected.
+- A credential-named label followed by a digit-bearing type name, such as
+  `signing_key` annotated `Ed25519PrivateKey`, is refused in Markdown, YAML,
+  TypeScript or Kotlin.
+- Digit-free all-caps unquoted values resemble constants and are not detected.
+- Labels outside the vocabulary (for example `auth_token` or `pwd`) and values
+  shorter than the threshold are not detected.
+- Values split across lines, encoded or built at runtime are not detected.
+
+Known limits of the Python check: values computed at runtime (concatenation,
+variables and calls other than the two fallback forms above) are not literals and
+pass, and a credential written as a type annotation is not inspected.
+
+Quote literal credential values to make their intent explicit, and inspect
+outgoing requests yourself.
 Profile selection and authorization contracts remain unchanged; common text
 screening also applies to version-1 checks and manual review.
 
@@ -493,10 +525,26 @@ a listed figure refuses regardless of sign, accounting parentheses or function-c
 parentheses. A plain digit-bounded pass also screens punctuation and CSV neighbours.
 It fails closed on short figures: listed `234` also refuses `1,234`; `0`, `1` and
 `12` can refuse ordinary constants. A longer uninterrupted digit sequence such as
-`91234567.89` does not match listed `1234567.89`. Decimal commas, spelled-out amounts,
-hexadecimal, malformed/mixed grouping and alternative encodings are not supported numeric
-forms. This is a bounded numeric screen, not a proof that arbitrary source
-cannot encode a confidential figure.
+`91234567.89` does not match listed `1234567.89`. In text, decimal commas, spelled-out
+amounts, hexadecimal, malformed/mixed grouping and alternative encodings are not supported
+numeric forms.
+
+Every file is screened as text, because what leaves the machine is text: the tuple
+`(6,729,102.50)` in Python code still reads as the figure. In `.py`/`.pyi` files, each
+numeric literal, including one inside an f-string field, is also read with Python's own
+tokenizer and parser and its exact value compared with the deny list. So forms the
+text screen does not parse are refused too, such as underscores in any position and
+integers in any base (for example a hexadecimal literal of a listed whole number).
+Leading and trailing zeros never change a value, in text or in code, and values as
+long as any policy entry can expand to (up to 256 digits) are compared. While screening
+is enabled, a `.py` file that Python cannot tokenize is refused with
+`forbidden_token_python_unreadable` instead of being screened another way. On Python
+before 3.12, a file that tokenizes but does not parse is refused the same way when it
+has f-string fields, because only the parser can read numbers inside them there.
+
+This is a bounded backstop, not a proof that arbitrary source cannot encode a
+confidential figure. The primary control is keeping client figures out of reviewed
+source.
 
 The gate screens complete before/after source contents, including deleted lines,
 unchanged context, comments and allowed text fixtures, plus selected profile

@@ -18,6 +18,7 @@ from .errors import AssistantError
 from .platform_support import canonical_system_path
 from .path_alias_data import ASCII_CONFUSABLES, DEFAULT_IGNORABLE_RANGES
 from .python_annotations import credential_screening_view
+from .python_source import is_python_path, python_screen
 
 DENIED_PARTS = {
     ".finassist",
@@ -88,12 +89,18 @@ CREDENTIAL_KEY_PATTERN = re.compile(
     r"(?:[\"'][^\"'\n]{12,}[\"']|(?![A-Za-z_][A-Za-z0-9_.]*\s*\()(?!(?-i:[A-Z][A-Za-z_]*)(?![A-Za-z0-9_./+=:@-]))(?!(?:[A-Za-z_][A-Za-z0-9_]*\.)+[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_.]))[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
 )
 
-SECRET_PATTERNS = (
+# Known secret formats and an identifier format; these read text, not syntax.
+FORMAT_PATTERNS = (
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
     re.compile(r"\bgithub_pat_[A-Za-z0-9_]{40,}\b"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"\bsk-[A-Za-z0-9_-]{24,}\b"),
+    re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
+)
+# Label rules for text. In parseable Python, code is checked by the AST instead
+# and these rules read only comment and string text.
+LABEL_PATTERNS = (
     re.compile(
         r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:api[_-]?key|password|secret|access[_-]?token|gh[_-]?token|github[_-](?:enterprise[_-])?token)\b[\"']?\s*[=:]\s*"
         r"(?:[\"'][^\"'\n]{12,}[\"']|[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
@@ -102,8 +109,8 @@ SECRET_PATTERNS = (
     re.compile(
         r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:account[_ -]?(?:number|id)|routing[_ -]?number)[\"']?\s*[=:]\s*[\"']?\d{6,}"
     ),
-    re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
 )
+SECRET_PATTERNS = (*FORMAT_PATTERNS, *LABEL_PATTERNS)
 
 
 def digest(data: bytes) -> str:
@@ -257,17 +264,34 @@ def check_model_path(path: str, *, fixture_roots: tuple[str, ...] = (), source_o
 
 
 def check_text(text: str, *, extra_patterns: tuple[str, ...] = (), source_path: str | None = None) -> None:
+    if is_python_path(source_path) and "\0" not in text:
+        screen = python_screen(text)
+        if screen is not None:
+            _screen_python(text, screen, extra_patterns)
+            return
+    # Text, and Python that does not tokenize and parse, keeps the strict text rules.
     _screen_text(text, credential_screening_view(text, source_path), extra_patterns)
 
 
 def check_context_document(document: dict, *, extra_patterns: tuple[str, ...] = (), records_key="files") -> None:
-    """Screen a validated typed envelope, retaining raw metadata/custom rules."""
-    view = deepcopy(document)
-    for item in view[records_key]:
+    """Screen each record with its path, then the remaining typed envelope."""
+    envelope = deepcopy(document)
+    for item in envelope[records_key]:
         for side in ("before", "after"):
             if item[side] is not None:
-                item[side] = credential_screening_view(item[side], item["path"])
-    _screen_text(canonical(document).decode(), canonical(view).decode(), extra_patterns)
+                check_text(item[side], extra_patterns=extra_patterns, source_path=item["path"])
+                # Already screened with its path; a JSON copy must not undo
+                # the Python-aware decision with text rules.
+                item[side] = ""
+    envelope_text = canonical(envelope).decode()
+    _screen_text(envelope_text, envelope_text, extra_patterns)
+    # The model receives the complete serialized packet, so known formats and
+    # custom patterns also read it intact, JSON escapes included. Label rules stay
+    # path-aware above.
+    intact = canonical(document).decode()
+    if any(pattern.search(intact) for pattern in FORMAT_PATTERNS):
+        raise AssistantError("sensitive_content")
+    _screen_extra(intact, extra_patterns)
 
 
 def check_output_document(
@@ -358,6 +382,21 @@ def _screen_text(text: str, credential_text: str, extra_patterns: tuple[str, ...
             matched = pattern.search(text) or pattern.search(credential_text)
         if matched:
             raise AssistantError("sensitive_content")
+    _screen_extra(text, extra_patterns)
+
+
+def _screen_python(text: str, screen, extra_patterns: tuple[str, ...]) -> None:
+    """Parsed Python: formats on raw text, the AST for code, label rules for text."""
+    if any(pattern.search(text) for pattern in FORMAT_PATTERNS):
+        raise AssistantError("sensitive_content")
+    if screen.credential_literal or any(
+        pattern.search(segment) for segment in screen.text_segments for pattern in LABEL_PATTERNS
+    ):
+        raise AssistantError("sensitive_content")
+    _screen_extra(text, extra_patterns)
+
+
+def _screen_extra(text: str, extra_patterns: tuple[str, ...]) -> None:
     try:
         if any(re.search(p, text, re.IGNORECASE) for p in extra_patterns):
             raise AssistantError("project_content_blocked")

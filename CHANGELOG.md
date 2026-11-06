@@ -31,6 +31,21 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 - **`init --purpose` (#64)** chooses the review profile by what the code does: quant, accounting, research or general.
 - **Names that could display as another name** are redacted in `doctor --policy` and `init --detect` output. That covers names with a control or format character, such as a right-to-left override.
 - **Literal error codes.** Every code now appears literally in the source, so it can be found with a text search. The codes themselves are unchanged.
+- In parseable `.py`/`.pyi` files, credential screening reads code with Python's own
+  parser instead of regex (#61). A credential-named target given a literal value
+  refuses: assignments, typed assignments, walrus targets, keyword arguments,
+  function defaults, dictionary keys, attributes and subscripts, including literal
+  `os.getenv`/`os.environ.get` fallbacks and `default=` arguments. Type annotations
+  are never inspected. Comments and strings keep the text rules, known secret
+  formats are screened across the whole file, and Python that does not tokenize and
+  parse keeps the strict text rules.
+- In Python files, each numeric literal, including one inside an f-string field, is
+  also read with Python's tokenizer and parser and its exact value compared with the
+  confidential-figure deny list (#61). Every file is still screened as text, and
+  leading or trailing zero padding no longer hides a listed figure in text or code.
+- Known formats and custom patterns also read the complete serialized packet (#61).
+- Document that secret and figure screening is a backstop behind path allowlists,
+  gitignored secrets and the policy, and list the text rules' known limits (#61).
 
 ### Fixed
 - **`score`** reported a traceback when a labels file's `outcomes` was a list instead of an object. It now refuses with `invalid_adjudication` (#69).
@@ -41,6 +56,22 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 ### Upgrading
 - **`init` with a paid provider** now needs `--input-usd-per-million` and `--output-usd-per-million`. Without them it refuses with `provider_prices_required` instead of writing a configuration every review would refuse.
 - **Scripts reading stderr errors.** They should key on `code`; refusal objects may now carry extra fields, including `hint`. Hint wording can change between releases; codes don't.
+
+Content that 0.7.1 accepted can now be refused:
+
+- `forbidden_token_python_unreadable` for a `.py` file that Python cannot tokenize,
+  while confidential-figure screening is enabled.
+- `forbidden_token_present` for a listed whole figure written in Python as a
+  hexadecimal, octal or binary literal.
+- `sensitive_content` for a credential literal in Python assigned through a
+  subscript or tuple unpacking, or given as an `os.getenv`/`os.environ.get` fallback
+  or a `default=` argument.
+
+No longer refused in parseable Python: an unquoted name, expression or call result
+assigned to a credential-named target, such as a `password` set from
+`get_password_from_vault()`.
+These are not literals. Other files keep the text rule, which still refuses unquoted
+values.
 
 ## 0.7.1 - 2026-11-04
 
