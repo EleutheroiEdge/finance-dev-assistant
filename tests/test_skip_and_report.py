@@ -314,3 +314,21 @@ def test_a_complete_review_reports_complete_coverage_in_the_outputs(gate_case, t
     publish_action_report(report, report_path, tmp_path / "summary.md", tmp_path / "outputs")
     outputs = dict(line.split("=", 1) for line in (tmp_path / "outputs").read_text(encoding="utf-8").splitlines())
     assert outputs["withheld-count"] == "0" and outputs["coverage-complete"] == "true"
+
+
+def test_the_preflight_never_shows_a_configured_sensitive_withheld_name(repository):
+    # The reviewer's case: a withheld name that matches a configured pattern.
+    from finassist import onboarding
+
+    repo, base, _head = repository
+    name = "src/data/SYNTHETIC_PROJECT_TAG.py"
+    (repo / "src/data").mkdir()
+    (repo / name).write_text("X = 1\n", encoding="utf-8")
+    command(repo, "add", "-A")
+    command(repo, "commit", "-q", "-m", "Synthetic configured-sensitive private name")
+    head = command(repo, "rev-parse", "HEAD")
+    config = replace(SKIP, allow_paths=("src/",), extra_sensitive_patterns=("SYNTHETIC_PROJECT_TAG",))
+    preflight = onboarding._Preflight(repo, base, head, "gate-policy.json", None, {})
+    row = preflight._classify(repo, (base, head), name, {"deny_paths": []}, config, None, set(), None)
+    assert row == {"path": "[redacted]", "status": "refused", "code": "project_content_blocked"}
+    assert "SYNTHETIC_PROJECT_TAG" not in canonical(row).decode()
