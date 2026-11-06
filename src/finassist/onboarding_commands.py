@@ -17,7 +17,8 @@ def add_onboarding_commands(commands) -> None:
     init.add_argument("--api-key-env", help="Name of the variable that holds the key; never the key")
     detect = init.add_argument_group("detect", "Propose settings from the committed layout; nothing is run")
     detect.add_argument("--detect", action="store_true", help="Print a proposal; write only with --write")
-    detect.add_argument("--repo", help="Repository checkout to read (default: current directory)")
+    # Its own name: other commands audit inside --repo, while init keeps its state where it always has.
+    detect.add_argument("--repo", dest="detect_repo", help="Repository checkout to read (default: current directory)")
     detect.add_argument("--revision", help="Committed revision to read (default: HEAD)")
     detect.add_argument("--write", action="store_true", help="Also write the proposed configuration")
     doctor = commands.add_parser(

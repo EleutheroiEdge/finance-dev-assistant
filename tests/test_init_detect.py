@@ -304,3 +304,14 @@ def test_the_gate_draft_clears_the_adopter_blockers_in_the_real_preflight(tmp_pa
     assert {row["path"]: row["status"] for row in report["paths"]} == {
         "app.py": "included", "engine/core.py": "included", "engine/walkdown.py": "included",
         "tests/fixtures/prices.csv": "included"}
+
+
+def test_init_keeps_its_audit_state_out_of_the_repository_it_reads(quant_repo, tmp_path, monkeypatch, capsys):
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    _proposal(capsys, ["init", "--detect", "--repo", str(quant_repo), "--write", "--output", "finassist.json"])
+    assert (work / "finassist.json").is_file() and (work / ".finassist").is_dir()
+    assert not (quant_repo / ".finassist").exists()
+    assert main(["init", "--output", "plain.json"]) == 0
+    assert (work / "plain.json").is_file()

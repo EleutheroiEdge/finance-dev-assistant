@@ -497,7 +497,7 @@ def detect(repo, *, revision: str = "HEAD", purpose: str | None = None) -> dict:
     }
 
 
-_DETECT_ONLY = ("repo", "revision", "write")
+_DETECT_ONLY = ("detect_repo", "revision", "write")
 _LOCAL_PROVIDERS = {"offline", "ollama"}
 
 
@@ -534,7 +534,7 @@ def run_init(args, config: Config) -> int:
         save_config(Path(args.output), configured)
         print(canonical({"created": args.output, "network_enabled": False}).decode())
         return 0
-    proposal = detect(Path(args.repo or "."), revision=args.revision or "HEAD", purpose=args.purpose)
+    proposal = detect(Path(args.detect_repo or "."), revision=args.revision or "HEAD", purpose=args.purpose)
     detected = proposal["config"]
     if not args.purpose:
         detected["profile"] = configured.profile
