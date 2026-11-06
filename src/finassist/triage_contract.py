@@ -56,17 +56,21 @@ def _validator(kind: str) -> Draft202012Validator:
     return Draft202012Validator(schema)
 
 
+# Literal codes, so each one can be found in the source and has its own hint.
+_INVALID = {"request": "triage_request_invalid", "result": "triage_result_invalid", "gold": "triage_gold_invalid"}
+
+
 def _validate(value: dict, kind: str) -> None:
     try:
         encoded = canonical(value)
         if len(encoded) > MAX_DOCUMENT_BYTES:
             raise AssistantError("triage_document_too_large")
         if not _validator(kind).is_valid(value):
-            raise AssistantError(f"triage_{kind}_invalid")
+            raise AssistantError(_INVALID[kind])
         if type(value["schema_version"]) is not int:
-            raise AssistantError(f"triage_{kind}_invalid")
+            raise AssistantError(_INVALID[kind])
     except (UnicodeError, ValueError, TypeError, RecursionError) as exc:
-        raise AssistantError(f"triage_{kind}_invalid") from exc
+        raise AssistantError(_INVALID[kind]) from exc
 
 
 def candidate_ids(request: dict, group: str) -> list[str]:

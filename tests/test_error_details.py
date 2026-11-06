@@ -7,6 +7,7 @@ import pytest
 
 from test_model_policy import model_policy
 from finassist.cli import main
+from finassist.error_hints import error_fields
 from finassist.config import Config, save_config
 from finassist.errors import AssistantError
 from finassist.github_audit import inspect_github
@@ -21,8 +22,11 @@ PRICES = ["input_usd_per_million", "output_usd_per_million"]
 
 
 def error_output(capsys, argv) -> dict:
+    """The error record without its packaged hint, which test_error_hints checks."""
     assert main(argv) == 2
-    return json.loads(capsys.readouterr().err)
+    record = json.loads(capsys.readouterr().err)
+    assert record.pop("hint") == error_fields(record["code"])["hint"]
+    return record
 
 
 @pytest.mark.parametrize("option,value,code,details", [

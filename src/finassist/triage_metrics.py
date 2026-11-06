@@ -32,15 +32,22 @@ def _input_hash(value: dict) -> str:
         raise AssistantError("triage_input_not_canonical_json") from exc
 
 
+# Literal codes, so each one can be found in the source and has its own hint.
+_IDENTITY = {"request": "triage_request_identity_invalid", "gold": "triage_gold_identity_invalid",
+             "prediction": "triage_prediction_identity_invalid"}
+_DUPLICATE = {"request": "triage_request_duplicate", "gold": "triage_gold_duplicate",
+              "prediction": "triage_prediction_duplicate"}
+
+
 def _index(rows: list[dict], name: str) -> dict[str, dict]:
     if not isinstance(rows, list) or len(rows) > 100_000:
         raise AssistantError("triage_cohort_invalid")
     indexed = {}
     for row in rows:
         if not isinstance(row, dict) or not isinstance(row.get("case_id"), str):
-            raise AssistantError(f"triage_{name}_identity_invalid")
+            raise AssistantError(_IDENTITY[name])
         if row["case_id"] in indexed:
-            raise AssistantError(f"triage_{name}_duplicate")
+            raise AssistantError(_DUPLICATE[name])
         indexed[row["case_id"]] = row
     return indexed
 

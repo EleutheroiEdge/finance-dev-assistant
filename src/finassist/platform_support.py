@@ -8,12 +8,22 @@ import sys
 from .errors import AssistantError
 
 
+# Literal codes, so each one can be found in the source and has its own hint.
+_MISSING = {
+    "git": "git_executable_missing",
+    "gh": "gh_executable_missing",
+    "docker": "docker_executable_missing",
+    "podman": "podman_executable_missing",
+    "ps": "ps_executable_missing",
+}
+
+
 def find_tool(name: str) -> str:
-    if name not in {"git", "gh", "docker", "podman", "ps"}:
+    if name not in _MISSING:
         raise AssistantError("unsupported_tool")
     executable = shutil.which(name)
     if executable is None:
-        raise AssistantError(name + "_executable_missing")
+        raise AssistantError(_MISSING[name])
     # Batch shims can invoke a command interpreter despite shell=False.
     if Path(executable).suffix.lower() in {".cmd", ".bat"}:
         raise AssistantError("batch_tool_not_supported")
