@@ -53,6 +53,11 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   - Packets, requests, reports and audit records carry only the withheld count. `plan` and `doctor --policy` name the paths in local output only.
   - Every coverage check stays incomplete.
   - It works in configuration and in a gate policy's `model_review`, and the gate report adds `coverage`.
+- **Related-code context (#64), opt-in.** With `related_context: "related"`, in configuration or a gate policy's `model_review`, the packet gains a `related` block of signature-only skeletons of unchanged Python code: the functions a change calls, the functions and tests that call it, and the classes it extends.
+  - It uses the standard library's `ast` only, in a fixed order, and resolves only exact imported names.
+  - Every candidate passes the same path, private-name and content screening as a changed file before it is read. A private name is never read, searched or listed.
+  - The block has its own byte budget (`related_max_bytes`, default 24,000) and is bound by the packet hash.
+  - The default stays `none`.
 - **Setup skill and example policies (#64).**
   - `finassist export-kit` now includes a `finassist-setup` skill. It runs `init --detect`, shows every proposed field with its evidence, writes only what the person confirms, then preflights a range with `doctor --policy` until it is ready.
   - Two complete example gate policies with synthetic values: `examples/policies/quant-engine.json` withholds private data (`skip-and-report`), and `examples/policies/rebalancer.json` refuses it (`refuse`).

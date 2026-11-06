@@ -235,6 +235,70 @@ def _private_name(config: Config, path: str) -> bool:
     return False
 
 
+def _screened_name(config: Config, path: str) -> bool:
+    """Whether a related-context candidate's name passes every name rule. Never reads it."""
+    try:
+        config.check_path(path, metadata_only=True)
+        check_private_name(path)
+        check_text(path, extra_patterns=config.extra_sensitive_patterns)
+    except AssistantError:
+        return False
+    return True
+
+
+def _grep_names(repo: Path, head: str, names: list[str], paths: list[str]) -> list[str]:
+    """Screened paths whose head blob mentions any name as a word. Only the listed paths are read."""
+    found = []
+    patterns = [argument for name in names[:200] for argument in ("-e", name)]
+    for start in range(0, len(paths), 200):
+        command = git_command(repo, "--literal-pathspecs", "grep", "-l", "-z", "-I", "-F", "-w", "--no-color",
+                              "--no-textconv", *patterns, head, "--", *paths[start:start + 200])
+        try:
+            done = subprocess.run(command, env=git_environment(), capture_output=True, timeout=30)
+            if done.returncode not in {0, 1}:  # 1 means no match.
+                raise AssistantError("git_read_failed")
+            listed = done.stdout.decode("utf-8", errors="strict").split("\0")
+        except (subprocess.SubprocessError, OSError, UnicodeError) as exc:
+            raise AssistantError("git_read_failed") from exc
+        found += [entry.removeprefix(head + ":") for entry in listed if entry]
+    return sorted(set(found) & set(paths))
+
+
+def _related(repo: Path, head: str, files: list[dict], config: Config, room: int) -> dict:
+    from .related import candidates, related_block
+
+    listing = git(repo, "ls-tree", "-r", "-z", "--name-only", head, binary=True)
+    tracked = set()
+    for raw in listing.split(b"\0"):
+        try:
+            name = raw.decode("utf-8")
+        except UnicodeError:
+            continue
+        if name.endswith(".py") and _screened_name(config, name):
+            tracked.add(name)
+
+    def read(path: str) -> str:
+        data, _mode = read_entry(repo, head, path, config.file_byte_limit(path), config)
+        if data is None:
+            raise AssistantError("related_source_missing")
+        try:
+            text = data.decode("utf-8")
+        except UnicodeError as exc:
+            raise AssistantError("non_text_blob") from exc
+        check_text(text, extra_patterns=config.extra_sensitive_patterns, source_path=path)
+        return text
+
+    changed = {file["path"] for file in files}
+    readable = sorted(path for path in tracked if path not in changed and config.allows(path)
+                      and not config.generated(path))
+    ranked, skipped = candidates(repo, head, files, config, tracked, read,
+                                 lambda names: _grep_names(repo, head, names, readable))
+    # About as much context as changed code (1:1), with a 16 KB floor so a small change still gets
+    # some, never over the configured cap or the room left in the packet.
+    own = sum(len((file["after"] if file["after"] is not None else file["before"]).encode()) for file in files)
+    return related_block(ranked, skipped, max(0, min(config.related_max_bytes, max(own, 16_000), room)))
+
+
 def build_packet(
     repo: Path, base: str, head: str, config: Config, *, withhold: frozenset = frozenset(),
     withheld_names: list | None = None,
@@ -325,6 +389,10 @@ def build_packet(
     }
     if withheld:
         packet["withheld"] = {"count": withheld, "reason": WITHHELD_REASON}
+    if config.related_context == "related":
+        # 16 KiB is kept for the block's own fields and the names of skipped candidates.
+        room = config.max_packet_bytes - len(canonical(packet)) - 16_384
+        packet["related"] = _related(repo, head_sha, files, config, room)
     encoded = canonical(packet)
     if len(encoded) > config.max_packet_bytes:
         raise AssistantError("packet_limit_exceeded")
@@ -352,6 +420,8 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
         keys.add("allow_paths")
     if isinstance(packet, dict) and "withheld" in packet:
         keys.add("withheld")
+    if isinstance(packet, dict) and "related" in packet:
+        keys.add("related")
     if (
         not isinstance(packet, dict)
         or set(packet) != keys
@@ -377,6 +447,14 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
                 or type(withheld["count"]) is not int or not 1 <= withheld["count"] <= 2000 - len(changed)
                 or withheld["reason"] != WITHHELD_REASON):
             raise AssistantError("packet_schema_invalid")
+    if "related" in packet:
+        if config.related_context != "related":
+            raise AssistantError("packet_related_not_allowed")
+        from .related import verify_related
+
+        verify_related(packet["related"], changed, config, lambda path: not _screened_name(config, path))
+    elif active_config and config.related_context == "related":
+        raise AssistantError("packet_related_missing")
     if packet["generated_paths"] != list(config.generated_paths):
         raise AssistantError("packet_generated_paths_mismatch")
     if "allow_paths" not in packet:

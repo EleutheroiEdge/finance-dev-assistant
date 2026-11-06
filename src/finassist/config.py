@@ -64,6 +64,10 @@ class Config:
     # refuse: a private path in the range refuses the whole review (the default).
     # skip-and-report: a private path is never read or sent; the packet carries only a count.
     private_paths: str = field(default="refuse", metadata={"json_schema": {"enum": ["refuse", "skip-and-report"]}})
+    # none: the packet holds only the changed files (the default).
+    # related: it also holds skeletons of unchanged Python definitions the change calls, is called by or extends.
+    related_context: str = field(default="none", metadata={"json_schema": {"enum": ["none", "related"]}})
+    related_max_bytes: int = field(default=24_000, metadata={"json_schema": {"minimum": 1, "maximum": 400_000}})
     allowed_hosts: tuple[str, ...] = ()
     allow_paths: tuple[str, ...] = (
         "src/",
@@ -203,6 +207,10 @@ class Config:
             raise AssistantError("unsupported_auth_header")
         if self.private_paths not in {"refuse", "skip-and-report"}:
             raise AssistantError("invalid_private_paths")
+        if self.related_context not in {"none", "related"}:
+            raise AssistantError("invalid_related_context")
+        if type(self.related_max_bytes) is not int or not 1 <= self.related_max_bytes <= 400_000:
+            raise AssistantError("invalid_limit", {"option": "related_max_bytes", "minimum": 1, "maximum": 400_000})
         for key in (
             "max_file_bytes",
             "max_packet_bytes",
@@ -339,7 +347,11 @@ class Config:
         from .profiles import instructions
 
         self.validate()
-        return instructions(self.profile, self.profiles)
+        text = instructions(self.profile, self.profiles)
+        if self.related_context == "related":
+            text += ("\n- Snippets under `related` are unchanged code shown for reference only: review "
+                     "the change, and cite only the changed files.")
+        return text
 
     def protected(self, path: str) -> bool:
         return any(
