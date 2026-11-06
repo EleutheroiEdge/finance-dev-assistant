@@ -1,0 +1,33 @@
+{
+  "schema_version": 2,
+  "model_review": {
+    "enabled": true,
+    "provider": "anthropic",
+    "model": "operator-selected",
+    "endpoint": "https://api.anthropic.com/v1/messages",
+    "allowed_host": "api.anthropic.com",
+    "api_key_env": "REVIEW_PROVIDER_KEY",
+    "allow_paths": [
+      "docs/",
+      "engine/",
+      "tests/",
+      "web/src/"
+    ],
+    "deny_paths": [],
+    "fixture_roots": [
+      "tests/fixtures/"
+    ],
+    "private_paths": "refuse",
+    "max_request_bytes": 600000,
+    "max_file_bytes": 120000,
+    "max_files": 60,
+    "profile": "finance-saas",
+    "max_output_tokens": 8192,
+    "timeout_seconds": 120,
+    "max_run_usd": 1,
+    "daily_budget_usd": 5,
+    "input_usd_per_million": 1,
+    "output_usd_per_million": 2,
+    "blocking_severities": []
+  }
+}

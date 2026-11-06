@@ -8,7 +8,7 @@ Use finledgerpoli to give a coding agent screened source, repeatable checks and 
 | --- | --- |
 | Discover help without a checkout | `finassist guide` lists topics as JSON; `finassist guide agents` prints this bundled Markdown guide. No configuration, audit writes or network are needed. |
 | Understand an error | `finassist explain CODE` says what an error code means and how to fix it, offline. It also accepts the whole stderr error record. Error records already carry a short `hint`. Fix the cause the hint names; never weaken screening, approvals or pins to make an error go away. |
-| Set up a repository | `finassist init --detect` proposes settings and test commands from the committed layout, with evidence for each. It runs nothing from the repository. Show the proposal to the human before writing it with `--write`. |
+| Set up a repository | `finassist init --detect` proposes settings and test commands from the committed layout, with evidence for each. It runs nothing from the repository. Show the proposal to the human before writing it with `--write`. The exported `finassist-setup` skill walks an agent through every step. |
 | Inspect local setup | `finassist doctor` reports JSON health, configuration and key-presence booleans; it does not contact a provider or daemon. |
 | Learn the workflow | `finassist demo` runs synthetic deterministic checks and prints JSON. |
 | Inspect committed changes | `finassist plan --repo . --base main --head HEAD --output .finassist/request.json` produces a screened outgoing request and JSON hash/coverage summary. |
@@ -45,9 +45,9 @@ finassist export-kit --output assistant-integration
 finassist guide agents
 ```
 
-Inspect `assistant-integration/evidence-review/SKILL.md`, the exported guides and optional `roles/` templates. Keep exports, configuration and audit state private. Review the target's governing specification before copying a skill; copying instructions does not grant network, shell, credential or Git permissions. The role templates are optional and may need adaptation to the host's supported format.
+Inspect `assistant-integration/evidence-review/SKILL.md`, `assistant-integration/finassist-setup/SKILL.md`, the exported guides and optional `roles/` templates. Keep exports, configuration and audit state private. Review the target's governing specification before copying a skill; copying instructions does not grant network, shell, credential or Git permissions. The role templates are optional and may need adaptation to the host's supported format.
 
-The following recipes copy only the reviewed portable skill and refuse an existing destination. Run them with a reviewed Python installation from that checkout. Each recipe assumes the export above; choose the one for your host.
+The following recipes copy only the reviewed portable skill and refuse an existing destination. Run them with a reviewed Python installation from that checkout. Each recipe assumes the export above; choose the one for your host. To install the setup skill, run the same recipe with `finassist-setup` in place of `evidence-review`.
 
 ### Claude Code
 

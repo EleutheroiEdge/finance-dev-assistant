@@ -396,6 +396,23 @@ the range are then withheld unread instead of refusing the run, and the report a
 
 See [skipping private paths](configuration.md#skipping-private-paths).
 
+## Example policies
+
+Two complete version-2 policies with synthetic values show common shapes. Both are in
+`finassist export-kit` under `examples/policies/`.
+
+| Example | Shape | Private paths |
+| --- | --- | --- |
+| [quant-engine.json](../examples/policies/quant-engine.json) | A Python pricing and risk engine with synthetic price fixtures and a `data/` directory | `skip-and-report`: files under `data/` are withheld unread, and coverage is reported incomplete |
+| [rebalancer.json](../examples/policies/rebalancer.json) | A Python engine with a TypeScript web app | `refuse`, the default: any private file in a range refuses it |
+
+`allow_paths` must cover every directory a pull request may change, because the gate refuses
+a range that changes a file outside it or under `deny_paths`. That is why both examples
+include `docs/`, and why the quant example includes `data/`. Replace the provider, model,
+prices and budgets with your own before you commit a policy, then preflight it with
+`doctor --policy`. The `finassist-setup` skill in `finassist export-kit` walks an agent
+through these choices with the person.
+
 ## Verdict contract
 
 The [version-2 report schema](../schemas/model-gate-report.schema.json) defines:
