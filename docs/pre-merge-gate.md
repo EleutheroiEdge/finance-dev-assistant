@@ -10,6 +10,11 @@ patches, merges or financial operations. Pair it with your deterministic checks
 and your project's approval process. PASS means this component completed under
 its policy; it does not mean financial correctness or permission to merge.
 
+For automation, `gate run` is the one command to call. It plans, screens, sizes the request,
+reserves the budget, calls the model and writes the report in one step. `plan` and `review` are
+the manual flow, for a person who inspects and approves each request. Before the first run,
+check the range with [`doctor --policy`](#checking-readiness-first); see also [your first run](first-run.md).
+
 ## Reviewed policy and exact request
 
 Start with [the generic example](../examples/model-gate/policy.json). Replace the

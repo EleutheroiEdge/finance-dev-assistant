@@ -32,6 +32,12 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 - **Names that could display as another name** are redacted in `doctor --policy` and `init --detect` output. That covers names with a control or format character, such as a right-to-left override.
 - **Literal error codes.** Every code now appears literally in the source, so it can be found with a text search. The codes themselves are unchanged.
 
+### Fixed
+- **`score`** reported a traceback when a labels file's `outcomes` was a list instead of an object. It now refuses with `invalid_adjudication` (#69).
+- **Supervised runs.** A recipe could start briefly on a platform where its exit can't be observed without reaping it. The platform is now checked before launch, with `non_reaping_wait_required` (#69).
+- **`plan`** built packets for ranges of more than 2,000 changed files, which every later command refused. It now refuses them with `packet_file_count_limit` before reading any file (#69).
+- **Workflow run files.** A damaged run file was reported as generic `invalid_input`. It is now `workflow_artifact_missing_or_changed`, like any other changed artifact (#69).
+
 ### Upgrading
 - **`init` with a paid provider** now needs `--input-usd-per-million` and `--output-usd-per-million`. Without them it refuses with `provider_prices_required` instead of writing a configuration every review would refuse.
 - **Scripts reading stderr errors.** They should key on `code`; refusal objects may now carry extra fields, including `hint`. Hint wording can change between releases; codes don't.

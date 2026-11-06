@@ -6,6 +6,7 @@ from .errors import AssistantError
 
 # Topic -> (display title, source/export path, installed resource).
 GUIDES = {
+    "first-run": ("Your first run", "docs/first-run.md", "first-run-guide.md"),
     "agents": ("AI coding agents", "docs/agents.md", "agents-guide.md"),
     "configuration": ("Configuration", "docs/configuration.md", "configuration-guide.md"),
     "troubleshooting": ("Troubleshooting", "docs/troubleshooting.md", "troubleshooting-guide.md"),

@@ -212,7 +212,10 @@ def _read_document(path: Path, limit: int = MAX_WORKFLOW_ARTIFACT_BYTES) -> dict
     file = regular_path(path)
     if not file.is_file() or file.stat().st_size > limit:
         raise AssistantError("workflow_artifact_missing_or_changed")
-    value = json.loads(read_utf8(file))
+    try:
+        value = json.loads(read_utf8(file))
+    except (ValueError, RecursionError) as exc:  # Not UTF-8 or not JSON: changed outside finledgerpoli.
+        raise AssistantError("workflow_artifact_missing_or_changed") from exc
     if not isinstance(value, dict):
         raise AssistantError("workflow_artifact_missing_or_changed")
     return value

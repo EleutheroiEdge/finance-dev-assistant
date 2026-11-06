@@ -234,6 +234,9 @@ def build_packet(repo: Path, base: str, head: str, config: Config) -> dict:
         binary=True,
     )
     tokens = raw.decode("utf-8", errors="strict").split("\0")
+    # Every later command refuses a packet over 2,000 changed paths, so none is built.
+    if len(tokens) // 2 > 2000:
+        raise AssistantError("packet_file_count_limit")
     files, omitted, changed = [], [], []
     for pos in range(0, len(tokens) - 1, 2):
         status, path = tokens[pos : pos + 2]
