@@ -173,6 +173,19 @@ def test_names_that_fail_screening_are_redacted_and_nothing_is_audited(gate_case
     assert not audit.exists()
 
 
+def test_a_name_that_could_display_as_another_is_redacted(gate_case, capsys):
+    name = "src/report\u202ecod.py"  # a right-to-left override makes this display as another name
+    (gate_case["repo"] / name).write_text("VALUE = 1\n", encoding="utf-8")
+    command(gate_case["repo"], "add", name)
+    command(gate_case["repo"], "commit", "-m", "Synthetic hidden-direction name")
+    head = command(gate_case["repo"], "rev-parse", "HEAD")
+    main(["doctor", "--policy", "gate-policy.json", "--policy-sha256", gate_case["pin"], "--repo",
+          str(gate_case["repo"]), "--base", gate_case["base"], "--head", head])
+    output = capsys.readouterr().out
+    assert "\u202e" not in output and "\\u202e" not in output  # neither raw nor JSON-escaped
+    assert any(row["path"] == "[redacted]" for row in json.loads(output)["paths"])
+
+
 def test_pin_states_and_short_revisions(gate_case):
     assert preflight(gate_case, pin=None)["policy"]["pin"] == "not_supplied"
     wrong = preflight(gate_case, pin="0" * 64)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from .platform_support import read_utf8
 
 import argparse
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from decimal import Decimal, InvalidOperation
 import json
 from pathlib import Path
@@ -16,7 +16,7 @@ import time
 
 from . import installed_version
 from .auditing import command_audit
-from .config import Config, load_config, save_config
+from .config import Config, load_config
 from .demo import run_demo
 from .health import doctor_report
 from .errors import AssistantError
@@ -357,18 +357,9 @@ def _execute_workflow(args, config: Config) -> int:
 def execute(args, config: Config | None = None) -> int:
     config = config or load_config(args.config)
     if args.command == "init":
-        save_config(
-            Path(args.output),
-            replace(
-                config,
-                provider=args.provider,
-                model=args.model,
-                profile=args.profile or config.profile,
-                profile_files=(),
-                profiles=dict(config.profiles),
-            ),
-        )
-        _emit({"created": args.output, "network_enabled": False})
+        from .detect import run_init
+
+        return run_init(args, config)
     elif args.command == "doctor":
         from .update_check import check_once
 
@@ -729,6 +720,10 @@ def main(argv: list[str] | None = None) -> int:
         args = parser().parse_args(argv)
         if args.command == "explain":
             return run_explain(args)
+        if args.command == "init" and args.detect and not args.write:
+            from .detect import run_init  # A proposal only: no state is written.
+
+            return run_init(args, load_config(args.config))
         if args.command == "triage":
             from .triage_cli import execute_triage
 
