@@ -268,16 +268,29 @@ def screen_source(text: str, path: str | None, snapshot: TokenSnapshot) -> None:
             raise AssistantError("forbidden_token_present")
 
 
-def _line_numbers(line: str) -> list[str]:
-    """Python number tokens on one line. A snippet line may be partial code, such as an
-    open signature, so tokens are read up to the first tokenizer error rather than refused."""
-    found = []
+def _line_numbers(line: str) -> list[str | None]:
+    """Plain decimal text of every Python number on one line.
+
+    A snippet line may be partial code, such as an open signature, so tokens are read up to
+    the first tokenizer error rather than refused. Before Python 3.12 an f-string is one
+    STRING token with no NUMBER inside, so each complete f-string token is parsed on its own
+    and its field constants are read from the AST, as screen_source does for a whole file.
+    """
+    tokens = []
     try:
         for token in tokenize.generate_tokens(io.StringIO(line + "\n").readline):
-            if token.type == tokenize.NUMBER:
-                found.append(token.string)
+            tokens.append(token)
     except (tokenize.TokenError, IndentationError, SyntaxError):
         pass
+    found = [number_text(token.string) for token in tokens if token.type == tokenize.NUMBER]
+    if hidden_fstring_fields(tokens):
+        for token in tokens:
+            prefix = re.match(r"[A-Za-z]*", token.string).group().lower()
+            if token.type == tokenize.STRING and "f" in prefix and "{" in token.string:
+                tree = python_tree(token.string)
+                if tree is None:  # Never pass a field that can't be read.
+                    raise AssistantError("forbidden_token_python_unreadable")
+                found += fstring_constant_texts(tree, token.string)
     return found
 
 
@@ -289,8 +302,7 @@ def screen_lines(lines: list[str], path: str | None, snapshot: TokenSnapshot) ->
     if not is_python_path(path):
         return
     for line in lines:
-        for raw in _line_numbers(line):
-            plain = number_text(raw)
+        for plain in _line_numbers(line):
             if plain is None:
                 continue
             try:

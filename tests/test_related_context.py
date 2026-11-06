@@ -4,6 +4,7 @@ Every repository, name and value here is synthetic.
 """
 
 from dataclasses import replace
+import json
 
 import pytest
 
@@ -445,7 +446,8 @@ def test_a_gate_drops_a_related_file_holding_a_forbidden_figure(pricing, tmp_pat
     block = packet["related"]
     assert "src/pricing/rates.py" not in {item["path"] for item in block["snippets"]}
     assert {"path": "src/pricing/rates.py", "symbol": None, "reason": "forbidden_token_present"} in block["skipped"]
-    assert "314" not in canonical(packet).decode().replace(digest(b"").removeprefix("314"), "")
+    # The figure's decimal point can't occur in a hex hash, so this can't match a commit or blob id.
+    assert "159.265" not in canonical(packet).decode()
 
 
 def test_the_final_figure_screen_covers_related_lines(pricing, tmp_path, monkeypatch):
@@ -463,9 +465,15 @@ def test_the_final_figure_screen_covers_related_lines(pricing, tmp_path, monkeyp
     snapshot = prepare_token_guard(policy, repo).snapshot
     screen_packet(packet, policy.config.instructions(), snapshot)  # Clean as built.
     # 0x4CAF is 19631: only Python's own reading of the number finds it, on a partial line.
-    packet["related"]["snippets"][0]["lines"].append([90, "def rate(base=0x4CAF,"])
-    with pytest.raises(AssistantError, match="forbidden_token_present"):
-        screen_packet(packet, policy.config.instructions(), snapshot)
+    # Before Python 3.12 a number in an f-string field is no NUMBER token, so the AST reads it.
+    for line in ("def rate(base=0x4CAF,", 'def rate(base=f"{0x4CAF}",', "x = f'{base:>{0x4CAF}}' + ("):
+        edited = json.loads(json.dumps(packet))
+        edited["related"]["snippets"][0]["lines"].append([90, line])
+        with pytest.raises(AssistantError, match="forbidden_token_present"):
+            screen_packet(edited, policy.config.instructions(), snapshot)
+    clean = json.loads(json.dumps(packet))  # A neighbouring value is not the figure.
+    clean["related"]["snippets"][0]["lines"].append([90, 'def rate(base=f"{0x4CAE}",'])
+    screen_packet(clean, policy.config.instructions(), snapshot)
 
 
 # The call line changes in each case, so the callee is found unless something shadows it.
