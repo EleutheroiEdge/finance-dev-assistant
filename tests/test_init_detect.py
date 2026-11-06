@@ -74,8 +74,11 @@ def test_a_quant_layout_gets_every_adopter_blocker_fixed_in_one_proposal(quant_r
     assert "data/" not in config["allow_paths"] and "src/" not in config["allow_paths"]
     # R2: the per-file limit fits the largest source module.
     assert config["max_file_bytes"] >= (quant_repo / "engine/walkdown.py").stat().st_size
-    assert config["max_packet_bytes"] == min(2_000_000, 3 * config["max_file_bytes"] + 65_536)
-    assert proposal["gate_policy_draft"]["model_review"]["max_request_bytes"] == config["max_packet_bytes"]
+    # Sized from the real encoding: once in the packet, twice in the provider request.
+    walkdown = (quant_repo / "engine/walkdown.py").read_text(encoding="utf-8")
+    assert config["max_packet_bytes"] == 2 * len(json.dumps(walkdown)) + 65_536
+    assert (proposal["gate_policy_draft"]["model_review"]["max_request_bytes"]
+            == 2 * len(json.dumps(json.dumps(walkdown))) + 65_536)
     # R3 and R5: data formats stay refused; synthetic fixtures are proposed through fixture_roots.
     policy = proposal["gate_policy_draft"]["model_review"]
     assert policy["fixture_roots"] == ["tests/fixtures/"]
@@ -323,7 +326,118 @@ def test_evidence_stays_bounded_on_a_wide_build_output(tmp_path, capsys):
     repo = _repo(tmp_path, files)
     proposal = _proposal(capsys, ["init", "--detect", "--repo", str(repo)])
     assert "dist/" in proposal["config"]["generated_paths"]
-    assert "web/" in proposal["config"]["generated_paths"]  # web/ holds only hashed build assets
+    assert "web/assets/" in proposal["config"]["generated_paths"]  # the guess stops at its assets directory
     assert "src/app.py" not in proposal["config"]["generated_paths"]
     assert len(proposal["evidence"]["generated_paths"]) == 20
     assert proposal["evidence_not_listed"]["generated_paths"] == 160
+
+
+def test_a_module_name_that_looks_hashed_stays_reviewable(tmp_path, capsys):
+    repo = _repo(tmp_path, {
+        "src/app.py": "X = 1\n",
+        "web/assets/input-validation.js": "export function validate(x) { return x; }\n",
+        "web/forms/validation-helpers.js": "export const helpers = {};\n",
+        "site/assets/index-Bhr5dn9_.js": "var bundle;\n",
+        "site/assets/theme-settings.css": "body { margin: 0; }\n",
+    })
+    generated = _proposal(capsys, ["init", "--detect", "--repo", str(repo)])["config"]["generated_paths"]
+    assert "site/assets/index-Bhr5dn9_.js" in generated
+    assert not any(path.startswith(("web/", "site/assets/theme")) for path in generated)
+    assert "site/" not in generated and "site/assets/" not in generated  # a guess never widens past what it saw
+
+
+@pytest.mark.parametrize("command_text, argv", [
+    ("npm test", ["npm", "test"]), ("npm run test", ["npm", "run", "test"]),
+    ("npm test -- --coverage", ["npm", "test", "--", "--coverage"]), ("pnpm test", ["pnpm", "test"]),
+    ("yarn test", ["yarn", "test"]), ("make test", ["make", "test"]), ("make check", ["make", "check"]),
+    ("cargo test", ["cargo", "test"]), ("go test ./...", ["go", "test", "./..."]),
+    ("uv run pytest -q", ["uv", "run", "pytest", "-q"]), ("poetry run pytest", ["poetry", "run", "pytest"]),
+    ("hatch test", ["hatch", "test"]), ("tox -e py311", ["tox", "-e", "py311"]),
+])
+def test_known_test_commands_are_accepted(command_text, argv):
+    assert detect_module._runner_argv(command_text) == argv
+
+
+@pytest.mark.parametrize("command_text", [
+    "npm publish test", "npm test extra", "pnpm publish", "yarn release test", "make deploy test", "make test deploy",
+    "make", "poetry publish test", "cargo publish test", "go build test", "uv pip install pytest",
+    "hatch publish test", "tox publish", "npm run deploy", "python -m pip install pytest",
+])
+def test_publication_and_deployment_commands_are_never_proposed_as_tests(command_text):
+    assert detect_module._runner_argv(command_text) is None
+
+
+def test_a_private_workflow_path_is_never_read(tmp_path, capsys, monkeypatch):
+    repo = _repo(tmp_path, {
+        "src/app.py": "X = 1\n",
+        ".github/workflows/ci.yml": "jobs:\n  t:\n    steps:\n      - run: pytest -q\n",
+        ".github/workflows/secrets/synthetic.yml": "jobs:\n  t:\n    steps:\n      - run: pytest --private\n",
+        ".github/workflows/.env.ci.yml": "jobs:\n  t:\n    steps:\n      - run: pytest --creds\n",
+    })
+    reads = []
+    real = detect_module.git
+
+    def spy(repository, *args, **kwargs):
+        if args[:2] == ("cat-file", "blob"):
+            reads.append(args[2].split(":", 1)[1])
+        return real(repository, *args, **kwargs)
+
+    monkeypatch.setattr(detect_module, "git", spy)
+    proposal = _proposal(capsys, ["init", "--detect", "--repo", str(repo)])
+    argvs = {tuple(entry["argv"]) for entry in proposal["tests"]}
+    assert ("pytest", "-q") in argvs and ".github/workflows/ci.yml" in reads
+    assert ("pytest", "--private") not in argvs and ("pytest", "--creds") not in argvs
+    assert not any("secrets" in path or ".env" in path for path in reads)
+
+
+def test_unsafe_names_never_become_configuration_values(tmp_path, capsys):
+    repo = _repo(tmp_path, {
+        "src/app.py": "X = 1\n",
+        "x\u202eyp.py": "X = 1\n",                     # a root source file
+        "d\u202ex/a.py": "X = 1\n",                    # a top-level source directory
+        "pkg\u202e/uv.lock": "version = 1\n",          # a lockfile
+        "tests/fix\u202e/prices.csv": "a,b\n1,2\n",    # a fixture candidate
+    })
+    proposal = _proposal(capsys, ["init", "--detect", "--repo", str(repo)])
+    values = json.dumps({"config": proposal["config"], "policy": proposal["gate_policy_draft"],
+                         "evidence": proposal["evidence"]}, ensure_ascii=False)
+    assert "\u202e" not in values and "[redacted]" not in values
+    assert {"code": "unsafe_names_skipped", "count": 4} in proposal["warnings"]
+    assert proposal["config"]["allow_paths"][:1] == ["src/"]
+
+
+@pytest.mark.parametrize("body", [
+    "#" + "\t" * 8 + "\n",               # tabs: escaped once in the packet and again in the request
+    "x = '\u00e9\u00e8\u00ea'\n",        # non-ASCII: \u escapes in both encodings
+    'y = "\\\\" + "\\""\n',              # backslashes and quotes
+])
+def test_the_proposed_request_limit_fits_an_escaping_heavy_file(body, tmp_path, monkeypatch):
+    from test_model_policy import model_policy
+
+    from finassist.onboarding import policy_preflight
+    from finassist.security import canonical, digest
+
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    monkeypatch.setenv("REVIEW_PROVIDER_KEY", "fictional-provider-value")
+    source = body * (200_000 // len(body.encode("utf-8")))
+    repo = _repo(tmp_path, {"engine/heavy.py": source, "tests/test_heavy.py": "def test_x():\n    pass\n",
+                            ".gitignore": ".finassist/\n"})
+    proposal = detect_module.detect(repo)
+    draft = proposal["gate_policy_draft"]["model_review"]
+    assert draft["max_request_bytes"] <= 2_000_000
+    document = model_policy()
+    document["model_review"].update(draft, max_files=10, max_run_usd=50, daily_budget_usd=50)
+    (repo / "gate-policy.json").write_bytes(canonical(document))
+    base = _commit(repo, {}, "Synthetic policy from the draft")
+    head = _commit(repo, {"engine/heavy.py": source + "z = 1\n"}, "Synthetic change")
+    report = policy_preflight(repo, base, head, "gate-policy.json", digest(canonical(document)))
+    assert report["status"] == "ready", report["blockers"]
+    assert report["request"]["bytes"] <= report["request"]["limit"] == draft["max_request_bytes"]
+
+
+def test_a_file_the_request_cap_cannot_fit_is_warned_about(tmp_path, capsys):
+    repo = _repo(tmp_path, {"engine/huge.py": ("#" + "\t" * 60 + "\n") * 20_000})
+    proposal = _proposal(capsys, ["init", "--detect", "--repo", str(repo)])
+    warning = next(entry for entry in proposal["warnings"] if entry["code"] == "request_cap_cannot_fit_file")
+    assert warning["limit"] == 2_000_000 and warning["needed"] > 2_000_000
+    assert proposal["gate_policy_draft"]["model_review"]["max_request_bytes"] == 2_000_000

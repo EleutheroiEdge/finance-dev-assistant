@@ -75,7 +75,12 @@ It lists every blocker with a hint, names each refused file in this local output
 shows the policy's sha256 that `gate run` needs. It makes no network call and reads no key.
 
 ## 5. When something is refused
-Every refusal is one JSON line on stderr with a stable `code` and a `hint`. Run:
+Where to find the code:
+- **A refused command** prints one JSON line on stderr with a stable `code` and a `hint`.
+- **`gate run`** writes its codes into the report: `reasons`, with the verdict `BLOCKED`.
+- **`doctor --policy`** lists them under `blockers`.
+
+For any of them, run:
 
 ```sh
 finassist explain CODE
@@ -87,6 +92,8 @@ editing an approved hash.
 
 ## What finledgerpoli never does
 - **Run your code during setup:** detection reads files; `check` runs only recipes you approve.
-- **Send anything without approval:** no provider call without a network setting, the per-command flag and an approved request.
+- **Send anything without approval:** the approval depends on the flow.
+  - A manual `review` calls a provider only with `allow_network` in the configuration, the command's `--allow-network` flag and your approval of the exact request's hash.
+  - `gate run` has no such flags: the reviewed v2 policy, committed at the base revision and pinned by `--policy-sha256`, is the approval. Pass the pin only for a policy you have reviewed, because it authorizes the provider call under that policy's limits.
 - **Review private data:** data formats such as CSV, spreadsheets and databases are refused, except synthetic fixtures a reviewed gate policy admits.
 - **Merge, deploy or trade:** a PASS means the review completed under its policy, nothing more.

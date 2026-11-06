@@ -85,43 +85,114 @@ def _helpers(modules, errors) -> tuple[dict[tuple[str, str], int], set[int]]:
     return found, raises
 
 
-def collect() -> tuple[set[str], set[tuple[str, str]]]:
-    """Codes raised or reported by the package, and any site whose code can't be read statically."""
-    modules = _modules()
+# Sites that pass on a code chosen elsewhere. Each re-emits a caught exception's code,
+# which is collected where it is raised, or builds a record from its own parameter. A new
+# site whose code can't be read statically fails until it is listed here with its provenance.
+PASSED_ON = {
+    ("auditing.py", "{code}", "code"): "command_audit records the code of the error it is unwinding",
+    ("cli.py", "{code}", "exc.code"): "main prints a caught AssistantError",
+    ("dashboard.py", "{code}", "None"): "health reports no error for a valid configuration",
+    ("dashboard.py", "{code}", "exc.code"): "the API returns a caught AssistantError",
+    ("error_hints.py", "{code}", "code"): "explain repeats a code it found in the hint table",
+    ("onboarding.py", "block", "exc.code"): "failed() reports a caught AssistantError",
+    ("onboarding.py", "block_path", "row['code']"): "_classify rows carry caught AssistantError codes",
+    ("onboarding.py", "{code}", "code"): "block() and warn() build records from their own parameter",
+    ("onboarding.py", "{code}", "exc.code"): "_classify records a caught AssistantError",
+}
+EMITTERS = {"block", "warn", "block_path"}
+
+
+def _looped_literals(function, name: str) -> list[str] | None:
+    """Codes for a loop variable fed from a list of literal tuples, such as
+    `for code, path in changes:` after `changes.append(("some_code", path))`. None when any
+    appended or listed tuple has a non-literal in that position, or nothing feeds the loop."""
+    found = None
+    for loop in ast.walk(function):
+        if not (isinstance(loop, ast.For) and isinstance(loop.target, ast.Tuple) and isinstance(loop.iter, ast.Name)):
+            continue
+        positions = [index for index, element in enumerate(loop.target.elts)
+                     if isinstance(element, ast.Name) and element.id == name]
+        if not positions:
+            continue
+        values = []
+        for node in ast.walk(function):
+            items = []
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "append"
+                    and isinstance(node.func.value, ast.Name) and node.func.value.id == loop.iter.id and node.args):
+                items.append(node.args[0])
+            elif (isinstance(node, ast.Assign) and isinstance(node.value, ast.List)
+                  and any(isinstance(target, ast.Name) and target.id == loop.iter.id for target in node.targets)):
+                items.extend(node.value.elts)
+            for item in items:
+                fits = isinstance(item, ast.Tuple) and len(item.elts) > positions[0]
+                literal = _strings(item.elts[positions[0]]) if fits else []
+                if not literal:
+                    return None
+                values.extend(literal)
+        found = (found or []) + values
+    return found or None
+
+
+def collect(modules=None) -> tuple[set[str], set[tuple[str, str, str]]]:
+    """Codes raised or reported by the package, and every site whose code can't be accounted for.
+
+    It fails closed: an emitter, helper, record or error constructor whose code isn't a
+    literal, a literal code table, a loop over literal tuples or a listed PASSED_ON site is
+    reported as unaccounted rather than silently skipped.
+    """
+    modules = _modules() if modules is None else modules
     errors = _error_classes(modules)
     helpers, helper_raises = _helpers(modules, errors)
     fixed = _fixed_codes(modules, errors)
-    codes, unreadable = set(), set()
+    codes, unaccounted = set(), set()
+
+    def account(module, kind, value, function):
+        if _strings(value):
+            codes.update(_strings(value))
+            return
+        if isinstance(value, ast.Name) and function is not None:
+            looped = _looped_literals(function, value.id)
+            if looped:
+                codes.update(looped)
+                return
+        if (module, kind, ast.unparse(value)) not in PASSED_ON:
+            unaccounted.add((module, kind, ast.unparse(value)))
+
     for module, tree in modules.items():
         local = {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
         tables = _code_tables(tree)
+        enclosing = {}
+        for function in ast.walk(tree):
+            if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for child in ast.walk(function):
+                    enclosing[id(child)] = function  # ast.walk visits outer functions first
         for node in ast.walk(tree):
+            function = enclosing.get(id(node))
             if isinstance(node, ast.Dict):
-                codes.update(value.value for key, value in zip(node.keys, node.values, strict=True)
-                             if isinstance(key, ast.Constant) and key.value == "code"
-                             and isinstance(value, ast.Constant) and isinstance(value.value, str))
+                for key, value in zip(node.keys, node.values, strict=True):
+                    if isinstance(key, ast.Constant) and key.value == "code":
+                        account(module, "{code}", value, function)
             if not isinstance(node, ast.Call) or not node.args:
                 continue
             name, first = _name(node), node.args[0]
             if name in fixed:
                 codes.update(fixed[name])
             elif name in errors:
-                if _strings(first):
-                    codes.update(_strings(first))
-                elif (isinstance(first, ast.Subscript) and isinstance(first.value, ast.Name)
-                      and first.value.id in tables):
+                if (isinstance(first, ast.Subscript) and isinstance(first.value, ast.Name)
+                        and first.value.id in tables):
                     codes.update(tables[first.value.id])
                 elif id(node) not in helper_raises:
-                    unreadable.add((module, ast.unparse(first)))
-            elif name in {"block", "warn", "block_path"} and isinstance(node.func, ast.Attribute):
-                codes.update(_strings(first))
+                    account(module, name, first, function)
+            elif (name in EMITTERS and isinstance(node.func, ast.Attribute)
+                  and isinstance(node.func.value, ast.Name) and node.func.value.id == "self"):
+                account(module, name, first, function)
             else:
                 owners = [key for key in helpers if key[1] == name]
                 if name in local:
                     owners = [key for key in owners if key[0] == module]
                 if len(owners) == 1 and len(node.args) > helpers[owners[0]]:
-                    codes.update(_strings(node.args[helpers[owners[0]]]))
-    return codes, unreadable
+                    account(module, "helper " + name, node.args[helpers[owners[0]]], function)
+    return codes, unaccounted
 
 
 def _literal_args(tree, function: str, index: int) -> set[str]:
@@ -149,8 +220,41 @@ def test_a_code_that_is_no_longer_used_stays_explained_as_retired():
 
 
 def test_every_code_is_a_literal_that_can_be_found_in_the_source():
-    _codes, unreadable = collect()
-    assert unreadable == set()
+    _codes, unaccounted = collect()
+    assert unaccounted == set()
+
+
+def test_every_passed_on_site_still_exists():
+    modules = _modules()
+    for module, _kind, expression in PASSED_ON:
+        assert any(ast.unparse(node) == expression for node in ast.walk(modules[module])), (module, expression)
+
+
+def _mutated(module: str, old: str, new: str) -> dict:
+    modules = _modules()
+    text = (SOURCE / module).read_text(encoding="utf-8")
+    assert text.count(old) == 1, (module, old)
+    modules[module] = ast.parse(text.replace(old, new))
+    return modules
+
+
+def test_a_new_code_in_a_tuple_list_is_collected():
+    # The reviewer's case: a new code routed through the preflight's list of rule changes.
+    codes, unaccounted = collect(_mutated("onboarding.py", '("gate_ignore_change_requires_review", name)',
+                                          '("synthetic_unhinted_code", name)'))
+    assert "synthetic_unhinted_code" in codes and unaccounted == set()
+    assert "synthetic_unhinted_code" not in error_hints.hints()
+
+
+@pytest.mark.parametrize("module, old, new", [
+    ("onboarding.py", 'self.block("empty_review_scope")', "self.block(chosen)"),
+    ("onboarding.py", '("gate_ignore_change_requires_review", name)', "(chosen, name)"),
+    ("health.py", '{"code": "config_file_not_loaded",', '{"code": chosen,'),
+    ("review.py", 'raise AssistantError("empty_model_context")', "raise AssistantError(chosen)"),
+])
+def test_an_unaccounted_code_site_fails_closed(module, old, new):
+    _codes, unaccounted = collect(_mutated(module, old, new))
+    assert any(site[0] == module for site in unaccounted), unaccounted
 
 
 def test_code_tables_cover_every_caller():
@@ -370,3 +474,94 @@ def test_the_troubleshooting_table_is_the_same_text_explain_prints():
 
 def test_hint_text_never_breaks_a_table_row():
     assert [code for code, entry in error_hints.hints().items() if "|" in entry["summary"] + entry["fix"]] == []
+
+
+PASTED_ARGUMENT = "--synthetic-private-value"
+
+
+@pytest.mark.parametrize("argv", [
+    ["explain", PASTED_ARGUMENT],
+    ["explain", "-x" + PASTED_ARGUMENT],
+    ["explain", "file_limit_exceeded", PASTED_ARGUMENT],
+    ["explain", "--format", PASTED_ARGUMENT, "file_limit_exceeded"],
+    ["explain", "--area", PASTED_ARGUMENT, "--list"],
+    ["--config", "unused.json", "explain", PASTED_ARGUMENT],
+    ["--conf", "unused.json", "explain", PASTED_ARGUMENT],
+    ["--config=unused.json", "explain", PASTED_ARGUMENT],
+])
+def test_an_unreadable_explain_invocation_is_refused_without_echoing_it(argv, capsys):
+    assert main(argv) == 2
+    captured = capsys.readouterr()
+    assert json.loads(captured.err)["code"] == "explain_arguments_invalid"
+    assert "synthetic-private-value" not in captured.err + captured.out
+
+
+def test_global_options_still_reach_explain(capsys):
+    assert main(["--config", "unused.json", "explain", "file_limit_exceeded"]) == 0
+    assert json.loads(capsys.readouterr().out)["code"] == "file_limit_exceeded"
+    assert main(["explain", "--", "file_limit_exceeded"]) == 0
+    assert json.loads(capsys.readouterr().out)["code"] == "file_limit_exceeded"
+
+
+def test_explain_help_still_prints(capsys):
+    with pytest.raises(SystemExit) as raised:
+        main(["explain", "--help"])
+    assert raised.value.code == 0 and "finassist explain" in capsys.readouterr().out
+
+
+def test_other_commands_keep_argparse_errors(capsys):
+    with pytest.raises(SystemExit):
+        main(["demo", "--no-such-option"])
+    assert "--no-such-option" in capsys.readouterr().err  # Ordinary option names, not pasted text.
+
+
+class _Resource:
+    def __init__(self, text):
+        self.text = text
+
+    def joinpath(self, _path):
+        return self
+
+    def read_text(self, encoding):
+        assert encoding == "utf-8"
+        return self.text
+
+
+def test_a_deeply_nested_hint_table_is_damage_not_a_crash(monkeypatch, capsys):
+    error_hints.hints.cache_clear()
+    monkeypatch.setattr(error_hints, "files", lambda _package: _Resource("[" * 10_000 + "]" * 10_000))
+    try:
+        assert error_hints.error_fields("file_limit_exceeded") == {}
+        assert main(["explain", "file_limit_exceeded"]) == 2
+        assert json.loads(capsys.readouterr().err) == {"status": "error", "code": "error_hints_unavailable"}
+        assert main(["explain"]) == 2
+        assert json.loads(capsys.readouterr().err) == {"status": "error", "code": "explain_code_or_list_required"}
+    finally:
+        error_hints.hints.cache_clear()
+
+
+def test_a_retired_entry_loads_lists_and_explains(monkeypatch, capsys):
+    table = {"sample_retired_code": {"summary": "An old refusal.", "fix": "Nothing to do.", "retired": "0.8.0"}}
+    texts = {area: "{}" for area in error_hints.AREAS}
+    texts["setup"] = json.dumps(table)
+
+    class Areas:
+        def joinpath(self, path):
+            return _Resource(texts[path.removeprefix("resources/hints-").removesuffix(".json")])
+
+    error_hints.hints.cache_clear()
+    monkeypatch.setattr(error_hints, "files", lambda _package: Areas())
+    try:
+        assert main(["explain", "sample_retired_code", "--format", "text"]) == 0
+        assert "Retired in 0.8.0" in capsys.readouterr().out
+        assert main(["explain", "sample_retired_code"]) == 0
+        assert json.loads(capsys.readouterr().out)["retired"] == "0.8.0"
+        assert main(["explain", "--list"]) == 0
+        assert json.loads(capsys.readouterr().out)["codes"][0]["retired"] == "0.8.0"
+    finally:
+        error_hints.hints.cache_clear()
+
+
+@pytest.mark.parametrize("retired", ["0.8", "v0.8.0", "0.8.0-rc1", 8, "", "01.2.3"])
+def test_a_malformed_retired_marker_is_rejected(retired):
+    assert not error_hints._valid("sample_code", {"summary": "Fine.", "fix": "Fix it.", "retired": retired})

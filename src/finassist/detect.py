@@ -22,7 +22,7 @@ import tomllib
 from .config import Config, config_document, save_config
 from .errors import AssistantError, prices_required
 from .scope import git, git_command, git_environment, resolve
-from .security import DENIED_PARTS, TEXT_SUFFIXES, canonical, check_text, local_name
+from .security import DENIED_PARTS, TEXT_SUFFIXES, canonical, check_path, check_text, local_name
 
 PURPOSES = {"quant": "quant-review", "accounting": "finance-saas", "research": "investment-research",
             "general": "general"}
@@ -41,7 +41,9 @@ RUNNERS = {"pytest", "tox", "nox", "make", "npm", "pnpm", "yarn", "go", "cargo",
 # reviewed prefix. Images and archives are binary assets, refused for review but not private.
 PRIVATE_SUFFIXES = {".csv", ".tsv", ".parquet", ".db", ".sqlite", ".sqlite3", ".xlsx", ".xls", ".pem", ".key", ".p12",
                     ".pfx"}
-_BUILT = re.compile(r".+-[A-Za-z0-9_]{8,}\.(?:js|mjs|css)")  # name-<content hash>.js, as bundlers write
+# name-<content hash>.js, as bundlers write. A hash has a digit: "input-validation.js" is a module.
+_BUILT = re.compile(r".+-(?=[A-Za-z0-9_]*[0-9])[A-Za-z0-9_]{8,20}\.(?:js|mjs|css)")
+_NOT_TEST_WORDS = {"publish", "deploy", "release", "upload", "install", "push"}
 _SHELL = re.compile(r"[|&;<>`$(){}*?\[\]]")
 _READ_LIMIT = 128_000
 _EXAMPLES = 20
@@ -61,6 +63,7 @@ class _Detector:
         self.repo, self.head = repo, head
         self.files: dict[str, int] = {}
         self.undecodable = 0
+        self.unsafe = 0
         self.evidence: dict[str, list[dict]] = {}
         self.truncated: dict[str, int] = {}
         self.warnings: list[dict] = []
@@ -79,13 +82,28 @@ class _Detector:
             except UnicodeDecodeError:
                 self.undecodable += 1
                 continue
+            if _shown(path) == "[redacted]":
+                # Such a name could display as another or hold a credential-like value, so it
+                # never becomes a configuration value; the file itself stays refused by review.
+                self.unsafe += 1
+                continue
             self.files[path] = int(size)
         if self.undecodable:
             self.warn("path_name_not_utf8", count=self.undecodable)
+        if self.unsafe:
+            self.warn("unsafe_names_skipped", count=self.unsafe)
 
     def read(self, path: str) -> str | None:
-        """A small committed text file, or None. Never the working tree."""
-        if path not in self.files:
+        """A small committed text file, or None. Never the working tree.
+
+        The shared path policy is applied before any read, so a private, credential or
+        reserved name is never opened, whatever directory it is in.
+        """
+        if path not in self.files or self.private(path):
+            return None
+        try:
+            check_path(path, source_only=False, metadata_only=True)
+        except AssistantError:
             return None
         if self.files[path] > _READ_LIMIT:
             self.warn("detect_file_too_large", path=_shown(path), limit=_READ_LIMIT)
@@ -154,7 +172,7 @@ class _Detector:
         return {"allow_paths": allow}
 
     def generated(self) -> list[str]:
-        names = set()
+        names, ceilings = set(), {}
         for path in self.files:
             name = PurePosixPath(path).name
             if name in LOCKFILES:
@@ -165,9 +183,11 @@ class _Detector:
                 self.note("generated_paths", path, "minified_or_map", path)
             elif "assets" in PurePosixPath(path).parts[:-1] and _BUILT.fullmatch(name):
                 names.add(path)
+                ceilings[path] = _ceiling(path, "assets")
                 self.note("generated_paths", path, "hashed_build_asset", path)
             elif "dist" in PurePosixPath(path).parts[:-1]:
                 names.add(path)
+                ceilings[path] = _ceiling(path, "dist")
                 self.note("generated_paths", path, "build_output", path)
         for path, attribute in self.linguist():
             names.add(path)
@@ -176,7 +196,7 @@ class _Detector:
             if any(path.startswith(prefix) for path in self.files):
                 names = {name for name in names if not name.startswith(prefix)} | {prefix}
                 self.note("generated_paths", prefix, "vendored_directory")
-        return _collapse(names, self.files)
+        return _collapse(names, self.files, ceilings)
 
     def linguist(self) -> list[tuple[str, str]]:
         """Paths .gitattributes marks generated or vendored at this revision, read by Git itself."""
@@ -248,7 +268,34 @@ class _Detector:
         large = [path for path, size in reviewed.items() if size > limit and path not in too_large]
         if large:
             self.warn("large_files_over_limit", count=len(large), paths=_examples(large), limit=limit)
+        self.sources = {path: size for path, size in reviewed.items() if size <= limit
+                        and PurePosixPath(path).suffix.lower() in SOURCE_SUFFIXES}
         return limit
+
+    def encoded_sizes(self) -> tuple[int, int]:
+        """(packet bytes, request bytes) that one changed source file needs, measured.
+
+        A changed file travels as its earlier and later text. The packet escapes each
+        side once as JSON; the provider request escapes the packet's JSON text again, so
+        tabs, quotes and non-ASCII characters grow there most. The largest file is read
+        first, then any file whose worst case (7 bytes per byte) could exceed it.
+        """
+        once = twice = 0
+        for path, size in sorted(self.sources.items(), key=lambda item: -item[1]):
+            if 7 * size + 2 <= twice:
+                break
+            data = git(self.repo, "cat-file", "blob", f"{self.head}:{path}", binary=True)
+            try:
+                text = data.decode("utf-8")
+            except UnicodeDecodeError:
+                continue  # Review refuses it as non_text_blob; it can't shape a limit.
+            single = json.dumps(text)
+            once, twice = max(once, len(single)), max(twice, len(json.dumps(single)))
+        packet, request = 2 * once + _ROOM, 2 * twice + _ROOM
+        if request > 2_000_000:
+            self.warn("request_cap_cannot_fit_file", limit=2_000_000, needed=request)
+        self.note("max_request_bytes", min(2_000_000, max(120_000, request)), "largest_encoded_source_file")
+        return min(2_000_000, max(120_000, packet)), min(2_000_000, max(120_000, request))
 
     # Test commands ------------------------------------------------------------
     def tests(self) -> list[dict]:
@@ -369,13 +416,27 @@ def _allowed(path: str, allow: list[str]) -> bool:
     return any(path.startswith(prefix) if prefix.endswith("/") else path == prefix for prefix in allow)
 
 
-def _collapse(names: set[str], files: dict[str, int]) -> list[str]:
-    """Replace a directory whose every committed file is listed with one prefix."""
+def _ceiling(path: str, component: str) -> str:
+    """The prefix up to the last `component` directory in path, such as `web/assets/`."""
+    parts = PurePosixPath(path).parts[:-1]
+    index = len(parts) - 1 - parts[::-1].index(component)
+    return "/".join(parts[:index + 1]) + "/"
+
+
+def _collapse(names: set[str], files: dict[str, int], ceilings: dict[str, str] | None = None) -> list[str]:
+    """Replace a directory whose every committed file is listed with one prefix.
+
+    A path found by a name guess has a ceiling (its assets or dist directory), so the
+    guess never grows into an ancestor that may hold source.
+    """
+    ceilings = ceilings or {}
     result = set(names)
     for path in sorted(name for name in names if not name.endswith("/")):
         parents = PurePosixPath(path).parents
         for parent in reversed(list(parents)[:-1]):
             prefix = parent.as_posix() + "/"
+            if path in ceilings and not prefix.startswith(ceilings[path]):
+                continue
             inside = [name for name in files if name.startswith(prefix)]
             if inside and all(name in names or any(name.startswith(p) for p in result if p.endswith("/"))
                               for name in inside):
@@ -424,7 +485,11 @@ def _fenced_commands(text: str):
 
 
 def _runner_argv(command: str) -> list[str] | None:
-    """A command as argv when it invokes a known test runner with no shell syntax."""
+    """A command as argv when it is a known runner's test command, with no shell syntax.
+
+    Each runner's own grammar is matched, so `npm publish test` or `make deploy test`
+    is not taken for a test command.
+    """
     if not command or len(command) > 300 or _SHELL.search(command):
         return None
     try:
@@ -433,20 +498,30 @@ def _runner_argv(command: str) -> list[str] | None:
         return None
     if not argv:
         return None
-    if argv[0] in {"python", "python3", "py"} and argv[1:3] in (["-m", "pytest"], ["-m", "unittest"]):
-        return argv
-    if argv[0] in RUNNERS and (argv[0] in {"pytest", "tox", "nox"} or "test" in argv[1:3]):
-        return argv
-    return None
+    head, rest = argv[0], argv[1:]
+    accepted = (
+        (head in {"python", "python3", "py"} and rest[:2] in (["-m", "pytest"], ["-m", "unittest"]))
+        or (head in {"pytest", "tox", "nox"} and not (rest[:1] and rest[0] in _NOT_TEST_WORDS))
+        or (head == "make" and rest in (["test"], ["check"]))
+        or (head in {"npm", "pnpm"} and (rest[:1] == ["test"] or rest[:2] == ["run", "test"]))
+        or (head == "yarn" and (rest[:1] == ["test"] or rest[:2] == ["run", "test"]))
+        or (head in {"go", "cargo"} and rest[:1] == ["test"])
+        or (head in {"uv", "poetry", "hatch"} and (rest[:2] == ["run", "pytest"]
+                                                  or rest[:4] == ["run", "python", "-m", "pytest"]))
+        or (head == "hatch" and rest[:1] == ["test"])
+    )
+    if not accepted:
+        return None
+    # Extra words after a package script name are arguments to it: allow them only after "--".
+    if head in {"npm", "pnpm", "yarn"}:
+        tail = rest[1:] if rest[:1] == ["test"] else rest[2:]
+        if tail and tail[0] != "--":
+            return None
+    return argv
 
 
-def request_bytes(file_limit: int) -> int:
-    """A request or packet limit that fits one file at the limit.
-
-    A changed file is sent with its earlier version, JSON escaping adds to both, and
-    other files share the request, so this allows three times the file limit plus room.
-    """
-    return min(2_000_000, max(120_000, 3 * file_limit + 65_536))
+# Room for the system instructions, the response schema and the packet's other fields.
+_ROOM = 65_536
 
 
 def detect(repo, *, revision: str = "HEAD", purpose: str | None = None) -> dict:
@@ -468,7 +543,7 @@ def detect(repo, *, revision: str = "HEAD", purpose: str | None = None) -> dict:
     detector.note("profile", profile, "purpose" if purpose else "default")
     config = {"allow_paths": allow, "generated_paths": generated, "protected_paths": detector.protected(generated),
               "profile": profile, "max_file_bytes": limit}
-    request = request_bytes(limit)
+    config["max_packet_bytes"], request = detector.encoded_sizes()
     policy = {"allow_paths": allow, "deny_paths": data["deny_paths"], "fixture_roots": data["fixture_roots"],
               "max_file_bytes": limit, "max_request_bytes": request, "profile": profile}
     return {
@@ -531,7 +606,7 @@ def run_init(args, config: Config) -> int:
     detected = proposal["config"]
     if not args.purpose:
         detected["profile"] = configured.profile
-    packet = max(configured.max_packet_bytes, request_bytes(detected["max_file_bytes"]))
+    packet = max(configured.max_packet_bytes, detected["max_packet_bytes"])
     proposed = replace(configured, allow_paths=tuple(detected["allow_paths"]),
                        generated_paths=tuple(detected["generated_paths"]),
                        protected_paths=tuple(detected["protected_paths"]),
