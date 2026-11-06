@@ -27,10 +27,16 @@ def _name(call: ast.Call) -> str | None:
 
 
 def _strings(node) -> list[str]:
+    """Every literal code an expression can produce, or [] when any branch isn't a literal.
+
+    A conditional counts only when both branches are literals: a half-literal one could
+    emit a code nothing collected.
+    """
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return [node.value]
     if isinstance(node, ast.IfExp):
-        return _strings(node.body) + _strings(node.orelse)
+        body, orelse = _strings(node.body), _strings(node.orelse)
+        return body + orelse if body and orelse else []
     return []
 
 
@@ -251,6 +257,9 @@ def test_a_new_code_in_a_tuple_list_is_collected():
     ("onboarding.py", '("gate_ignore_change_requires_review", name)', "(chosen, name)"),
     ("health.py", '{"code": "config_file_not_loaded",', '{"code": chosen,'),
     ("review.py", 'raise AssistantError("empty_model_context")', "raise AssistantError(chosen)"),
+    # The reviewer's case: one literal branch must not account for the other.
+    ("onboarding.py", 'self.block("empty_review_scope")',
+     'self.block("empty_review_scope" if selected else "synthetic_" + "unhinted_code")'),
 ])
 def test_an_unaccounted_code_site_fails_closed(module, old, new):
     _codes, unaccounted = collect(_mutated(module, old, new))
@@ -488,6 +497,10 @@ PASTED_ARGUMENT = "--synthetic-private-value"
     ["--config", "unused.json", "explain", PASTED_ARGUMENT],
     ["--conf", "unused.json", "explain", PASTED_ARGUMENT],
     ["--config=unused.json", "explain", PASTED_ARGUMENT],
+    ["--typo", "explain", PASTED_ARGUMENT],                     # an unknown root option first
+    ["--config=unused.json", "--typo", "explain", PASTED_ARGUMENT],
+    ["--conf=unused.json", "--typo", "explain", PASTED_ARGUMENT],
+    ["-q", "explain", PASTED_ARGUMENT],
 ])
 def test_an_unreadable_explain_invocation_is_refused_without_echoing_it(argv, capsys):
     assert main(argv) == 2
@@ -562,6 +575,18 @@ def test_a_retired_entry_loads_lists_and_explains(monkeypatch, capsys):
         error_hints.hints.cache_clear()
 
 
-@pytest.mark.parametrize("retired", ["0.8", "v0.8.0", "0.8.0-rc1", 8, "", "01.2.3"])
+@pytest.mark.parametrize("retired", ["0.8", "v0.8.0", "0.8.0-rc1", 8, "", "01.2.3", None, False, ["0.8.0"]])
 def test_a_malformed_retired_marker_is_rejected(retired):
     assert not error_hints._valid("sample_code", {"summary": "Fine.", "fix": "Fix it.", "retired": retired})
+
+
+def test_a_conditional_code_needs_both_branches_literal():
+    assert _strings(ast.parse('"a_code" if flag else "b_code"', mode="eval").body) == ["a_code", "b_code"]
+    assert _strings(ast.parse('"a_code" if flag else prefix + "x"', mode="eval").body) == []
+    assert _strings(ast.parse('prefix if flag else "b_code"', mode="eval").body) == []
+
+
+def test_an_unknown_option_before_another_command_keeps_argparse_errors(capsys):
+    with pytest.raises(SystemExit):
+        main(["--typo", "demo"])
+    assert "--typo" in capsys.readouterr().err  # No explain argument here, so argparse may name it.
