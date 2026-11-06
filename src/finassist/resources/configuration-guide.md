@@ -142,8 +142,9 @@ The same field works in a gate policy's `model_review` object.
   Each snippet gives its path, line numbers, relation, symbol, the changed line or definition that
   links it, and the sha256 of the file it came from.
 - **Only names that resolve exactly.** A name resolves through the importing file's own `import`
-  and `from ... import` statements: a plain imported name, or `module.attribute`. Anything else,
-  such as a method called on an object, is left out rather than guessed. Python only, for now.
+  and `from ... import` statements: a plain imported name, or `module.attribute`. A name the file
+  defines or assigns itself shadows an import of it. Anything else, such as a method called on an
+  object, is left out rather than guessed. Python only, for now.
 - **The same screening as a changed file.** A candidate must be tracked at head, inside
   `allow_paths`, not generated, and pass every path and private-name rule before it is read. A
   private name is never read, searched or listed. A file that fails content screening or doesn't
@@ -152,7 +153,8 @@ The same field works in a gate policy's `model_review` object.
   own size or 16 KB, whichever is larger. It never takes the room the changed files need. Snippets
   are added in rank order until the budget is spent. The rest are listed by name with the reason
   `related_budget`. Each changed function shows at most 3 callers and 3 tests; the others are
-  listed with the reason `related_target_limit`.
+  listed with the reason `related_target_limit`. At most 500 files are read to find callers; the
+  others are listed with the reason `related_search_limit`.
 - **Bound like the rest of the packet.** The approved packet hash covers the block, and `review`
   checks it again before sending. The model is told the snippets are reference only, and its
   findings must still cite the changed files.

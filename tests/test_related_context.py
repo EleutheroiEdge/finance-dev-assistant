@@ -315,3 +315,53 @@ def test_a_gate_with_related_context_sends_the_block_and_passes(pricing, tmp_pat
     assert [item["symbol"] for item in sent["related"]["snippets"]][:1] == ["discount"]
     assert "`related`" in body["instructions"]
     assert "positions" not in calls[0].content.decode()
+
+
+def _second_change(repo, files, bond=None):
+    for name, text in files.items():
+        (repo / name).write_text(text, encoding="utf-8", newline="\n")
+    command(repo, "add", "-A")
+    command(repo, "commit", "-q", "-m", "Synthetic files")
+    base = command(repo, "rev-parse", "HEAD")
+    (repo / "src/pricing/bond.py").write_text(bond or BOND_HEAD.replace("face *", "face * 1 *"),
+                                              encoding="utf-8", newline="\n")
+    command(repo, "commit", "-q", "-am", "Synthetic second change")
+    return base, command(repo, "rev-parse", "HEAD")
+
+
+def test_a_local_definition_shadows_an_import_of_the_same_name(pricing):
+    repo, _base, _head = pricing
+    shadow = ("from pricing.bond import price\n\n\ndef price(face, rate, years):\n    return 0\n\n\n"
+              "def total():\n    return price(1, 0.0, 1)\n")
+    base, head = _second_change(repo, {"src/pricing/shadow.py": shadow})
+    block = build_packet(repo, base, head, CONFIG)["related"]
+    assert "src/pricing/shadow.py" not in {item["path"] for item in block["snippets"]}
+
+
+def test_a_call_counts_when_only_a_later_argument_line_changed(pricing):
+    repo, _base, _head = pricing
+    before = BOND_HEAD.replace("    return face * discount(rate, years)\n",
+                               "    return face * discount(\n        rate,\n        years)\n")
+    base, head = _second_change(repo, {"src/pricing/bond.py": before},
+                                bond=before.replace("        years)\n", "        years + 0)\n"))
+    block = build_packet(repo, base, head, CONFIG)["related"]
+    assert ("callee", "discount") in {(item["relation"], item["symbol"]) for item in block["snippets"]}
+
+
+def test_every_call_line_of_one_caller_is_shown(pricing):
+    repo, _base, _head = pricing
+    twice = ("from pricing import bond\n\n\ndef spread():\n    low = bond.price(1, 0.0, 1)\n"
+             "    high = bond.price(1, 0.1, 1)\n    return high - low\n")
+    base, head = _second_change(repo, {"src/pricing/spread.py": twice})
+    item = next(item for item in build_packet(repo, base, head, CONFIG)["related"]["snippets"]
+                if item["path"] == "src/pricing/spread.py")
+    assert [number for number, _line in item["lines"]] == [4, 5, 6]
+
+
+def test_the_caller_search_limit_lists_the_rest(pricing, monkeypatch):
+    from finassist import related
+
+    repo, base, head = pricing
+    monkeypatch.setattr(related, "_PARSE_LIMIT", 1)
+    block = build_packet(repo, base, head, CONFIG)["related"]
+    assert any(item["reason"] == "related_search_limit" for item in block["skipped"])

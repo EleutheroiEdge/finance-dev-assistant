@@ -24,7 +24,7 @@ MAX_SNIPPET_BYTES = 4_000
 MAX_SKIPPED = 50
 MAX_CALL_LINES = 5
 MAX_PER_TARGET = 3  # Callers, and tests, shown per changed definition; the rest are listed by name.
-_PARSE_LIMIT = 2_000  # Files read for callers, at most.
+_PARSE_LIMIT = 500  # Files read for callers, at most; the rest are listed as related_search_limit.
 _NEWLINE = re.compile(r"\r\n|\r|\n")
 
 
@@ -129,7 +129,14 @@ def _imports(tree, path: str, tracked: set[str]) -> tuple[dict, dict]:
                     modules[local] = submodule
                 elif (target := _module_paths(module, tracked)):
                     names[local] = (target, alias.name)
-    return names, modules
+    # A name the file defines or assigns at top level shadows an import of the same name.
+    own = set(_top_level(tree))
+    for node in tree.body:
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            for target in node.targets if isinstance(node, ast.Assign) else [node.target]:
+                own |= {item.id for item in ast.walk(target) if isinstance(item, ast.Name)}
+    return ({name: value for name, value in names.items() if name not in own},
+            {name: value for name, value in modules.items() if name not in own})
 
 
 def _resolve(expression, names: dict, modules: dict) -> tuple[str, str] | None:
@@ -188,7 +195,10 @@ def candidates(repo, head: str, files: list[dict], config: Config, tracked: set[
             return
         text, _tree = source
         key = (path, symbol)
-        if key in found and RELATIONS.index(found[key]["relation"]) <= RELATIONS.index(relation):
+        if key in found and found[key]["relation"] == relation and found[key]["reference"] == reference:
+            # The same caller again, such as a second call: show every call line, in order.
+            numbers = sorted({number for number, _line in found[key]["lines"]} | set(numbers))
+        elif key in found and RELATIONS.index(found[key]["relation"]) <= RELATIONS.index(relation):
             return
         found[key] = {"path": path, "symbol": symbol, "relation": relation, "reference": reference,
                       "lines": _numbered(text, numbers), "sha256": digest(text.encode())}
@@ -214,9 +224,11 @@ def candidates(repo, head: str, files: list[dict], config: Config, tracked: set[
             continue
         imported, modules = _imports(after, path, tracked)
         for node in ast.walk(after):
-            if isinstance(node, ast.Call) and node.lineno in changed_lines:
+            # A call counts when any of its lines changed, such as an argument on a later line.
+            if isinstance(node, ast.Call) and changed_lines & set(range(node.lineno, node.end_lineno + 1)):
                 relation, expressions = "callee", [node.func]
-            elif isinstance(node, ast.ClassDef) and node.lineno in changed_lines:
+            elif isinstance(node, ast.ClassDef) and changed_lines & set(
+                    range(node.lineno, max(node.lineno, node.body[0].lineno - 1) + 1)):
                 relation, expressions = "base", node.bases
             else:
                 continue
@@ -232,8 +244,10 @@ def candidates(repo, head: str, files: list[dict], config: Config, tracked: set[
                     {"path": path, "line": node.lineno})
 
     wanted = sorted({name for names in targets.values() for name in names})
-    mentions = [path for path in grep(wanted) if collector.eligible(path)][:_PARSE_LIMIT] if wanted else []
-    for path in sorted(mentions):
+    mentions = sorted(path for path in grep(wanted) if collector.eligible(path)) if wanted else []
+    for path in mentions[_PARSE_LIMIT:]:
+        collector.skipped.append({"path": path, "symbol": None, "reason": "related_search_limit"})
+    for path in mentions[:_PARSE_LIMIT]:
         source = collector.source(path)
         if source is None:
             continue
