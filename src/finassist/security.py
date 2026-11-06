@@ -263,6 +263,30 @@ def check_model_path(path: str, *, fixture_roots: tuple[str, ...] = (), source_o
 
 
 
+def check_private_name(path: str) -> None:
+    """The gate's private directories and file names, for any caller that needs the same rule."""
+    _check_model_private(path)
+
+
+def local_name(name, extra_patterns: tuple[str, ...] = ()) -> str:
+    """A repo-relative name for local output only, or [redacted].
+
+    A name is redacted when it fails screening itself, or when it has a control or
+    format character (such as a right-to-left override) that can make it display as
+    a different name.
+    """
+    try:
+        if not isinstance(name, str) or not name or len(name) > 512:
+            raise AssistantError("unsafe_path")
+        if any(unicodedata.category(character) in {"Cc", "Cf", "Co", "Cs", "Zl", "Zp"} for character in name):
+            raise AssistantError("unsafe_path")
+        safe_relative(name.removesuffix("/"))
+        check_text(name, extra_patterns=extra_patterns)
+    except AssistantError:
+        return "[redacted]"
+    return name
+
+
 def check_text(text: str, *, extra_patterns: tuple[str, ...] = (), source_path: str | None = None) -> None:
     if is_python_path(source_path) and "\0" not in text:
         screen = python_screen(text)

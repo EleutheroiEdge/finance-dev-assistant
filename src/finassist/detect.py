@@ -18,13 +18,12 @@ import re
 import shlex
 import subprocess
 import tomllib
-import unicodedata
 
 from .config import Config, config_document, save_config
 from .errors import AssistantError, prices_required
 from .scope import git, git_command, git_environment, resolve
 from .security import (_PRIVATE, DENIED_PARTS, TEXT_SUFFIXES, _check_model_private, canonical, check_path,
-                       check_text, safe_relative)
+                       check_text, local_name)
 
 PURPOSES = {"quant": "quant-review", "accounting": "finance-saas", "research": "investment-research",
             "general": "general"}
@@ -53,19 +52,7 @@ _FENCE = re.compile(r"^(`{3,}|~{3,})\s*([A-Za-z0-9_+-]*)")
 
 
 def _shown(name: str) -> str:
-    """A name for local output, or [redacted] when the name fails screening or could hide text.
-
-    Control and format characters (such as a right-to-left override) can make a name
-    display as something else, so such a name is never shown.
-    """
-    if any(unicodedata.category(character) in {"Cc", "Cf", "Co", "Cs", "Zl", "Zp"} for character in name):
-        return "[redacted]"
-    try:
-        safe_relative(name.removesuffix("/"))
-        check_text(name)
-    except AssistantError:
-        return "[redacted]"
-    return name
+    return local_name(name)
 
 
 def _examples(names) -> list[str]:

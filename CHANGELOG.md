@@ -47,6 +47,13 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 - Document that secret and figure screening is a backstop behind path allowlists,
   gitignored secrets and the policy, and list the text rules' known limits (#61).
 
+### Added
+- **`private_paths: skip-and-report` (#64).** It is opt-in; the default is still `refuse`.
+  - A private path in the range is withheld by its name before anything is read, instead of refusing the whole review.
+  - Packets, requests, reports and audit records carry only the withheld count. `plan` and `doctor --policy` name the paths in local output only.
+  - Every coverage check stays incomplete.
+  - It works in configuration and in a gate policy's `model_review`, and the gate report adds `coverage`.
+
 ### Fixed
 - **`score`** reported a traceback when a labels file's `outcomes` was a list instead of an object. It now refuses with `invalid_adjudication` (#69).
 - **Supervised runs.** A recipe could start briefly on a platform where its exit can't be observed without reaping it. The platform is now checked before launch, with `non_reaping_wait_required` (#69).

@@ -47,6 +47,10 @@ def summary_markdown(report: dict) -> str:
         lines = ["## finledgerpoli model review gate", "", "Result: **" + report["verdict"] + "**.",
                  "", "Advisory component only; findings have not been reproduced. No merge authority.",
                  "", "Report hash: `" + report["report_hash"] + "`."]
+        if "coverage" in report:
+            lines += ["", "Coverage: **incomplete**. " + str(report["coverage"]["withheld"])
+                      + " changed file(s) were withheld unread by repository policy (`private_paths`)"
+                      + " and were not reviewed."]
         if report["reasons"]:
             lines += ["", *("- `" + code + "`" for code in report["reasons"])]
         return "\n".join(lines) + "\n"
@@ -74,6 +78,10 @@ def publish_action_report(report: dict, report_path: Path, summary_path: Path, o
         status = report["verdict"] if report.get("mode") == "model-review" else report["status"]
         stream.write("status=" + status + "\nreport-hash=" + report["report_hash"] +
                      "\nreport-path=" + path_value + "\n")
+        if report.get("mode") == "model-review":
+            withheld = report.get("coverage", {}).get("withheld", 0)
+            stream.write("withheld-count=" + str(withheld) + "\ncoverage-complete="
+                         + ("false" if withheld else "true") + "\n")
 
 
 def _run_github_action(environment) -> int:

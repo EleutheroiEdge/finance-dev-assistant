@@ -26,6 +26,12 @@ outputs:
   report-path:
     description: Private report path under RUNNER_TEMP; raw artifacts are not uploaded.
     value: ${{ steps.gate.outputs.report-path }}
+  withheld-count:
+    description: Model review only. Changed files withheld unread by private_paths skip-and-report; 0 otherwise.
+    value: ${{ steps.gate.outputs.withheld-count }}
+  coverage-complete:
+    description: Model review only. false when files were withheld, so a PASS covered only the rest.
+    value: ${{ steps.gate.outputs.coverage-complete }}
 runs:
   using: composite
   steps:

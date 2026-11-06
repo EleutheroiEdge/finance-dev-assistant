@@ -61,6 +61,9 @@ class Config:
     github_host: str = "github.com"
     allow_network: bool = False
     allow_partial_review: bool = False
+    # refuse: a private path in the range refuses the whole review (the default).
+    # skip-and-report: a private path is never read or sent; the packet carries only a count.
+    private_paths: str = field(default="refuse", metadata={"json_schema": {"enum": ["refuse", "skip-and-report"]}})
     allowed_hosts: tuple[str, ...] = ()
     allow_paths: tuple[str, ...] = (
         "src/",
@@ -198,6 +201,8 @@ class Config:
             raise AssistantError("unknown_profile")
         if self.auth_header not in {"Authorization", "api-key", "x-api-key"}:
             raise AssistantError("unsupported_auth_header")
+        if self.private_paths not in {"refuse", "skip-and-report"}:
+            raise AssistantError("invalid_private_paths")
         for key in (
             "max_file_bytes",
             "max_packet_bytes",

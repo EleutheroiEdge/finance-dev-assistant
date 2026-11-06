@@ -51,6 +51,8 @@ _TOKEN_PROPERTIES = {
     "forbidden_token_hashes": {"type": "array", "minItems": 1, "maxItems": 1024, "uniqueItems": True,
                               "items": {"type": "string", "pattern": r"^[0-9a-f]{64}$"}},
 }
+# Optional. refuse (the default) keeps today's behaviour; skip-and-report withholds private paths.
+_COVERAGE_PROPERTIES = {"private_paths": {"enum": ["refuse", "skip-and-report"]}}
 _SCHEMA = {
     "type": "object", "additionalProperties": False,
     "required": ["schema_version", "model_review"],
@@ -58,7 +60,8 @@ _SCHEMA = {
         "schema_version": {"type": "integer", "const": 2},
         "model_review": {"type": "object", "additionalProperties": False,
                          "required": list(_PROPERTIES),
-                         "properties": {**_PROPERTIES, **_PROFILE_PROPERTIES, **FIXTURE_PROPERTIES, **_TOKEN_PROPERTIES},
+                         "properties": {**_PROPERTIES, **_PROFILE_PROPERTIES, **FIXTURE_PROPERTIES, **_TOKEN_PROPERTIES,
+                                        **_COVERAGE_PROPERTIES},
                          "dependentRequired": {"profile_path": ["profile_sha256"],
                                                "profile_sha256": ["profile_path"]},
                          "not": {"required": ["profile_text", "profile_path"]}},
@@ -179,6 +182,8 @@ def policy_config_fields(model: dict, profile_text: list[str] | None) -> dict:
     config_fields.update(allow_network=True, allowed_hosts=[model["allowed_host"]], generated_paths=[],
                          max_packet_bytes=2_000_000,
                          monthly_budget_usd=1_000_000)
+    if "private_paths" in model:
+        config_fields["private_paths"] = model["private_paths"]
     if profile_text is not None:
         profiles = deepcopy(PROFILES)
         profiles[model["profile"]] = profile_text

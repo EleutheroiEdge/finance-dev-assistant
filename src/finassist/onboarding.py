@@ -28,9 +28,9 @@ from .policy_ignores import screen_ignores
 from .providers import request_payload
 from .review import review_schema, spend_estimate
 from .error_hints import error_fields
-from .scope import git, read_entry, resolve
-from .security import (TEXT_FIXTURE_SUFFIXES, canonical, check_fixture_private, check_model_path, check_path,
-                       check_text, digest, regular_path, safe_relative)
+from .scope import WITHHELD_CODES, WITHHELD_REASON, git, read_entry, resolve
+from .security import (TEXT_FIXTURE_SUFFIXES, canonical, local_name, check_fixture_private, check_model_path, check_path,
+                       check_text, digest, regular_path)
 
 HINTS = {
     "invalid_revision": "Pass a commit that exists in this repository.",
@@ -86,6 +86,7 @@ WARNINGS = {
     "file_limit_above_request_limit": "max_file_bytes is above max_request_bytes, so the request limit applies first.",
     "daily_budget_below_run_budget": "daily_budget_usd is below max_run_usd, so a full run can never fit in one day.",
     "fixture_limit_without_roots": "fixture_max_file_bytes has no effect without fixture_roots.",
+    "private_paths_withheld": "These private paths will be withheld unread; the review's coverage will be incomplete.",
 }
 _BOUNDS = ("type", "minimum", "maximum", "minLength", "maxLength", "minItems", "maxItems", "enum", "const", "pattern")
 _MAX_ROWS = 2000  # The most changed files a policy can allow; longer ranges are summarized.
@@ -115,22 +116,8 @@ def _shown_argument(value: str) -> str:
     return value
 
 
-def _shown(name) -> str:
-    """A repo-relative name for local output, or [redacted] when the name fails screening.
-
-    A name with a control or format character, such as a right-to-left override, can
-    display as a different name, so it is redacted too.
-    """
-    try:
-        if not isinstance(name, str) or not name or len(name) > 512:
-            raise AssistantError("unsafe_path")
-        if any(unicodedata.category(character) in {"Cc", "Cf", "Co", "Cs", "Zl", "Zp"} for character in name):
-            raise AssistantError("unsafe_path")
-        safe_relative(name.removesuffix("/"))
-        check_text(name)
-    except AssistantError:
-        return "[redacted]"
-    return name
+def _shown(name, extra_patterns: tuple[str, ...] = ()) -> str:
+    return local_name(name, extra_patterns)
 
 
 def _schema_issues(document: dict) -> list[dict]:
@@ -452,6 +439,9 @@ class _Preflight:
             self.report["paths_not_listed"] = len(paths) - _MAX_ROWS
         self.report["coverage_complete"] = (not names_not_utf8 and len(paths) <= _MAX_ROWS
                                             and all(row["status"] == "included" for row in rows))
+        withheld = sum(row["status"] == "withheld" for row in rows)
+        if withheld:
+            self.warn("private_paths_withheld", count=withheld)
         for row in rows:
             if row["status"] == "refused" and row["code"] != "gate_ignored_path":  # Ignored paths are named above.
                 self.block_path(row["code"], row["path"], row.get("hint"))
@@ -460,14 +450,24 @@ class _Preflight:
     def _classify(self, repo: Path, revisions: tuple[str, str], path: str, model: dict, config, guard,
                   ignored: set[str], stopped: str | None) -> dict:
         ancestor, head = revisions
-        row = {"path": _shown(path)}
+        row = {"path": _shown(path, config.extra_sensitive_patterns)}
         try:
             # Name-only rules first: they read nothing.
-            check_model_path(path, fixture_roots=getattr(config, "fixture_roots", ()))
+            try:
+                check_model_path(path, fixture_roots=getattr(config, "fixture_roots", ()))
+                private = False
+            except AssistantError as exc:
+                if not (config.private_paths == "skip-and-report" and exc.code in WITHHELD_CODES):
+                    raise
+                private = True
             if any(_matches(path, prefix) for prefix in model["deny_paths"]):
                 raise AssistantError("gate_denied_path")
             if not config.allows(path):
                 raise AssistantError("gate_path_not_allowed")
+            if private:  # The gate withholds this path unread, so it is not a blocker...
+                # ...unless the name matches a configured pattern: then it refuses, as the gate does.
+                check_text(path, extra_patterns=config.extra_sensitive_patterns)
+                return {**row, "status": "withheld", "reason": WITHHELD_REASON}
             if path in ignored:
                 raise AssistantError("gate_ignored_path")
             if stopped is not None:
