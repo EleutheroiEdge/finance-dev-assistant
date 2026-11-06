@@ -80,9 +80,16 @@ def test_identifier_and_expression_credential_references_remain_supported(expres
     check_text("access_" + "key = " + expression)
 
 
-@pytest.mark.parametrize("secret", ["AbcDefGhi1234567", "AbcDefGhi/1234567"])
-def test_mixed_case_credential_source_never_dispatches_or_reserves(gate_case, secret):
-    candidate(gate_case, "access_" + "key = " + secret)
+# In parseable Python an unquoted value is a name or an expression, not a literal
+# (#61); the text rule still refuses it in other files, and Python literals refuse.
+@pytest.mark.parametrize("name,source", [
+    ("src/case.yaml", "access_" + "key: AbcDefGhi1234567"),
+    ("src/case.yaml", "access_" + "key: AbcDefGhi/1234567"),
+    ("src/cash.py", "access_" + 'key = "AbcDefGhi1234567"'),
+    ("src/cash.py", "access_" + 'key = "AbcDefGhi/1234567"'),
+])
+def test_mixed_case_credential_source_never_dispatches_or_reserves(gate_case, name, source):
+    candidate(gate_case, source, name)
     report, calls = run(gate_case)
     assert report["verdict"] == "BLOCKED" and not calls
     assert not (gate_case["state"] / "audit.sqlite").exists()
@@ -170,7 +177,8 @@ def test_python_types_preserve_wire_bytes_and_pass_gate(gate_case, line):
     ("src/case.py", 'text = "signing_' + 'key: Ed25519PrivateKey"'),
     ("src/case.py", 'signing_' + 'key: (\n# private_' + 'key = "Zq7Lm2Xp9Rt4Vw8"\nEd25519PrivateKey)'),
     ("src/case.py", 'signing_' + 'key: Ed25519Private' + 'Key = "Zq7Lm2Xp9Rt4Vw8"'),
-    ("src/case.py", 'signing_' + 'key: Ed25519Private' + 'Key = Zq7Lm2Xp9Rt4Vw8'),
+    ("src/case.yaml", 'signing_' + 'key: Zq7Lm2Xp9Rt4Vw8'),
+    ("src/case.py", 'signing_' + 'key: Ed25519Private' + 'Key = os.getenv("SIGNING", "Zq7Lm2Xp9Rt4Vw8")'),
     ("src/case.py", 'def sign(signing_' + 'key: Ed25519Private' + 'Key = "Zq7Lm2Xp9Rt4Vw8"): pass'),
 ])
 def test_context_never_exempts_yaml_comments_strings_or_assigned_credentials(gate_case, name, source):
