@@ -315,3 +315,15 @@ def test_init_keeps_its_audit_state_out_of_the_repository_it_reads(quant_repo, t
     assert not (quant_repo / ".finassist").exists()
     assert main(["init", "--output", "plain.json"]) == 0
     assert (work / "plain.json").is_file()
+
+
+def test_evidence_stays_bounded_on_a_wide_build_output(tmp_path, capsys):
+    files = {"src/app.py": "X = 1\n", **{f"dist/chunk{index:03d}.js": "var x;\n" for index in range(150)},
+             **{f"web/assets/part{index:03d}-a1B2c3D4e5.js": "var y;\n" for index in range(30)}}
+    repo = _repo(tmp_path, files)
+    proposal = _proposal(capsys, ["init", "--detect", "--repo", str(repo)])
+    assert "dist/" in proposal["config"]["generated_paths"]
+    assert "web/" in proposal["config"]["generated_paths"]  # web/ holds only hashed build assets
+    assert "src/app.py" not in proposal["config"]["generated_paths"]
+    assert len(proposal["evidence"]["generated_paths"]) == 20
+    assert proposal["evidence_not_listed"]["generated_paths"] == 160

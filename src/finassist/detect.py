@@ -42,7 +42,7 @@ RUNNERS = {"pytest", "tox", "nox", "make", "npm", "pnpm", "yarn", "go", "cargo",
 # reviewed prefix. Images and archives are binary assets, refused for review but not private.
 PRIVATE_SUFFIXES = {".csv", ".tsv", ".parquet", ".db", ".sqlite", ".sqlite3", ".xlsx", ".xls", ".pem", ".key", ".p12",
                     ".pfx"}
-_BUILT = re.compile(r"-[A-Za-z0-9_]{8,}\.(?:js|mjs|css)")
+_BUILT = re.compile(r".+-[A-Za-z0-9_]{8,}\.(?:js|mjs|css)")  # name-<content hash>.js, as bundlers write
 _SHELL = re.compile(r"[|&;<>`$(){}*?\[\]]")
 _READ_LIMIT = 128_000
 _EXAMPLES = 20
@@ -75,7 +75,9 @@ class _Detector:
         self.files: dict[str, int] = {}
         self.undecodable = 0
         self.evidence: dict[str, list[dict]] = {}
+        self.truncated: dict[str, int] = {}
         self.warnings: list[dict] = []
+        self.has_source = False
 
     # Reading -----------------------------------------------------------------
     def list_files(self) -> None:
@@ -113,6 +115,10 @@ class _Detector:
         self.warnings.append({"code": code, **details})
 
     def note(self, field: str, value, rule: str, path: str | None = None, line: int | None = None) -> None:
+        """Record why a value was proposed; at most 20 entries per field are kept, the rest counted."""
+        if len(self.evidence.get(field, ())) >= _EXAMPLES:
+            self.truncated[field] = self.truncated.get(field, 0) + 1
+            return
         entry = {"value": value, "rule": rule}
         if path is not None:
             entry["path"] = _shown(path)
@@ -125,7 +131,6 @@ class _Detector:
         parts = PurePosixPath(path).parts
         lowered = {part.lower() for part in parts}
         return bool(lowered & DENIED_PARTS) or PurePosixPath(path).suffix.lower() in PRIVATE_SUFFIXES
-
 
     def layout(self) -> dict:
         roots: dict[str, str] = {}
@@ -171,7 +176,7 @@ class _Detector:
             elif name.endswith((".min.js", ".min.css", ".js.map", ".css.map")):
                 names.add(path)
                 self.note("generated_paths", path, "minified_or_map", path)
-            elif "assets" in PurePosixPath(path).parts[:-1] and _BUILT.search(name) and _BUILT.search(name).end() == len(name):
+            elif "assets" in PurePosixPath(path).parts[:-1] and _BUILT.fullmatch(name):
                 names.add(path)
                 self.note("generated_paths", path, "hashed_build_asset", path)
             elif "dist" in PurePosixPath(path).parts[:-1]:
@@ -488,6 +493,7 @@ def detect(repo, *, revision: str = "HEAD", purpose: str | None = None) -> dict:
         "tests": detector.tests(),
         "private_paths": {"count": len(data["private"]), "examples": _examples(data["private"])},
         "evidence": detector.evidence,
+        "evidence_not_listed": detector.truncated,
         "warnings": detector.warnings,
         "purpose_choices": sorted(PURPOSES),
         "files_read_from": "committed revision only",
