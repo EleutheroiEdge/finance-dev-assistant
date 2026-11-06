@@ -9,9 +9,12 @@ import os
 from pathlib import Path
 import re
 import stat
+import tokenize
 import unicodedata
 
 from .errors import AssistantError
+from .python_source import (MAX_FIGURE_DIGITS, fstring_constant_texts, hidden_fstring_fields, is_python_path,
+                            number_text, python_tokens, python_tree)
 from .security import regular_path
 
 _CURRENCIES = "$€£¥"
@@ -20,14 +23,16 @@ _DECIMAL = re.compile(r"(?P<integer>[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)"
                       r"(?:\.(?P<fraction>[0-9]+))?(?:[eE](?P<exponent>[+-]?[0-9]{1,3}))?")
 
 
-def normalize_numeric_token(value: str) -> str:
+def normalize_numeric_token(value: str, *, max_digits: int = 128) -> str:
     """Return a dot-decimal canonical value, without floating-point rounding.
 
     Only explicit dot decimals, comma/space thousands groups, underscores between
     digits, Unicode decimal digits, one currency prefix, signs, parentheses and bounded
     decimal exponents are supported. Invalid input has a non-disclosing error.
+    Policy entries use the default bound; screening passes MAX_FIGURE_DIGITS, so
+    every value a policy entry can expand to can also be matched.
     """
-    if not isinstance(value, str) or not value or len(value) > 256:
+    if not isinstance(value, str) or not value or len(value) > max(256, 2 * max_digits + 16):
         raise AssistantError("forbidden_token_invalid")
     value = value.strip(" ")
     value = "".join(str(unicodedata.decimal(c)) if c.isdecimal() else c for c in value)
@@ -57,7 +62,7 @@ def normalize_numeric_token(value: str) -> str:
     integer = match["integer"].replace(",", "")
     fraction = match["fraction"] or ""
     exponent = int(match["exponent"] or "0")
-    if len(integer) + len(fraction) > 128 or abs(exponent) > 128:
+    if len(integer) + len(fraction) > max_digits or abs(exponent) > 128:
         raise AssistantError("forbidden_token_invalid")
     digits = integer + fraction
     point = len(integer) + exponent
@@ -184,23 +189,82 @@ _DIGIT_SEPARATED = re.compile(
 )
 
 
+def _listed(number: str, snapshot: TokenSnapshot) -> bool:
+    magnitude = number.lstrip("-")
+    # Hash-only policies can list either sign. Compare both without
+    # recovering or retaining any configured plaintext value.
+    forms = {number, magnitude, "-" + magnitude} if magnitude != "0" else {"0"}
+    return any(hashlib.sha256(form.encode("utf-8")).hexdigest() in snapshot.hashes for form in forms)
+
+
+_LEADING_ZEROS = re.compile(r"(?<![0-9.,])0+(?=[0-9])")
+
+
+def _without_zero_padding(candidate: str) -> str:
+    """Drop leading integer zeros and trailing fraction zeros, which never change a value.
+
+    Unicode decimal digits become ASCII and underscores between digits are removed
+    first, so Arabic-Indic zero padding is trimmed and `1.20_1` stays 1.201. The
+    fraction is trimmed in one linear pass.
+    """
+    ascii_digits = "".join(str(unicodedata.decimal(c)) if c.isdecimal() else c for c in candidate)
+    compact = _LEADING_ZEROS.sub("", re.sub(r"(?<=[0-9])_(?=[0-9])", "", ascii_digits))
+    point = compact.rfind(".")
+    if point < 0:
+        return compact
+    end = point + 1
+    while end < len(compact) and compact[end].isdigit():
+        end += 1
+    fraction = compact[point + 1:end].rstrip("0")
+    return compact[:point] + ("." + fraction if fraction else "") + compact[end:]
+
+
 def screen_text(text: str, snapshot: TokenSnapshot) -> None:
     """Check content only; callers must select typed content, not filenames."""
     if not snapshot.hashes:
         return
     for pattern in (_NUMBER, _UNGROUPED, _SPACED, _DIGIT_SEPARATED, _PLAIN):
         for match in pattern.finditer(text):
-            try:
-                number = normalize_numeric_token(match.group())
-            except AssistantError:
-                continue
-            magnitude = number.lstrip("-")
-            # Hash-only policies can list either sign. Compare both without
-            # recovering or retaining any configured plaintext value.
-            forms = {number, magnitude, "-" + magnitude} if magnitude != "0" else {"0"}
-            if any(hashlib.sha256(form.encode("utf-8")).hexdigest() in snapshot.hashes
-                   for form in forms):
-                raise AssistantError("forbidden_token_present")
+            candidate = match.group()
+            for form in {candidate, _without_zero_padding(candidate)}:
+                try:
+                    number = normalize_numeric_token(form, max_digits=MAX_FIGURE_DIGITS)
+                except AssistantError:
+                    continue
+                if _listed(number, snapshot):
+                    raise AssistantError("forbidden_token_present")
+
+
+def screen_source(text: str, path: str | None, snapshot: TokenSnapshot) -> None:
+    """Screen one file's text; in Python, also read every number as Python does."""
+    if not snapshot.hashes:
+        return
+    # What leaves the machine is text, so the text screen runs on every file,
+    # Python included: `(6,729,102.50)` is a tuple in code but reads as the figure.
+    screen_text(text, snapshot)
+    if not is_python_path(path):
+        return
+    tokens = python_tokens(text)
+    if tokens is None:
+        # Never fall back silently: an unreadable Python file is refused.
+        raise AssistantError("forbidden_token_python_unreadable")
+    numbers = [number_text(token.string) for token in tokens if token.type == tokenize.NUMBER]
+    if hidden_fstring_fields(tokens):
+        # Before Python 3.12 numbers inside f-string fields stay inside one STRING
+        # token, so only the AST can read them.
+        tree = python_tree(text)
+        if tree is None:
+            raise AssistantError("forbidden_token_python_unreadable")
+        numbers += fstring_constant_texts(tree, text)
+    for plain in numbers:
+        if plain is None:
+            continue
+        try:
+            number = normalize_numeric_token(plain, max_digits=MAX_FIGURE_DIGITS)
+        except AssistantError:
+            continue
+        if _listed(number, snapshot):
+            raise AssistantError("forbidden_token_present")
 
 
 def screen_packet(packet: dict, system: str, snapshot: TokenSnapshot) -> None:
@@ -209,7 +273,7 @@ def screen_packet(packet: dict, system: str, snapshot: TokenSnapshot) -> None:
     for item in packet["files"]:
         for side in ("before", "after"):
             if item[side] is not None:
-                screen_text(item[side], snapshot)
+                screen_source(item[side], item.get("path"), snapshot)
 
 
 @dataclass(frozen=True)
