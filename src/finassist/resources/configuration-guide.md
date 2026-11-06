@@ -74,7 +74,7 @@ finassist init --detect --purpose quant --write --output finassist.json
   Its gate policy draft adds:
   - `max_request_bytes`;
   - `fixture_roots` for CSV or TSV files under a tests directory, which must be synthetic;
-  - `deny_paths` for private-data directories inside a reviewed prefix.
+  - `deny_paths` for private directories inside a reviewed prefix, or for the file itself when no directory is private, such as `src/.env.py`. This uses the shared path policy and the gate's private names (data, private, client and similar).
 
   Packet and request limits are measured, not estimated:
   - a changed file travels with its earlier version;
@@ -84,7 +84,7 @@ finassist init --detect --purpose quant --write --output finassist.json
 - **Proposals stay narrow:**
   - a file name that only looks generated, such as `assets/name-<hash>.js`, must have a digit in its hash, and never widens a generated prefix beyond its own `assets` or `dist` directory;
   - only each runner's own test command is proposed, so `npm publish test` or `make deploy test` never is;
-  - a file the path policy treats as private is never read, even under `.github/workflows/`;
+  - a file the path policy treats as private is never read or sized, even under `.github/workflows/`;
   - a name that would be shown as `[redacted]` is left out of every proposed value and counted in `unsafe_names_skipped`.
 - **Test commands** come from pytest configuration, tox, nox sessions, a Makefile `test` target, `package.json`, CI `run:` steps and shell blocks in AGENTS.md or CLAUDE.md. Each has a confidence and names the file and line it came from. They are proposed, never run.
 - **What it never does:**
