@@ -264,7 +264,7 @@ def _grep_names(repo: Path, head: str, names: list[str], paths: list[str]) -> li
     return sorted(set(found) & set(paths))
 
 
-def _related(repo: Path, head: str, files: list[dict], config: Config, room: int) -> dict:
+def _related(repo: Path, head: str, files: list[dict], config: Config, room: int, admit=None, screen=None) -> dict:
     from .related import candidates, related_block
 
     listing = git(repo, "ls-tree", "-r", "-z", "--name-only", head, binary=True)
@@ -276,6 +276,8 @@ def _related(repo: Path, head: str, files: list[dict], config: Config, room: int
             continue
         if name.endswith(".py") and _screened_name(config, name):
             tracked.add(name)
+    if admit is not None:  # A gate's deny and ignore rules, applied before any search or read.
+        tracked &= set(admit(sorted(tracked)))
 
     def read(path: str) -> str:
         data, _mode = read_entry(repo, head, path, config.file_byte_limit(path), config)
@@ -286,6 +288,8 @@ def _related(repo: Path, head: str, files: list[dict], config: Config, room: int
         except UnicodeError as exc:
             raise AssistantError("non_text_blob") from exc
         check_text(text, extra_patterns=config.extra_sensitive_patterns, source_path=path)
+        if screen is not None:  # A gate's forbidden figures: the whole file, as for a changed file.
+            screen(text, path)
         return text
 
     changed = {file["path"] for file in files}
@@ -301,7 +305,7 @@ def _related(repo: Path, head: str, files: list[dict], config: Config, room: int
 
 def build_packet(
     repo: Path, base: str, head: str, config: Config, *, withhold: frozenset = frozenset(),
-    withheld_names: list | None = None,
+    withheld_names: list | None = None, related_admit=None, related_screen=None,
 ) -> dict:
     """Review the head's own change from its merge base, not unrelated base additions."""
     config.validate()
@@ -392,7 +396,7 @@ def build_packet(
     if config.related_context == "related":
         # 16 KiB is kept for the block's own fields and the names of skipped candidates.
         room = config.max_packet_bytes - len(canonical(packet)) - 16_384
-        packet["related"] = _related(repo, head_sha, files, config, room)
+        packet["related"] = _related(repo, head_sha, files, config, room, related_admit, related_screen)
     encoded = canonical(packet)
     if len(encoded) > config.max_packet_bytes:
         raise AssistantError("packet_limit_exceeded")

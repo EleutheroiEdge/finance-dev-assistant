@@ -321,7 +321,7 @@ def _second_change(repo, files, bond=None):
     for name, text in files.items():
         (repo / name).write_text(text, encoding="utf-8", newline="\n")
     command(repo, "add", "-A")
-    command(repo, "commit", "-q", "-m", "Synthetic files")
+    command(repo, "commit", "-q", "--allow-empty", "-m", "Synthetic files")
     base = command(repo, "rev-parse", "HEAD")
     (repo / "src/pricing/bond.py").write_text(bond or BOND_HEAD.replace("face *", "face * 1 *"),
                                               encoding="utf-8", newline="\n")
@@ -365,3 +365,141 @@ def test_the_caller_search_limit_lists_the_rest(pricing, monkeypatch):
     monkeypatch.setattr(related, "_PARSE_LIMIT", 1)
     block = build_packet(repo, base, head, CONFIG)["related"]
     assert any(item["reason"] == "related_search_limit" for item in block["skipped"])
+
+
+GATE_BOND = (
+    "from .excluded.calibration import calibrate\n"
+    "from .ignored import ignored_rate\n"
+    "from .rates import Instrument, discount\n"
+    "\n"
+    "\n"
+    "def price(face, rate, years):\n"
+    "    return calibrate(face) * discount(rate, years) * ignored_rate()\n"
+    "\n"
+    "\n"
+    "class Bond(Instrument):\n"
+    "    pass\n"
+)
+
+
+def _gate_range(repo, tmp_path, monkeypatch, **rules):
+    """A pinned policy at a new base, and a change calling a denied, an ignored and an ordinary module."""
+    from test_model_policy import model_policy
+
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    monkeypatch.setenv("REVIEW_PROVIDER_KEY", "fictional-provider-value")
+    document = model_policy()
+    document["model_review"].update(allow_paths=["src/", "tests/"], related_context="related",
+                                    deny_paths=["src/pricing/excluded/"], **rules)
+    raw = canonical(document)
+    files = {"gate-policy.json": raw.decode(), ".gitignore": "src/pricing/ignored.py\n",
+             "src/pricing/excluded/__init__.py": "",
+             "src/pricing/excluded/calibration.py": "def calibrate(face):\n    return face\n",
+             "src/pricing/ignored.py": "def ignored_rate():\n    return 1\n"}
+    for name, text in files.items():
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text(text, encoding="utf-8", newline="\n")
+    command(repo, "add", "-A")
+    command(repo, "add", "-f", "src/pricing/ignored.py")  # Tracked, but covered by the ignore rules.
+    command(repo, "commit", "-q", "-m", "Synthetic policy base")
+    base = command(repo, "rev-parse", "HEAD")
+    (repo / "src/pricing/bond.py").write_text(GATE_BOND, encoding="utf-8", newline="\n")
+    command(repo, "commit", "-q", "-am", "Synthetic gate change")
+    return base, command(repo, "rev-parse", "HEAD"), digest(raw)
+
+
+def test_a_gate_leaves_out_denied_and_ignored_related_files_unread(pricing, tmp_path, monkeypatch):
+    from finassist.model_gate import prepare_model_source
+    from finassist.model_policy import load_model_policy
+
+    repo, _base, _head = pricing
+    base, head, pin = _gate_range(repo, tmp_path, monkeypatch)
+    reads, real = [], scope.read_entry
+
+    def spy(repository, revision, path, *args, **kwargs):
+        reads.append(path)
+        return real(repository, revision, path, *args, **kwargs)
+
+    monkeypatch.setattr(scope, "read_entry", spy)
+    policy = load_model_policy(repo, base, "gate-policy.json", pin)
+    packet = prepare_model_source(repo, base, head, policy)
+    symbols = {item["symbol"] for item in packet["related"]["snippets"]}
+    assert "discount" in symbols and not symbols & {"calibrate", "ignored_rate"}
+    assert not {"src/pricing/excluded/calibration.py", "src/pricing/ignored.py"} & set(reads)
+    text = canonical(packet).decode()
+    assert "calibration" not in text.replace("excluded.calibration", "") and "ignored_rate():" not in text
+
+
+def test_a_gate_drops_a_related_file_holding_a_forbidden_figure(pricing, tmp_path, monkeypatch):
+    import hashlib
+
+    from finassist.model_gate import prepare_model_source
+    from finassist.model_policy import load_model_policy
+
+    repo, _base, _head = pricing
+    (repo / "src/pricing/rates.py").write_text(RATES + "\n\ndef scale():\n    return 314_159.265\n",
+                                               encoding="utf-8", newline="\n")
+    base, head, pin = _gate_range(repo, tmp_path, monkeypatch,
+                                  forbidden_token_hashes=[hashlib.sha256(b"314159.265").hexdigest()])
+    packet = prepare_model_source(repo, base, head, load_model_policy(repo, base, "gate-policy.json", pin))
+    block = packet["related"]
+    assert "src/pricing/rates.py" not in {item["path"] for item in block["snippets"]}
+    assert {"path": "src/pricing/rates.py", "symbol": None, "reason": "forbidden_token_present"} in block["skipped"]
+    assert "314" not in canonical(packet).decode().replace(digest(b"").removeprefix("314"), "")
+
+
+def test_the_final_figure_screen_covers_related_lines(pricing, tmp_path, monkeypatch):
+    import hashlib
+
+    from finassist.forbidden_tokens import screen_packet
+    from finassist.model_gate import prepare_model_source, prepare_token_guard
+    from finassist.model_policy import load_model_policy
+
+    repo, _base, _head = pricing
+    base, head, pin = _gate_range(repo, tmp_path, monkeypatch,
+                                  forbidden_token_hashes=[hashlib.sha256(b"19631").hexdigest()])
+    policy = load_model_policy(repo, base, "gate-policy.json", pin)
+    packet = prepare_model_source(repo, base, head, policy)
+    snapshot = prepare_token_guard(policy, repo).snapshot
+    screen_packet(packet, policy.config.instructions(), snapshot)  # Clean as built.
+    # 0x4CAF is 19631: only Python's own reading of the number finds it, on a partial line.
+    packet["related"]["snippets"][0]["lines"].append([90, "def rate(base=0x4CAF,"])
+    with pytest.raises(AssistantError, match="forbidden_token_present"):
+        screen_packet(packet, policy.config.instructions(), snapshot)
+
+
+# The call line changes in each case, so the callee is found unless something shadows it.
+CHANGED_CALL = BOND_HEAD.replace("face * discount(rate, years)", "face * discount(rate, years) * 1")
+
+
+@pytest.mark.parametrize("bond", [
+    # A parameter named like the import is the parameter, not the import.
+    CHANGED_CALL.replace("def price(face, rate, years):", "def price(face, rate, years, discount=None):"),
+    # So is a local assignment, and a nested import in the same function.
+    CHANGED_CALL.replace("    return face * discount", "    discount = len\n    return face * discount"),
+    CHANGED_CALL.replace("    return face * discount", "    from .other import discount\n    return face * discount"),
+])
+def test_a_local_binding_shadows_a_module_import(pricing, bond):
+    repo, _base, _head = pricing
+    base, head = _second_change(repo, {}, bond=bond)
+    symbols = {(item["relation"], item["symbol"]) for item in build_packet(repo, base, head, CONFIG)["related"]["snippets"]}
+    assert ("callee", "discount") not in symbols
+
+
+def test_a_nested_import_elsewhere_does_not_change_a_module_level_name(pricing):
+    repo, _base, _head = pricing
+    bond = CHANGED_CALL + "\n\ndef helper():\n    from .other import discount\n    return discount\n"
+    base, head = _second_change(repo, {}, bond=bond)
+    snippets = build_packet(repo, base, head, CONFIG)["related"]["snippets"]
+    callee = next(item for item in snippets if item["relation"] == "callee")
+    assert (callee["path"], callee["symbol"]) == ("src/pricing/rates.py", "discount")
+
+
+def test_class_body_names_do_not_shadow_inside_methods(pricing):
+    repo, _base, _head = pricing
+    bond = BOND_HEAD.replace("class Bond(Instrument):\n    pass\n",
+                             "class Bond(Instrument):\n    discount = 0\n\n    def value(self):\n"
+                             "        return discount(0.01, 2)\n")
+    base, head = _second_change(repo, {}, bond=bond)
+    snippets = build_packet(repo, base, head, CONFIG)["related"]["snippets"]
+    assert ("callee", "discount") in {(item["relation"], item["symbol"]) for item in snippets}

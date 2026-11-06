@@ -141,14 +141,20 @@ The same field works in a gate policy's `model_review` object.
   its docstring. A class also shows its methods' signatures. A caller also shows its call lines.
   Each snippet gives its path, line numbers, relation, symbol, the changed line or definition that
   links it, and the sha256 of the file it came from.
-- **Only names that resolve exactly.** A name resolves through the importing file's own `import`
-  and `from ... import` statements: a plain imported name, or `module.attribute`. A name the file
-  defines or assigns itself shadows an import of it. Anything else, such as a method called on an
-  object, is left out rather than guessed. Python only, for now.
+- **Only names that resolve exactly.** A name resolves through the file's own module-level
+  `import` and `from ... import` statements: a plain imported name, or `module.attribute`. A name
+  bound where the call is, such as a parameter, a local assignment or an import inside the
+  function, is left out, and so is a name the file defines itself. Anything else, such as a method
+  called on an object, is left out rather than guessed. Python only, for now.
 - **The same screening as a changed file.** A candidate must be tracked at head, inside
   `allow_paths`, not generated, and pass every path and private-name rule before it is read. A
   private name is never read, searched or listed. A file that fails content screening or doesn't
   parse is listed by name and reason code under `skipped`, with nothing from its content.
+- **In a gate, the policy's rules too.** A candidate must also pass the policy's `deny_paths` and
+  the current and base ignore rules before it is searched or read. When the policy lists forbidden
+  figures, a candidate's whole file is screened for them, as a changed file is. A file holding one is
+  listed with the reason `forbidden_token_present`, and the final screen before sending covers every
+  snippet line.
 - **Its own budget.** The block takes at most `related_max_bytes`, and at most the changed files'
   own size or 16 KB, whichever is larger. It never takes the room the changed files need. Snippets
   are added in rank order until the budget is spent. The rest are listed by name with the reason

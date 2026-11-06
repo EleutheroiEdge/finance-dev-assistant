@@ -107,10 +107,88 @@ def _absolute(path: str, module: str | None, level: int) -> str | None:
     return ".".join(base + ([module] if module else [])) or None
 
 
-def _imports(tree, path: str, tracked: set[str]) -> tuple[dict, dict]:
-    """Local name -> (module path, name) for imported names, and local name -> module path."""
+_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef,
+           ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+_FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+
+
+def _parents(tree) -> dict:
+    parents = {}
+    for parent in ast.walk(tree):
+        for child in ast.iter_child_nodes(parent):
+            parents[child] = parent
+    return parents
+
+
+def _bound(scope) -> set[str]:
+    """Every name bound anywhere inside a scope, nested scopes included: an over-approximation,
+    so a name that might be local is never resolved to an import."""
+    names = set()
+    for node in ast.walk(scope):
+        if node is scope:
+            continue
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            names.add(node.id)
+        elif isinstance(node, ast.arg):
+            names.add(node.arg)
+        elif isinstance(node, ast.alias):
+            names.add(node.asname or node.name.split(".")[0])
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            names.update(node.names)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            names.add(node.name)
+        elif isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
+            names.add(node.name)
+        elif isinstance(node, ast.MatchMapping) and node.rest:
+            names.add(node.rest)
+    if isinstance(scope, _FUNCTIONS):
+        arguments = scope.args
+        names.update(argument.arg for argument in (*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs,
+                                                   arguments.vararg, arguments.kwarg) if argument is not None)
+    return names
+
+
+class _Scopes:
+    """Whether a name at a node is bound by an enclosing scope, so it can't be the module's import."""
+
+    def __init__(self, tree):
+        self.parents, self.cache = _parents(tree), {}
+
+    def module_level(self, node) -> bool:
+        while node in self.parents:
+            node = self.parents[node]
+            if isinstance(node, _SCOPES):
+                return False
+        return True
+
+    def shadowed(self, node, name: str) -> bool:
+        in_function = False
+        while node in self.parents:
+            node = self.parents[node]
+            if not isinstance(node, _SCOPES):
+                continue
+            # As in Python, a class body's names are not visible inside its methods.
+            if not (isinstance(node, ast.ClassDef) and in_function):
+                if id(node) not in self.cache:
+                    self.cache[id(node)] = _bound(node)
+                if name in self.cache[id(node)]:
+                    return True
+            in_function = in_function or isinstance(node, _FUNCTIONS)
+        return False
+
+
+def _imports(tree, path: str, tracked: set[str], scopes: "_Scopes") -> tuple[dict, dict]:
+    """Local name -> (module path, name) for imported names, and local name -> module path.
+
+    Only module-level imports count: an import inside a function binds a name in that
+    function only, and is treated as a local binding instead.
+    """
     names, modules = {}, {}
     for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)) and not scopes.module_level(node):
+            continue
         if isinstance(node, ast.Import):
             for alias in node.names:
                 target = _module_paths(alias.name, tracked)
@@ -139,12 +217,14 @@ def _imports(tree, path: str, tracked: set[str]) -> tuple[dict, dict]:
             {name: value for name, value in modules.items() if name not in own})
 
 
-def _resolve(expression, names: dict, modules: dict) -> tuple[str, str] | None:
-    """Only a plain imported name or module.attribute resolves; anything else is ambiguous."""
+def _resolve(expression, names: dict, modules: dict, scopes: "_Scopes") -> tuple[str, str] | None:
+    """Only a plain imported name or module.attribute resolves, and only where no enclosing
+    scope binds that name; anything else is ambiguous and left out."""
     if isinstance(expression, ast.Name) and expression.id in names:
-        return names[expression.id]
-    if (isinstance(expression, ast.Attribute) and isinstance(expression.value, ast.Name)
-            and expression.value.id in modules):
+        if not scopes.shadowed(expression, expression.id):
+            return names[expression.id]
+    elif (isinstance(expression, ast.Attribute) and isinstance(expression.value, ast.Name)
+            and expression.value.id in modules and not scopes.shadowed(expression, expression.value.id)):
         return modules[expression.value.id], expression.attr
     return None
 
@@ -222,7 +302,8 @@ def candidates(repo, head: str, files: list[dict], config: Config, tracked: set[
             targets[path] = names
         if after is None:
             continue
-        imported, modules = _imports(after, path, tracked)
+        scopes = _Scopes(after)
+        imported, modules = _imports(after, path, tracked, scopes)
         for node in ast.walk(after):
             # A call counts when any of its lines changed, such as an argument on a later line.
             if isinstance(node, ast.Call) and changed_lines & set(range(node.lineno, node.end_lineno + 1)):
@@ -233,7 +314,7 @@ def candidates(repo, head: str, files: list[dict], config: Config, tracked: set[
             else:
                 continue
             for expression in expressions:
-                resolved = _resolve(expression, imported, modules)
+                resolved = _resolve(expression, imported, modules, scopes)
                 if resolved is None or not collector.eligible(resolved[0]):
                     continue
                 source = collector.source(resolved[0])
@@ -252,16 +333,14 @@ def candidates(repo, head: str, files: list[dict], config: Config, tracked: set[
         if source is None:
             continue
         text, tree = source
-        imported, modules = _imports(tree, path, tracked)
+        scopes = _Scopes(tree)
+        imported, modules = _imports(tree, path, tracked, scopes)
         lines = source_lines(text)
-        parents = {}
-        for parent in ast.walk(tree):
-            for child in ast.iter_child_nodes(parent):
-                parents[child] = parent
+        parents = scopes.parents
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
-            resolved = _resolve(node.func, imported, modules)
+            resolved = _resolve(node.func, imported, modules, scopes)
             if resolved is None or resolved[1] not in targets.get(resolved[0], set()):
                 continue
             enclosing = node

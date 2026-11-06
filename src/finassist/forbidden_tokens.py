@@ -5,6 +5,7 @@ This module does not load policy, authorize a request or dispatch a provider.
 
 from dataclasses import dataclass, field
 import hashlib
+import io
 import os
 from pathlib import Path
 import re
@@ -267,6 +268,39 @@ def screen_source(text: str, path: str | None, snapshot: TokenSnapshot) -> None:
             raise AssistantError("forbidden_token_present")
 
 
+def _line_numbers(line: str) -> list[str]:
+    """Python number tokens on one line. A snippet line may be partial code, such as an
+    open signature, so tokens are read up to the first tokenizer error rather than refused."""
+    found = []
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(line + "\n").readline):
+            if token.type == tokenize.NUMBER:
+                found.append(token.string)
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        pass
+    return found
+
+
+def screen_lines(lines: list[str], path: str | None, snapshot: TokenSnapshot) -> None:
+    """Screen a related-context snippet: its text, and in Python every number on each line."""
+    if not snapshot.hashes:
+        return
+    screen_text("\n".join(lines), snapshot)
+    if not is_python_path(path):
+        return
+    for line in lines:
+        for raw in _line_numbers(line):
+            plain = number_text(raw)
+            if plain is None:
+                continue
+            try:
+                number = normalize_numeric_token(plain, max_digits=MAX_FIGURE_DIGITS)
+            except AssistantError:
+                continue
+            if _listed(number, snapshot):
+                raise AssistantError("forbidden_token_present")
+
+
 def screen_packet(packet: dict, system: str, snapshot: TokenSnapshot) -> None:
     """Select content after the caller validates the packet's strict schema."""
     screen_text(system, snapshot)
@@ -274,6 +308,9 @@ def screen_packet(packet: dict, system: str, snapshot: TokenSnapshot) -> None:
         for side in ("before", "after"):
             if item[side] is not None:
                 screen_source(item[side], item.get("path"), snapshot)
+    for item in packet.get("related", {}).get("snippets", ()):
+        screen_text(item["symbol"], snapshot)
+        screen_lines([line for _number, line in item["lines"]], item.get("path"), snapshot)
 
 
 @dataclass(frozen=True)

@@ -56,6 +56,7 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 - **Related-code context (#64), opt-in.** With `related_context: "related"`, in configuration or a gate policy's `model_review`, the packet gains a `related` block of signature-only skeletons of unchanged Python code: the functions a change calls, the functions and tests that call it, and the classes it extends.
   - It uses the standard library's `ast` only, in a fixed order, and resolves only exact imported names.
   - Every candidate passes the same path, private-name and content screening as a changed file before it is read. A private name is never read, searched or listed.
+  - In a gate, a candidate also meets the policy's `deny_paths`, ignore rules and forbidden figures, and the final screen before sending covers every snippet line.
   - The block has its own byte budget (`related_max_bytes`, default 24,000) and is bound by the packet hash.
   - The default stays `none`.
 - **Setup skill and example policies (#64).**
