@@ -77,7 +77,8 @@ Start from one of its examples and apply the confirmed fields:
 
 Explain this rule before the person chooses: the gate refuses a range that changes any
 file outside `allow_paths`, or in `deny_paths`. If `private_paths` lists files outside
-`allow_paths`, a pull request that changes them is refused. Either keep such files out of
+`allow_paths` (the warning `private_paths_outside_scope`), a pull request that changes them
+is refused. Either keep such files out of
 pull requests, or add their directory to `allow_paths` and choose `skip-and-report`. Then
 their names are withheld before any read, and the report says coverage is incomplete.
 

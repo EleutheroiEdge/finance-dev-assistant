@@ -229,6 +229,7 @@ class _Detector:
         private = sorted(path for path in self.files if self.private(path))
         fixtures = {}
         deny = set()
+        outside = 0
         for path in private:
             parts = PurePosixPath(path).parts
             suffix = PurePosixPath(path).suffix.lower()
@@ -248,12 +249,16 @@ class _Detector:
                 else:
                     if PurePosixPath(path).suffix.lower() not in PRIVATE_SUFFIXES:
                         deny.add(path)
+            else:
+                outside += 1
         for root, example in sorted(fixtures.items()):
             self.note("fixture_roots", root, "csv_or_tsv_under_tests", example)
         for prefix in sorted(deny):
             self.note("deny_paths", prefix, "private_or_data_files")
         if fixtures:
             self.warn("fixture_roots_must_be_synthetic", count=len(fixtures))
+        if outside:  # A gate refuses any range that changes one of these.
+            self.warn("private_paths_outside_scope", count=outside)
         return {"private": private, "fixture_roots": sorted(fixtures), "deny_paths": sorted(deny)}
 
     def file_limit(self, allow: list[str], generated: list[str]) -> int:
