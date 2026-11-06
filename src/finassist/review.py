@@ -134,9 +134,12 @@ def call_model(
         raise AssistantError("review_scope_entirely_withheld")
     if not packet["changed_paths"]:
         raise AssistantError("empty_review_scope")
-    # skip-and-report already chose to review without withheld private paths; any
-    # other omission still needs allow_partial_review.
-    if [row for row in review_omissions(packet) if row["reason"] != WITHHELD_REASON] and not config.allow_partial_review:
+    # skip-and-report already chose to review without its validated, count-only withheld
+    # record; any other omission still needs allow_partial_review.
+    omissions = review_omissions(packet)
+    if config.private_paths == "skip-and-report" and packet.get("withheld"):
+        omissions = [row for row in omissions if not (row["path"] is None and row["reason"] == WITHHELD_REASON)]
+    if omissions and not config.allow_partial_review:
         raise AssistantError("scope_incomplete")
     if not packet["files"]:
         raise AssistantError("empty_model_context")

@@ -455,15 +455,17 @@ class _Preflight:
             # Name-only rules first: they read nothing.
             try:
                 check_model_path(path, fixture_roots=getattr(config, "fixture_roots", ()))
+                private = False
             except AssistantError as exc:
-                # skip-and-report: the gate withholds this path unread, so it is not a blocker.
-                if config.private_paths == "skip-and-report" and exc.code in WITHHELD_CODES:
-                    return {**row, "status": "withheld", "reason": WITHHELD_REASON}
-                raise
+                if not (config.private_paths == "skip-and-report" and exc.code in WITHHELD_CODES):
+                    raise
+                private = True
             if any(_matches(path, prefix) for prefix in model["deny_paths"]):
                 raise AssistantError("gate_denied_path")
             if not config.allows(path):
                 raise AssistantError("gate_path_not_allowed")
+            if private:  # The gate withholds this path unread, so it is not a blocker.
+                return {**row, "status": "withheld", "reason": WITHHELD_REASON}
             if path in ignored:
                 raise AssistantError("gate_ignored_path")
             if stopped is not None:

@@ -374,7 +374,8 @@ def execute(args, config: Config | None = None) -> int:
         packet = build_packet(args.repo, args.base, args.head, config, withheld_names=withheld)
         _emit(packet, args.output)
         _emit({"packet_hash": packet["packet_hash"], "output": args.output, "triage": triage(packet, config),
-               **({"withheld_paths": [local_name(name) for name in withheld]} if withheld else {})})
+               **({"withheld_paths": [local_name(name, config.extra_sensitive_patterns) for name in withheld]}
+                  if withheld else {})})
     elif args.command == "workflow" and args.workflow_action in WORKFLOW_STATE_ACTIONS:
         return _execute_workflow(args, config)
     elif args.command == "workflow" and args.workflow_action == "resolve":

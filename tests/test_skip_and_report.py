@@ -166,8 +166,8 @@ def test_local_names_are_redacted_by_the_shared_rule():
 
 def _private_gate_candidate(case):
     repo = case["repo"]
-    (repo / "data").mkdir(exist_ok=True)
-    (repo / "data/clients.csv").write_text("name,value\nSynthetic Client,1\n", encoding="utf-8")
+    (repo / "src/data").mkdir(exist_ok=True)  # inside the policy's allow_paths, so withholding applies
+    (repo / "src/data/clients.csv").write_text("name,value\nSynthetic Client,1\n", encoding="utf-8")
     (repo / "src/cash.py").write_text("def balance(opening, deposits):\n    return opening\n", encoding="utf-8")
     command(repo, "add", "-A")
     command(repo, "commit", "-q", "-m", "Synthetic gate candidate with a private file")
@@ -187,7 +187,7 @@ def test_the_gate_withholds_a_private_path_and_reports_the_count(gate_case, read
     report, calls = run(gate_case)
     assert report["verdict"] == "PASS", report["reasons"]
     assert report["coverage"] == {"complete": False, "withheld": 1}
-    assert "data/clients.csv" not in reads
+    assert "src/data/clients.csv" not in reads
     request = calls[0].content.decode()
     for fragment in ("clients", "Synthetic Client", "data/"):
         assert fragment not in request and fragment not in canonical(report).decode()
@@ -199,7 +199,8 @@ def test_the_preflight_shows_withheld_paths_without_blocking(gate_case):
     report = policy_preflight(gate_case["repo"], gate_case["base"], gate_case["head"], "gate-policy.json",
                               gate_case["pin"])
     rows = {row["path"]: row for row in report["paths"]}
-    assert rows["data/clients.csv"] == {"path": "data/clients.csv", "status": "withheld", "reason": WITHHELD_REASON}
+    assert rows["src/data/clients.csv"] == {"path": "src/data/clients.csv", "status": "withheld",
+                                            "reason": WITHHELD_REASON}
     assert report["status"] == "ready" and report["coverage_complete"] is False
     assert {"code": "private_paths_withheld", "count": 1} in [
         {key: warning[key] for key in ("code", "count")} for warning in report["warnings"]]
@@ -209,3 +210,107 @@ def test_the_policy_schema_accepts_only_the_two_modes(gate_case):
     change_policy(gate_case, private_paths="skip-everything")
     report, calls = run(gate_case)
     assert report["verdict"] == "BLOCKED" and not calls
+
+
+@pytest.mark.parametrize("config", [Config(), SKIP])
+def test_an_ordinary_omission_cannot_borrow_the_withheld_reason(repository, config):
+    # The reviewer's case: a rehashed packet whose omitted row claims the withheld reason.
+    repo, base, head = repository
+    packet = build_packet(repo, base, head, config)
+    packet["omitted"] = [{"path": "src/cash.py", "reason": WITHHELD_REASON}]
+    packet["files"] = []
+    packet["packet_hash"] = digest(canonical({k: v for k, v in packet.items() if k != "packet_hash"}))
+    with pytest.raises(AssistantError, match="packet_schema_invalid"):
+        verify_packet(packet, config)
+
+
+@pytest.mark.parametrize("name", ["src/data/notes.py", "src/private/notes.py", "src/client.json"])
+def test_plan_withholds_the_gate_private_names_too(repository, reads, name):
+    repo, base, _head = repository
+    (repo / name).parent.mkdir(parents=True, exist_ok=True)
+    (repo / name).write_text("synthetic = 1\n", encoding="utf-8")
+    command(repo, "add", "-A")
+    command(repo, "commit", "-q", "-m", "Synthetic private-directory file")
+    names = []
+    packet = build_packet(repo, base, command(repo, "rev-parse", "HEAD"), SKIP, withheld_names=names)
+    assert names == [name] and name not in reads
+    assert name not in canonical(packet).decode() and packet["withheld"]["count"] == 1
+
+
+def test_a_configured_sensitive_name_refuses_instead_of_being_withheld(repository, tmp_path, capsys):
+    repo, base, _head = repository
+    name = "credentials/SYNTHETIC_PROJECT_TAG.py"
+    (repo / "credentials").mkdir()
+    (repo / name).write_text("X = 1\n", encoding="utf-8")
+    command(repo, "add", "-A")
+    command(repo, "commit", "-q", "-m", "Synthetic configured-sensitive name")
+    config = replace(SKIP, extra_sensitive_patterns=("SYNTHETIC_PROJECT_TAG",))
+    with pytest.raises(AssistantError, match="project_content_blocked"):
+        build_packet(repo, base, command(repo, "rev-parse", "HEAD"), config)
+    config_path = tmp_path / "finassist.json"
+    save_config(config_path, config)
+    assert main(["--config", str(config_path), "--audit-dir", str(tmp_path / "audit"), "plan", "--repo", str(repo),
+                 "--base", base, "--head", command(repo, "rev-parse", "HEAD"), "--output",
+                 str(tmp_path / "packet.json")]) == 2
+    captured = capsys.readouterr()
+    assert "SYNTHETIC_PROJECT_TAG" not in captured.out + captured.err
+
+
+def test_local_names_honour_configured_patterns():
+    assert local_name("src/SYNTHETIC_PROJECT_TAG.py", ("SYNTHETIC_PROJECT_TAG",)) == "[redacted]"
+    assert local_name("src/SYNTHETIC_PROJECT_TAG.py") == "src/SYNTHETIC_PROJECT_TAG.py"
+
+
+def _gate_change(case, files):
+    repo = case["repo"]
+    for name, text in files.items():
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text(text, encoding="utf-8")
+    command(repo, "add", "-A")
+    command(repo, "commit", "-q", "-m", "Synthetic gate change")
+    case["head"] = command(repo, "rev-parse", "HEAD")
+
+
+@pytest.mark.parametrize("changes, files, code", [
+    ({"allow_paths": ["src/", "tests/"], "deny_paths": ["src/data/"]},
+     {"src/data/notes.py": "X = 1\n", "tests/test_a.py": "def test_a():\n    pass\n"}, "gate_denied_path"),
+    ({}, {"data/a.csv": "a,b\n1,2\n"}, "gate_path_not_allowed"),
+])
+def test_a_private_path_still_meets_the_policy_boundaries(gate_case, changes, files, code):
+    change_policy(gate_case, private_paths="skip-and-report", **changes)
+    _gate_change(gate_case, files)
+    report, calls = run(gate_case)
+    assert report["verdict"] == "BLOCKED" and report["reasons"] == [code] and not calls
+    preflight = policy_preflight(gate_case["repo"], gate_case["base"], gate_case["head"], "gate-policy.json",
+                                 gate_case["pin"])
+    assert code in {row.get("code") for row in preflight["paths"]}
+    assert not any(row["status"] == "withheld" for row in preflight["paths"])
+
+
+def test_the_action_summary_and_outputs_show_incomplete_coverage(gate_case, tmp_path):
+    from finassist.github_actions import publish_action_report, summary_markdown
+
+    change_policy(gate_case, private_paths="skip-and-report")
+    _private_gate_candidate(gate_case)
+    report, _calls = run(gate_case)
+    assert report["verdict"] == "PASS" and report["coverage"]["withheld"] == 1
+    summary = summary_markdown(report)
+    assert "Coverage: **incomplete**" in summary and "1 changed file(s) were withheld" in summary
+    assert "clients" not in summary and "data/" not in summary
+    report_path = tmp_path / "report.json"
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+    publish_action_report(report, report_path, tmp_path / "summary.md", tmp_path / "outputs")
+    outputs = dict(line.split("=", 1) for line in (tmp_path / "outputs").read_text(encoding="utf-8").splitlines())
+    assert outputs["withheld-count"] == "1" and outputs["coverage-complete"] == "false"
+
+
+def test_a_complete_review_reports_complete_coverage_in_the_outputs(gate_case, tmp_path):
+    from finassist.github_actions import publish_action_report, summary_markdown
+
+    report, _calls = run(gate_case)
+    assert "Coverage" not in summary_markdown(report)
+    report_path = tmp_path / "report.json"
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+    publish_action_report(report, report_path, tmp_path / "summary.md", tmp_path / "outputs")
+    outputs = dict(line.split("=", 1) for line in (tmp_path / "outputs").read_text(encoding="utf-8").splitlines())
+    assert outputs["withheld-count"] == "0" and outputs["coverage-complete"] == "true"

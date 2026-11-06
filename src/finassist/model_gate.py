@@ -144,17 +144,18 @@ def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_rep
     for path in paths:
         try:
             _scope_path(path, fixture_roots=getattr(config, "fixture_roots", ()))
+            private = False
         except AssistantError as exc:
-            # skip-and-report: a private path is withheld by name; it is never read or sent.
-            if skipping and exc.code in WITHHELD_CODES:
-                withhold.add(path)
-                continue
-            raise
+            if not (skipping and exc.code in WITHHELD_CODES):
+                raise
+            private = True  # skip-and-report: withheld by name, unread, if the policy admits the path.
         if any(path.startswith(prefix) if prefix.endswith("/") else path == prefix
                for prefix in rules["deny_paths"]):
             raise AssistantError("gate_denied_path")
         if not config.allows(path):
             raise AssistantError("gate_path_not_allowed")
+        if private:
+            withhold.add(path)
     reviewed = [path for path in paths if path not in withhold]
     _screen_ignores(repo, {base, ancestor}, reviewed + source_profile_paths + (marker_paths if same_source else []))
     if policy_repo is not None and (policy_repo != repo or policy.base != base):

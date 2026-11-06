@@ -116,27 +116,37 @@ formats and binary restrictions remain intrinsic protections. There is no bypass
 
 ## Skipping private paths
 
-By default a private path anywhere in the range refuses the whole review. That covers a data
-or credential file, or a path under a private directory such as `data/` or `credentials/`.
+With `private_paths` set to `refuse` (the default), a private path anywhere in the range refuses
+the whole review:
+- **`plan` and `review`** refuse a data, binary or credential file (by suffix), a path under a
+  denied directory (`denied_parts`, such as `credentials/` or `.env`) and a reserved profile name.
+- **A gate** also refuses the gate's private directories and names, such as `data/`, `private/`,
+  `client/`, `household/` or `client.json`.
+
 Set `private_paths` to `skip-and-report` to review the rest of the range instead. The same field
-works in a gate policy's `model_review` object. What happens to a withheld path:
+works in a gate policy's `model_review` object. What happens then:
 
-- It is recognised by its name alone, before anything is read. Its contents are never read,
-  hashed, sized or sent.
-- The packet, request, report and audit record carry only how many paths were withheld, never
-  their names, extensions, directories or sizes. `plan` names them in its local summary
-  (`withheld_paths`) and `doctor --policy` lists them as `withheld`. A name that could display
-  as a different one is shown as `[redacted]`.
-- Coverage is incomplete wherever it is checked:
-  - the review is `partial-review`;
-  - readiness, workflow plans and the CI gate block with their coverage codes;
-  - a gate report carries `coverage: {complete: false, withheld: N}`.
-- Other refusals are unchanged. A changed file outside `allow_paths`, a denied path, or a name
-  that itself looks like a credential still refuses.
-- A range in which every changed file is private refuses with `review_scope_entirely_withheld`.
+- **A path is withheld when its name alone makes it private,** by the gate's rules (both lists
+  above), in `plan`, `review` and the gate alike. Its contents are never read, hashed, sized or sent.
+- **Only a count leaves your machine.** The packet, request, report and audit record carry how many
+  paths were withheld, never their names, extensions, directories or sizes. `plan` names them in its
+  local summary (`withheld_paths`), and `doctor --policy` lists them as `withheld`. A name that could
+  display as a different one, or that matches a configured sensitive pattern, is shown as `[redacted]`.
+- **Policy refusals still come first.** A private path that is outside `allow_paths` or under
+  `deny_paths` still refuses the gate. A name that matches `extra_sensitive_patterns`, or that itself
+  looks like a credential, still refuses everywhere.
+- **Coverage is incomplete wherever it is checked:**
+  - a review is `partial-review`;
+  - readiness, workflow plans and the CI check gate still refuse it with their coverage codes;
+  - a gate report carries `coverage: {complete: false, withheld: N}`, its Actions summary says
+    coverage is incomplete, and its `withheld-count` and `coverage-complete` outputs carry the same.
 
-Use `refuse` when a review must cover every changed file. Text inside a reviewed file that
-mentions a private file is outside this guarantee; it is screened like any other source.
+  A gate PASS then means the reviewed files passed, not that every changed file was reviewed.
+- **A range in which every changed file is private** refuses with `review_scope_entirely_withheld`.
+
+`refuse` is the mode that requires complete coverage; there is no separate switch. Text inside a
+reviewed file that mentions a private file is outside this guarantee; it is screened like any other
+source.
 
 ## Custom profiles
 

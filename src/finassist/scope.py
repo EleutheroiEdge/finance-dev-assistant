@@ -12,7 +12,7 @@ import subprocess
 from .config import Config
 from .platform_support import find_tool, clean_environment
 from .errors import AssistantError
-from .security import PUBLIC_ASSETS, canonical, check_text, digest
+from .security import PUBLIC_ASSETS, canonical, check_private_name, check_text, digest
 
 
 def git_environment() -> dict[str, str]:
@@ -222,9 +222,14 @@ WITHHELD_REASON = "private_path_policy"
 
 
 def _private_name(config: Config, path: str) -> bool:
-    """Whether this name alone makes the path private. Never reads the file."""
+    """Whether this name alone makes the path private, by the rules the gate uses. Never reads it.
+
+    That is the configuration's path rules plus the gate's private directories and file
+    names (data, private, client, household and similar), so plan and gate withhold alike.
+    """
     try:
         config.check_path(path, source_only=False, metadata_only=True)
+        check_private_name(path)
     except AssistantError as exc:
         return exc.code in WITHHELD_CODES
     return False
@@ -261,6 +266,8 @@ def build_packet(
     for pos in range(0, len(tokens) - 1, 2):
         status, path = tokens[pos : pos + 2]
         if skipping and (path in withhold or _private_name(config, path)):
+            # A name matching a configured sensitive pattern refuses: it is never withheld or shown.
+            check_text(path, extra_patterns=config.extra_sensitive_patterns)
             # Withheld before anything is read: no blob, size or hash, and no name in the packet.
             withheld += 1
             if withheld_names is not None:
@@ -388,6 +395,8 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
             or set(item) != {"path", "reason"}
             or not isinstance(item["reason"], str)
         ):
+            raise AssistantError("packet_schema_invalid")
+        if item["reason"] == WITHHELD_REASON:  # Reserved for the count-only withheld record.
             raise AssistantError("packet_schema_invalid")
         accounted.append(config.check_path(item["path"], source_only=False, metadata_only=True))
         if item["reason"] == "generated_artifact_excluded" and not config.generated(item["path"]):
