@@ -62,6 +62,7 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   - `finassist export-kit` now includes a `finassist-setup` skill. It runs `init --detect`, shows every proposed field with its evidence, writes only what the person confirms, then preflights a range with `doctor --policy` until it is ready.
   - Two complete example gate policies with synthetic values: `examples/policies/quant-engine.json` withholds private data (`skip-and-report`), and `examples/policies/rebalancer.json` refuses it (`refuse`).
   - Tests run each example on a synthetic repository of its shape, and check that every command in the skill parses.
+  - `init --detect` now warns with `private_paths_outside_scope` when private files lie outside the proposed `allow_paths`, because a gate refuses any range that changes them.
 
 ### Fixed
 - **`score`** reported a traceback when a labels file's `outcomes` was a list instead of an object. It now refuses with `invalid_adjudication` (#69).
