@@ -260,3 +260,58 @@ def test_a_gate_policy_can_enable_it():
 def test_invalid_settings_are_refused(changes, code):
     with pytest.raises(AssistantError, match=code):
         replace(CONFIG, **changes).validate()
+
+
+def test_callers_and_tests_are_capped_per_changed_definition(pricing):
+    repo, base, head = pricing
+    for number in range(5):
+        (repo / f"tests/test_extra_{number}.py").write_text(
+            f"from pricing.bond import price\n\n\ndef test_extra_{number}():\n    assert price(1, 0.0, 1)\n",
+            encoding="utf-8", newline="\n")
+    command(repo, "add", "-A")
+    command(repo, "commit", "-q", "-m", "Synthetic extra tests")
+    base = command(repo, "rev-parse", "HEAD")  # Files changed in the range are never related context.
+    (repo / "src/pricing/bond.py").write_text(BOND_HEAD.replace("face *", "face * 1 *"), encoding="utf-8",
+                                              newline="\n")
+    command(repo, "commit", "-q", "-am", "Synthetic second change")
+    block = build_packet(repo, base, command(repo, "rev-parse", "HEAD"), CONFIG)["related"]
+    tests = [item["path"] for item in block["snippets"] if item["relation"] == "test"]
+    assert tests == ["tests/test_bond.py", "tests/test_extra_0.py", "tests/test_extra_1.py"]
+    limited = sorted(item["path"] for item in block["skipped"] if item["reason"] == "related_target_limit")
+    assert limited == ["tests/test_extra_2.py", "tests/test_extra_3.py", "tests/test_extra_4.py"]
+
+
+def test_a_gate_with_related_context_sends_the_block_and_passes(pricing, tmp_path, monkeypatch):
+    import json
+
+    from test_model_gate import run
+    from test_model_policy import model_policy
+    from test_providers_review import envelope
+
+    repo, base, _head = pricing
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    monkeypatch.setenv("REVIEW_PROVIDER_KEY", "fictional-provider-value")
+    document = model_policy()
+    document["model_review"].update(allow_paths=["src/", "tests/"], related_context="related")
+    raw = canonical(document)
+    (repo / "gate-policy.json").write_bytes(raw)
+    command(repo, "add", "gate-policy.json")
+    command(repo, "commit", "-q", "-m", "Synthetic policy")
+    policy_base = command(repo, "rev-parse", "HEAD")
+    (repo / "src/pricing/bond.py").write_text(BOND_HEAD.replace("face *", "face * 1 *"), encoding="utf-8",
+                                              newline="\n")
+    command(repo, "commit", "-q", "-am", "Synthetic gate change")
+    case = {"repo": repo, "base": policy_base, "head": command(repo, "rev-parse", "HEAD"), "pin": digest(raw),
+            "state": tmp_path / "private-state"}
+
+    def clean(packet):
+        return envelope(json.dumps({"head": packet["head"], "summary": "No defect in the synthetic change.",
+                                    "reviewed_paths": [file["path"] for file in packet["files"]], "findings": []}))
+
+    report, calls = run(case, clean)
+    assert report["verdict"] == "PASS" and len(calls) == 1
+    body = json.loads(calls[0].content)
+    sent = json.loads(body["input"])
+    assert [item["symbol"] for item in sent["related"]["snippets"]][:1] == ["discount"]
+    assert "`related`" in body["instructions"]
+    assert "positions" not in calls[0].content.decode()

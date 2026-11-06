@@ -23,6 +23,7 @@ MAX_SNIPPETS = 40
 MAX_SNIPPET_BYTES = 4_000
 MAX_SKIPPED = 50
 MAX_CALL_LINES = 5
+MAX_PER_TARGET = 3  # Callers, and tests, shown per changed definition; the rest are listed by name.
 _PARSE_LIMIT = 2_000  # Files read for callers, at most.
 _NEWLINE = re.compile(r"\r\n|\r|\n")
 
@@ -259,8 +260,17 @@ def candidates(repo, head: str, files: list[dict], config: Config, tracked: set[
                 symbol, numbers = "<module>", calls
             add("test" if _is_test(path) else "caller", path, symbol, numbers,
                 {"path": resolved[0], "symbol": resolved[1]})
-    ranked = sorted(found.values(), key=lambda item: (RELATIONS.index(item["relation"]), item["path"],
-                                                      item["lines"][0][0] if item["lines"] else 0))
+    ranked, shown = [], {}
+    for item in sorted(found.values(), key=lambda item: (RELATIONS.index(item["relation"]), item["path"],
+                                                         item["lines"][0][0] if item["lines"] else 0)):
+        if item["relation"] in {"caller", "test"}:
+            target = (item["relation"], item["reference"]["path"], item["reference"]["symbol"])
+            shown[target] = shown.get(target, 0) + 1
+            if shown[target] > MAX_PER_TARGET:  # Many callers of one function add noise, not insight.
+                collector.skipped.append({"path": item["path"], "symbol": item["symbol"],
+                                          "reason": "related_target_limit"})
+                continue
+        ranked.append(item)
     return ranked, collector.skipped
 
 

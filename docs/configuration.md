@@ -151,7 +151,8 @@ The same field works in a gate policy's `model_review` object.
 - **Its own budget.** The block takes at most `related_max_bytes`, and at most the changed files'
   own size or 16 KB, whichever is larger. It never takes the room the changed files need. Snippets
   are added in rank order until the budget is spent. The rest are listed by name with the reason
-  `related_budget`.
+  `related_budget`. Each changed function shows at most 3 callers and 3 tests; the others are
+  listed with the reason `related_target_limit`.
 - **Bound like the rest of the packet.** The approved packet hash covers the block, and `review`
   checks it again before sending. The model is told the snippets are reference only, and its
   findings must still cite the changed files.
