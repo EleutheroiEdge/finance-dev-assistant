@@ -164,6 +164,13 @@ def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePo
     prices = {field: model[field] for field in ("input_usd_per_million", "output_usd_per_million")}
     if model["provider"] != "ollama" and any(value <= 0 for value in prices.values()):
         raise prices_required(prices)
+    profile_text, profile_path = _profile(repo, base, model)
+    config = load_policy_config(policy_config_fields(model, profile_text), settings)
+    return ModelGatePolicy(document, config, path, pin, base, profile_path, repo)
+
+
+def policy_config_fields(model: dict, profile_text: list[str] | None) -> dict:
+    """The gate's Config fields: network, hosts and packet bounds are fixed by policy."""
     config_fields = {key: model[key] for key in (
         "provider", "model", "endpoint", "api_key_env", "profile", "allow_paths",
         "max_file_bytes", "max_output_tokens", "timeout_seconds", "max_run_usd", "daily_budget_usd",
@@ -172,10 +179,8 @@ def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePo
     config_fields.update(allow_network=True, allowed_hosts=[model["allowed_host"]], generated_paths=[],
                          max_packet_bytes=2_000_000,
                          monthly_budget_usd=1_000_000)
-    profile_text, profile_path = _profile(repo, base, model)
     if profile_text is not None:
         profiles = deepcopy(PROFILES)
         profiles[model["profile"]] = profile_text
         config_fields["profiles"] = profiles
-    config = load_policy_config(config_fields, settings)
-    return ModelGatePolicy(document, config, path, pin, base, profile_path, repo)
+    return config_fields

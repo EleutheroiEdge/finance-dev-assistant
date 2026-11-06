@@ -118,6 +118,7 @@ See the [GitHub CLI API reference](https://cli.github.com/manual/gh_api).
 policy configuration problems. `profile_file_unavailable`, `profile_file_invalid`,
 `profile_file_too_large` and `duplicate_or_invalid_profile_file` identify file
 loading problems. Errors never print file contents, credentials or private paths.
+Only the local `doctor --policy` preflight names changed paths, and never their contents.
 An allowed/protected prefix must also satisfy the configured path policy.
 Configuration files are bounded to 2 MB. Budget values must be finite and nonnegative;
 limits must be integers from 1 to 2,000,000. A limit error names the option and its
