@@ -410,7 +410,7 @@ Two complete version-2 policies with synthetic values show common shapes. Both a
 a range that changes a file outside it or under `deny_paths`. That is why both examples
 include `docs/`, and why the quant example includes `data/`. Replace the provider, model,
 prices and budgets with your own before you commit a policy, then preflight it with
-`doctor --policy`. The [setup skill](../skills/finassist-setup/SKILL.md) walks an agent
+`doctor --policy`. The `finassist-setup` skill in `finassist export-kit` walks an agent
 through these choices with the person.
 
 ## Verdict contract
