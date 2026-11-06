@@ -52,7 +52,9 @@ _TOKEN_PROPERTIES = {
                               "items": {"type": "string", "pattern": r"^[0-9a-f]{64}$"}},
 }
 # Optional. refuse (the default) keeps today's behaviour; skip-and-report withholds private paths.
-_COVERAGE_PROPERTIES = {"private_paths": {"enum": ["refuse", "skip-and-report"]}}
+_COVERAGE_PROPERTIES = {"private_paths": {"enum": ["refuse", "skip-and-report"]},
+                        "related_context": {"enum": ["none", "related"]},
+                        "related_max_bytes": {"type": "integer", "minimum": 1, "maximum": 400_000}}
 _SCHEMA = {
     "type": "object", "additionalProperties": False,
     "required": ["schema_version", "model_review"],
@@ -182,8 +184,9 @@ def policy_config_fields(model: dict, profile_text: list[str] | None) -> dict:
     config_fields.update(allow_network=True, allowed_hosts=[model["allowed_host"]], generated_paths=[],
                          max_packet_bytes=2_000_000,
                          monthly_budget_usd=1_000_000)
-    if "private_paths" in model:
-        config_fields["private_paths"] = model["private_paths"]
+    for key in ("private_paths", "related_context", "related_max_bytes"):
+        if key in model:
+            config_fields[key] = model[key]
     if profile_text is not None:
         profiles = deepcopy(PROFILES)
         profiles[model["profile"]] = profile_text

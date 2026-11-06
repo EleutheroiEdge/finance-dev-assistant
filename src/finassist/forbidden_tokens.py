@@ -5,6 +5,7 @@ This module does not load policy, authorize a request or dispatch a provider.
 
 from dataclasses import dataclass, field
 import hashlib
+import io
 import os
 from pathlib import Path
 import re
@@ -267,6 +268,51 @@ def screen_source(text: str, path: str | None, snapshot: TokenSnapshot) -> None:
             raise AssistantError("forbidden_token_present")
 
 
+def _line_numbers(line: str) -> list[str | None]:
+    """Plain decimal text of every Python number on one line.
+
+    A snippet line may be partial code, such as an open signature, so tokens are read up to
+    the first tokenizer error rather than refused. Before Python 3.12 an f-string is one
+    STRING token with no NUMBER inside, so each complete f-string token is parsed on its own
+    and its field constants are read from the AST, as screen_source does for a whole file.
+    """
+    tokens = []
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(line + "\n").readline):
+            tokens.append(token)
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        pass
+    found = [number_text(token.string) for token in tokens if token.type == tokenize.NUMBER]
+    if hidden_fstring_fields(tokens):
+        for token in tokens:
+            prefix = re.match(r"[A-Za-z]*", token.string).group().lower()
+            if token.type == tokenize.STRING and "f" in prefix and "{" in token.string:
+                tree = python_tree(token.string)
+                if tree is None:  # Never pass a field that can't be read.
+                    raise AssistantError("forbidden_token_python_unreadable")
+                found += fstring_constant_texts(tree, token.string)
+    return found
+
+
+def screen_lines(lines: list[str], path: str | None, snapshot: TokenSnapshot) -> None:
+    """Screen a related-context snippet: its text, and in Python every number on each line."""
+    if not snapshot.hashes:
+        return
+    screen_text("\n".join(lines), snapshot)
+    if not is_python_path(path):
+        return
+    for line in lines:
+        for plain in _line_numbers(line):
+            if plain is None:
+                continue
+            try:
+                number = normalize_numeric_token(plain, max_digits=MAX_FIGURE_DIGITS)
+            except AssistantError:
+                continue
+            if _listed(number, snapshot):
+                raise AssistantError("forbidden_token_present")
+
+
 def screen_packet(packet: dict, system: str, snapshot: TokenSnapshot) -> None:
     """Select content after the caller validates the packet's strict schema."""
     screen_text(system, snapshot)
@@ -274,6 +320,9 @@ def screen_packet(packet: dict, system: str, snapshot: TokenSnapshot) -> None:
         for side in ("before", "after"):
             if item[side] is not None:
                 screen_source(item[side], item.get("path"), snapshot)
+    for item in packet.get("related", {}).get("snippets", ()):
+        screen_text(item["symbol"], snapshot)
+        screen_lines([line for _number, line in item["lines"]], item.get("path"), snapshot)
 
 
 @dataclass(frozen=True)
