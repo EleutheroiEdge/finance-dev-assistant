@@ -116,9 +116,15 @@ def _shown_argument(value: str) -> str:
 
 
 def _shown(name) -> str:
-    """A repo-relative name for local output, or [redacted] when the name itself fails screening."""
+    """A repo-relative name for local output, or [redacted] when the name fails screening.
+
+    A name with a control or format character, such as a right-to-left override, can
+    display as a different name, so it is redacted too.
+    """
     try:
         if not isinstance(name, str) or not name or len(name) > 512:
+            raise AssistantError("unsafe_path")
+        if any(unicodedata.category(character) in {"Cc", "Cf", "Co", "Cs", "Zl", "Zp"} for character in name):
             raise AssistantError("unsafe_path")
         safe_relative(name.removesuffix("/"))
         check_text(name)

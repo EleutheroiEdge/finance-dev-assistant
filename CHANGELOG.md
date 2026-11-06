@@ -27,6 +27,9 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   - `finassist explain CODE` explains a code offline: what happened, how to fix it, related codes and the guide to read. It also accepts a pasted error record.
   - `finassist explain --list` lists every code. A test fails when a code the package raises or reports has no hint.
   - A new [troubleshooting guide](docs/troubleshooting.md) (`finassist guide troubleshooting`) covers the codes most often seen on a first run.
+- **`init --detect` (#64).** It proposes `allow_paths`, `generated_paths`, `protected_paths`, file limits, a gate policy draft and test commands from the committed layout. Each proposal shows the file and rule that suggested it. It runs nothing from the repository, reads only the committed revision, and writes only with `--write`.
+- **`init --purpose` (#64)** chooses the review profile by what the code does: quant, accounting, research or general.
+- **Names that could display as another name** are redacted in `doctor --policy` and `init --detect` output. That covers names with a control or format character, such as a right-to-left override.
 - **Literal error codes.** Every code now appears literally in the source, so it can be found with a text search. The codes themselves are unchanged.
 - In parseable `.py`/`.pyi` files, credential screening reads code with Python's own
   parser instead of regex (#61). A credential-named target given a literal value
@@ -45,6 +48,7 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   gitignored secrets and the policy, and list the text rules' known limits (#61).
 
 ### Upgrading
+- **`init` with a paid provider** now needs `--input-usd-per-million` and `--output-usd-per-million`. Without them it refuses with `provider_prices_required` instead of writing a configuration every review would refuse.
 - **Scripts reading stderr errors.** They should key on `code`; refusal objects may now carry extra fields, including `hint`. Hint wording can change between releases; codes don't.
 
 Content that 0.7.1 accepted can now be refused:

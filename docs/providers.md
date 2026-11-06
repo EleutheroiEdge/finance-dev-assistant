@@ -2,7 +2,9 @@
 
 Select a model provider for finledgerpoli with explicit endpoint, authentication and spend settings. Its command is `finassist`; start offline and inspect the outgoing request before enabling a remote review.
 
-Run `finassist init --provider PROVIDER --model YOUR_MODEL --output finassist.json`.
+Run `finassist init --provider PROVIDER --model YOUR_MODEL --input-usd-per-million IN --output-usd-per-million OUT --output finassist.json`.
+A paid provider needs both prices from your provider's price list; without them `init` refuses with
+`provider_prices_required`. Add `--api-key-env NAME` to choose the key variable.
 Edit the generated JSON; the CLI accepts it only with `--config finassist.json`.
 Keep your project policy and provider setup under review. Configuration is not
 authorization to transmit: each request also needs `--allow-network` and the

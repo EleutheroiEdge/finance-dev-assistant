@@ -53,6 +53,57 @@ commands and the `doctor --check-updates` network gate.
 
 Saved records bind actions to source and configuration hashes. Readiness means satisfying configured prerequisites for human review.
 
+## Start from your repository's layout
+
+`finassist init --detect` reads the files committed at `HEAD` (or `--revision`) and prints a
+proposed configuration, with the file and rule behind each setting. It writes nothing unless
+you add `--write`, and it never overwrites an existing file.
+
+```sh
+finassist init --detect --purpose quant
+finassist init --detect --purpose quant --write --output finassist.json
+```
+
+- **What it proposes:**
+  - `allow_paths`: source directories, root source files, tests, docs and scripts;
+  - `generated_paths`: lock files, hash-named build assets, `dist/`, and files `.gitattributes` marks `linguist-generated` or `linguist-vendored`;
+  - `protected_paths`;
+  - `max_file_bytes`: fitted to the largest reviewed source file;
+  - `max_packet_bytes`.
+
+  Its gate policy draft adds:
+  - `max_request_bytes`;
+  - `fixture_roots` for CSV or TSV files under a tests directory, which must be synthetic;
+  - `deny_paths` for private directories inside a reviewed prefix, or for the file itself when no directory is private, such as `src/.env.py`. This uses the shared path policy and the gate's private names (data, private, client and similar).
+
+  Packet and request limits are measured, not estimated:
+  - a changed file travels with its earlier version;
+  - the packet escapes its text as JSON once, and the provider request escapes the packet again, so tabs, quotes and non-ASCII text grow most;
+  - the proposal measures the largest source files that way and adds 64 KiB for instructions;
+  - when even 2,000,000 bytes can't fit one file's change, it warns with `request_cap_cannot_fit_file`.
+- **Proposals stay narrow:**
+  - a file name that only looks generated, such as `assets/name-<hash>.js`, must have a digit in its hash, and never widens a generated prefix beyond its own `assets` or `dist` directory;
+  - only each runner's own test command is proposed, so `npm publish test` or `make deploy test` never is;
+  - a file the path policy treats as private is never read or sized, even under `.github/workflows/`;
+  - a name that would be shown as `[redacted]` is left out of every proposed value and counted in `unsafe_names_skipped`.
+- **Test commands** come from pytest configuration, tox, nox sessions, a Makefile `test` target, `package.json`, CI `run:` steps and shell blocks in AGENTS.md or CLAUDE.md. Each has a confidence and names the file and line it came from. They are proposed, never run.
+- **What it never does:**
+  - run anything from the repository (no make, nox, tox, npm, setup.py or workflow step);
+  - read the working tree, untracked files or `.env`;
+  - use the network;
+  - treat text in agent files as instructions.
+- **`--purpose`** chooses the review profile: `quant` (quant-review), `accounting` (finance-saas), `research` (investment-research) or `general`. It is never guessed from prose.
+- **Names** appear only in this local output. A name that fails screening, or that contains a control or format character such as a right-to-left override, is shown as `[redacted]`.
+- **Limits:**
+  - YAML is scanned line by line, not parsed.
+  - Reading `.gitattributes` from a revision needs Git 2.40 or later.
+  - A proposal is a starting point to check, not a review of the repository.
+
+A paid provider needs both prices from your provider's price list:
+`finassist init --provider PROVIDER --model MODEL --input-usd-per-million IN --output-usd-per-million OUT`.
+Without them, `init` refuses with `provider_prices_required` and writes nothing. `--api-key-env NAME`
+names the key variable, never the key.
+
 ## Path and file policy
 
 Conservative denied path components and source suffixes are supplied by default. A path

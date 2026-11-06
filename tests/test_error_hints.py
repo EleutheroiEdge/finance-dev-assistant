@@ -98,6 +98,7 @@ PASSED_ON = {
     ("auditing.py", "{code}", "code"): "command_audit records the code of the error it is unwinding",
     ("cli.py", "{code}", "exc.code"): "main prints a caught AssistantError",
     ("dashboard.py", "{code}", "None"): "health reports no error for a valid configuration",
+    ("detect.py", "{code}", "code"): "the detector's warn() builds records from its own parameter",
     ("dashboard.py", "{code}", "exc.code"): "the API returns a caught AssistantError",
     ("error_hints.py", "{code}", "code"): "explain repeats a code it found in the hint table",
     ("onboarding.py", "block", "exc.code"): "failed() reports a caught AssistantError",
