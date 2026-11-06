@@ -1,0 +1,38 @@
+{
+  "schema_version": 2,
+  "model_review": {
+    "enabled": true,
+    "provider": "openai",
+    "model": "operator-selected",
+    "endpoint": "https://api.openai.com/v1/responses",
+    "allowed_host": "api.openai.com",
+    "api_key_env": "REVIEW_PROVIDER_KEY",
+    "allow_paths": [
+      "data/",
+      "docs/",
+      "engine/",
+      "scripts/",
+      "tests/"
+    ],
+    "deny_paths": [],
+    "fixture_roots": [
+      "tests/fixtures/"
+    ],
+    "fixture_max_file_bytes": 64000,
+    "private_paths": "skip-and-report",
+    "max_request_bytes": 1000000,
+    "max_file_bytes": 240000,
+    "max_files": 100,
+    "profile": "quant-review",
+    "max_output_tokens": 8192,
+    "timeout_seconds": 120,
+    "max_run_usd": 2,
+    "daily_budget_usd": 10,
+    "input_usd_per_million": 1,
+    "output_usd_per_million": 2,
+    "blocking_severities": [
+      "critical",
+      "high"
+    ]
+  }
+}

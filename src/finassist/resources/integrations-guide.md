@@ -2,7 +2,7 @@
 
 Export reviewed finledgerpoli instructions and guides into your preferred coding-agent host. Its command is `finassist`; no host configuration is installed automatically.
 
-The installed wheel includes the portable skill, two optional role templates, JSON Schema, examples and offline guides including the agent guide.
+The installed wheel includes two portable skills, two optional role templates, example gate policies, JSON Schema, examples and offline guides including the agent guide.
 Export them to a new directory:
 
 ```sh
@@ -13,6 +13,9 @@ This writes a standalone kit for inspection, not host configuration. Existing
 destination directories are refused. Repository copies are listed below.
 
 - Portable procedure: `skills/evidence-review/SKILL.md`.
+- Setup procedure: `skills/finassist-setup/SKILL.md`. It proposes a configuration and gate policy,
+  shows every field, writes only what the person confirms and preflights a range.
+- Example gate policies: `examples/policies/`.
 - Claude role: `.claude/agents/finance-reviewer.md`.
 - Codex role: `.codex/agents/finance-reviewer.toml`.
 
