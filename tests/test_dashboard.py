@@ -81,8 +81,8 @@ def test_startup_never_performs_hostname_resolution(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def dashboard(tmp_path):
-    path = tmp_path.resolve() / "configuration.json"
+def dashboard(tmp_path, request):
+    path = tmp_path.resolve() / getattr(request, "param", "configuration.json")
     save_config(path, Config())
     state = DashboardState(path, tmp_path.resolve() / "state")
     with DashboardServer(state) as server:
@@ -128,7 +128,7 @@ def test_python_serves_prebuilt_assets_and_offline_health(dashboard):
     assert "img-src 'self';" in headers["Content-Security-Policy"]
     assert "data:" not in headers["Content-Security-Policy"]
     assert headers["Cache-Control"] == "no-store"
-    assert request("GET", "/api/health")[1]["doctor"] == doctor_report(Config())
+    assert request("GET", "/api/health")[1]["doctor"] == doctor_report(Config(), config_path=state.config_path)
     assert request("GET", "/api/health")[1]["configuration"]["valid"]
     assert not state.ledger_path.exists()  # Read-only pages don't create fake audit runs.
     assert request("GET", "/../config.py", token=False)[0] == 404
@@ -345,7 +345,19 @@ def test_invalid_config_health_remains_available(dashboard):
     state, _, request = dashboard
     state.config_path.write_text("invalid JSON", encoding="utf-8", newline="\n")
     assert request("GET", "/api/config")[0] == 409
-    assert request("GET", "/api/health")[1]["configuration"]["valid"] is False
+    health = request("GET", "/api/health")[1]
+    assert health["configuration"]["valid"] is False and health["doctor"]["config_source"] == "defaults"
+
+
+@pytest.mark.parametrize("dashboard", ["finassist.json"], indirect=True)
+def test_malformed_selected_config_reports_defaults_without_asking_for_the_same_file(dashboard, monkeypatch):
+    state, _, request = dashboard
+    monkeypatch.chdir(state.config_path.parent)
+    state.config_path.write_text("invalid JSON", encoding="utf-8", newline="\n")
+    health = request("GET", "/api/health")[1]
+    assert health["configuration"] == {"valid": False, "code": "configuration_invalid"}
+    assert health["doctor"]["config_source"] == "defaults"
+    assert "config_file_not_loaded" not in [warning["code"] for warning in health["doctor"]["config_warnings"]]
 
 
 def test_sensitive_patterns_can_be_configured_without_matching_their_own_definition(dashboard):

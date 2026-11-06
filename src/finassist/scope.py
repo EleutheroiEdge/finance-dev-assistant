@@ -192,7 +192,7 @@ def read_entry(
         raise AssistantError("linked_or_special_git_object")
     size = int(git(repo, "cat-file", "-s", oid))
     if size > max_bytes:
-        raise AssistantError("file_limit_exceeded")
+        raise AssistantError("file_limit_exceeded", {"limit": max_bytes, "bytes": size})
     data = git(repo, "cat-file", "blob", oid, binary=True)
     if len(data) != size:
         raise AssistantError("blob_changed")
@@ -383,8 +383,9 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
             if (digest(data.encode()) if data is not None else None) != file[side + "_hash"]:
                 raise AssistantError("file_integrity_failed")
             if data is not None:
-                if len(data.encode()) > config.file_byte_limit(file["path"]):
-                    raise AssistantError("file_limit_exceeded")
+                size, limit = len(data.encode()), config.file_byte_limit(file["path"])
+                if size > limit:
+                    raise AssistantError("file_limit_exceeded", {"limit": limit, "bytes": size})
                 check_text(data, extra_patterns=config.extra_sensitive_patterns, source_path=file["path"])
 
 

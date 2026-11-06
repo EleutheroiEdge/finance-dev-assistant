@@ -14,7 +14,7 @@ import re
 import jsonschema
 
 from .config import Config
-from .errors import AssistantError
+from .errors import AssistantError, network_not_approved, prices_required
 from .forbidden_tokens import token_file_audit
 from .ledger import Ledger
 from .providers import invoke, request_identity, request_shape
@@ -102,7 +102,7 @@ def call_model(
     if approved_packet_hash != packet["packet_hash"]:
         raise AssistantError("packet_approval_required")
     if not config.allow_network or not network_approved:
-        raise AssistantError("network_not_approved")
+        raise network_not_approved(config.allow_network, network_approved)
     if config.profile != packet["profile"]:
         raise AssistantError("profile_mismatch")
     if len(canonical({k: v for k, v in packet.items() if k != "packet_hash"})) > config.max_packet_bytes:
@@ -112,8 +112,9 @@ def call_model(
             raise AssistantError("scope_not_approved")
         for side in ("before", "after"):
             if file[side] is not None:
-                if len(file[side].encode()) > config.file_byte_limit(file["path"]):
-                    raise AssistantError("file_limit_exceeded")
+                size, limit = len(file[side].encode()), config.file_byte_limit(file["path"])
+                if size > limit:
+                    raise AssistantError("file_limit_exceeded", {"limit": limit, "bytes": size})
                 check_text(file[side], extra_patterns=config.extra_sensitive_patterns, source_path=file["path"])
     if not packet["changed_paths"]:
         raise AssistantError("empty_review_scope")
@@ -129,9 +130,10 @@ def call_model(
         policy_approval.validate(request_hash)
     paid = config.provider != "ollama"
     if paid and (config.input_usd_per_million <= 0 or config.output_usd_per_million <= 0):
-        raise AssistantError("provider_prices_required")
+        raise prices_required({"input_usd_per_million": config.input_usd_per_million,
+                               "output_usd_per_million": config.output_usd_per_million})
     if not config.allow_network or not network_approved:
-        raise AssistantError("network_not_approved")
+        raise network_not_approved(config.allow_network, network_approved)
     # A conservative byte-based estimate plus envelope allowance is a planning
     # reservation, not a provider-enforced billing cap or tokenizer guarantee.
     input_bound = len(canonical(packet)) + len(system.encode()) + 16_384

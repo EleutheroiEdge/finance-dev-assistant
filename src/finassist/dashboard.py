@@ -168,12 +168,14 @@ class DashboardState:
 
     def health(self):
         try:
-            config, _ = self.configuration()
+            config, _, raw = self._configuration_snapshot()
             status = {"valid": True, "code": None}
+            source = self.config_path if raw is not None else None
         except (AssistantError, OSError, ValueError, TypeError):
-            config = Config()
+            config, source = Config(), None  # The defaults are shown, so they are named as such.
             status = {"valid": False, "code": "configuration_invalid"}
-        return {"doctor": doctor_report(config), "configuration": status}
+        # The dashboard always selects a file, so it never asks for one to be passed.
+        return {"doctor": doctor_report(config, config_path=source, file_selected=True), "configuration": status}
 
 
 class DashboardServer(ThreadingHTTPServer):
