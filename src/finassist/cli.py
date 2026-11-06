@@ -20,7 +20,7 @@ from .config import Config, load_config
 from .demo import run_demo
 from .health import doctor_report
 from .errors import AssistantError
-from .error_hints import add_explain_command, error_fields, run_explain
+from .error_hints import add_explain_command, error_fields, explain_arguments, explain_parser, run_explain
 from .evaluation import evaluate, score
 from .evidence_store import EvidenceStore
 from .finance import cash_check, observation_check, tax_estimate, weights_check
@@ -717,9 +717,10 @@ def execute(args, config: Config | None = None) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     try:
-        args = parser().parse_args(argv)
-        if args.command == "explain":
-            return run_explain(args)
+        root, argv = parser(), sys.argv[1:] if argv is None else list(argv)
+        if (rest := explain_arguments(root, argv)) is not None:  # Parsed without echoing input.
+            return run_explain(explain_parser().parse_args(rest))
+        args = root.parse_args(argv)
         if args.command == "init" and args.detect and not args.write:
             from .detect import run_init  # A proposal only: no state is written.
 
