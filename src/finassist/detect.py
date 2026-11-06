@@ -22,7 +22,8 @@ import tomllib
 from .config import Config, config_document, save_config
 from .errors import AssistantError, prices_required
 from .scope import git, git_command, git_environment, resolve
-from .security import DENIED_PARTS, TEXT_SUFFIXES, canonical, check_path, check_text, local_name
+from .security import (_PRIVATE, DENIED_PARTS, TEXT_SUFFIXES, _check_model_private, canonical, check_path,
+                       check_text, local_name)
 
 PURPOSES = {"quant": "quant-review", "accounting": "finance-saas", "research": "investment-research",
             "general": "general"}
@@ -99,11 +100,7 @@ class _Detector:
         The shared path policy is applied before any read, so a private, credential or
         reserved name is never opened, whatever directory it is in.
         """
-        if path not in self.files or self.private(path):
-            return None
-        try:
-            check_path(path, source_only=False, metadata_only=True)
-        except AssistantError:
+        if path not in self.files or self.private(path) or _refusal(path):
             return None
         if self.files[path] > _READ_LIMIT:
             self.warn("detect_file_too_large", path=_shown(path), limit=_READ_LIMIT)
@@ -133,9 +130,11 @@ class _Detector:
 
     # Layout ------------------------------------------------------------------
     def private(self, path: str) -> bool:
-        parts = PurePosixPath(path).parts
-        lowered = {part.lower() for part in parts}
-        return bool(lowered & DENIED_PARTS) or PurePosixPath(path).suffix.lower() in PRIVATE_SUFFIXES
+        """Whether the shared path policy, or the gate's private names, treats this name as private.
+
+        The same rule guards every read, so a name refused anywhere is never read or sized here.
+        """
+        return _refusal(path) in _PRIVACY_CODES or PurePosixPath(path).suffix.lower() in PRIVATE_SUFFIXES
 
     def layout(self) -> dict:
         roots: dict[str, str] = {}
@@ -239,12 +238,16 @@ class _Detector:
                 root = "/".join(parts[:-1]) + "/"
                 fixtures.setdefault(root, path)
             elif _allowed(path, allow):
-                # Data formats are always refused anyway. Deny only a directory named as private
-                # data inside a reviewed prefix, so the policy states that intent.
+                # Inside a reviewed prefix, deny the private directory, or the file itself when no
+                # directory is private (such as src/.env.py or src/client.json), so the policy says so.
                 for depth, part in enumerate(lowered):
-                    if part in DENIED_PARTS or part == "data":
+                    if part in DENIED_PARTS or part in _PRIVATE or part.rstrip(". ") in DENIED_PARTS | _PRIVATE \
+                            or part.startswith(".env"):
                         deny.add("/".join(parts[:depth + 1]) + "/")
                         break
+                else:
+                    if PurePosixPath(path).suffix.lower() not in PRIVATE_SUFFIXES:
+                        deny.add(path)
         for root, example in sorted(fixtures.items()):
             self.note("fixture_roots", root, "csv_or_tsv_under_tests", example)
         for prefix in sorted(deny):
@@ -286,6 +289,8 @@ class _Detector:
         for path, size in sorted(self.sources.items(), key=lambda item: -item[1]):
             if 7 * size + 2 <= twice:
                 break
+            if self.private(path) or _refusal(path):  # Never read a name the path policy refuses.
+                continue
             data = git(self.repo, "cat-file", "blob", f"{self.head}:{path}", binary=True)
             try:
                 text = data.decode("utf-8")
@@ -403,6 +408,22 @@ class _Detector:
         names += [name for name in PROTECTED_CANDIDATES if name in self.files]
         names += [path for path in generated if PurePosixPath(path).name in LOCKFILES]
         return sorted(dict.fromkeys(names))
+
+
+_PRIVACY_CODES = {"private_path", "private_profile_path", "gate_private_path"}
+
+
+def _refusal(path: str) -> str | None:
+    """The code the shared path policy or the gate's private names give this name, or None.
+
+    Names only: nothing is read. Binary and data formats come back as private_or_binary_path.
+    """
+    try:
+        check_path(path, source_only=False, metadata_only=True)
+        _check_model_private(path)
+    except AssistantError as exc:
+        return exc.code
+    return None
 
 
 def _is_nox_session(node) -> bool:

@@ -441,3 +441,24 @@ def test_a_file_the_request_cap_cannot_fit_is_warned_about(tmp_path, capsys):
     warning = next(entry for entry in proposal["warnings"] if entry["code"] == "request_cap_cannot_fit_file")
     assert warning["limit"] == 2_000_000 and warning["needed"] > 2_000_000
     assert proposal["gate_policy_draft"]["model_review"]["max_request_bytes"] == 2_000_000
+
+
+def test_no_blob_the_path_policy_refuses_is_read_or_sized(tmp_path, capsys, monkeypatch):
+    # The reviewer's names: each is private by the shared path policy or the gate's private names.
+    private = {"src/.env.py": "SYNTHETIC = 1\n", "src/secrets./notes.py": "SYNTHETIC = 2\n",
+               "src/private/notes.py": "SYNTHETIC = 3\n", "src/client.json": "{}\n"}
+    repo = _repo(tmp_path, {"src/app.py": "X = 1\n" * 20_000, **private})
+    reads = []
+    real = detect_module.git
+
+    def spy(repository, *args, **kwargs):
+        if args[:2] == ("cat-file", "blob"):
+            reads.append(args[2].split(":", 1)[1])
+        return real(repository, *args, **kwargs)
+
+    monkeypatch.setattr(detect_module, "git", spy)
+    proposal = _proposal(capsys, ["init", "--detect", "--repo", str(repo)])
+    assert "src/app.py" in reads and not set(reads) & set(private)
+    deny = set(proposal["gate_policy_draft"]["model_review"]["deny_paths"])
+    assert {"src/.env.py", "src/private/", "src/client.json"} <= deny
+    assert any(entry.startswith("src/secrets") for entry in deny)
