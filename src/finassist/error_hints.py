@@ -49,8 +49,7 @@ def _valid(code, entry) -> bool:
             return False
     # A code the package no longer uses keeps its entry, marked with the release that
     # retired it, and is never reused.
-    retired = entry.get("retired")
-    if retired is not None and not (isinstance(retired, str) and _VERSION.fullmatch(retired)):
+    if "retired" in entry and not (isinstance(entry["retired"], str) and _VERSION.fullmatch(entry["retired"])):
         return False
     see, docs = entry.get("see", []), entry.get("docs")
     return (isinstance(see, list) and len(see) <= 3 and code not in see
@@ -166,6 +165,8 @@ def explain_arguments(root: argparse.ArgumentParser, argv: list[str]) -> list[st
 
     The root's options come first; each is matched as argparse matches it (exact name,
     `--name=value` or a unique prefix), so the command is found without parsing the rest.
+    An unknown or ambiguous root option before an `explain` argument is refused here,
+    quietly: the root parser's own error would quote everything after it.
     """
     actions = root._option_string_actions  # noqa: SLF001 - argparse has no public lookup
     index = 0
@@ -177,7 +178,9 @@ def explain_arguments(root: argparse.ArgumentParser, argv: list[str]) -> list[st
         matches = [name] if name in actions else [option for option in actions if option.startswith(name)
                                                   and name.startswith("--")]
         if len({actions[option] for option in matches}) != 1:
-            return None  # Unknown or ambiguous: the root parser reports it.
+            if "explain" in argv[index:]:
+                raise AssistantError("explain_arguments_invalid")
+            return None  # Unknown or ambiguous, and not explain: the root parser reports it.
         action = actions[matches[0]]
         index += 1 if action.nargs == 0 or "=" in item else 2
     if index < len(argv) and argv[index] == "--":
