@@ -132,6 +132,10 @@ of `--state-dir`. Event identity is a trusted-runner input, not cryptographic
 proof of a GitHub event. Origin checking prevents accidental routing mistakes;
 it cannot defeat a malicious runner rewriting all local metadata.
 
+The checkout's `origin` must be `https://github.com/OWNER/REPO` or
+`git@github.com:OWNER/REPO`, with an optional `.git`; anything else is `ci_origin_mismatch`.
+GitHub Enterprise hosts, `ssh://` URLs and URLs with a user name are not supported by this check.
+
 Exit 0 requires all obligations completed successfully with verified saved
 results and unchanged source. Paused, failed, unknown, missing or incomplete
 work never passes. Exit 1 means a known blocked result; exit 2 means refused

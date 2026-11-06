@@ -17,7 +17,7 @@ from .config import Config
 from .errors import AssistantError
 from .security import canonical, digest, pinned_image, regular_path
 from .platform_support import clean_environment, container_environment, find_tool
-from .posix_process import ExitObserver, zombie_group_only
+from .posix_process import ExitObserver, non_reaping_wait_available, zombie_group_only
 
 
 def run_bounded(argv: list[str], *, cwd: Path, env: dict, timeout: float, max_bytes: int = 1_000_000) -> dict:
@@ -37,6 +37,9 @@ def run_bounded(argv: list[str], *, cwd: Path, env: dict, timeout: float, max_by
         return run_windows(
             argv, cwd=cwd, env={**clean_environment(), **env}, timeout=timeout, max_bytes=max_bytes
         )
+    # Refuse before launch: a recipe must not start on a platform where it can't be supervised.
+    if not non_reaping_wait_available():
+        raise AssistantError("non_reaping_wait_required")
     started = time.monotonic()
     process = subprocess.Popen(
         argv,

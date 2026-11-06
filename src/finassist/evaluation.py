@@ -130,6 +130,8 @@ def score(evaluation: dict, labels: dict) -> dict:
         raise AssistantError("offline_run_is_not_model_evaluation")
     cases = {case["id"]: case for case in evaluation["cases"]}
     outcomes = labels.get("outcomes", {})
+    if not isinstance(outcomes, dict):
+        raise AssistantError("invalid_adjudication")
     if set(outcomes) != set(cases):
         raise AssistantError("adjudication_incomplete")
     counts = {"confirmed-hit": 0, "miss": 0, "clean": 0, "false-alarm": 0, "unresolved": 0}

@@ -28,6 +28,11 @@ def zombie_group_only(pid):
         return False
 
 
+def non_reaping_wait_available() -> bool:
+    """Whether this platform can observe a child's exit without reaping it."""
+    return (hasattr(os, "waitid") and hasattr(os, "WNOWAIT")) or hasattr(select, "kqueue")
+
+
 class ExitObserver:
     def __init__(self, pid):
         self.pid = pid

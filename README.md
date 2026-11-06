@@ -47,6 +47,10 @@ finassist init
 finassist dashboard
 ```
 
+In your own repository, `finassist init --detect` proposes a configuration from its committed layout,
+and [your first run](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/first-run.md)
+walks through a first review in five steps.
+
 The package is `finledgerpoli`, the command is `finassist` (`finledgerpoli` also works).
 For an existing Python environment, `pip install finledgerpoli` is also supported.
 The demo needs no key, model download or container; it runs fictional finance checks,
@@ -180,6 +184,7 @@ limits are per run and per day against a retained state directory.
 
 | Goal | Guide |
 |---|---|
+| Get started on your repository | [Your first run](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/first-run.md), [troubleshooting](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/troubleshooting.md) |
 | Configure profiles, paths and budgets | [Configuration](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/configuration.md), [workflow packs](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflow-packs.md), [examples](https://github.com/EleutheroiEdge/finance-dev-assistant/tree/main/examples/) |
 | Choose a model | [Providers](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/providers.md) |
 | Plan, review, check and recover | [Workflows](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflows.md), [workflow plans](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflow-plans.md), [durable execution](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/workflow-execution.md), [auditing and readiness](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/readiness-and-auditing.md) |
