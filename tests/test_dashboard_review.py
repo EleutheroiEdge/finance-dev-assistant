@@ -57,12 +57,13 @@ def test_plan_and_check_the_assistants_own_committed_tree(tmp_path, operation):
     # packet ceiling, independently of the generated bundle exclusion. The bundled
     # guide copies are excluded like generated files: test_guides.py proves each
     # copy matches its source document, and every source document stays in scope.
-    # SECURITY.md is outside the default allow list, so this test adds it.
+    # The generated Unicode alias table is excluded too (its generator script stays
+    # in scope). SECURITY.md is outside the default allow list, so this test adds it.
     # The whole tree no longer fits one 2,000,000-byte packet, so it is planned in
     # two parts that split the allow list; together they must cover every file.
     from finassist.guides import GUIDES
     copies = {"src/finassist/resources/" + resource: source for _title, source, resource in GUIDES.values()}
-    generated = (*Config().generated_paths, *sorted(copies))
+    generated = (*Config().generated_paths, "src/finassist/path_alias_data.py", *sorted(copies))
     allow = (*Config().allow_paths, "SECURITY.md")
     parts = (("src/",), tuple(prefix for prefix in allow if prefix != "src/"))
     assert sorted(parts[0] + parts[1]) == sorted(allow)

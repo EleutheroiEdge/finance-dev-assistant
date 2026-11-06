@@ -156,6 +156,8 @@ class _Detector:
                 roots.setdefault(top + "/", path)
         allow = []
         self.has_source = bool(roots)
+        if not self.has_source:
+            self.warn("no_source_detected")
         for prefix, example in sorted(roots.items()):
             allow.append(prefix)
             self.note("allow_paths", prefix, "source_files" if prefix.endswith("/") else "root_source_file", example)
@@ -534,8 +536,6 @@ def detect(repo, *, revision: str = "HEAD", purpose: str | None = None) -> dict:
     if not detector.files:
         raise AssistantError("detect_empty_repository")
     allow = detector.layout()["allow_paths"]
-    if not detector.has_source:
-        detector.warn("no_source_detected")
     generated = detector.generated()
     data = detector.data(allow)
     limit = detector.file_limit(allow, generated)
