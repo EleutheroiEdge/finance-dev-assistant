@@ -146,6 +146,42 @@ def test_the_skill_shows_every_field_the_proposal_has(tmp_path, monkeypatch, cap
     assert set(fields["private_paths"]["enum"]) == {"refuse", "skip-and-report"}
 
 
+def test_the_write_step_uses_the_proposals_revision_and_checks_the_file():
+    _, body = _skill()
+    step = _section(body, 5)
+    commands = [shlex.split(line)[1:] for line in re.findall(r"```sh\n(.*?)```", step, re.S)]
+    write = parser().parse_args(commands[0])
+    assert write.command == "init" and write.detect and write.write and write.revision == "HEAD_SHA"
+    check = parser().parse_args(commands[1])
+    assert check.command == "doctor" and str(check.config) == "finassist.json"
+    assert "`head`" in _section(body, 3)
+
+
+def test_writing_at_the_proposals_revision_ignores_later_commits(tmp_path, monkeypatch, capsys):
+    case = _repository(tmp_path, "quant-engine.json", QUANT, monkeypatch)
+    repo = case["repo"]
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        assert main(["init", "--detect", "--repo", str(repo), "--purpose", "quant"]) == 0
+    proposal = json.loads(output.getvalue())
+    # The branch moves after the person has seen the proposal.
+    (repo / "service/api.py").parent.mkdir()
+    (repo / "service/api.py").write_text("def handler():\n    return 1\n", encoding="utf-8")
+    command(repo, "add", "-A")
+    command(repo, "commit", "-q", "-m", "Synthetic later commit")
+    moved = io.StringIO()
+    with contextlib.redirect_stdout(moved):
+        assert main(["init", "--detect", "--repo", str(repo), "--purpose", "quant"]) == 0
+    assert "service/" in json.loads(moved.getvalue())["config"]["allow_paths"]  # HEAD would differ.
+    written = tmp_path / "finassist.json"
+    with contextlib.redirect_stdout(io.StringIO()):
+        assert main(["init", "--detect", "--repo", str(repo), "--revision", proposal["head"], "--purpose", "quant",
+                     "--write", "--output", str(written)]) == 0
+    saved = json.loads(written.read_text(encoding="utf-8"))
+    assert saved["allow_paths"] == proposal["config"]["allow_paths"]
+    assert "service/" not in saved["allow_paths"]
+
+
 def test_the_kit_exports_the_skill_and_every_example_it_names(tmp_path):
     kit = tmp_path / "kit"
     result = export_kit(kit)

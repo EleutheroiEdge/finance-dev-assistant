@@ -32,7 +32,8 @@ finassist init --detect --repo . --purpose quant
 ```
 
 It reads committed files only and prints one JSON proposal. It writes nothing and runs
-none of the test commands it lists.
+none of the test commands it lists. Note the `head` it prints: step 5 writes from that same
+revision.
 
 ## 4. Show every field before writing anything
 
@@ -53,12 +54,25 @@ Ask the person to confirm or change each field. These choices are theirs, not yo
 
 ## 5. Write the confirmed configuration
 
+Write the proposal from the revision it was made from, so the file holds exactly what the
+person saw even if the branch has moved since. Replace `HEAD_SHA` with the `head` from step 3:
+
 ```sh
-finassist init --detect --repo . --purpose quant --write --output finassist.json
+finassist init --detect --repo . --revision HEAD_SHA --purpose quant --write --output finassist.json
 ```
 
 Add `--provider`, `--model`, `--input-usd-per-million` and `--output-usd-per-million`
 only with values the person gave. `--api-key-env` takes the variable's name, never a key.
+
+The command writes the proposal as detected, not the person's changes from step 4. Apply
+each of those by editing `finassist.json`, then show the whole file and check it:
+
+```sh
+finassist --config finassist.json doctor
+```
+
+`config_source` must be `file`. Explain every `config_warnings` entry. Setup is not done
+until the file shows every confirmed value and nothing the person didn't confirm.
 
 ## 6. Draft the gate policy
 
