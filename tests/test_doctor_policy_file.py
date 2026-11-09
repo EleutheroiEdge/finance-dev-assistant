@@ -1,6 +1,7 @@
 """doctor --policy-file checks a past range against a policy on this machine, and authorizes nothing."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -66,6 +67,37 @@ def test_a_pin_is_checked_against_the_file(past_range):
     assert from_file(past_range, pin=past_range["sha"])["policy"]["pin"] == "matches"
     report = from_file(past_range, pin="0" * 64)
     assert report["status"] == "blocked" and "gate_policy_pin_mismatch" in codes(report)
+
+
+def test_an_oversized_policy_file_is_refused_after_a_bounded_read(past_range, tmp_path, monkeypatch):
+    oversized = tmp_path / "oversized-policy.json"
+    oversized.write_bytes(b" " * 300_000)
+    requested, real_open = [], Path.open
+
+    class Spy:
+        def __init__(self, handle):
+            self.handle = handle
+
+        def read(self, size=-1):
+            requested.append(size)
+            return self.handle.read(size)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            self.handle.close()
+
+    def spied_open(path, *args, **kwargs):
+        handle = real_open(path, *args, **kwargs)
+        return Spy(handle) if path.name == oversized.name else handle
+
+    monkeypatch.setattr(Path, "open", spied_open)
+    monkeypatch.setattr(Path, "read_bytes", lambda path: pytest.fail("the whole file must never be read"))
+    report = from_file(past_range, file=oversized)
+    assert codes(report) == ["file_limit_exceeded"]
+    assert report["blockers"][0]["limit"] == 128_000 and report["blockers"][0]["bytes"] == 300_000
+    assert requested == [128_001]
 
 
 def test_a_missing_policy_file_is_named(past_range, tmp_path):

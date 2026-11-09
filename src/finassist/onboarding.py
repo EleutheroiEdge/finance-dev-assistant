@@ -274,11 +274,12 @@ class _Preflight:
         try:
             if not file.is_file():
                 raise AssistantError("policy_file_unavailable")
-            raw = file.read_bytes()
+            with file.open("rb") as handle:
+                raw = handle.read(128_001)  # Never more than the cap and one byte, whatever the file's size.
+            if len(raw) > 128_000:
+                raise AssistantError("file_limit_exceeded", {"limit": 128_000, "bytes": file.stat().st_size})
         except OSError as exc:
             raise AssistantError("policy_file_unavailable") from exc
-        if len(raw) > 128_000:
-            raise AssistantError("file_limit_exceeded", {"limit": 128_000, "bytes": len(raw)})
         # Inside the repository, its path still lets a change to it in the range be caught.
         try:
             path = file.relative_to(repo).as_posix()
