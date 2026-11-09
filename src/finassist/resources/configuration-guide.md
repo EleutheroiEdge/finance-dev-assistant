@@ -177,6 +177,11 @@ the whole review:
 - **A gate** also refuses the gate's private directories and names, such as `data/`, `private/`,
   `client/`, `household/` or `client.json`.
 
+`plan` checks every changed name before it reads any file, and its error lists each refused
+path under `local`, grouped by code. Those names appear only on this machine's stderr, as
+`[redacted]` when a name fails screening; the error's other fields, the audit record and any
+report never hold them.
+
 Set `private_paths` to `skip-and-report` to review the rest of the range instead. The same field
 works in a gate policy's `model_review` object. What happens then:
 

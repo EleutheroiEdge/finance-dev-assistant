@@ -19,7 +19,7 @@ from .auditing import command_audit
 from .config import Config, load_config
 from .demo import run_demo
 from .health import doctor_report
-from .errors import AssistantError
+from .errors import AssistantError, error_record
 from .error_hints import add_explain_command, error_fields, explain_arguments, explain_parser, run_explain
 from .evaluation import evaluate, score
 from .evidence_store import EvidenceStore
@@ -34,8 +34,8 @@ from .render import report_html
 from .readiness import verify_gate
 from .review import review_packet
 from .runner import run_recipe
-from .scope import build_packet, git, resolve, triage
-from .security import canonical, check_text, digest, local_name, regular_path, write_private
+from .scope import build_packet, git, plan_packet, resolve, triage
+from .security import canonical, check_text, digest, regular_path, write_private
 from .workspace import export_snapshot
 from .workflow import build_workflow_plan, preflight_workflow, verify_workflow_gate
 from .workflow_execution import cancel_run, create_run, execute_run, inspect_run, reconcile_run, retry_step, validate_run
@@ -370,12 +370,9 @@ def execute(args, config: Config | None = None) -> int:
         _emit(result, args.output)
         return 0 if result["status"] == "PASS" else 1
     elif args.command == "plan":
-        withheld = []  # Private names stay in this local summary, never in the packet.
-        packet = build_packet(args.repo, args.base, args.head, config, withheld_names=withheld)
+        packet, summary = plan_packet(args.repo, args.base, args.head, config, args.config, args.output)
         _emit(packet, args.output)
-        _emit({"packet_hash": packet["packet_hash"], "output": args.output, "triage": triage(packet, config),
-               **({"withheld_paths": [local_name(name, config.extra_sensitive_patterns) for name in withheld]}
-                  if withheld else {})})
+        _emit(summary)
     elif args.command == "workflow" and args.workflow_action in WORKFLOW_STATE_ACTIONS:
         return _execute_workflow(args, config)
     elif args.command == "workflow" and args.workflow_action == "resolve":
@@ -719,11 +716,13 @@ def execute(args, config: Config | None = None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    command = None
     try:
         root, argv = parser(), sys.argv[1:] if argv is None else list(argv)
         if (rest := explain_arguments(root, argv)) is not None:  # Parsed without echoing input.
             return run_explain(explain_parser().parse_args(rest))
         args = root.parse_args(argv)
+        command = args.command
         if args.command == "init" and args.detect and not args.write:
             from .detect import run_init  # A proposal only: no state is written.
 
@@ -862,8 +861,7 @@ def main(argv: list[str] | None = None) -> int:
             outcome["exit_code"] = execute(args, config)
             return outcome["exit_code"]
     except AssistantError as exc:
-        details = getattr(exc, "public_details", {})
-        print(json.dumps({"status": "error", "code": exc.code, **details, **error_fields(exc.code)}), file=sys.stderr)
+        print(json.dumps(error_record(exc, command, error_fields(exc.code))), file=sys.stderr)
         return 2
     except (OSError, ValueError, TypeError, KeyError, InvalidOperation, sqlite3.Error) as exc:
         # Report a stable class, never raw provider errors, source or private paths.

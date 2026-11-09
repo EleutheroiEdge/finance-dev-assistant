@@ -11,8 +11,8 @@ import subprocess
 
 from .config import Config
 from .platform_support import find_tool, clean_environment
-from .errors import AssistantError
-from .security import PUBLIC_ASSETS, canonical, check_private_name, check_text, digest
+from .errors import AssistantError, local_details
+from .security import PUBLIC_ASSETS, canonical, check_private_name, check_text, digest, local_name
 
 
 def git_environment() -> dict[str, str]:
@@ -219,6 +219,7 @@ class ContextFile:
 # Any other refusal, including a name that itself looks like a credential, still refuses.
 WITHHELD_CODES = frozenset({"private_path", "private_or_binary_path", "private_profile_path", "gate_private_path"})
 WITHHELD_REASON = "private_path_policy"
+_NAMED = 20  # Example names kept per refusal code in local output.
 
 
 def _private_name(config: Config, path: str) -> bool:
@@ -233,6 +234,24 @@ def _private_name(config: Config, path: str) -> bool:
     except AssistantError as exc:
         return exc.code in WITHHELD_CODES
     return False
+
+
+def _refused_names(refused: list, config: Config) -> AssistantError:
+    """One error for every name refused before anything is read.
+
+    It keeps the first refusal's code and details and adds the refused count. The names,
+    grouped by code and screened like any local name, go only into local details.
+    """
+    first = refused[0][0]
+    error = AssistantError(first.code, {**first.public_details, "refused_count": len(refused)})
+    groups: dict[str, dict] = {}
+    for exc, path in refused:
+        group = groups.setdefault(exc.code, {"code": exc.code, "count": 0, "paths": []})
+        group["count"] += 1
+        if len(group["paths"]) < _NAMED:
+            group["paths"].append(local_name(path, config.extra_sensitive_patterns))
+    error.local_details["refused_paths"] = list(groups.values())
+    return error
 
 
 def _screened_name(config: Config, path: str) -> bool:
@@ -331,6 +350,8 @@ def build_packet(
     files, omitted, changed = [], [], []
     withheld = 0
     skipping = config.private_paths == "skip-and-report"
+    selected, refused = [], []
+    # Every name is checked before any file is read, so one refusal can name every refused path.
     for pos in range(0, len(tokens) - 1, 2):
         status, path = tokens[pos : pos + 2]
         if skipping and (path in withhold or _private_name(config, path)):
@@ -341,9 +362,17 @@ def build_packet(
             if withheld_names is not None:
                 withheld_names.append(path)
             continue
+        try:
+            config.check_path(path, source_only=False, metadata_only=True)
+            check_text(path, extra_patterns=config.extra_sensitive_patterns)
+        except AssistantError as exc:
+            refused.append((exc, path))
+            continue
+        selected.append((status, path))
+    if refused:
+        raise _refused_names(refused, config)
+    for status, path in selected:
         changed.append(path)
-        config.check_path(path, source_only=False, metadata_only=True)
-        check_text(path, extra_patterns=config.extra_sensitive_patterns)
         if config.generated(path):
             omitted.append({"path": path, "reason": "generated_artifact_excluded"})
             continue
@@ -353,17 +382,22 @@ def build_packet(
         if not config.allows(path):
             omitted.append({"path": path, "reason": "outside_allowlist"})
             continue
-        before, before_mode = read_entry(repo, ancestor, path, config.file_byte_limit(path), config)
-        after, after_mode = read_entry(repo, head_sha, path, config.file_byte_limit(path), config)
-        decoded = []
-        for data in (before, after):
-            try:
-                text = data.decode("utf-8") if data is not None else None
-            except UnicodeError as exc:
-                raise AssistantError("non_text_blob") from exc
-            if text is not None:
-                check_text(text, extra_patterns=config.extra_sensitive_patterns, source_path=path)
-            decoded.append(text)
+        try:
+            before, before_mode = read_entry(repo, ancestor, path, config.file_byte_limit(path), config)
+            after, after_mode = read_entry(repo, head_sha, path, config.file_byte_limit(path), config)
+            decoded = []
+            for data in (before, after):
+                try:
+                    text = data.decode("utf-8") if data is not None else None
+                except UnicodeError as exc:
+                    raise AssistantError("non_text_blob") from exc
+                if text is not None:
+                    check_text(text, extra_patterns=config.extra_sensitive_patterns, source_path=path)
+                decoded.append(text)
+        except AssistantError as exc:
+            # Local output only (plan and watch print it); never in a packet, report or audit row.
+            exc.local_details.setdefault("path", local_name(path, config.extra_sensitive_patterns))
+            raise
         files.append(
             asdict(
                 ContextFile(
@@ -401,6 +435,23 @@ def build_packet(
     if len(encoded) > config.max_packet_bytes:
         raise AssistantError("packet_limit_exceeded")
     return {**packet, "packet_hash": digest(encoded)}
+
+
+def plan_packet(repo: Path, base: str, head: str, config: Config, config_path: Path | None,
+                output: str) -> tuple[dict, dict]:
+    """The packet plan writes, and its local summary of withheld names and settings with no effect."""
+    from .health import config_warnings
+
+    warnings = config_warnings(config, config_path, file_selected=config_path is not None)
+    withheld = []  # Private names stay in this local summary, never in the packet.
+    with local_details(config_warnings=warnings):  # A setting with no effect often explains a refusal.
+        packet = build_packet(repo, base, head, config, withheld_names=withheld)
+    summary = {"packet_hash": packet["packet_hash"], "output": output, "triage": triage(packet, config)}
+    if withheld:
+        summary["withheld_paths"] = [local_name(name, config.extra_sensitive_patterns) for name in withheld]
+    if warnings:
+        summary["config_warnings"] = warnings
+    return packet, summary
 
 
 def verify_packet(packet: dict, config: Config | None = None) -> None:

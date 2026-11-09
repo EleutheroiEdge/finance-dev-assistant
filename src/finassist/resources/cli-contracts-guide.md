@@ -52,9 +52,16 @@ booleans, never values, paths or contents:
 - `file_limit_exceeded` adds the `limit` and the file's `bytes`;
 - `provider_prices_required` adds `missing`, the price fields that are still zero;
 - `network_not_approved` adds `allow_network` (the configuration) and
-  `allow_network_flag` (the command's `--allow-network`), so you can see which is missing.
+  `allow_network_flag` (the command's `--allow-network`), so you can see which is missing;
+- a changed path refused by its name in `plan` adds `refused_count`, how many were refused.
 
 Scripts should key on `code`; more detail fields may be added.
+
+`plan` and `watch` may also add a `local` object for the person at this machine. It can
+name repository paths: `refused_paths` lists each refusal code with its `count` and up to
+20 `paths`, `path` names the file a read refusal concerns, and `config_warnings` lists
+settings with no effect. A name that fails screening shows as `[redacted]`. `local` is
+never written to the audit log, a packet or a report; keep it out of public issues.
 
 Every handled error record also carries a `hint`: fixed, packaged text for its code, never
 derived from the run. Its wording may change between releases; the code does not. Run
@@ -79,7 +86,7 @@ means other documented/context-specific fields can exist, not a literal JSON val
 | `update --yes` | Explicit package manager with metadata audit; stdout `installer-succeeded`/`installer-failed`, installer exit code, command/method and restart flag, with configuration/evidence migration flags false. Unsupported/editable installs refuse. Timeout returns `upgrade_outcome_unknown_inspect_installation` and retains an open audit run. No retry/fallback or captured installer output. | 0, 1, 2 |
 | `demo` | result `{status, data_class: "synthetic", checks: array, counterexamples_detected: array, model_called: false, trade_execution: false, qualification, tax_example}`. | 0, 1, 2 |
 | `triage` | Offline `validate` binds a supplied result to an exact request and caller-pinned model manifest. `evaluate` calculates separate real/synthetic routing metrics from independent request/gold/prediction collections; missing or invalid predictions remain misses. Required new private `--output`, no overwrite; stdout `{report_hash, advisory_only: true, default_matrix_required: true, model_called: false}`. No config, model, execution or implicit audit. See [advisory triage](triage-contract.md). | validate: 0 recommend, 1 abstain/invalid action, 2 input error; evaluate: 0 completed calculation, 2 error, never accuracy certification |
-| `plan` | outgoing request artifact with `schema_version: 2`, base/head/merge-base hashes, profile/path policy, files, omissions and `packet_hash`; stdout summary `{packet_hash, output, triage}`, plus `withheld_paths` (local names only) when `private_paths` is `skip-and-report` and private paths were withheld; the artifact then carries `withheld: {count, reason}` and never their names. | 0, 2 |
+| `plan` | outgoing request artifact with `schema_version: 2`, base/head/merge-base hashes, profile/path policy, files, omissions and `packet_hash`; stdout summary `{packet_hash, output, triage}`, plus `withheld_paths` (local names only) when `private_paths` is `skip-and-report` and private paths were withheld, and `config_warnings` when a setting has no effect; the artifact then carries `withheld: {count, reason}` and never their names. | 0, 2 |
 | `workflow` | `plan`/`preflight` bind and inspect plans; `run`/`resume` execute approved checks; `status`/`reconcile`/`retry`/`cancel` inspect and manage durable state. See [workflow plans](workflow-plans.md) and [execution](workflow-execution.md). | 0, 1, 2 |
 | `workflow plan` | separate version-1 plan binding template, methodology, recipes, packet and configuration hashes; writes the plan privately and emits `{output, plan_hash, status: "plan-bound"}`. No execution. See [workflow plans](workflow-plans.md). | 0, 2 |
 | `workflow resolve` | Writes a new private directory with `config.json`, `template.json` and `resolution.json`; stdout `{directory, resolution_hash, config_hash, template_hash, execution_authorized: false}`. Local pinned packs only, with no activation or execution. See [workflow packs](workflow-packs.md). | 0, 2 |

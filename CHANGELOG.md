@@ -2,6 +2,28 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Changed
+- **`plan` names what it refuses.** It now checks every changed name before reading any file,
+  and one error reports them all:
+  - the first refusal's `code`, plus `refused_count`;
+  - under `local`, each refused path grouped by code, up to 20 names per code;
+  - for a refusal while reading a file, such as `file_limit_exceeded`, that file under `local.path`.
+
+  Names appear only on this machine's stderr, screened like the names `doctor --policy` shows. The
+  error's other fields, packets, reports and audit records still never hold a path. `gate run`
+  doesn't print them, since CI logs are often public; `doctor --policy` lists them for a gate range.
+- **`plan` reports settings with no effect.** Its summary, and the `local` part of a refusal, now
+  carry the `config_warnings` that `doctor` reports. That covers a `finassist.json` not passed with
+  `--config`, a `text_suffixes` entry the deny list always refuses, and a paid provider with zero
+  prices.
+- **Hints for refused data and private paths** now mention `private_paths: skip-and-report`, which
+  withholds them unread and reviews the rest.
+
+### Fixed
+- The 0.8.0 install line now uses `--only-binary=:all:`, like the README and the upgrading guide.
+
 ## 0.8.0 - 2026-11-09
 
 ### Added
@@ -139,7 +161,7 @@ These are not literals. Other files keep the text rule, which still refuses unqu
 values.
 
 Install the release requirements with
-`python -m pip install --require-hashes -r finledgerpoli-0.8.0-requirements.txt`.
+`python -m pip install --require-hashes --only-binary=:all: -r finledgerpoli-0.8.0-requirements.txt`.
 
 ## 0.7.1 - 2026-11-04
 
