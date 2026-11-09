@@ -96,7 +96,8 @@ def _helpers(modules, errors) -> tuple[dict[tuple[str, str], int], set[int]]:
 # site whose code can't be read statically fails until it is listed here with its provenance.
 PASSED_ON = {
     ("auditing.py", "{code}", "code"): "command_audit records the code of the error it is unwinding",
-    ("cli.py", "{code}", "exc.code"): "main prints a caught AssistantError",
+    ("cli.py", "{code}", "exc.code"): "scan records the code of a caught AssistantError per finding",
+    ("errors.py", "{code}", "exc.code"): "error_record builds the stderr record for a caught AssistantError",
     ("dashboard.py", "{code}", "None"): "health reports no error for a valid configuration",
     ("detect.py", "{code}", "code"): "the detector's warn() builds records from its own parameter",
     ("dashboard.py", "{code}", "exc.code"): "the API returns a caught AssistantError",
@@ -106,6 +107,8 @@ PASSED_ON = {
     ("onboarding.py", "block_path", "row['code']"): "_classify rows carry caught AssistantError codes",
     ("onboarding.py", "{code}", "code"): "block() and warn() build records from their own parameter",
     ("onboarding.py", "{code}", "exc.code"): "_classify records a caught AssistantError",
+    ("scope.py", "AssistantError", "first.code"): "_refused_names raises the first caught name refusal again",
+    ("scope.py", "{code}", "exc.code"): "_refused_names groups caught name refusals by code",
 }
 EMITTERS = {"block", "warn", "block_path"}
 

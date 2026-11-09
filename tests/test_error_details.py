@@ -48,13 +48,14 @@ def test_fixture_limit_states_its_range(tmp_path):
     assert caught.value.public_details == {"option": "fixture_max_file_bytes", **RANGE}
 
 
-def test_file_limit_reports_limit_and_size_but_never_the_path(repository, tmp_path, capsys):
+def test_file_limit_reports_limit_and_size_and_names_the_path_only_locally(repository, tmp_path, capsys):
     repo, base, head = repository
     path = tmp_path / "finassist.json"
     save_config(path, replace(Config(), max_file_bytes=10))
     error = error_output(capsys, ["--config", str(path), "--audit-dir", str(tmp_path / "audit"), "plan",
                                   "--repo", str(repo), "--base", base, "--head", head,
                                   "--output", str(tmp_path / "plan.json")])
+    assert error.pop("local") == {"path": "src/cash.py"}  # For the person at this machine only.
     assert error["code"] == "file_limit_exceeded" and error["limit"] == 10 and error["bytes"] > 10
     assert set(error) == {"status", "code", "limit", "bytes"} and "cash" not in json.dumps(error)
 
