@@ -94,7 +94,7 @@ def test_native_upgrade_checks_have_a_bounded_windows_time_allowance():
     job = workflow["jobs"]["test"]
     assert job["timeout-minutes"] == "${{ matrix.timeout_minutes }}"
     for item in job["strategy"]["matrix"]["include"]:
-        assert item["timeout_minutes"] == (45 if item["os"] == "windows-latest" else 15)
+        assert item["timeout_minutes"] == {"windows-latest": 45, "macos-latest": 25}.get(item["os"], 15)
     assert workflow["jobs"]["dashboard"]["timeout-minutes"] == 15
     assert workflow["jobs"]["isolation"]["timeout-minutes"] == 15
 
