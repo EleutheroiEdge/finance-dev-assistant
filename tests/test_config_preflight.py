@@ -162,12 +162,12 @@ def test_without_a_configuration_the_defaults_are_checked(repository, capsys):
 
 
 def _with_script(repository, *, only_script=False):
-    """A range that also changes scripts/run.py, outside the default src/ allow list, or only that file."""
+    """A range that also changes tools/run.py, outside the default allow list, or only that file."""
     repo, base, _head = repository
     if only_script:
         command(repo, "switch", "-q", "-c", "script-only", base)
-    _write(repo, {"scripts/run.py": "print('synthetic')\n"})
-    command(repo, "commit", "-q", "-m", "Synthetic change outside src/")
+    _write(repo, {"tools/run.py": "print('synthetic')\n"})
+    command(repo, "commit", "-q", "-m", "Synthetic change outside the allow list")
     return repo, base, command(repo, "rev-parse", "HEAD")
 
 
@@ -179,7 +179,7 @@ def test_offline_review_takes_a_partial_range(repository):
     repo, base, head = _with_script(repository)
     report = config_preflight(repo, base, head, Config())
     assert report["status"] == "ready" and report["packet"]["bytes"] > 0
-    assert {row["path"]: row["status"] for row in report["paths"]} == {"scripts/run.py": "omitted",
+    assert {row["path"]: row["status"] for row in report["paths"]} == {"tools/run.py": "omitted",
                                                                         "src/cash.py": "included"}
 
 
@@ -188,7 +188,7 @@ def test_a_model_review_refuses_a_partial_range(repository, monkeypatch):
     repo, base, head = _with_script(repository)
     report = config_preflight(repo, base, head, MODEL)
     (entry,) = [entry for entry in report["blockers"] if entry["code"] == "scope_incomplete"]
-    assert entry["paths"] == ["scripts/run.py"]
+    assert entry["paths"] == ["tools/run.py"]
     assert config_preflight(repo, base, head, replace(MODEL, allow_partial_review=True))["status"] == "ready"
 
 
