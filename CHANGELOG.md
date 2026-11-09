@@ -91,8 +91,14 @@ by 0.7.1 no longer matches it:
 - A workflow plan bound by 0.7.1 reports `workflow_configuration_changed`, and a
   saved bundle resolution refuses with `workflow_resolution_inputs_changed`. Bind
   them again.
-- A workflow run started by 0.7.1 can't be resumed. Finish it before upgrading, or
-  cancel it afterwards with `workflow cancel` and start a new run from a new plan.
+- A workflow run started by 0.7.1 can't be resumed, so finish it before upgrading.
+  After upgrading, `workflow cancel` closes a pending or failed run. An interrupted
+  run (`running` or `unknown`) is refused with `workflow_cancel_not_allowed` until it
+  is reconciled: once you have confirmed that its processes have stopped and cleanup
+  is complete, `workflow reconcile --confirm-cleanup` records the attempt as failed,
+  and the run can then be cancelled. Nothing is cleaned up or retried for you, and
+  the attempt's saved result can't be adopted after upgrading (`workflow_result_invalid`).
+  Then start a new run from a new plan.
 
 **Configurations and gate policies that use the new fields need 0.8.0.** 0.7.1
 refuses such a configuration with `unknown_config_option`. Add
