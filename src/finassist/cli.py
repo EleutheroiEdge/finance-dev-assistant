@@ -35,7 +35,7 @@ from .readiness import verify_gate
 from .review import review_packet
 from .runner import run_recipe
 from .scope import build_packet, git, resolve, triage
-from .security import canonical, check_text, digest, regular_path, write_private
+from .security import canonical, check_text, digest, local_name, regular_path, write_private
 from .workspace import export_snapshot
 from .workflow import build_workflow_plan, preflight_workflow, verify_workflow_gate
 from .workflow_execution import cancel_run, create_run, execute_run, inspect_run, reconcile_run, retry_step, validate_run
@@ -370,9 +370,12 @@ def execute(args, config: Config | None = None) -> int:
         _emit(result, args.output)
         return 0 if result["status"] == "PASS" else 1
     elif args.command == "plan":
-        packet = build_packet(args.repo, args.base, args.head, config)
+        withheld = []  # Private names stay in this local summary, never in the packet.
+        packet = build_packet(args.repo, args.base, args.head, config, withheld_names=withheld)
         _emit(packet, args.output)
-        _emit({"packet_hash": packet["packet_hash"], "output": args.output, "triage": triage(packet, config)})
+        _emit({"packet_hash": packet["packet_hash"], "output": args.output, "triage": triage(packet, config),
+               **({"withheld_paths": [local_name(name, config.extra_sensitive_patterns) for name in withheld]}
+                  if withheld else {})})
     elif args.command == "workflow" and args.workflow_action in WORKFLOW_STATE_ACTIONS:
         return _execute_workflow(args, config)
     elif args.command == "workflow" and args.workflow_action == "resolve":

@@ -93,6 +93,7 @@
   "github_host": "git.example.com",
   "allow_network": false,
   "allow_partial_review": false,
+  "private_paths": "refuse",
   "allowed_hosts": [],
   "allow_paths": [
     "src/",
