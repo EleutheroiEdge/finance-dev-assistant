@@ -8,6 +8,7 @@ functions, and once those pass the real loader and source builder run as well, s
 preflight cannot report ready for a range the gate would refuse at those steps.
 """
 
+from dataclasses import fields
 from decimal import Decimal
 import os
 from pathlib import Path, PurePosixPath
@@ -18,6 +19,7 @@ from urllib.parse import urlsplit
 import jsonschema
 
 from .ci_policy import decode_document
+from .config import Config
 from .errors import AssistantError
 from .forbidden_tokens import screen_packet
 from .model_gate import prepare_model_source, prepare_token_guard
@@ -35,7 +37,8 @@ from .security import (TEXT_FIXTURE_SUFFIXES, canonical, local_name, check_fixtu
 HINTS = {
     "invalid_revision": "Pass a commit that exists in this repository.",
     "git_commit_unavailable": "Fetch the commit first; the preflight never fetches.",
-    "gate_policy_missing_at_base": "Commit the policy on the base branch. The gate reads it at base, never from the working tree.",
+    "gate_policy_missing_at_base": "Commit the policy on the base branch. The gate reads it at base, never from the working "
+                                   "tree. For a past range, preflight with --policy-file instead.",
     "gate_policy_pin_required": "Pass --policy-sha256 as 64 lowercase hex characters, or omit it to see the value.",
     "gate_policy_pin_mismatch": "The pin must equal the sha256 of the policy bytes at base, shown in policy.sha256.",
     "gate_policy_invalid": "Fix the named field. Allowed values are shown; the current value is never echoed.",
@@ -87,6 +90,8 @@ WARNINGS = {
     "daily_budget_below_run_budget": "daily_budget_usd is below max_run_usd, so a full run can never fit in one day.",
     "fixture_limit_without_roots": "fixture_max_file_bytes has no effect without fixture_roots.",
     "private_paths_withheld": "These private paths will be withheld unread; the review's coverage will be incomplete.",
+    "policy_from_working_tree": "Read from a file on this machine, so this preflight authorizes nothing: gate run reads "
+                                "the policy only at --base.",
 }
 _BOUNDS = ("type", "minimum", "maximum", "minLength", "maxLength", "minItems", "maxItems", "enum", "const", "pattern")
 _MAX_ROWS = 2000  # The most changed files a policy can allow; longer ranges are summarized.
@@ -105,14 +110,14 @@ def _format_hint(path: str) -> str:
     return "This format is always refused and can't be admitted as a fixture; keep it out of the range."
 
 
-def _shown_argument(value: str) -> str:
+def _shown_argument(value: str, placeholder: str = "<repository>") -> str:
     """A local command-line argument for display, or a placeholder when it fails screening."""
     try:
         if any(unicodedata.category(char) in {"Cc", "Cf"} for char in value):
             raise AssistantError("unsafe_path")
         check_text(value)
     except AssistantError:
-        return "<repository>"
+        return placeholder
     return value
 
 
@@ -150,6 +155,17 @@ def _matches(path, prefix):
     return path.startswith(prefix) if prefix.endswith(slash) else path == prefix
 
 
+_CONFIG_FIELDS = frozenset(item.name for item in fields(Config))
+
+
+def _looks_like_configuration(document) -> bool:
+    """A finassist.json configuration given where a gate policy belongs."""
+    if not isinstance(document, dict) or "model_review" in document:
+        return False
+    keys = set(document) - {"schema_version", "$schema"}
+    return bool(keys) and keys <= _CONFIG_FIELDS
+
+
 def _names(raw: bytes) -> tuple[list[str], set[bytes]]:
     """Git -z names as text, plus the raw names that are not UTF-8 (never decoded for display)."""
     names, undecodable = [], set()
@@ -163,15 +179,19 @@ def _names(raw: bytes) -> tuple[list[str], set[bytes]]:
 
 
 class _Preflight:
-    def __init__(self, repo: Path, base: str, head: str, policy_path: str, pin: str | None, environment):
+    def __init__(self, repo: Path, base: str, head: str, policy_path: str, pin: str | None, environment,
+                 policy_file: str | None = None):
         self.repo, self.base_ref, self.head_ref = repo, base, head
         self.policy_path, self.pin = policy_path, pin
+        # A file on this machine instead of the policy at base: same checks, no authority.
+        self.policy_file = policy_file
         # Names only, taken once. Iterating an environment mapping yields names, while
         # a membership test on os.environ looks up and decodes the value.
         self.environment_names = frozenset(iter(environment))
         self.report = {
             "schema_version": 1, "mode": "gate-preflight", "status": "blocked", "base": None, "head": None,
-            "policy": {"path": _shown(policy_path), "sha256": None,
+            "policy": {"path": _shown(policy_path) if policy_file is None else _shown_argument(policy_file, "<policy file>"),
+                       "source": "base" if policy_file is None else "working-tree", "sha256": None,
                        "pin": "not_supplied" if pin is None else "unchecked"},
             "blockers": [], "warnings": [], "paths": [], "coverage_complete": None, "request": None,
             "provider": None, "network_used": False, "key_value_read": False, "ledger_opened": False,
@@ -214,7 +234,11 @@ class _Preflight:
         self.report["blockers"].extend(self._grouped.values())
         ready = not self.report["blockers"]
         self.report["status"] = "ready" if ready else "blocked"
-        if ready:
+        if ready and self.policy_file is not None:
+            self.report["next_step"] = ("The range passes this policy file, but gate run reads a policy only at --base. "
+                                        "Commit it on the base branch through review, then preflight with --policy "
+                                        "and run the gate.")
+        elif ready:
             self.report["next_step"] = {"command": [
                 "finassist", "gate", "run", "--repo", _shown_argument(str(self.repo)), "--base", self.report["base"],
                 "--head", self.report["head"], "--policy", self.report["policy"]["path"],
@@ -244,17 +268,41 @@ class _Preflight:
             self._gate_source(repo, base, head, policy)
         return None
 
+    def _working_tree_policy(self, repo: Path) -> tuple[str, bytes]:
+        """Policy bytes from a file on this machine. The preflight that reads them authorizes nothing."""
+        file = regular_path(Path(self.policy_file))
+        try:
+            if not file.is_file():
+                raise AssistantError("policy_file_unavailable")
+            raw = file.read_bytes()
+        except OSError as exc:
+            raise AssistantError("policy_file_unavailable") from exc
+        if len(raw) > 128_000:
+            raise AssistantError("file_limit_exceeded", {"limit": 128_000, "bytes": len(raw)})
+        # Inside the repository, its path still lets a change to it in the range be caught.
+        try:
+            path = file.relative_to(repo).as_posix()
+        except ValueError:
+            path = ""
+        return path, raw
+
     def _policy(self, repo: Path, base: str) -> ModelGatePolicy | None:
         try:
-            path = check_path(self.policy_path, source_only=False)
-            raw, _ = read_entry(repo, base, path, 128_000)
+            if self.policy_file is None:
+                path = check_path(self.policy_path, source_only=False)
+                raw, _ = read_entry(repo, base, path, 128_000)
+            else:
+                path, raw = self._working_tree_policy(repo)
         except AssistantError as exc:
             return self.failed(exc)
         if raw is None:
             return self.block("gate_policy_missing_at_base")
         sha = self.report["policy"]["sha256"] = digest(raw)
+        if self.policy_file is not None:
+            self.warn("policy_from_working_tree")
         if self.pin is None:
-            self.warn("policy_pin_not_supplied")
+            if self.policy_file is None:  # gate run needs the pin; a policy file is never run.
+                self.warn("policy_pin_not_supplied")
         elif not isinstance(self.pin, str) or re.fullmatch(r"[0-9a-f]{64}", self.pin) is None:
             self.report["policy"]["pin"] = "invalid"
             self.block("gate_policy_pin_required")
@@ -266,6 +314,8 @@ class _Preflight:
             document = decode_document(raw, "gate_policy_invalid")
         except AssistantError as exc:
             return self.failed(exc, field="/")
+        if _looks_like_configuration(document):
+            return self.block("gate_policy_is_configuration")
         if document.get("schema_version") == 1:
             return self.block("gate_model_opt_in_required")
         issues = _schema_issues(document)
@@ -496,7 +546,10 @@ class _Preflight:
     def _gate_source(self, repo: Path, base: str, head: str, policy: ModelGatePolicy) -> None:
         """Run the gate's own loader and source builder, then size the key-free request body."""
         try:
-            gate_policy = load_model_policy(repo, base, policy.path, policy.sha256)
+            if self.policy_file is None:
+                gate_policy = load_model_policy(repo, base, policy.path, policy.sha256)
+            else:  # Never read at base: the policy checked above is the one the source builder uses.
+                gate_policy = policy
             packet = prepare_model_source(repo, base, head, gate_policy)
         except AssistantError as exc:
             return self.failed(exc)
@@ -516,21 +569,28 @@ class _Preflight:
 
 
 def policy_preflight(repo: Path, base: str, head: str, policy_path: str, policy_pin: str | None = None,
-                     *, environment=None) -> dict:
-    """Every gate blocker for one range, in one local run."""
+                     *, environment=None, policy_file: str | None = None) -> dict:
+    """Every gate blocker for one range, in one local run.
+
+    With policy_file, the policy comes from that file instead of the repository at base. The
+    report then says so, and it never offers a gate run command: gate run reads only at base.
+    """
     return _Preflight(Path(repo), base, head, policy_path, policy_pin,
-                      os.environ if environment is None else environment).run()
+                      os.environ if environment is None else environment, policy_file).run()
 
 
 def run_policy_doctor(args) -> int:
     """Validate every preflight option before anything else runs; empty values count as missing."""
     if args.config is not None or args.fix or args.check_updates or args.state_dir is not None:
         raise AssistantError("doctor_policy_options_conflict")
-    if not args.policy:
+    if args.policy and args.policy_file:
+        raise AssistantError("doctor_policy_source_conflict")
+    if not args.policy and not args.policy_file:
         raise AssistantError("doctor_policy_required")
     # The raw argument is checked: an empty --repo must not become the current directory.
     if not args.repo or not args.base or not args.head:
         raise AssistantError("doctor_policy_range_required")
-    report = policy_preflight(args.repo, args.base, args.head, args.policy, args.policy_sha256)
+    report = policy_preflight(args.repo, args.base, args.head, args.policy or "", args.policy_sha256,
+                              policy_file=args.policy_file or None)
     print(canonical(report).decode())
     return 0 if report["status"] == "ready" else 1

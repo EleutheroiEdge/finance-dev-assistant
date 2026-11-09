@@ -29,6 +29,8 @@ def add_onboarding_commands(commands) -> None:
     doctor.add_argument("--check-updates", action="store_true", help="Check PyPI once when project network use is allowed")
     preflight = doctor.add_argument_group("gate preflight", "Report every gate blocker for one range, offline and without reading a key")
     preflight.add_argument("--policy", help="Gate policy path, read at --base")
+    preflight.add_argument("--policy-file", help="Gate policy file on this machine, for a range whose base predates "
+                                                 "the policy; checks the range but authorizes nothing")
     preflight.add_argument("--policy-sha256", help="Expected sha256 of the policy bytes at base")
     preflight.add_argument("--repo", help="Repository checkout; checked before it is used as a path")
     preflight.add_argument("--base")

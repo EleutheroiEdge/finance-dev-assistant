@@ -4,6 +4,17 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ## Unreleased
 
+### Added
+- **`doctor --policy-file` for a past range.** The gate preflight can read a policy file on this
+  machine instead of one committed at `--base`, so a policy can be tried on merged ranges whose
+  base predates it. It runs the same checks and reports `policy.source: "working-tree"` with a
+  `policy_from_working_tree` warning. It authorizes nothing: a `ready` range gets no `gate run`
+  command, and `gate run` still reads only the pinned policy at base. The base route's report
+  now carries `policy.source: "base"`.
+- **Mix-ups between file kinds are named.** A finassist.json configuration passed as a gate policy
+  now blocks with `gate_policy_is_configuration` instead of a list of schema errors. `--config`
+  refuses a gate policy with `config_is_gate_policy` and a CI policy with `config_is_ci_policy`.
+
 ### Changed
 - **`plan` names what it refuses.** It now checks every changed name before reading any file,
   and one error reports them all:
