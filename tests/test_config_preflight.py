@@ -161,6 +161,46 @@ def test_without_a_configuration_the_defaults_are_checked(repository, capsys):
     assert report["provider"] is None and report["paths"] == [{"path": "src/cash.py", "status": "included"}]
 
 
+def _with_script(repository, *, only_script=False):
+    """A range that also changes scripts/run.py, outside the default src/ allow list, or only that file."""
+    repo, base, _head = repository
+    if only_script:
+        command(repo, "switch", "-q", "-c", "script-only", base)
+    _write(repo, {"scripts/run.py": "print('synthetic')\n"})
+    command(repo, "commit", "-q", "-m", "Synthetic change outside src/")
+    return repo, base, command(repo, "rev-parse", "HEAD")
+
+
+MODEL = replace(Config(), provider="openai", model="synthetic-model", allow_network=True,
+                input_usd_per_million=1, output_usd_per_million=2)
+
+
+def test_offline_review_takes_a_partial_range(repository):
+    repo, base, head = _with_script(repository)
+    report = config_preflight(repo, base, head, Config())
+    assert report["status"] == "ready" and report["packet"]["bytes"] > 0
+    assert {row["path"]: row["status"] for row in report["paths"]} == {"scripts/run.py": "omitted",
+                                                                        "src/cash.py": "included"}
+
+
+def test_a_model_review_refuses_a_partial_range(repository, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", KEY_VALUE)
+    repo, base, head = _with_script(repository)
+    report = config_preflight(repo, base, head, MODEL)
+    (entry,) = [entry for entry in report["blockers"] if entry["code"] == "scope_incomplete"]
+    assert entry["paths"] == ["scripts/run.py"]
+    assert config_preflight(repo, base, head, replace(MODEL, allow_partial_review=True))["status"] == "ready"
+
+
+def test_a_range_with_nothing_to_send_blocks_only_a_model_review(repository, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", KEY_VALUE)
+    repo, base, head = _with_script(repository, only_script=True)
+    assert config_preflight(repo, base, head, Config())["status"] == "ready"
+    partial = replace(MODEL, allow_partial_review=True)
+    assert [entry["code"] for entry in config_preflight(repo, base, head, partial)["blockers"]] == [
+        "empty_model_context"]
+
+
 def test_a_budget_the_request_would_exceed_is_named(repository, monkeypatch):
     repo, base, head = repository
     monkeypatch.setenv("OPENAI_API_KEY", KEY_VALUE)

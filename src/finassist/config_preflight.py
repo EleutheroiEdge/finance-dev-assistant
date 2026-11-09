@@ -118,11 +118,12 @@ class _ConfigPreflight:
         rows = [self._classify(repo, (ancestor, head), name) for name in names]
         self.report["paths"] = rows
         self.report["coverage_complete"] = all(row["status"] == "included" for row in rows)
+        # Only a model call refuses omissions or an empty context: offline review answers before those checks.
+        model = config.provider != "offline"
         for row in rows:
             if row["status"] == "refused":
                 self.block_path(row["code"], row["path"])
-            elif row["status"] == "omitted" and not config.allow_partial_review:
-                # review refuses a range with omissions unless the configuration allows a partial review.
+            elif row["status"] == "omitted" and model and not config.allow_partial_review:
                 self.block_path("scope_incomplete", row["path"])
         withheld = sum(row["status"] == "withheld" for row in rows)
         if withheld:
@@ -130,7 +131,7 @@ class _ConfigPreflight:
                                             "hint": _hint("private_paths_withheld")})
         if withheld == len(rows):
             self.block("review_scope_entirely_withheld")
-        elif not any(row["status"] == "included" for row in rows) and not self._grouped:
+        elif model and not any(row["status"] == "included" for row in rows) and not self._grouped:
             self.block("empty_model_context")
         return rows
 
