@@ -11,6 +11,19 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   `policy_from_working_tree` warning. It authorizes nothing: a `ready` range gets no `gate run`
   command, and `gate run` still reads only the pinned policy at base. The base route's report
   now carries `policy.source: "base"`.
+- **`doctor --repo --base --head` for the configuration route.** Without `--policy` or
+  `--policy-file`, the range preflight now checks `plan` and `review` for `--config` (or the
+  defaults) and reports every blocker in one run, instead of refusing with
+  `doctor_policy_required`. That covers refused, withheld and omitted paths (named in local
+  output only), file and packet limits, `scope_incomplete`, settings with no effect, the network
+  setting, whether the key variable is set, prices and the reserved spend. Once nothing else
+  blocks it runs the real packet builder, so `ready` means `plan` builds the packet. It reads no
+  key value, opens no ledger, makes no network call and writes nothing.
+- **`doctor` reports evidence recorded under another configuration.** With an audit ledger in
+  the state directory it adds `evidence` (saved check records and workflow plans, and how many were
+  recorded under another configuration hash) and warns `evidence_configuration_changed` with
+  what to run again. The hash still covers every setting with its default, so a default that
+  changes between releases is caught too.
 - **Mix-ups between file kinds are named.** A finassist.json configuration passed as a gate policy
   now blocks with `gate_policy_is_configuration` instead of a list of schema errors. `--config`
   refuses a gate policy with `config_is_gate_policy` and a CI policy with `config_is_ci_policy`.
@@ -29,6 +42,10 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   carry the `config_warnings` that `doctor` reports. That covers a `finassist.json` not passed with
   `--config`, a `text_suffixes` entry the deny list always refuses, and a paid provider with zero
   prices.
+- **`init` reports settings with no effect.** When it writes a configuration that keeps one, for
+  example a `text_suffixes` entry copied from `--config`, its output adds `config_warnings`;
+  `init --detect` adds them to the proposal.
+- **`packet_limit_exceeded` from `plan`** now adds the `limit` and the packet's `bytes`.
 - **Hints for refused data and private paths** now mention `private_paths: skip-and-report`, which
   withholds them unread and reviews the rest.
 

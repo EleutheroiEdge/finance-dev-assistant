@@ -581,6 +581,12 @@ def policy_preflight(repo: Path, base: str, head: str, policy_path: str, policy_
 
 def run_policy_doctor(args) -> int:
     """Validate every preflight option before anything else runs; empty values count as missing."""
+    if args.policy is None and args.policy_file is None and args.policy_sha256 is None:
+        # A range alone checks the configuration route: plan, then review.
+        from .config import load_config
+        from .config_preflight import run_config_doctor
+
+        return run_config_doctor(args, load_config(args.config))
     if args.config is not None or args.fix or args.check_updates or args.state_dir is not None:
         raise AssistantError("doctor_policy_options_conflict")
     if args.policy and args.policy_file:
