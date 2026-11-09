@@ -101,6 +101,7 @@ PASSED_ON = {
     ("detect.py", "{code}", "code"): "the detector's warn() builds records from its own parameter",
     ("dashboard.py", "{code}", "exc.code"): "the API returns a caught AssistantError",
     ("error_hints.py", "{code}", "code"): "explain repeats a code it found in the hint table",
+    ("github_actions.py", "{code}", "code"): "run_github_action shows a caught output-path or report code",
     ("onboarding.py", "block", "exc.code"): "failed() reports a caught AssistantError",
     ("onboarding.py", "block_path", "row['code']"): "_classify rows carry caught AssistantError codes",
     ("onboarding.py", "{code}", "code"): "block() and warn() build records from their own parameter",

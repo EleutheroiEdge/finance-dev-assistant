@@ -102,6 +102,8 @@ A project may set `min_version` to a stable `X.Y.Z`. Versions starting with
 upgrade. Published 0.3.x/0.4.0 readers do not have this check; they report
 `unknown_config_option` for the new field. An unknown option in a guarded
 reader includes its name and an upgrade hint without echoing its value.
+A development or local build is compared by its release: `0.8.0.dev1` and `0.8.0rc1` are
+below a `0.8.0` floor, while `0.8.0.post1` and `0.8.0+local` meet it.
 
 Preview a supported configuration rename with
 `finassist config migrate --path finassist.json --dry-run`. Apply explicitly by

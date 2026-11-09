@@ -27,12 +27,32 @@ def stable_version(value: str) -> tuple[int, int, int]:
     return tuple(int(part) for part in value.split("."))
 
 
+_RELEASE = re.compile(r"(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(?P<rest>.*)", re.S)
+
+
+def installed_order(value: str) -> tuple[int, int, int, int] | None:
+    """Order an installed build against plain X.Y.Z floors, or None when it has no X.Y.Z release.
+
+    A pre-release or development build sorts before its release, a post-release after it, and a
+    local label (``+...``) is ignored. Only the configured floor must be plain X.Y.Z: a dev or
+    local build is an installation detail, not a configuration error.
+    """
+    match = _RELEASE.match(value) if isinstance(value, str) else None
+    if match is None:
+        return None
+    rest = match["rest"].split("+", 1)[0].lower()
+    rank = 1 if rest == "" else 2 if rest.startswith(".post") else 0
+    return (*(int(part) for part in match.groups()[:3]), rank)
+
+
 def check_min_version(value: str) -> None:
     if value == "":
         return
     required = stable_version(value)
     current_text = installed_version()
-    if stable_version(current_text) < required:
+    current = installed_order(current_text)
+    # An installed version with no X.Y.Z release can't be shown to meet the floor, so it doesn't.
+    if current is None or current < (*required, 1):
         raise ConfigCompatibilityError("minimum_version_required", {
             "required_version": value, "installed_version": current_text,
             "upgrade_hint": f"Upgrade finledgerpoli to {value} or later before reading this configuration.",

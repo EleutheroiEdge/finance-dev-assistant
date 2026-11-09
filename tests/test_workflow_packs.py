@@ -346,7 +346,8 @@ def test_cli_resolves_then_binds_provenance_to_existing_version_one_plans(pack_c
 def test_bundle_loader_refuses_duplicate_keys_and_unknown_options(tmp_path):
     path = tmp_path / "bundle.json"
     path.write_text('{"schema_version":1,"schema_version":1}', encoding="utf-8")
-    with pytest.raises(AssistantError, match="workflow_pack_duplicate_key"):
+    # A bundle reports its own code, not the pack code its shared JSON hooks raise (#69).
+    with pytest.raises(AssistantError, match="workflow_bundle_invalid"):
         read_bundle(path)
 
 
