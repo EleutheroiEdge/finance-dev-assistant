@@ -29,6 +29,8 @@ commands and the `doctor --check-updates` network gate.
 | `github_host` | GitHub DNS hostname, without scheme, path or port. Defaults to github.com; Enterprise uses existing gh auth. |
 | `allow_network` | Enable potential network use. Each command still needs its own explicit network approval. |
 | `allow_partial_review` | Permit model calls with explicitly accounted-for omissions. Readiness still requires complete coverage. |
+| `related_context` | `none` (default): the packet holds only the changed files. `related`: it also holds signature-only skeletons of unchanged Python code the change calls, is called by or extends. See [related-code context](#related-code-context). |
+| `related_max_bytes` | Byte cap for the related-code block, 1 to 400,000; default 24,000. |
 | `private_paths` | `refuse` (default): a private path in the range, such as a data file or a path under a private directory, refuses the whole review. `skip-and-report`: such a path is never read or sent; the packet carries only how many were withheld, and names appear only in local output. Coverage is then incomplete. See [skipping private paths](#skipping-private-paths). |
 | `allowed_hosts` | Additional approved MODEL endpoint hostnames; distinct from github_host. |
 | `generated_paths` | Exact relative files or directory prefixes excluded from review and snapshot source. Defaults to src/finassist/resources/dashboard/. No globs; rebuild/integrity CI must verify these artifacts. |
@@ -122,6 +124,49 @@ bytes remain subject to publication scans and build-integrity CI. `.gitattribute
 is reviewable and protected by default.
 Runtime/Git internals, environment files, private profile filenames, credential
 formats and binary restrictions remain intrinsic protections. There is no bypass switch.
+
+## Related-code context
+
+The packet always holds the whole merge-base and head copies of each changed file. With
+`related_context` set to `related`, it also gets a `related` block: short, read-only skeletons of
+unchanged Python code in other files, so the reviewer can see what a change calls and what calls it.
+The same field works in a gate policy's `model_review` object.
+
+- **What is added,** in this fixed order:
+  1. `callee`: a function called on a changed line;
+  2. `caller`: a function that calls a changed or removed function;
+  3. `test`: the same, in a test file;
+  4. `base`: a class that a changed class extends.
+- **Skeletons, not bodies.** A function shows its decorators, its `def` line and the first line of
+  its docstring. A class also shows its methods' signatures. A caller also shows its call lines.
+  Each snippet gives its path, line numbers, relation, symbol, the changed line or definition that
+  links it, and the sha256 of the file it came from.
+- **Only names that resolve exactly.** A name resolves through the file's own module-level
+  `import` and `from ... import` statements: a plain imported name, or `module.attribute`. A name
+  bound where the call is, such as a parameter, a local assignment or an import inside the
+  function, is left out, and so is a name the file defines itself. Anything else, such as a method
+  called on an object, is left out rather than guessed. Python only, for now.
+- **The same screening as a changed file.** A candidate must be tracked at head, inside
+  `allow_paths`, not generated, and pass every path and private-name rule before it is read. A
+  private name is never read, searched or listed. A file that fails content screening or doesn't
+  parse is listed by name and reason code under `skipped`, with nothing from its content.
+- **In a gate, the policy's rules too.** A candidate must also pass the policy's `deny_paths` and
+  the current and base ignore rules before it is searched or read. When the policy lists forbidden
+  figures, a candidate's whole file is screened for them, as a changed file is. A file holding one is
+  listed with the reason `forbidden_token_present`, and the final screen before sending covers every
+  snippet line.
+- **Its own budget.** The block takes at most `related_max_bytes`, and at most the changed files'
+  own size or 16 KB, whichever is larger. It never takes the room the changed files need. Snippets
+  are added in rank order until the budget is spent. The rest are listed by name with the reason
+  `related_budget`. Each changed function shows at most 3 callers and 3 tests; the others are
+  listed with the reason `related_target_limit`. At most 500 files are read to find callers; the
+  others are listed with the reason `related_search_limit`.
+- **Bound like the rest of the packet.** The approved packet hash covers the block, and `review`
+  checks it again before sending. The model is told the snippets are reference only, and its
+  findings must still cite the changed files.
+
+The default stays `none` until phase 4 of the [roadmap](https://github.com/EleutheroiEdge/finance-dev-assistant/issues/64)
+measures whether the block helps.
 
 ## Skipping private paths
 

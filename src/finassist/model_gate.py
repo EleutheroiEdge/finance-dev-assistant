@@ -13,14 +13,14 @@ from .ci_policy import read_document, revision
 from .errors import AssistantError
 from .finding_identity import finding_identifier
 
-from .forbidden_tokens import TokenGuard, load_token_snapshot, screen_packet, screen_text
+from .forbidden_tokens import TokenGuard, load_token_snapshot, screen_packet, screen_source, screen_text
 from .github_context import pull_request_context, verify_origin
 from .ledger import Ledger
 from .model_policy import load_model_policy
 from .providers import request_identity, request_shape
 from .review import PolicyRequestApproval, call_model, review_schema, validate_review
 from .scope import WITHHELD_CODES, build_packet, git, resolve
-from .policy_ignores import screen_ignores as _screen_ignores
+from .policy_ignores import ignored_paths, screen_ignores as _screen_ignores
 from .security import canonical, check_model_path as _scope_path, digest, regular_path
 
 EXIT_CODES = {"PASS": 0, "FAIL": 1, "BLOCKED": 2}
@@ -160,13 +160,35 @@ def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_rep
     _screen_ignores(repo, {base, ancestor}, reviewed + source_profile_paths + (marker_paths if same_source else []))
     if policy_repo is not None and (policy_repo != repo or policy.base != base):
         _screen_ignores(policy_repo, {policy.base}, reviewed + profile_paths + marker_paths)
-    packet = build_packet(repo, base, head, config, withhold=frozenset(withhold))
+    guard = prepare_token_guard(policy, repo)
+    admit = screen = None
+    if config.related_context == "related":
+        def admit(candidates: list[str]) -> set[str]:
+            """Related candidates meet the same policy rules as changed files, or are left out."""
+            kept = []
+            for path in candidates:
+                try:
+                    _scope_path(path, fixture_roots=getattr(config, "fixture_roots", ()))
+                except AssistantError:
+                    continue
+                if not any(path.startswith(prefix) if prefix.endswith("/") else path == prefix
+                           for prefix in rules["deny_paths"]) and config.allows(path):
+                    kept.append(path)
+            ignored = ignored_paths(repo, {base, ancestor}, kept)
+            if policy_repo is not None and (policy_repo != repo or policy.base != base):
+                ignored |= ignored_paths(policy_repo, {policy.base}, kept)
+            return set(kept) - ignored
+
+        if guard is not None:
+            def screen(text: str, path: str) -> None:
+                screen_source(text, path, guard.snapshot)
+    packet = build_packet(repo, base, head, config, withhold=frozenset(withhold), related_admit=admit,
+                          related_screen=screen)
     withheld = packet.get("withheld", {}).get("count", 0)
     if packet["omitted"] or withheld != len(withhold) or len(packet["files"]) != len(reviewed):
         raise AssistantError("scope_incomplete")
     if not packet["files"]:
         raise AssistantError("review_scope_entirely_withheld")
-    guard = prepare_token_guard(policy, repo)
     if guard is not None:
         screen_packet(packet, config.instructions(), guard.snapshot)
     return packet

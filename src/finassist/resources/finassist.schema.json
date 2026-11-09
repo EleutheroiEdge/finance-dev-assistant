@@ -370,6 +370,22 @@
       "title": "Recipes",
       "type": "object"
     },
+    "related_context": {
+      "default": "none",
+      "enum": [
+        "none",
+        "related"
+      ],
+      "title": "Related context",
+      "type": "string"
+    },
+    "related_max_bytes": {
+      "default": 24000,
+      "maximum": 400000,
+      "minimum": 1,
+      "title": "Related max bytes",
+      "type": "integer"
+    },
     "required_recipes": {
       "default": [],
       "items": {
