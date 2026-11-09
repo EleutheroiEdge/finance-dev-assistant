@@ -2,18 +2,9 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.8.0 - 2026-11-09
 
-### Changed
-- **Error details (#64).** Some refusals now add bounded fields beside `code`:
-  - limit errors give the option and its allowed range;
-  - `file_limit_exceeded` gives the limit and the file's size;
-  - `provider_prices_required` lists the price fields that are still zero;
-  - `network_not_approved` says whether the configuration, the `--allow-network` flag, or both are missing.
-
-  These fields never include values, paths or file contents.
-- **`doctor` (#64).** It now reports `config_source` (`file` or `defaults`) and `config_warnings`. The warnings cover a `finassist.json` that was not passed with `--config`, a `text_suffixes` entry the deny list always refuses, and a paid provider with zero prices.
-
+### Added
 - **`doctor --policy` preflight (#64).** `finassist doctor --policy P --repo R --base B --head H` reports every gate blocker for one range in one run, each with a hint. That covers:
   - each changed path and why it is refused, named only in local output;
   - every policy schema error with its allowed values;
@@ -29,25 +20,6 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   - A new [troubleshooting guide](docs/troubleshooting.md) (`finassist guide troubleshooting`) covers the codes most often seen on a first run.
 - **`init --detect` (#64).** It proposes `allow_paths`, `generated_paths`, `protected_paths`, file limits, a gate policy draft and test commands from the committed layout. Each proposal shows the file and rule that suggested it. It runs nothing from the repository, reads only the committed revision, and writes only with `--write`.
 - **`init --purpose` (#64)** chooses the review profile by what the code does: quant, accounting, research or general.
-- **Names that could display as another name** are redacted in `doctor --policy` and `init --detect` output. That covers names with a control or format character, such as a right-to-left override.
-- **Literal error codes.** Every code now appears literally in the source, so it can be found with a text search. The codes themselves are unchanged.
-- In parseable `.py`/`.pyi` files, credential screening reads code with Python's own
-  parser instead of regex (#61). A credential-named target given a literal value
-  refuses: assignments, typed assignments, walrus targets, keyword arguments,
-  function defaults, dictionary keys, attributes and subscripts, including literal
-  `os.getenv`/`os.environ.get` fallbacks and `default=` arguments. Type annotations
-  are never inspected. Comments and strings keep the text rules, known secret
-  formats are screened across the whole file, and Python that does not tokenize and
-  parse keeps the strict text rules.
-- In Python files, each numeric literal, including one inside an f-string field, is
-  also read with Python's tokenizer and parser and its exact value compared with the
-  confidential-figure deny list (#61). Every file is still screened as text, and
-  leading or trailing zero padding no longer hides a listed figure in text or code.
-- Known formats and custom patterns also read the complete serialized packet (#61).
-- Document that secret and figure screening is a backstop behind path allowlists,
-  gitignored secrets and the policy, and list the text rules' known limits (#61).
-
-### Added
 - **`private_paths: skip-and-report` (#64).** It is opt-in; the default is still `refuse`.
   - A private path in the range is withheld by its name before anything is read, instead of refusing the whole review.
   - Packets, requests, reports and audit records carry only the withheld count. `plan` and `doctor --policy` name the paths in local output only.
@@ -65,6 +37,35 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   - Tests run each example on a synthetic repository of its shape, and check that every command in the skill parses.
   - `init --detect` now warns with `private_paths_outside_scope` when private files lie outside the proposed `allow_paths`, because a gate refuses any range that changes them.
 
+### Changed
+- **Error details (#64).** Some refusals now add bounded fields beside `code`:
+  - limit errors give the option and its allowed range;
+  - `file_limit_exceeded` gives the limit and the file's size;
+  - `provider_prices_required` lists the price fields that are still zero;
+  - `network_not_approved` says whether the configuration, the `--allow-network` flag, or both are missing.
+
+  These fields never include values, paths or file contents.
+- **`doctor` (#64).** It now reports `config_source` (`file` or `defaults`) and `config_warnings`. The warnings cover a `finassist.json` that was not passed with `--config`, a `text_suffixes` entry the deny list always refuses, and a paid provider with zero prices.
+- **Names that could display as another name** are redacted in `doctor --policy` and `init --detect` output. That covers names with a control or format character, such as a right-to-left override.
+- **Literal error codes.** Every code now appears literally in the source, so it can be found with a text search. The codes themselves are unchanged.
+
+### Security
+- In parseable `.py`/`.pyi` files, credential screening reads code with Python's own
+  parser instead of regex (#61). A credential-named target given a literal value
+  refuses: assignments, typed assignments, walrus targets, keyword arguments,
+  function defaults, dictionary keys, attributes and subscripts, including literal
+  `os.getenv`/`os.environ.get` fallbacks and `default=` arguments. Type annotations
+  are never inspected. Comments and strings keep the text rules, known secret
+  formats are screened across the whole file, and Python that does not tokenize and
+  parse keeps the strict text rules.
+- In Python files, each numeric literal, including one inside an f-string field, is
+  also read with Python's tokenizer and parser and its exact value compared with the
+  confidential-figure deny list (#61). Every file is still screened as text, and
+  leading or trailing zero padding no longer hides a listed figure in text or code.
+- Known formats and custom patterns also read the complete serialized packet (#61).
+- Document that secret and figure screening is a backstop behind path allowlists,
+  gitignored secrets and the policy, and list the text rules' known limits (#61).
+
 ### Fixed
 - **`score`** reported a traceback when a labels file's `outcomes` was a list instead of an object. It now refuses with `invalid_adjudication` (#69).
 - **Supervised runs.** A recipe could start briefly on a platform where its exit can't be observed without reaping it. The platform is now checked before launch, with `non_reaping_wait_required` (#69).
@@ -75,8 +76,51 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 - **Workflow bundles.** A duplicate key or NaN in a bundle reported pack codes. It now reports `workflow_bundle_invalid` (#69).
 
 ### Upgrading
+
+No evidence-store migration is needed, and gate reports keep schema version 2.
+Upgrades never edit project configuration or evidence.
+
+**Run reviews, checks and workflow plans again after upgrading.** This release adds
+three configuration fields: `private_paths`, `related_context` and
+`related_max_bytes`. The configuration hash covers every field with its default, so
+an unchanged `finassist.json` hashes differently under 0.8.0, and evidence recorded
+by 0.7.1 no longer matches it:
+
+- Readiness reports `review_configuration_changed` and `check_configuration_changed`
+  until the review and each required check have run again.
+- A workflow plan bound by 0.7.1 reports `workflow_configuration_changed`, and a
+  saved bundle resolution refuses with `workflow_resolution_inputs_changed`. Bind
+  them again.
+- A workflow run started by 0.7.1 can't be resumed, so finish it before upgrading.
+  After upgrading, `workflow cancel` closes a pending or failed run. An interrupted
+  run (`running` or `unknown`) is refused with `workflow_cancel_not_allowed` until it
+  is reconciled: once you have confirmed that its processes have stopped and cleanup
+  is complete, `workflow reconcile --confirm-cleanup` records the attempt as failed,
+  and the run can then be cancelled. Nothing is cleaned up or retried for you, and
+  the attempt's saved result can't be adopted after upgrading (`workflow_result_invalid`).
+  Then start a new run from a new plan.
+
+**Configurations and gate policies that use the new fields need 0.8.0.** 0.7.1
+refuses such a configuration with `unknown_config_option`. Add
+`"min_version": "0.8.0"` so an older reader refuses with `minimum_version_required`
+and says to upgrade instead. A 0.7.1 gate refuses a policy whose `model_review` uses
+them with `gate_policy_invalid`, so upgrade the gate before committing that policy
+on the base branch.
+
+**Gate reports.** When `skip-and-report` withholds paths, the report adds
+`coverage: {complete: false, withheld}` with the count. A range whose every changed
+path is withheld refuses with `review_scope_entirely_withheld`.
+
 - **`init` with a paid provider** now needs `--input-usd-per-million` and `--output-usd-per-million`. Without them it refuses with `provider_prices_required` instead of writing a configuration every review would refuse.
 - **Scripts reading stderr errors.** They should key on `code`; refusal objects may now carry extra fields, including `hint`. Hint wording can change between releases; codes don't.
+- **Changed codes.** Scripts that matched these should update:
+  - a damaged workflow run file: `invalid_input` is now `workflow_artifact_missing_or_changed`;
+  - the GitHub Action's output errors: `ci_action_output_unavailable` is now
+    `ci_output_path_invalid` or `ci_report_invalid`;
+  - a workflow bundle with a duplicate key or NaN: pack codes are now `workflow_bundle_invalid`;
+  - a development or pre-release build with a `min_version` floor: `invalid_min_version`
+    is now `minimum_version_required` when the build is below the floor, and accepted
+    when it meets it.
 
 Content that 0.7.1 accepted can now be refused:
 
@@ -93,6 +137,9 @@ assigned to a credential-named target, such as a `password` set from
 `get_password_from_vault()`.
 These are not literals. Other files keep the text rule, which still refuses unquoted
 values.
+
+Install the release requirements with
+`python -m pip install --require-hashes -r finledgerpoli-0.8.0-requirements.txt`.
 
 ## 0.7.1 - 2026-11-04
 
