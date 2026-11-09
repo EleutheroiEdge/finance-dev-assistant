@@ -65,7 +65,9 @@ finassist --config finassist.json review --packet .finassist/context.json --outp
 ```
 
 ## 4. Before the first gate run, preflight the range
-Commit the gate policy on the base branch, then run the preflight until it reports `ready`:
+Start from an [example policy](pre-merge-gate.md#example-policies) and put your own provider,
+prices and budgets in it. Commit it on the base branch, then run the preflight until it
+reports `ready`:
 
 ```sh
 finassist doctor --policy gate-policy.json --repo . --base BASE --head HEAD

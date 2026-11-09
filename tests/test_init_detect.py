@@ -462,3 +462,17 @@ def test_no_blob_the_path_policy_refuses_is_read_or_sized(tmp_path, capsys, monk
     deny = set(proposal["gate_policy_draft"]["model_review"]["deny_paths"])
     assert {"src/.env.py", "src/private/", "src/client.json"} <= deny
     assert any(entry.startswith("src/secrets") for entry in deny)
+
+
+@pytest.mark.parametrize("private, warned", [
+    ("data/synthetic_positions.csv", True),  # Outside the proposed scope: a range changing it is refused.
+    ("src/data/synthetic_positions.csv", False),  # Inside it: a deny proposal covers it instead.
+])
+def test_private_files_outside_the_proposed_scope_are_warned_about(tmp_path, capsys, private, warned):
+    repo = _repo(tmp_path, {"src/app.py": "X = 1\n", private: "symbol,quantity\nSYNTHETIC,1\n"})
+    proposal = _proposal(capsys, ["init", "--detect", "--repo", str(repo)])
+    codes = {warning["code"]: warning for warning in proposal["warnings"]}
+    assert ("private_paths_outside_scope" in codes) is warned
+    if warned:
+        assert codes["private_paths_outside_scope"] == {"code": "private_paths_outside_scope", "count": 1}
+        assert not proposal["gate_policy_draft"]["model_review"]["deny_paths"]

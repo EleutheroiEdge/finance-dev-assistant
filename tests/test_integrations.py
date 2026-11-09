@@ -27,6 +27,9 @@ def test_export_is_explicit_and_never_overwrites_host_configuration(tmp_path):
     "original,resource",
     [
         ("skills/evidence-review/SKILL.md", "skill.md"),
+        ("skills/finassist-setup/SKILL.md", "setup-skill.md"),
+        ("examples/policies/quant-engine.json", "quant-engine-policy.json"),
+        ("examples/policies/rebalancer.json", "rebalancer-policy.json"),
         (".claude/agents/finance-reviewer.md", "claude-reviewer.md"),
         (".codex/agents/finance-reviewer.toml", "codex-reviewer.toml"),
         ("docs/workflows.md", "workflow-guide.md"),
