@@ -1,16 +1,22 @@
 """`init --detect` proposes something a real repository can use as it stands. Synthetic data only."""
 
+from decimal import Decimal
 import json
 import subprocess
 
 import pytest
 
 from conftest import command
+from test_model_gate import run
+from test_providers_review import envelope
 from finassist import detect as detect_module
 from finassist.cli import main
 from finassist.model_policy import check_draft, missing_fields
 from finassist.onboarding import policy_preflight
+from finassist.review import ENVELOPE_ALLOWANCE, reserved_usd
 from finassist.security import canonical, digest
+
+NEAR_LIMIT = 17_500  # Bytes per module: three of them changed make a request just under the 120,000 floor.
 
 QUANT_README = ("# Synthetic engine\n\nA portfolio rebalancing engine. The optimizer sizes trades from holdings,\n"
                 "tax lot by tax lot, and the backtest replays them.\n")
@@ -137,6 +143,39 @@ def test_with_a_provider_the_draft_is_a_whole_policy_the_gate_accepts(tmp_path, 
     report = policy_preflight(repo, base, head, "gate-policy.json", digest(canonical(draft)))
     assert report["status"] == "ready", report["blockers"]
     assert {row["status"] for row in report["paths"]} == {"included"}
+
+
+def test_the_drafted_budget_covers_a_request_near_the_drafted_limit(tmp_path, capsys, monkeypatch):
+    """Prices high enough that the default budget of 1 can't hide a shortfall, and a request near the limit."""
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    monkeypatch.setenv("REVIEW_PROVIDER_KEY", "fictional-provider-value")
+    line = "value = compute_total(opening, deposits)  # synthetic {n:07d}\n"
+    body = lambda seed: "".join(line.format(n=seed * 100_000 + number) for number in range(NEAR_LIMIT // len(line)))  # noqa: E731
+    repo = _repo(tmp_path, {**LAYOUT, **{f"engine/part_{n}.py": body(n) for n in range(3)}})
+    pricey = [*PROVIDER[:-4], "--input-usd-per-million", "100", "--output-usd-per-million", "2"]
+    draft = _proposal(capsys, ["init", "--detect", "--repo", str(repo), *pricey])["gate_policy_draft"]
+    model = draft["model_review"]
+    assert model["max_request_bytes"] == 120_000
+    (repo / "gate-policy.json").write_bytes(canonical(draft))
+    case = {"repo": repo, "base": _commit(repo, {}, "Synthetic policy from the draft"),
+            "pin": digest(canonical(draft)), "state": tmp_path / "private-state"}
+    case["head"] = _commit(repo, {f"engine/part_{n}.py": body(n + 10) for n in range(3)}, "Synthetic large change")
+    report = policy_preflight(repo, case["base"], case["head"], "gate-policy.json", case["pin"])
+    assert report["status"] == "ready", report["blockers"]
+    size = report["request"]["bytes"]
+    assert size <= model["max_request_bytes"]
+    needed = reserved_usd(size + ENVELOPE_ALLOWANCE, model["max_output_tokens"], 100, 2)
+    # This request is one that a budget of five percent over the limit's bytes, with no allowance, refuses.
+    assert needed > Decimal(model["max_request_bytes"]) * Decimal("1.05") * 100 / 1_000_000 + Decimal("0.01")
+    assert Decimal(report["request"]["reserved_usd"]) == needed <= Decimal(str(model["max_run_usd"]))
+    at_the_limit = reserved_usd(model["max_request_bytes"] + ENVELOPE_ALLOWANCE, model["max_output_tokens"], 100, 2)
+    assert at_the_limit <= Decimal(str(model["max_run_usd"])) < at_the_limit + Decimal("0.01")
+    # The gate reserves that amount and makes the call.
+    result, calls = run(case, lambda packet: envelope(json.dumps({
+        "head": packet["head"], "summary": "No findings.", "findings": [],
+        "reviewed_paths": [file["path"] for file in packet["files"]]})))
+    assert result["verdict"] == "PASS", result["reasons"]
+    assert len(calls) == 1 and len(calls[0].content) == size
 
 
 def test_a_draft_the_gate_schema_refuses_is_reported_and_the_proposal_still_prints(tmp_path, capsys):

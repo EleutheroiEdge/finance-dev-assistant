@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import ast
 import configparser
+from decimal import ROUND_CEILING, Decimal
 import json
-import math
 from pathlib import PurePosixPath
 from pathlib import Path
 import re
@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 from .config import MAX_PACKET_BYTES, Config, config_document, save_config
 from .errors import AssistantError, prices_required
 from .model_policy import check_draft, missing_fields
+from .review import ENVELOPE_ALLOWANCE, reserved_usd
 from .scope import git, git_command, git_environment, resolve
 from .security import (_PRIVATE, DENIED_PARTS, TEXT_SUFFIXES, _check_model_private, canonical, check_path,
                        check_text, local_name)
@@ -794,7 +795,11 @@ def _provider_fields(configured: Config, model: dict) -> dict:
     """The gate policy fields that are the person's choice, from what `init` was given.
 
     Nothing is invented: a field stays absent until an option or the configuration states it.
-    The run budget covers one request at the proposed limit, as the spend reserve counts it.
+
+    The run budget is the largest reserve a request within the proposed limit can need, by the
+    gate's own arithmetic. A gate reserves max(packet + instructions, request body) plus a fixed
+    allowance as input units. The body holds the packet and the instructions, each escaped, so it
+    is never the smaller, and the gate refuses a body over max_request_bytes before it reserves.
     """
     if configured.provider == "offline" or not configured.model:
         return {}
@@ -807,10 +812,11 @@ def _provider_fields(configured: Config, model: dict) -> dict:
         fields["api_key_env"] = configured.key_name
     prices = (configured.input_usd_per_million, configured.output_usd_per_million)
     if configured.provider == "ollama" or all(value > 0 for value in prices):
-        reserve = (model["max_request_bytes"] * 1.05 * prices[0] + model["max_output_tokens"] * prices[1]) / 1_000_000
-        run = max(configured.max_run_usd, math.ceil(reserve * 100) / 100)
+        reserve = reserved_usd(model["max_request_bytes"] + ENVELOPE_ALLOWANCE, model["max_output_tokens"], *prices)
+        run = max(Decimal(str(configured.max_run_usd)), reserve.quantize(Decimal("0.01"), rounding=ROUND_CEILING))
+        daily = max(Decimal(str(configured.daily_budget_usd)), 3 * run)
         fields.update(input_usd_per_million=prices[0], output_usd_per_million=prices[1],
-                      max_run_usd=round(run, 2), daily_budget_usd=round(max(configured.daily_budget_usd, 3 * run), 2))
+                      max_run_usd=float(run), daily_budget_usd=float(daily))
     return fields
 
 
