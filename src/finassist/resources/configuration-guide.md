@@ -285,6 +285,14 @@ An allowed/protected prefix must also satisfy the configured path policy.
 Configuration files are bounded to 2 MB. Budget values must be finite and nonnegative;
 limits must be integers from 1 to 2,000,000. A limit error names the option and its
 allowed range, for example `{"code":"invalid_limit","option":"max_file_bytes","minimum":1,"maximum":2000000}`.
+
+`max_packet_bytes`, and a gate policy's `max_request_bytes`, may go up to 8,000,000 for a range too
+large for anything smaller. A packet holds the earlier and later text of every changed file, so a
+range that touches large files is much larger than its diff. Before raising either limit, check
+what the preflight can't:
+- **The model's context window.** Source code runs at roughly three to four bytes per token.
+- **`timeout_seconds`.** A large request takes longer to answer.
+- **`max_run_usd`.** The spend reserve counts about one token per byte of request.
 Unknown configuration keys are rejected.
 
 `finassist doctor` reports defaults unless you pass `--config`, and says so in

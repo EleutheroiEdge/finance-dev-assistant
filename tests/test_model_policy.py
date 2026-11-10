@@ -80,6 +80,7 @@ def test_every_authorization_field_is_required(policy_case, field):
     ({"api_key_env": "bad-name"}, "gate_policy_invalid"),
     ({"max_files": True}, "gate_policy_invalid"),
     ({"max_request_bytes": 0}, "gate_policy_invalid"),
+    ({"max_request_bytes": 8_000_001}, "gate_policy_invalid"),
     ({"max_file_bytes": 2_000_001}, "gate_policy_invalid"),
     ({"max_output_tokens": 0}, "gate_policy_invalid"),
     ({"timeout_seconds": 301}, "gate_policy_invalid"),

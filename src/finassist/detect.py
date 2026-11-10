@@ -19,7 +19,7 @@ import shlex
 import subprocess
 import tomllib
 
-from .config import Config, config_document, save_config
+from .config import MAX_PACKET_BYTES, Config, config_document, save_config
 from .errors import AssistantError, prices_required
 from .scope import git, git_command, git_environment, resolve
 from .security import (_PRIVATE, DENIED_PARTS, TEXT_SUFFIXES, _check_model_private, canonical, check_path,
@@ -304,10 +304,10 @@ class _Detector:
             single = json.dumps(text)
             once, twice = max(once, len(single)), max(twice, len(json.dumps(single)))
         packet, request = 2 * once + _ROOM, 2 * twice + _ROOM
-        if request > 2_000_000:
-            self.warn("request_cap_cannot_fit_file", limit=2_000_000, needed=request)
-        self.note("max_request_bytes", min(2_000_000, max(120_000, request)), "largest_encoded_source_file")
-        return min(2_000_000, max(120_000, packet)), min(2_000_000, max(120_000, request))
+        if request > MAX_PACKET_BYTES:
+            self.warn("request_cap_cannot_fit_file", limit=MAX_PACKET_BYTES, needed=request)
+        self.note("max_request_bytes", min(MAX_PACKET_BYTES, max(120_000, request)), "largest_encoded_source_file")
+        return min(MAX_PACKET_BYTES, max(120_000, packet)), min(MAX_PACKET_BYTES, max(120_000, request))
 
     # Test commands ------------------------------------------------------------
     def tests(self) -> list[dict]:

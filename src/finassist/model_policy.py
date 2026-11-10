@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 import jsonschema
 
 from .ci_policy import decode_document, revision
-from .config import Config
+from .config import MAX_PACKET_BYTES, Config
 from .errors import AssistantError, prices_required
 from .policy_fixtures import FIXTURE_PROPERTIES, fixture_settings, load_policy_config
 from .profiles import PROFILES
@@ -29,7 +29,7 @@ _PROPERTIES = {
     "allowed_host": {"type": "string", "pattern": r"^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$"},
     "api_key_env": {"type": "string", "pattern": r"^[A-Z][A-Z0-9_]{0,127}$"},
     "allow_paths": {**_PATHS, "minItems": 1}, "deny_paths": _PATHS,
-    "max_request_bytes": _INT, "max_file_bytes": _INT,
+    "max_request_bytes": {**_INT, "maximum": MAX_PACKET_BYTES}, "max_file_bytes": _INT,
     "max_files": {"type": "integer", "minimum": 1, "maximum": 2000},
     "profile": {"type": "string", "minLength": 1, "maxLength": 64},
     "max_output_tokens": _INT,
@@ -182,7 +182,7 @@ def policy_config_fields(model: dict, profile_text: list[str] | None) -> dict:
         "input_usd_per_million", "output_usd_per_million", "blocking_severities",
     )}
     config_fields.update(allow_network=True, allowed_hosts=[model["allowed_host"]], generated_paths=[],
-                         max_packet_bytes=2_000_000,
+                         max_packet_bytes=max(2_000_000, model["max_request_bytes"]),
                          monthly_budget_usd=1_000_000)
     for key in ("private_paths", "related_context", "related_max_bytes"):
         if key in model:

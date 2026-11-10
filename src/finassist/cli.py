@@ -16,7 +16,7 @@ import time
 
 from . import installed_version
 from .auditing import command_audit
-from .config import Config, load_config
+from .config import PACKET_FILE_BYTES, Config, load_config
 from .demo import run_demo
 from .health import doctor_report
 from .errors import AssistantError, error_record
@@ -310,7 +310,7 @@ def _execute_workflow(args, config: Config) -> int:
     if action in {"run", "resume"} and not 1 <= args.max_steps <= 64:
         raise AssistantError("workflow_step_limit_invalid")
     if action == "run":
-        plan, packet = _read_json(args.plan), _read_json(args.packet)
+        plan, packet = _read_json(args.plan), _read_json(args.packet, max_bytes=PACKET_FILE_BYTES)
         validate_run(plan, packet, args.repo, config, approved_plan=args.approve_plan,
                      backend=args.backend, approve_local=args.approve_local)
     with WorkflowStore(audit_directory(args), create=action == "run") as store:
@@ -382,7 +382,7 @@ def execute(args, config: Config | None = None) -> int:
                            "config_hash": saved["config_hash"], "template_hash": saved["template_hash"]})
         _emit(saved)
     elif args.command == "workflow":
-        packet = _read_json(args.packet)
+        packet = _read_json(args.packet, max_bytes=PACKET_FILE_BYTES)
         if args.workflow_action == "plan":
             template = _read_json(args.template)
             provenance = {}
@@ -417,7 +417,7 @@ def execute(args, config: Config | None = None) -> int:
             if index + 1 < args.iterations:
                 time.sleep(args.interval)
     elif args.command in {"review", "propose"}:
-        packet = _read_json(args.packet)
+        packet = _read_json(args.packet, max_bytes=PACKET_FILE_BYTES)
         method = review_packet if args.command == "review" else propose
         result = method(
             packet,
@@ -663,7 +663,7 @@ def execute(args, config: Config | None = None) -> int:
             args.repo, "status", "--porcelain", "--untracked-files=normal", "--", ".", ":(exclude).finassist"
         )
         evidence = (
-            _read_json(args.packet), _read_json(args.review),
+            _read_json(args.packet, max_bytes=PACKET_FILE_BYTES), _read_json(args.review),
             [_read_json(path, max_bytes=MAX_WORKFLOW_ARTIFACT_BYTES) for path in args.receipt],
             config, head, audit_directory(args) / "audit.sqlite",
         )

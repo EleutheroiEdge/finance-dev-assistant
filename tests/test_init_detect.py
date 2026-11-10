@@ -424,7 +424,7 @@ def test_the_proposed_request_limit_fits_an_escaping_heavy_file(body, tmp_path, 
                             ".gitignore": ".finassist/\n"})
     proposal = detect_module.detect(repo)
     draft = proposal["gate_policy_draft"]["model_review"]
-    assert draft["max_request_bytes"] <= 2_000_000
+    assert draft["max_request_bytes"] <= 8_000_000
     document = model_policy()
     document["model_review"].update(draft, max_files=10, max_run_usd=50, daily_budget_usd=50)
     (repo / "gate-policy.json").write_bytes(canonical(document))
@@ -436,11 +436,11 @@ def test_the_proposed_request_limit_fits_an_escaping_heavy_file(body, tmp_path, 
 
 
 def test_a_file_the_request_cap_cannot_fit_is_warned_about(tmp_path, capsys):
-    repo = _repo(tmp_path, {"engine/huge.py": ("#" + "\t" * 60 + "\n") * 20_000})
+    repo = _repo(tmp_path, {"engine/huge.py": ("#" + "\t" * 60 + "\n") * 32_000})
     proposal = _proposal(capsys, ["init", "--detect", "--repo", str(repo)])
     warning = next(entry for entry in proposal["warnings"] if entry["code"] == "request_cap_cannot_fit_file")
-    assert warning["limit"] == 2_000_000 and warning["needed"] > 2_000_000
-    assert proposal["gate_policy_draft"]["model_review"]["max_request_bytes"] == 2_000_000
+    assert warning["limit"] == 8_000_000 and warning["needed"] > 8_000_000
+    assert proposal["gate_policy_draft"]["model_review"]["max_request_bytes"] == 8_000_000
 
 
 def test_no_blob_the_path_policy_refuses_is_read_or_sized(tmp_path, capsys, monkeypatch):

@@ -74,7 +74,7 @@ HINTS = {
     "linked_or_special_git_object": "Symbolic links and submodules are not reviewed.",
     "forbidden_token_present": "This content contains a listed confidential figure.",
     "forbidden_token_file_invalid": "The token file must be an absolute path outside every checkout of the repository.",
-    "gate_request_bytes_exceeded": "Raise max_request_bytes (up to 2,000,000) or review a smaller range.",
+    "gate_request_bytes_exceeded": "Raise max_request_bytes (up to 8,000,000) or review a smaller range.",
     "run_budget_exceeded": "Raise max_run_usd above the reserved estimate, or review a smaller range.",
     "daily_budget_exceeded": "Raise daily_budget_usd above the reserved estimate.",
     "path_name_not_utf8": "Rename the changed files whose names are not UTF-8 text; the gate can't read them.",
