@@ -68,14 +68,23 @@ finassist init --detect --purpose quant --write --output finassist.json
 ```
 
 - **What it proposes:**
-  - `allow_paths`: source directories, root source files, tests, docs and scripts;
+  - `allow_paths`: source directories, root source files, tests, docs and scripts, then any other
+    directory of reviewable text and root text files such as a roadmap, so a change to one doesn't
+    leave a range incomplete;
   - `generated_paths`: lock files, hash-named build assets, `dist/`, and files `.gitattributes` marks `linguist-generated` or `linguist-vendored`;
   - `protected_paths`;
+  - `profile`: from `--purpose` or `--profile`. Without either, it follows the README and agent
+    instruction files when at least three words for one purpose appear there and that purpose leads
+    the next by two; the evidence lists the words. Otherwise the default is kept and
+    `purpose_not_stated` warns;
   - `max_file_bytes`: fitted to the largest reviewed source file;
-  - `max_packet_bytes`.
+  - `max_packet_bytes`: enough for one file's change and for the largest recent change.
 
-  Its gate policy draft adds:
-  - `max_request_bytes`;
+  Its gate policy draft is a whole version-2 policy, apart from the choices that are yours:
+  - `max_request_bytes`, `max_files`, `max_output_tokens`, `timeout_seconds` and `blocking_severities`;
+  - the provider, model, endpoint, key variable name, prices and budgets, when you pass `--provider`,
+    `--model`, `--api-key-env` and both prices. `max_run_usd` then covers one request at the proposed
+    limit. Without them `gate_policy_missing` lists those fields, and nothing is invented for them;
   - `fixture_roots` for CSV or TSV files under a tests directory, which must be synthetic;
   - `deny_paths` for private directories inside a reviewed prefix, or for the file itself when no directory is private, such as `src/.env.py`. This uses the shared path policy and the gate's private names (data, private, client and similar).
 
@@ -83,7 +92,10 @@ finassist init --detect --purpose quant --write --output finassist.json
   - a changed file travels with its earlier version;
   - the packet escapes its text as JSON once, and the provider request escapes the packet again, so tabs, quotes and non-ASCII text grow most;
   - the proposal measures the largest source files that way and adds 64 KiB for instructions;
-  - when even 2,000,000 bytes can't fit one file's change, it warns with `request_cap_cannot_fit_file`.
+  - it then sizes the last 40 first-parent changes from Git's object headers, without reading a file
+    and never sizing a private name, and scales them by the escaping it measured. The limits fit the
+    largest, and `recent_change_over_ceiling` warns when that needs more than 8,000,000 bytes;
+  - when even 8,000,000 bytes can't fit one file's change, it warns with `request_cap_cannot_fit_file`.
 - **Proposals stay narrow:**
   - a file name that only looks generated, such as `assets/name-<hash>.js`, must have a digit in its hash, and never widens a generated prefix beyond its own `assets` or `dist` directory;
   - only each runner's own test command is proposed, so `npm publish test` or `make deploy test` never is;
@@ -217,9 +229,9 @@ works in a gate policy's `model_review` object. What happens then:
   paths were withheld, never their names, extensions, directories or sizes. `plan` names them in its
   local summary (`withheld_paths`), and `doctor --policy` lists them as `withheld`. A name that could
   display as a different one, or that matches a configured sensitive pattern, is shown as `[redacted]`.
-- **Policy refusals still come first.** A private path that is outside `allow_paths` or under
-  `deny_paths` still refuses the gate. A name that matches `extra_sensitive_patterns`, or that itself
-  looks like a credential, still refuses everywhere.
+- **Some refusals still come first.** A private path under a gate policy's `deny_paths` still
+  refuses the gate; one outside `allow_paths` is withheld, as in `plan` and `review`. A name that
+  matches `extra_sensitive_patterns`, or that itself looks like a credential, still refuses everywhere.
 - **Coverage is incomplete wherever it is checked:**
   - a review is `partial-review`;
   - readiness, workflow plans and the CI check gate still refuse it with their coverage codes;
@@ -285,6 +297,14 @@ An allowed/protected prefix must also satisfy the configured path policy.
 Configuration files are bounded to 2 MB. Budget values must be finite and nonnegative;
 limits must be integers from 1 to 2,000,000. A limit error names the option and its
 allowed range, for example `{"code":"invalid_limit","option":"max_file_bytes","minimum":1,"maximum":2000000}`.
+
+`max_packet_bytes`, and a gate policy's `max_request_bytes`, may go up to 8,000,000 for a range too
+large for anything smaller. A packet holds the earlier and later text of every changed file, so a
+range that touches large files is much larger than its diff. Before raising either limit, check
+what the preflight can't:
+- **The model's context window.** Source code runs at roughly three to four bytes per token.
+- **`timeout_seconds`.** A large request takes longer to answer.
+- **`max_run_usd`.** The spend reserve counts about one token per byte of request.
 Unknown configuration keys are rejected.
 
 `finassist doctor` reports defaults unless you pass `--config`, and says so in

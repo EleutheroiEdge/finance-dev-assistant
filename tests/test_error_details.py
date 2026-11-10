@@ -31,6 +31,7 @@ def error_output(capsys, argv) -> dict:
 
 @pytest.mark.parametrize("option,value,code,details", [
     ("max_file_bytes", 3_000_000, "invalid_limit", {"option": "max_file_bytes", **RANGE}),
+    ("max_packet_bytes", 8_000_001, "invalid_limit", {"option": "max_packet_bytes", "minimum": 1, "maximum": 8_000_000}),
     ("timeout_seconds", 0, "invalid_limit", {"option": "timeout_seconds", **RANGE}),
     ("readiness_max_age_seconds", 0, "invalid_evidence_age", {"option": "readiness_max_age_seconds", **RANGE}),
     ("input_usd_per_million", -1, "invalid_cost_limit", {"option": "input_usd_per_million", "minimum": 0}),

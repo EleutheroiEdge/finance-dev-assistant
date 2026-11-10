@@ -44,6 +44,13 @@ class LoadedProfiles(dict):
         self.inline = deepcopy(inline)
 
 
+# The largest packet, or gate request, a configuration or policy may allow. The defaults stay
+# small; a range too large for them needs a deliberate, reviewed limit.
+MAX_PACKET_BYTES = 8_000_000
+# A packet file is the packet plus its hash and a newline.
+PACKET_FILE_BYTES = MAX_PACKET_BYTES + 4096
+
+
 @dataclass(frozen=True)
 class Config:
     schema_version: int = field(default=1, metadata={"json_schema": {"const": 1}})
@@ -92,7 +99,7 @@ class Config:
     protected_branches: tuple[str, ...] = ("main", "master", "trunk", "production", "release", "release/*")
     extra_sensitive_patterns: tuple[str, ...] = ()
     max_file_bytes: int = field(default=48_000, metadata={"json_schema": {"minimum": 1, "maximum": 2_000_000}})
-    max_packet_bytes: int = field(default=120_000, metadata={"json_schema": {"minimum": 1, "maximum": 2_000_000}})
+    max_packet_bytes: int = field(default=120_000, metadata={"json_schema": {"minimum": 1, "maximum": MAX_PACKET_BYTES}})
     max_output_tokens: int = field(default=4096, metadata={"json_schema": {"minimum": 1, "maximum": 2_000_000}})
     timeout_seconds: int = field(default=60, metadata={"json_schema": {"minimum": 1, "maximum": 2_000_000}})
     max_run_usd: float = field(default=1.0, metadata={"json_schema": {"minimum": 0}})
@@ -217,8 +224,9 @@ class Config:
             "max_output_tokens",
             "timeout_seconds",
         ):
-            if type(getattr(self, key)) is not int or not 0 < getattr(self, key) <= 2_000_000:
-                raise AssistantError("invalid_limit", {"option": key, "minimum": 1, "maximum": 2_000_000})
+            maximum = MAX_PACKET_BYTES if key == "max_packet_bytes" else 2_000_000
+            if type(getattr(self, key)) is not int or not 0 < getattr(self, key) <= maximum:
+                raise AssistantError("invalid_limit", {"option": key, "minimum": 1, "maximum": maximum})
         if (
             type(self.readiness_max_age_seconds) is not int
             or not 1 <= self.readiness_max_age_seconds <= 2_000_000

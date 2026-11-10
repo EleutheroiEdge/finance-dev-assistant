@@ -190,7 +190,7 @@
     },
     "max_packet_bytes": {
       "default": 120000,
-      "maximum": 2000000,
+      "maximum": 8000000,
       "minimum": 1,
       "title": "Max packet bytes",
       "type": "integer"

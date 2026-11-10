@@ -37,18 +37,23 @@ class PolicyRequestApproval:
             raise AssistantError("request_approval_mismatch")
 
 
+ENVELOPE_ALLOWANCE = 16_384  # Input units reserved beyond the bytes sent, for the provider's own framing.
+
+
+def reserved_usd(input_units: int, output_tokens: int, price_in, price_out) -> Decimal:
+    """What a request reserves: every input unit and every permitted output token, at its price."""
+    return (Decimal(input_units) * Decimal(str(price_in)) + Decimal(output_tokens) * Decimal(str(price_out))) / 1_000_000
+
+
 def spend_estimate(packet: dict, system: str, request_body: bytes, config: Config,
                    *, policy_bound: bool) -> tuple[int, Decimal]:
     """A conservative byte-based estimate plus envelope allowance is a planning
     reservation, not a provider-enforced billing cap or tokenizer guarantee."""
-    input_bound = len(canonical(packet)) + len(system.encode()) + 16_384
+    input_bound = len(canonical(packet)) + len(system.encode()) + ENVELOPE_ALLOWANCE
     if policy_bound:
-        input_bound = max(input_bound, len(request_body) + 16_384)
-    price_in, price_out = (
-        Decimal(str(config.input_usd_per_million)),
-        Decimal(str(config.output_usd_per_million)),
-    )
-    return input_bound, (Decimal(input_bound) * price_in + Decimal(config.max_output_tokens) * price_out) / 1_000_000
+        input_bound = max(input_bound, len(request_body) + ENVELOPE_ALLOWANCE)
+    return input_bound, reserved_usd(input_bound, config.max_output_tokens, config.input_usd_per_million,
+                                     config.output_usd_per_million)
 
 
 def review_schema() -> dict:

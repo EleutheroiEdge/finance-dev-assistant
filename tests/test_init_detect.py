@@ -121,7 +121,7 @@ def test_detection_runs_only_fixed_git_reads(quant_repo, capsys, monkeypatch):
     _proposal(capsys, ["init", "--detect", "--repo", str(quant_repo)])
     git = git_command(quant_repo, "status")[0]
     assert seen and all(argv[0] == git for argv in seen)
-    allowed = {"ls-tree", "cat-file", "check-attr", "rev-parse", "config", "--version"}
+    allowed = {"ls-tree", "cat-file", "check-attr", "rev-parse", "rev-list", "diff", "config", "--version"}
     assert all(any(part in allowed for part in argv[1:]) for argv in seen)
     assert not any(part in {"add", "commit", "checkout", "switch", "reset", "fetch", "pull", "push", "update-index"}
                    for argv in seen for part in argv[1:])
@@ -424,7 +424,7 @@ def test_the_proposed_request_limit_fits_an_escaping_heavy_file(body, tmp_path, 
                             ".gitignore": ".finassist/\n"})
     proposal = detect_module.detect(repo)
     draft = proposal["gate_policy_draft"]["model_review"]
-    assert draft["max_request_bytes"] <= 2_000_000
+    assert draft["max_request_bytes"] <= 8_000_000
     document = model_policy()
     document["model_review"].update(draft, max_files=10, max_run_usd=50, daily_budget_usd=50)
     (repo / "gate-policy.json").write_bytes(canonical(document))
@@ -436,11 +436,11 @@ def test_the_proposed_request_limit_fits_an_escaping_heavy_file(body, tmp_path, 
 
 
 def test_a_file_the_request_cap_cannot_fit_is_warned_about(tmp_path, capsys):
-    repo = _repo(tmp_path, {"engine/huge.py": ("#" + "\t" * 60 + "\n") * 20_000})
+    repo = _repo(tmp_path, {"engine/huge.py": ("#" + "\t" * 60 + "\n") * 32_000})
     proposal = _proposal(capsys, ["init", "--detect", "--repo", str(repo)])
     warning = next(entry for entry in proposal["warnings"] if entry["code"] == "request_cap_cannot_fit_file")
-    assert warning["limit"] == 2_000_000 and warning["needed"] > 2_000_000
-    assert proposal["gate_policy_draft"]["model_review"]["max_request_bytes"] == 2_000_000
+    assert warning["limit"] == 8_000_000 and warning["needed"] > 8_000_000
+    assert proposal["gate_policy_draft"]["model_review"]["max_request_bytes"] == 8_000_000
 
 
 def test_no_blob_the_path_policy_refuses_is_read_or_sized(tmp_path, capsys, monkeypatch):
