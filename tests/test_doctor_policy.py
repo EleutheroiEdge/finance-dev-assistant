@@ -51,7 +51,8 @@ def test_ready_range_matches_the_gate_without_reading_the_key(gate_case, monkeyp
         report = preflight(gate_case)
     assert report["status"] == "ready" and report["blockers"] == [] and report["coverage_complete"]
     assert report["paths"] == [{"path": "src/cash.py", "status": "included"}]
-    assert report["policy"] == {"path": "gate-policy.json", "sha256": gate_case["pin"], "pin": "matches"}
+    assert report["policy"] == {"path": "gate-policy.json", "source": "base", "sha256": gate_case["pin"],
+                                "pin": "matches"}
     assert 0 < report["request"]["bytes"] <= report["request"]["limit"] == 120_000
     assert report["provider"]["key_variable"] == "REVIEW_PROVIDER_KEY" and report["provider"]["key_variable_set"]
     assert gate_case["pin"] in report["next_step"]["command"]

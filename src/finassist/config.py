@@ -377,6 +377,11 @@ def load_config(path: Path | None = None, *, content: bytes | None = None,
             if not isinstance(schema_hint, str) or len(schema_hint) > 2048:
                 raise AssistantError("invalid_schema_hint")
             # Editor metadata only: never fetch or execute the referenced document.
+        # Say which file it is when a policy is passed where a configuration belongs.
+        if isinstance(raw, dict) and "model_review" in raw:
+            raise AssistantError("config_is_gate_policy")
+        if isinstance(raw, dict) and {"repository", "events", "base_branches"} <= set(raw):
+            raise AssistantError("config_is_ci_policy")
         raw, deprecated = compatible_document(raw)
         unknown = set(raw) - {
             item.name for item in fields(Config) if not item.metadata.get("internal")

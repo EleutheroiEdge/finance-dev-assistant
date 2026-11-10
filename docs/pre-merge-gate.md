@@ -315,6 +315,30 @@ Once its own checks pass, it runs the gate's policy loader and source builder
 too, so `ready` means `gate run` will accept the range up to the provider call. The
 provider's answer, the key's value and prior spend are not checked.
 
+### A past range, before the policy was committed
+
+The gate reads its policy only at `--base`, so a range whose base predates the policy
+can't be preflighted with `--policy`. To try a policy on such a range, give the
+preflight a file on this machine instead:
+
+```sh
+finassist doctor --policy-file gate-policy.json --repo . --base BASE --head HEAD
+```
+
+It runs the same checks, with three differences:
+- **It authorizes nothing.** The report shows `policy.source: "working-tree"` and a
+  `policy_from_working_tree` warning, and a `ready` range gets no `gate run` command.
+  `gate run` has no `--policy-file`; it still reads only the pinned policy at base.
+- **The pin is optional.** `--policy-sha256` is checked against the file's bytes when you
+  pass it, and a `forbidden_token_file` is opened only once you do, as with `--policy`.
+- **What the policy selects is still read at base:** its profile file, fixture markers
+  and ignore rules, as the gate would read them for that range.
+
+Pass `--policy` or `--policy-file`, not both. If either names a finassist.json
+configuration, the preflight says so with `gate_policy_is_configuration`; `--config`
+likewise refuses a gate policy (`config_is_gate_policy`) or a CI policy
+(`config_is_ci_policy`).
+
 ## Calling it locally
 
 Use trusted installed package code, outside candidate-controlled imports:
