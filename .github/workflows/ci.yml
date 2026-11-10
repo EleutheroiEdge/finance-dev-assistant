@@ -1,9 +1,16 @@
 name: checks
 on:
+  # A pull request's commits are checked once, by the pull_request event. Pushes are checked
+  # on main only, so a branch with an open pull request no longer runs every job twice.
   push:
+    branches: [main]
   pull_request:
 permissions:
   contents: read
+# A newer commit on the same pull request cancels the run it replaces. Runs on main never cancel.
+concurrency:
+  group: checks-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
     name: ${{ matrix.check_name }}
@@ -31,7 +38,8 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: python scripts/ci_install.py dependencies
       - run: python scripts/ci_install.py project
-      - run: python -m pytest -q
+      - name: Run the tests in parallel groups
+        run: python scripts/ci_test.py
       - run: ruff check src tests scripts actions
       - run: finassist demo
       - run: finassist scan --repo .

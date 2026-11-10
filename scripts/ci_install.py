@@ -14,6 +14,8 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
+import urllib.error
 import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -81,11 +83,31 @@ def pnpm_target(system=None, machine=None):
     return target
 
 
+def fetch(url, *, attempts=3, pause=5):
+    """Read a fixed HTTPS URL, trying again when the runner's network fails.
+
+    A hosted runner sometimes can't resolve a name or loses a connection for a moment. Only
+    that kind of failure is retried, a fixed number of times. What arrives is checked against
+    its pinned digest by the caller whichever attempt it came from, and an HTTP error status
+    is never retried.
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=60) as response:  # noqa: S310 fixed HTTPS host and allowlisted target
+                return response.read(64_000_001)
+        except urllib.error.HTTPError:
+            raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
+            if attempt == attempts:
+                raise
+            print(f"download attempt {attempt} of {attempts} failed ({type(error).__name__}); trying again", flush=True)
+            time.sleep(pause * attempt)
+
+
 def unpack_pnpm(directory):
     target = pnpm_target()
     url = f"https://registry.npmjs.org/@pnpm/exe.{target}/-/exe.{target}-12.9.1.tgz"
-    with urllib.request.urlopen(url, timeout=60) as response:  # noqa: S310 fixed HTTPS host and allowlisted target
-        data = response.read(64_000_001)
+    data = fetch(url)
     if len(data) > 64_000_000 or not hmac.compare_digest(
         hashlib.sha512(data).digest(), base64.b64decode(PNPM_INTEGRITY[target].split("-", 1)[1], validate=True)
     ):

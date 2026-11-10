@@ -3,6 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import io
 import json
+import platform
 import sqlite3
 import subprocess
 import sys
@@ -44,6 +45,11 @@ def transport(calls, *, version="0.6.0", status=200):
 def test_defaults_health_status_and_dry_run_are_offline_and_do_not_create_state(tmp_path, monkeypatch, capsys):
     def refuse(*args, **kwargs):
         pytest.fail("default health/status/preview must not request the network or execute an installer")
+    # The health report names the operating system. The first time Python is asked for it, it may
+    # run a system command to find out, as Windows does on Python 3.11. Start from a cold cache,
+    # whatever ran before this test, and let that one query happen before every subprocess is refused.
+    monkeypatch.setattr(platform, "_uname_cache", None, raising=False)
+    platform.uname()
     monkeypatch.setattr(update_check, "fetch_latest", refuse)
     monkeypatch.setattr(updater.subprocess, "run", refuse)
     monkeypatch.chdir(tmp_path)

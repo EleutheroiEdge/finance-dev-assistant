@@ -19,6 +19,7 @@ def test_long_and_prefixed_sensitive_assignments_remain_detected(label, prefix):
         check_text(prefix + label + ' = "' + value + '"')
 
 
+@pytest.mark.alone
 def test_policy_sized_hyphenated_tokens_scan_in_bounded_time():
     # Time only scans inside the child; imports/startup are outside the2s bound.
     # A10s subprocess timeout prevents a regression hanging the whole test runner.
