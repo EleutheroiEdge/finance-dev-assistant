@@ -10,7 +10,7 @@ from .ledger import CURRENT_RUN, Ledger
 from .review import validate_review
 from .scope import verify_packet, review_omissions
 from .security import canonical, digest
-from .workflow_state import unfinished_workflows
+from .workflow_state import abandoned_workflows, unfinished_workflows
 
 
 def verify_gate(
@@ -74,14 +74,18 @@ def verify_gate(
             blockers.add("unreconciled_spend")
         if any(run["run_id"] != CURRENT_RUN.get() for run in ledger.incomplete_runs()):
             blockers.add("unfinished_operation")
+        reconciled = ledger.reconciled_runs()
         # Iterate all records without confusing a bounded export page with full
         # history. No source, arguments or test logs are returned by this query.
         rows = ledger.db.execute("SELECT payload,hash FROM events ORDER BY seq").fetchall()
     import json
 
     events = [(json.loads(payload), value) for payload, value in rows]
-    if unfinished_workflows([(index, payload) for index, (payload, _hash) in enumerate(events, start=1)]):
+    indexed = [(index, payload) for index, (payload, _hash) in enumerate(events, start=1)]
+    if unfinished_workflows(indexed):
         blockers.add("unfinished_workflow")
+    # An abandoned run's files couldn't be verified, so none of its check results count.
+    abandoned = {run["workflow_run_id"]: run["abandoned_at"] for run in abandoned_workflows(indexed)}
     now = datetime.now(timezone.utc)
 
     def fresh(payload: dict) -> bool:
@@ -157,12 +161,18 @@ def verify_gate(
             and p.get("receipt_hash") == receipt_hash
             and p.get("config_hash") == config_hash
             and fresh(p)
+            and p.get("workflow_run_id") not in abandoned
             for p, _ in events
         ):
             blockers.add("check_receipt_missing_or_stale")
     if seen != set(required_recipes):
         blockers.add("required_recipe_evidence_missing")
+    # Recent recoveries stay visible without blocking: someone set an unknown outcome aside.
+    closed = sum(fresh({"recorded_at": run["reconciled_at"]}) for run in reconciled)
+    dropped = sum(fresh({"recorded_at": instant}) for instant in abandoned.values())
+    warnings = [{"code": "reconciled_operation", "closed_runs": closed, "abandoned_workflows": dropped}]
     return {
+        **({"warnings": warnings} if closed or dropped else {}),
         "status": "blocked" if blockers else "eligible-for-human-review",
         "head": head,
         "blocking_reasons": sorted(blockers),

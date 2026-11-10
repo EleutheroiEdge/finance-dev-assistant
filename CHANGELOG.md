@@ -27,6 +27,22 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 - **Mix-ups between file kinds are named.** A finassist.json configuration passed as a gate policy
   now blocks with `gate_policy_is_configuration` instead of a list of schema errors. `--config`
   refuses a gate policy with `config_is_gate_policy` and a CI policy with `config_is_ci_policy`.
+- **`audit close-run` for an unfinished command (#69).** A command that was killed, or whose completion
+  couldn't be recorded, used to block readiness until the state directory was replaced.
+  `finassist audit close-run --run RUN_ID --command NAME` records its outcome as unknown:
+  - only a run listed in `incomplete_runs` qualifies, and `--command` must match its recorded command;
+  - it never claims success, deletes nothing and leaves open spend for `reconcile-budget`;
+  - a late completion from that run is refused, so the unknown outcome can't be replaced;
+  - `audit` lists it under `reconciled_runs`.
+- **`workflow abandon` for a damaged run (#69).** A run whose own files were missing or changed refused
+  every command, and its plan couldn't start a new run.
+  `finassist workflow abandon --run-id RUN_ID --approve-plan HASH` closes it:
+  - only an unfinished run that fails with `workflow_artifact_missing_or_changed` qualifies;
+  - the plan hash comes from the audit ledger, and an interrupted step needs `--confirm-cleanup`;
+  - nothing is deleted, its status becomes `abandoned`, and none of its check results count as evidence.
+- **`verify-gate` warns about recent recoveries.** A closed run or an abandoned workflow within
+  `readiness_max_age_seconds` adds a `warnings` entry, `reconciled_operation`, with the counts. It never
+  blocks.
 
 ### Changed
 - **`plan` names what it refuses.** It now checks every changed name before reading any file,
@@ -51,6 +67,12 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ### Fixed
 - The 0.8.0 install line now uses `--only-binary=:all:`, like the README and the upgrading guide.
+
+### Upgrading
+- **State directories that use the new recovery events need this release or later.** After
+  `audit close-run`, 0.8.0 still lists the run as incomplete. After `workflow abandon`, 0.8.0's workflow
+  commands and readiness refuse the ledger with `workflow_state_invalid`. Don't downgrade a state
+  directory once either command has been used.
 
 ## 0.8.0 - 2026-11-09
 

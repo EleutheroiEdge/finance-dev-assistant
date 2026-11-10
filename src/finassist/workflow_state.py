@@ -24,6 +24,7 @@ _FIELDS = {
     },
     "workflow_step_retry": {"step_id", "attempt_id"},
     "workflow_run_cancelled": set(),
+    "workflow_run_abandoned": {"code", "cleanup_confirmed"},
 }
 _METADATA = {"recorded_at", "event_schema", "run_id"}
 _OPEN_PHASES = {"pending", "running", "unknown", "failed"}
@@ -46,6 +47,8 @@ def operation_identifier(run_id: str, step_id: str) -> str:
 
 def run_phase(run: dict) -> str:
     states = {step["state"] for step in run["steps"].values()}
+    if run["abandoned"]:
+        return "abandoned"
     if run["cancelled"]:
         return "cancelled"
     for state in ("running", "unknown", "failed"):
@@ -104,7 +107,7 @@ def replay_workflows(events: list[tuple[int, dict]]) -> dict[str, dict]:
             runs[identifier] = {
                 "workflow_run_id": identifier, "execution_hash": row["execution_hash"],
                 "plan_hash": row["plan_hash"], "head": row["head"], "backend": row["backend"],
-                "cancelled": False, "sequence": sequence,
+                "cancelled": False, "abandoned": False, "abandoned_at": None, "sequence": sequence,
                 "steps": {step["id"]: {
                     "depends_on": step["depends_on"], "state": "pending", "attempt_id": None,
                     "snapshot_hash": None, "artifact_hash": None, "receipt_hash": None,
@@ -113,12 +116,22 @@ def replay_workflows(events: list[tuple[int, dict]]) -> dict[str, dict]:
             }
             continue
         run = runs.get(identifier)
-        if run is None or run["cancelled"]:
+        if run is None or run["cancelled"] or run["abandoned"]:
             raise AssistantError("workflow_state_invalid")
         if event == "workflow_run_cancelled":
             if run_phase(run) not in {"pending", "failed"}:
                 raise AssistantError("workflow_state_invalid")
             run["cancelled"] = True
+        elif event == "workflow_run_abandoned":
+            # Only an open run whose files can't be read; an interrupted step needs confirmed cleanup.
+            phase = run_phase(run)
+            if (
+                phase not in _OPEN_PHASES or row["code"] != "workflow_artifact_missing_or_changed"
+                or type(row["cleanup_confirmed"]) is not bool
+                or (phase in {"running", "unknown"} and not row["cleanup_confirmed"])
+            ):
+                raise AssistantError("workflow_state_invalid")
+            run.update(abandoned=True, abandoned_at=payload.get("recorded_at"))
         else:
             step = run["steps"].get(row["step_id"]) if isinstance(row["step_id"], str) else None
             if step is None or not _matches(row["attempt_id"], r"[0-9a-f]{32}"):
@@ -175,6 +188,15 @@ def unfinished_workflows(events: list[tuple[int, dict]]) -> list[dict]:
         {"workflow_run_id": identifier, "status": run_phase(run), "plan_hash": run["plan_hash"]}
         for identifier, run in replay_workflows(events).items()
         if run_phase(run) in _OPEN_PHASES
+    ]
+
+
+def abandoned_workflows(events: list[tuple[int, dict]]) -> list[dict]:
+    """Runs closed by `workflow abandon`. None of their check results count as evidence."""
+    return [
+        {"workflow_run_id": identifier, "plan_hash": run["plan_hash"], "abandoned_at": run["abandoned_at"]}
+        for identifier, run in replay_workflows(events).items()
+        if run["abandoned"]
     ]
 
 

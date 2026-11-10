@@ -6,7 +6,7 @@ from .platform_support import read_utf8
 
 import argparse
 from dataclasses import asdict
-from decimal import Decimal, InvalidOperation
+from decimal import InvalidOperation
 import json
 from pathlib import Path
 import sqlite3
@@ -38,8 +38,8 @@ from .scope import build_packet, git, plan_packet, resolve, triage
 from .security import canonical, check_text, digest, regular_path, write_private
 from .workspace import export_snapshot
 from .workflow import build_workflow_plan, preflight_workflow, verify_workflow_gate
-from .workflow_execution import cancel_run, create_run, execute_run, inspect_run, reconcile_run, retry_step, validate_run
-from .workflow_state import MAX_WORKFLOW_ARTIFACT_BYTES, WorkflowStore, run_phase, unfinished_workflows
+from .workflow_execution import abandon_run, cancel_run, create_run, execute_run, inspect_run, reconcile_run, retry_step, validate_run
+from .workflow_state import MAX_WORKFLOW_ARTIFACT_BYTES, WorkflowStore, run_phase
 from .workflow_packs import export_resolution, read_bundle, resolve_bundle, verify_resolution
 
 WORKFLOW_STATE_ACTIONS = {
@@ -49,6 +49,7 @@ WORKFLOW_STATE_ACTIONS = {
     "reconcile": "Adopt a verified result or confirm cleanup of an uncertain attempt",
     "retry": "Make an approved failed attempt eligible for a later explicit resume",
     "cancel": "Close an inactive run while preserving evidence",
+    "abandon": "Close a run whose files are missing or changed; nothing is deleted",
 }
 
 
@@ -182,7 +183,7 @@ def parser() -> argparse.ArgumentParser:
             operation.add_argument("--max-steps", type=int, default=64, help="Maximum checks this invocation (1-64)")
             operation.add_argument("--approve-local", action="store_true",
                                    help="Allow trusted local execution without OS isolation")
-        if action in {"run", "resume", "retry", "cancel"}:
+        if action in {"run", "resume", "retry", "cancel", "abandon"}:
             operation.add_argument("--approve-plan", required=True, help="Exact hash of the inspected workflow plan")
         if action == "run":
             operation.add_argument("--packet", required=True)
@@ -196,6 +197,9 @@ def parser() -> argparse.ArgumentParser:
             choice.add_argument("--approve-artifact", help="Exact hash of the inspected saved result")
             choice.add_argument("--confirm-cleanup", action="store_true",
                                 help="Confirm processes are stopped and cleanup is complete; records failure")
+        if action == "abandon":
+            operation.add_argument("--confirm-cleanup", action="store_true",
+                                   help="Confirm an interrupted step's processes are stopped and cleaned up")
     timeline = actions.add_parser("timeline", help="Inspect verified historical workflow transitions without acting")
     timeline.add_argument("--repo", type=Path, default=Path.cwd())
     timeline.add_argument("--state-dir", type=Path)
@@ -225,17 +229,8 @@ def parser() -> argparse.ArgumentParser:
     finance.add_argument("--kind", choices=["cash", "tax", "weights", "observation"], required=True)
     finance.add_argument("--input", required=True)
     finance.add_argument("--output")
-    audit = commands.add_parser("audit", help="Verify audit-chain integrity or list unreconciled spend")
-    audit.add_argument("--state-dir", type=Path, default=Path(".finassist"))
-    audit.add_argument("--export", help="Export verified metadata events as private JSON Lines")
-    audit.add_argument("--after", type=int, default=0)
-    audit.add_argument("--limit", type=int, default=1000)
-    settle = commands.add_parser(
-        "reconcile-budget", help="Record operator-verified spend for one unresolved call"
-    )
-    settle.add_argument("--state-dir", type=Path, default=Path(".finassist"))
-    settle.add_argument("--reservation", required=True)
-    settle.add_argument("--actual-usd", required=True)
+    from .audit_commands import add_audit_commands
+    add_audit_commands(commands)
     render = commands.add_parser("render", help="Render escaped static HTML from an existing JSON report")
     render.add_argument("--input", required=True)
     render.add_argument("--output", required=True)
@@ -345,6 +340,9 @@ def _execute_workflow(args, config: Config) -> int:
         elif action == "retry":
             result = retry_step(store, args.run_id, args.step_id, args.approve_attempt,
                                 approved_plan=args.approve_plan)
+        elif action == "abandon":
+            result = abandon_run(store, args.run_id, approved_plan=args.approve_plan,
+                                 confirm_cleanup=args.confirm_cleanup)
         else:
             result = cancel_run(store, args.run_id, approved_plan=args.approve_plan)
         _emit(result, args.output)
@@ -491,26 +489,9 @@ def execute(args, config: Config | None = None) -> int:
         _emit(result, args.output)
         return 0 if result.get("passed", True) else 1
     elif args.command in {"audit", "reconcile-budget"}:
-        with Ledger(audit_directory(args) / "audit.sqlite") as ledger:
-            if args.command == "reconcile-budget":
-                ledger.settle(args.reservation, Decimal(args.actual_usd))
-            if args.command == "audit" and args.export:
-                events = ledger.events(after=args.after, limit=args.limit)
-                data = b"".join(canonical(event) + b"\n" for event in events)
-                check_text(data.decode(), extra_patterns=config.extra_sensitive_patterns)
-                write_private(Path(args.export), data)
-            _emit(
-                {
-                    "events_verified": ledger.verify(),
-                    "unresolved": ledger.open_reservations(),
-                    "incomplete_runs": ledger.incomplete_runs(),
-                    "unfinished_workflows": unfinished_workflows([
-                        (seq, json.loads(payload)) for seq, payload in ledger.db.execute(
-                            "SELECT seq,payload FROM events ORDER BY seq"
-                        )
-                    ]),
-                }
-            )
+        from .audit_commands import run_audit
+
+        _emit(run_audit(args, config, audit_directory(args)))
     elif args.command == "render":
         write_private(Path(args.output), report_html(_read_json(args.input)).encode())
         _emit({"output": args.output})

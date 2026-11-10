@@ -70,7 +70,14 @@ def _validate_result(document: dict, state: dict, plan: dict, step_id: str, conf
 
 def inspect_run(store: WorkflowStore, identifier: str) -> dict:
     """Historical inspection verifies retained artifacts without executing anything."""
-    state, _descriptor, _plan, _packet = store.load(identifier)
+    try:
+        state, _descriptor, _plan, _packet = store.load(identifier)
+    except AssistantError as exc:
+        # An abandoned run's files can't be read; the ledger still shows what was recorded.
+        recorded = store.states().get(identifier) if exc.code == "workflow_artifact_missing_or_changed" else None
+        if recorded is None or not recorded["abandoned"]:
+            raise
+        return _recorded_report(recorded)
     steps, records, blockers = [], [], []
     for step_id, step in state["steps"].items():
         row = {
@@ -88,7 +95,7 @@ def inspect_run(store: WorkflowStore, identifier: str) -> dict:
             except (AssistantError, OSError, ValueError, TypeError):
                 blockers.append("workflow_artifact_missing_or_changed")
             else:
-                if step["state"] == "succeeded":
+                if step["state"] == "succeeded" and not state["abandoned"]:
                     records.append({"step_id": step_id, "path": row["artifact_path"], "artifact_hash": artifact_hash})
         elif step["state"] in {"running", "unknown"}:
             # A file written before the atomic checkpoint is a recovery candidate,
@@ -164,7 +171,7 @@ def execute_run(store: WorkflowStore, identifier: str, repo: Path, config: Confi
         _recover_interruption(store, identifier, state)
         for _index in range(max_steps):
             report = inspect_run(store, identifier)
-            if report["blocking_reasons"] or report["recorded_status"] in {"cancelled", "completed-checks"}:
+            if report["blocking_reasons"] or report["recorded_status"] in {"abandoned", "cancelled", "completed-checks"}:
                 # Revalidate identities even when no new dispatch would occur.
                 preflight = preflight_workflow(plan, packet, repo, config)
                 if preflight["blocking_reasons"]:
@@ -221,6 +228,8 @@ def reconcile_run(store: WorkflowStore, identifier: str, step_id: str, attempt_i
         raise AssistantError("workflow_reconciliation_choice_required")
     with workflow_lock(store.root, identifier):
         state, _descriptor, plan, _packet = store.load(identifier)
+        if state["abandoned"]:
+            raise AssistantError("workflow_reconciliation_not_required")
         _recover_interruption(store, identifier, state)
         state = store.states()[identifier]
         step = state["steps"].get(step_id)
@@ -251,7 +260,10 @@ def retry_step(store: WorkflowStore, identifier: str, step_id: str, attempt_id: 
         if approved_plan != state["plan_hash"]:
             raise AssistantError("workflow_plan_approval_required")
         step = state["steps"].get(step_id)
-        if state["cancelled"] or step is None or step["state"] != "failed" or step["attempt_id"] != attempt_id:
+        if (
+            state["cancelled"] or state["abandoned"] or step is None or step["state"] != "failed"
+            or step["attempt_id"] != attempt_id
+        ):
             raise AssistantError("workflow_retry_not_allowed")
         store.record("workflow_step_retry", identifier, step_id=step_id, attempt_id=attempt_id)
         return inspect_run(store, identifier)
@@ -266,3 +278,46 @@ def cancel_run(store: WorkflowStore, identifier: str, *, approved_plan: str | No
             raise AssistantError("workflow_cancel_not_allowed")
         store.record("workflow_run_cancelled", identifier)
         return inspect_run(store, identifier)
+
+
+def _recorded_report(state: dict) -> dict:
+    """A run's recorded state from the ledger alone, for a run whose files can't be read."""
+    phase = run_phase(state)
+    return {
+        "schema_version": 1, "workflow_run_id": state["workflow_run_id"], "plan_hash": state["plan_hash"],
+        "execution_hash": state["execution_hash"], "head": state["head"], "backend": state["backend"],
+        "status": phase, "recorded_status": phase, "sequence": state["sequence"],
+        "steps": [{"step_id": step_id, "state": step["state"], "attempt_id": step["attempt_id"],
+                   "depends_on": step["depends_on"], "artifact_hash": step["artifact_hash"],
+                   "started_at": step["started_at"]} for step_id, step in state["steps"].items()],
+        "check_records": [], "blocking_reasons": [], "artifacts_verified": False,
+        "merge_authority": False, "deployment_authority": False,
+        "qualification": "Abandoned: this run's files were missing or changed. Its recorded steps stay in the "
+        "audit ledger, and none of its results count as check evidence. Start a new run from its plan.",
+    }
+
+
+def abandon_run(store: WorkflowStore, identifier: str, *, approved_plan: str | None,
+                confirm_cleanup: bool = False) -> dict:
+    """Close a run whose own files are missing or changed, so its plan can run again. Nothing is deleted."""
+    with workflow_lock(store.root, identifier):
+        state = store.states().get(identifier)
+        if state is None:
+            raise AssistantError("workflow_run_unknown")
+        if approved_plan != state["plan_hash"]:  # From the audit ledger, never from the damaged files.
+            raise AssistantError("workflow_plan_approval_required")
+        try:
+            store.load(identifier)
+        except AssistantError as exc:
+            if exc.code != "workflow_artifact_missing_or_changed":
+                raise
+        else:
+            raise AssistantError("workflow_abandon_not_allowed")  # A readable run keeps cancel and reconcile.
+        phase = run_phase(state)
+        if phase not in {"pending", "running", "unknown", "failed"}:
+            raise AssistantError("workflow_abandon_not_allowed")
+        if phase in {"running", "unknown"} and not confirm_cleanup:
+            raise AssistantError("workflow_cleanup_confirmation_required")
+        store.record("workflow_run_abandoned", identifier, code="workflow_artifact_missing_or_changed",
+                     cleanup_confirmed=bool(confirm_cleanup))
+        return _recorded_report(store.states()[identifier])
