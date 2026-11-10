@@ -111,11 +111,7 @@ def test_a_past_range_checks_against_a_policy_file_without_authorizing_a_run(ado
     policy = tmp_path / "proposed-policy.json"
     policy.write_bytes(canonical(document))
     report = policy_preflight(adopter["repo"], adopter["base"], adopter["head"], "", policy_file=str(policy))
-    # A private path is withheld only inside allow_paths; outside, the gate refuses it, and says which.
-    assert [(entry["code"], entry["paths"]) for entry in report["blockers"]] == [("gate_path_not_allowed", [DATA])]
-    document["model_review"]["allow_paths"].append("data/")
-    policy.write_bytes(canonical(document))
-    report = policy_preflight(adopter["repo"], adopter["base"], adopter["head"], "", policy_file=str(policy))
+    # data/ is outside allow_paths: its file is withheld all the same, since it is never reviewed.
     assert KEY_VALUE not in canonical(report).decode()
     assert report["status"] == "ready" and report["policy"]["source"] == "working-tree"
     assert isinstance(report["next_step"], str)  # No gate run command.

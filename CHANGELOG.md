@@ -4,6 +4,19 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ## Unreleased
 
+### Changed
+- **A gate with `private_paths: skip-and-report` withholds a private path wherever it sits.** A
+  private path outside `allow_paths` used to refuse the run with `gate_path_not_allowed`, although
+  `plan` and `review` withhold it. It is now withheld unread and counted, like one inside
+  `allow_paths`:
+  - `allow_paths` only admits files for review, so a file that is never read needs no entry there;
+  - a path under `deny_paths` still refuses, and so does any other changed file outside `allow_paths`;
+  - the default, `refuse`, is unchanged;
+  - `doctor --policy` and `doctor --policy-file` list such a path as `withheld`.
+
+  This changes what a gate accepts. A policy that already sets `skip-and-report` now reviews a range
+  it used to refuse, with coverage marked incomplete.
+
 ### Fixed
 - **Dependabot can read the pinned development environment.** `requirements.txt` pointed at
   `requirements-dev.lock` with `-r`, and Dependabot follows only includes that end in `.txt` or

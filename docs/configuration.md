@@ -217,9 +217,9 @@ works in a gate policy's `model_review` object. What happens then:
   paths were withheld, never their names, extensions, directories or sizes. `plan` names them in its
   local summary (`withheld_paths`), and `doctor --policy` lists them as `withheld`. A name that could
   display as a different one, or that matches a configured sensitive pattern, is shown as `[redacted]`.
-- **Policy refusals still come first.** A private path that is outside `allow_paths` or under
-  `deny_paths` still refuses the gate. A name that matches `extra_sensitive_patterns`, or that itself
-  looks like a credential, still refuses everywhere.
+- **Some refusals still come first.** A private path under a gate policy's `deny_paths` still
+  refuses the gate; one outside `allow_paths` is withheld, as in `plan` and `review`. A name that
+  matches `extra_sensitive_patterns`, or that itself looks like a credential, still refuses everywhere.
 - **Coverage is incomplete wherever it is checked:**
   - a review is `partial-review`;
   - readiness, workflow plans and the CI check gate still refuse it with their coverage codes;
