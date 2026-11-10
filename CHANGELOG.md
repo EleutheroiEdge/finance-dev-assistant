@@ -2,7 +2,7 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.10.0 - 2026-11-10
 
 ### Changed
 - **`init --detect` proposes something a repository can use as it stands.** Run on a first adopter's
@@ -56,6 +56,47 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   `scripts/dependabot_requirements.py` and checked by a test. CI and installs still use
   `requirements-dev.lock`. This changes the repository and the source distribution, not the
   installed package.
+
+### Upgrading
+
+No evidence-store migration is needed, and gate reports keep schema version 2. Upgrades never edit
+project configuration or evidence. The configuration hash is the same as in 0.9.0 and 0.8.0, so
+reviews, saved check records and workflow plans recorded by either still count. A gate whose policy
+states a `max_request_bytes` of 2,000,000 or less derives the same configuration as before. If you
+are coming from 0.7.1 or earlier, the 0.8.0 notes below still apply.
+
+Behaviour that scripts may depend on:
+
+- **A gate with `skip-and-report` and a private path outside `allow_paths`.** The run used to end
+  `BLOCKED` with `gate_path_not_allowed`. It now reviews the rest, withholds that path and reports
+  `coverage: {complete: false, withheld: N}`. `doctor --policy` lists the path as `withheld`, and no
+  longer reports `gate_ignored_path` for a withheld path that an ignore rule covers. To keep the
+  refusal, leave `private_paths` at `refuse` or list the directory under `deny_paths`.
+- **Limits.** `invalid_limit` for `max_packet_bytes` now states a maximum of 8,000,000, and a gate
+  policy's `max_request_bytes` accepts up to 8,000,000. Every other limit keeps its maximum.
+- **`init --detect` output.**
+  - `gate_policy_draft` now has `schema_version: 2`. Its `model_review` adds `enabled`, `max_files`,
+    `max_output_tokens`, `timeout_seconds` and `blocking_severities`, and with the provider options
+    also the provider fields, both prices, `max_run_usd` and `daily_budget_usd`.
+  - `gate_policy_missing` is new.
+  - `allow_paths` can list more entries, and `max_packet_bytes` and `max_request_bytes` can be larger.
+  - `profile` can differ from the default without `--purpose`. Pass `--purpose` or `--profile` to
+    fix it. A configuration written with a different profile has a different configuration hash, as
+    with any changed setting.
+  - Evidence gains `max_packet_bytes`, `max_files` and `max_run_usd`, and an entry can carry
+    `purpose`, `words`, `commit` or `changes_measured`.
+  - New warning codes: `purpose_not_stated` and `recent_change_over_ceiling`. `gate_policy_invalid`
+    can appear as a warning when a whole draft fails the gate's schema.
+- **Hint text** changed for `packet_limit_exceeded`, `patch_limit_exceeded`,
+  `gate_request_bytes_exceeded`, `file_limit_above_request_limit`, `request_cap_cannot_fit_file`,
+  `invalid_limit` and `private_paths_outside_scope`. Their codes did not.
+- **Going back to 0.9.0.** It refuses a configuration whose `max_packet_bytes` is above 2,000,000
+  (`invalid_limit`) and a gate policy whose `max_request_bytes` is above 2,000,000
+  (`gate_policy_invalid`), and it can't read a packet file over 2,000,000 bytes
+  (`input_limit_exceeded`). Lower those limits before downgrading.
+
+Install the release requirements with
+`python -m pip install --require-hashes --only-binary=:all: -r finledgerpoli-0.10.0-requirements.txt`.
 
 ## 0.9.0 - 2026-11-10
 
