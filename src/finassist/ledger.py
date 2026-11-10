@@ -82,9 +82,10 @@ class Ledger:
                 event = json.loads(value)
                 if event.get("run_id") == identifier and event.get("event") in lifecycle:
                     history.append((event["event"], event.get("command")))
+            # A run closed by close_run stays closed: a late completion can't replace its unknown outcome.
             if (payload["event"] == "command_started" and history) or (
                 payload["event"] != "command_started"
-                and (not history or history[-1] != ("command_started", command))
+                and (not history or history[-1] != ("command_started", command) or self._closed(identifier))
             ):
                 raise AssistantError("audit_lifecycle_invalid")
         last = self.db.execute("SELECT hash FROM events ORDER BY seq DESC LIMIT 1").fetchone()
@@ -132,6 +133,14 @@ class Ledger:
                             raise ValueError("unmatched command completion")
                         else:
                             runs[identifier] = (command, "closed")
+                    elif event == "command_reconciled":
+                        identifier, command = payload.get("reconciled_run_id"), payload.get("command")
+                        if (
+                            runs.get(identifier) != (command, "started") or payload.get("outcome") != "unknown"
+                            or payload.get("run_id") == identifier
+                        ):
+                            raise ValueError("unmatched command reconciliation")
+                        runs[identifier] = (command, "reconciled")
                     if payload.get("event") == "reserved":
                         identifier = payload["id"]
                         if identifier in balances:
@@ -245,4 +254,41 @@ class Ledger:
                     }
                 elif identifier and event.get("event") in {"command_completed", "command_failed"}:
                     pending.pop(identifier, None)
+                elif event.get("event") == "command_reconciled":
+                    pending.pop(event.get("reconciled_run_id"), None)
             return list(pending.values())
+
+    def _closed(self, identifier: str) -> bool:
+        """Whether close_run has recorded this run's outcome as unknown."""
+        return any(
+            event.get("event") == "command_reconciled" and event.get("reconciled_run_id") == identifier
+            for event in (json.loads(data) for (data,) in self.db.execute(
+                "SELECT payload FROM events WHERE payload LIKE ?", ('%"reconciled_run_id":"' + identifier + '"%',)))
+        )
+
+    def reconciled_runs(self) -> list[dict]:
+        """Runs closed by close_run. Their outcome stays unknown."""
+        with nullcontext() if self.db.in_transaction else self.transaction():
+            self.verify()
+            return [
+                {"run_id": event["reconciled_run_id"], "command": event["command"], "outcome": "unknown",
+                 "reconciled_at": event.get("recorded_at")}
+                for event in (json.loads(data) for (data,) in self.db.execute("SELECT payload FROM events ORDER BY seq"))
+                if event.get("event") == "command_reconciled"
+            ]
+
+    def close_run(self, identifier: str, command: str) -> dict:
+        """Record that an unfinished command's outcome is unknown, so it stops blocking.
+
+        Only a run listed as incomplete, never the current one, and only with its recorded
+        command name. Nothing is deleted, no success is claimed, and reservations are untouched.
+        """
+        with self.transaction():
+            run = next((run for run in self.incomplete_runs() if run["run_id"] == identifier), None)
+            if run is None or identifier == CURRENT_RUN.get():
+                raise AssistantError("audit_run_not_incomplete")
+            if run["command"] != command:
+                raise AssistantError("audit_run_command_mismatch")
+            self._append({"event": "command_reconciled", "reconciled_run_id": identifier, "command": command,
+                          "outcome": "unknown"})
+        return {"run_id": identifier, "command": command, "outcome": "unknown"}

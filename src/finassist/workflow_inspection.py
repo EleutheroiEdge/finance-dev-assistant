@@ -12,12 +12,14 @@ from .security import canonical, digest
 from .workflow_state import replay_workflows, run_identifier, run_phase
 
 _TRANSITIONS = {
-    "workflow_run_created", "workflow_run_cancelled", "workflow_step_started", "workflow_step_unknown",
+    "workflow_run_created", "workflow_run_cancelled", "workflow_run_abandoned", "workflow_step_started",
+    "workflow_step_unknown",
     "workflow_step_result", "workflow_step_reconciled", "workflow_step_retry",
 }
 _METADATA = {
     "step_id", "attempt_id", "operation_id", "plan_hash", "head", "backend", "execution_hash",
     "snapshot_hash", "artifact_hash", "receipt_hash", "state", "cleanup_verified", "resolution",
+    "code", "cleanup_confirmed",
 }
 
 
@@ -46,7 +48,9 @@ def _recorded_steps(state: dict) -> list[dict]:
     for name, step in state["steps"].items():
         missing = [dep for dep in step["depends_on"] if state["steps"][dep]["state"] != "succeeded"]
         reasons = []
-        if step["state"] in {"running", "unknown"}:
+        if state["abandoned"] and step["state"] != "succeeded":
+            reasons.append("workflow_run_abandoned")
+        elif step["state"] in {"running", "unknown"}:
             reasons.append("workflow_reconciliation_required")
         elif step["state"] == "failed":
             reasons.append("workflow_check_failed")
@@ -104,7 +108,8 @@ def workflow_timeline(path: Path, identifier: str, *, after: int = 0, limit: int
             "running": ["inspect_active_owner_before_reconciliation"],
             "unknown": ["inspect_attempt_and_reconcile"],
             "failed": ["inspect_failed_check_before_retry_or_cancel"],
-            "cancelled": [], "completed-checks": ["verify_artifacts_and_run_readiness_gate"],
+            "cancelled": [], "abandoned": ["start_a_new_run_from_the_plan"],
+            "completed-checks": ["verify_artifacts_and_run_readiness_gate"],
         }[phase]
         result = {
             "schema_version": 1, "workflow_run_id": identifier, "plan_hash": state["plan_hash"],

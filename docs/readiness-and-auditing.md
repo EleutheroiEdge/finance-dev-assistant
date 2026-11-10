@@ -107,6 +107,30 @@ named environment, identity, secret delivery, health checks, rollback procedure
 and authorized release decision. Preserve the target project's checks; do not
 treat a model report or this local gate as a release approval.
 
+## Closing an unfinished command
+
+A command that was killed, or whose completion couldn't be recorded
+(`operation_finished_audit_completion_failed`), stays in `incomplete_runs`, and the gate blocks
+on `unfinished_operation`. Once you have checked what it did, close it:
+
+```sh
+finassist audit --state-dir YOUR_PRIVATE_STATE
+finassist audit close-run --state-dir YOUR_PRIVATE_STATE --run RUN_ID --command NAME
+```
+
+- **It records only that the outcome is unknown.** It appends a `command_reconciled` event with
+  `outcome: "unknown"`. It never claims the command succeeded, and nothing is deleted or rewritten.
+- **`--command` must match** the command recorded for that run, which guards against a mistyped
+  ID. A run that isn't listed as incomplete is refused with `audit_run_not_incomplete`.
+- **Close only a run whose process has ended.** If it is still working, its own completion is
+  then refused with `audit_lifecycle_invalid` and its result goes unrecorded.
+- **Spend is separate.** An open reservation from that run stays in `unresolved`, and the gate
+  keeps blocking on `unreconciled_spend`, until you settle it with `reconcile-budget` from the
+  provider's verified charge.
+- **It stays visible.** `audit` lists it under `reconciled_runs`. `verify-gate` adds a
+  `reconciled_operation` warning, which never blocks, while the closure is within
+  `readiness_max_age_seconds`. The warning counts abandoned workflow runs too.
+
 ## Limits
 
 A failure recording completion can happen after an operation; reconcile from

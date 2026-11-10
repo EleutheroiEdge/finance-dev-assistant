@@ -63,7 +63,7 @@ an ID it lists recorded runs, with `artifacts_verified: false`; the list does no
 inspect every artifact. A single-run report includes:
 
 - `status` and `recorded_status`: `pending`, `running`, `unknown`, `failed`,
-  `completed-checks` or `cancelled`. Missing/changed artifacts produce `blocked`.
+  `completed-checks`, `cancelled` or `abandoned`. Missing/changed artifacts produce `blocked`.
 - Step IDs, dependencies, latest attempt IDs and saved artifact hashes/paths.
 - `check_records`: successful retained results that can be supplied through
   existing `verify-gate --receipt` arguments.
@@ -148,6 +148,29 @@ side effect idempotent. No exactly-once execution guarantee is claimed.
 `workflow cancel --run-id RUN_ID --approve-plan FULL_PLAN_HASH` can close a
 pending or failed run without deleting evidence. It refuses running/unknown
 attempts; reconcile them first. Cancellation never interrupts an active owner.
+
+### Abandon a damaged run
+
+If a run's own files (`run.json`, `plan.json` or `packet.json` under `workflow-runs/RUN_ID`) are
+missing or changed, every command on it refuses with `workflow_artifact_missing_or_changed`,
+including `cancel` and `reconcile`, and its plan can't start a new run. Restore the files from a
+backup if you can. If they are lost:
+
+```sh
+finassist workflow abandon --repo . --run-id RUN_ID --approve-plan FULL_PLAN_HASH
+```
+
+- **Only a damaged, unfinished run qualifies.** A run whose files load keeps `cancel` and
+  `reconcile`, and abandon refuses it with `workflow_abandon_not_allowed`.
+- **The plan hash comes from the audit ledger,** not the damaged files. `workflow status` lists it.
+- **An interrupted run needs `--confirm-cleanup`.** If a step was running or unknown, first check
+  that its processes and containers have stopped. Nothing is cleaned up for you.
+- **Nothing is deleted.** The run's recorded steps stay in the ledger with a
+  `workflow_run_abandoned` event, and its status becomes `abandoned`. None of its check results
+  count as evidence for `verify-gate`, which adds a `reconciled_operation` warning while the
+  abandonment is recent. Its plan can then start a new run.
+- **Status answers from the ledger.** `workflow status --run-id` reports an abandoned run from its
+  recorded events alone, with `artifacts_verified: false` and no `check_records`.
 
 ## State and audit boundaries
 
