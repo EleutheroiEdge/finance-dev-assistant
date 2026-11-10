@@ -121,7 +121,7 @@ def test_detection_runs_only_fixed_git_reads(quant_repo, capsys, monkeypatch):
     _proposal(capsys, ["init", "--detect", "--repo", str(quant_repo)])
     git = git_command(quant_repo, "status")[0]
     assert seen and all(argv[0] == git for argv in seen)
-    allowed = {"ls-tree", "cat-file", "check-attr", "rev-parse", "config", "--version"}
+    allowed = {"ls-tree", "cat-file", "check-attr", "rev-parse", "rev-list", "diff", "config", "--version"}
     assert all(any(part in allowed for part in argv[1:]) for argv in seen)
     assert not any(part in {"add", "commit", "checkout", "switch", "reset", "fetch", "pull", "push", "update-index"}
                    for argv in seen for part in argv[1:])

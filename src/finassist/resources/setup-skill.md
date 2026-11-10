@@ -41,8 +41,13 @@ Show the person each of these, with the `evidence` entry (file and rule) behind 
 - under `config`: `provider`, `model`, `profile`, `allow_paths`, `generated_paths`,
   `protected_paths`, `max_file_bytes`, `max_packet_bytes`, `input_usd_per_million` and
   `output_usd_per_million`;
-- under `gate_policy_draft`: `allow_paths`, `deny_paths`, `fixture_roots`,
-  `max_file_bytes`, `max_request_bytes` and `profile`;
+- under `gate_policy_draft`: `enabled`, `allow_paths`, `deny_paths`, `fixture_roots`,
+  `max_file_bytes`, `max_request_bytes`, `max_files`, `max_output_tokens`, `timeout_seconds`,
+  `blocking_severities` and `profile`;
+- `gate_policy_missing`: the policy fields the draft leaves out because they are the person's
+  choice. Run `init --detect` again with their provider, model, key variable name and both
+  prices, and it adds those fields and a run budget that covers one request at the proposed
+  limit. An empty list means the draft is a whole policy;
 - `private_paths`: the count and examples of files treated as private;
 - `tests`: the commands found, which were not run;
 - `warnings`, explained with `finassist explain CODE` for each code.

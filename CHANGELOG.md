@@ -5,6 +5,23 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 ## Unreleased
 
 ### Changed
+- **`init --detect` proposes something a repository can use as it stands.** Run on a first adopter's
+  repository, the 0.9.0 proposal left out a root roadmap file that every pull request edits, sized
+  its limits for one file instead of a real change, kept the default profile and drafted a gate policy
+  with 14 required fields absent. Now:
+  - `allow_paths` also lists root text files and other directories of reviewable text;
+  - without `--purpose` or `--profile`, the profile follows the README and agent instruction files when
+    they clearly point to one purpose. Otherwise the default is kept and `purpose_not_stated` warns;
+  - `max_packet_bytes` and `max_request_bytes` also fit the largest of the last 40 first-parent
+    changes, sized from Git's object headers without reading a file. `recent_change_over_ceiling`
+    warns when one can't fit;
+  - the gate policy draft is a whole version-2 policy. With `--provider`, `--model`, `--api-key-env`
+    and both prices it needs nothing more, and its `max_run_usd` covers one request at the proposed
+    limit. Otherwise `gate_policy_missing` lists what is left to choose, and nothing is invented.
+
+  For scripts that read the proposal: `gate_policy_draft` gains `schema_version` and more
+  `model_review` fields, `gate_policy_missing` is new, and a stated `--profile` is now recorded in the
+  evidence as `stated`. Detection also runs `git rev-list` and `git diff --raw`, both read-only.
 - **Larger ranges fit.** `max_packet_bytes`, and a gate policy's `max_request_bytes`, may now be set up
   to 8,000,000 bytes; the ceiling was 2,000,000. A packet holds the earlier and later text of every
   changed file, so a range that touches large files could exceed the old ceiling in any setup.

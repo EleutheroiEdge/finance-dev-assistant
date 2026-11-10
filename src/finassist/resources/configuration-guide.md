@@ -68,14 +68,23 @@ finassist init --detect --purpose quant --write --output finassist.json
 ```
 
 - **What it proposes:**
-  - `allow_paths`: source directories, root source files, tests, docs and scripts;
+  - `allow_paths`: source directories, root source files, tests, docs and scripts, then any other
+    directory of reviewable text and root text files such as a roadmap, so a change to one doesn't
+    leave a range incomplete;
   - `generated_paths`: lock files, hash-named build assets, `dist/`, and files `.gitattributes` marks `linguist-generated` or `linguist-vendored`;
   - `protected_paths`;
+  - `profile`: from `--purpose` or `--profile`. Without either, it follows the README and agent
+    instruction files when at least three words for one purpose appear there and that purpose leads
+    the next by two; the evidence lists the words. Otherwise the default is kept and
+    `purpose_not_stated` warns;
   - `max_file_bytes`: fitted to the largest reviewed source file;
-  - `max_packet_bytes`.
+  - `max_packet_bytes`: enough for one file's change and for the largest recent change.
 
-  Its gate policy draft adds:
-  - `max_request_bytes`;
+  Its gate policy draft is a whole version-2 policy, apart from the choices that are yours:
+  - `max_request_bytes`, `max_files`, `max_output_tokens`, `timeout_seconds` and `blocking_severities`;
+  - the provider, model, endpoint, key variable name, prices and budgets, when you pass `--provider`,
+    `--model`, `--api-key-env` and both prices. `max_run_usd` then covers one request at the proposed
+    limit. Without them `gate_policy_missing` lists those fields, and nothing is invented for them;
   - `fixture_roots` for CSV or TSV files under a tests directory, which must be synthetic;
   - `deny_paths` for private directories inside a reviewed prefix, or for the file itself when no directory is private, such as `src/.env.py`. This uses the shared path policy and the gate's private names (data, private, client and similar).
 
@@ -83,6 +92,9 @@ finassist init --detect --purpose quant --write --output finassist.json
   - a changed file travels with its earlier version;
   - the packet escapes its text as JSON once, and the provider request escapes the packet again, so tabs, quotes and non-ASCII text grow most;
   - the proposal measures the largest source files that way and adds 64 KiB for instructions;
+  - it then sizes the last 40 first-parent changes from Git's object headers, without reading a file
+    and never sizing a private name, and scales them by the escaping it measured. The limits fit the
+    largest, and `recent_change_over_ceiling` warns when that needs more than 8,000,000 bytes;
   - when even 2,000,000 bytes can't fit one file's change, it warns with `request_cap_cannot_fit_file`.
 - **Proposals stay narrow:**
   - a file name that only looks generated, such as `assets/name-<hash>.js`, must have a digit in its hash, and never widens a generated prefix beyond its own `assets` or `dist` directory;
