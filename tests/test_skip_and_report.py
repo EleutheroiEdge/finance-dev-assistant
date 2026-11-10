@@ -290,6 +290,47 @@ def test_the_gate_withholds_a_private_path_outside_allow_paths(gate_case, reads)
     assert preflight["status"] == "ready" and preflight["coverage_complete"] is False
 
 
+@pytest.mark.parametrize("rule, name", [("data/", "data/prices.csv"), ("src/data/", "src/data/clients.csv")])
+def test_an_ignored_withheld_path_blocks_neither_the_gate_nor_its_preflight(gate_case, rule, name):
+    """A withheld file is never read, so an ignore rule that covers it is not the gate's concern."""
+    repo = gate_case["repo"]
+    (repo / ".gitignore").write_text(f".finassist/\n{rule}\n", encoding="utf-8")
+    command(repo, "add", ".gitignore")
+    command(repo, "commit", "-q", "-m", "Synthetic ignore rule, unchanged in the reviewed range")
+    change_policy(gate_case, private_paths="skip-and-report")
+    (repo / name).parent.mkdir(parents=True, exist_ok=True)
+    (repo / name).write_text("day,price\n1,2\n", encoding="utf-8")
+    command(repo, "add", "-f", name)  # Tracked although an ignore rule covers it.
+    command(repo, "commit", "-q", "-m", "Synthetic force-tracked private file")
+    gate_case["head"] = command(repo, "rev-parse", "HEAD")
+    report, calls = run(gate_case)
+    assert report["verdict"] == "PASS", report["reasons"]
+    assert report["coverage"] == {"complete": False, "withheld": 1} and len(calls) == 1
+    preflight = policy_preflight(repo, gate_case["base"], gate_case["head"], "gate-policy.json", gate_case["pin"])
+    assert preflight["status"] == "ready", preflight["blockers"]
+    rows = {row["path"]: row for row in preflight["paths"]}
+    assert rows[name] == {"path": name, "status": "withheld", "reason": WITHHELD_REASON}
+
+
+def test_an_ignored_reviewed_path_still_blocks_beside_a_withheld_one(gate_case):
+    repo = gate_case["repo"]
+    (repo / ".gitignore").write_text(".finassist/\ndata/\nsrc/generated.py\n", encoding="utf-8")
+    command(repo, "add", ".gitignore")
+    command(repo, "commit", "-q", "-m", "Synthetic ignore rules")
+    change_policy(gate_case, private_paths="skip-and-report")
+    for name, text in (("data/prices.csv", "day,price\n1,2\n"), ("src/generated.py", "X = 1\n")):
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text(text, encoding="utf-8")
+        command(repo, "add", "-f", name)
+    command(repo, "commit", "-q", "-m", "Synthetic force-tracked files")
+    gate_case["head"] = command(repo, "rev-parse", "HEAD")
+    report, calls = run(gate_case)
+    assert report["verdict"] == "BLOCKED" and report["reasons"] == ["gate_ignored_path"] and not calls
+    preflight = policy_preflight(repo, gate_case["base"], gate_case["head"], "gate-policy.json", gate_case["pin"])
+    assert [(entry["code"], entry["paths"]) for entry in preflight["blockers"]] == [
+        ("gate_ignored_path", ["src/generated.py"])]
+
+
 def test_refuse_still_refuses_a_private_path_outside_allow_paths(gate_case):
     _gate_change(gate_case, {"data/prices.csv": "day,price\n1,2\n"})
     report, calls = run(gate_case)

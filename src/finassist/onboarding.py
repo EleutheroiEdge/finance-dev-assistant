@@ -149,6 +149,29 @@ def _schema_issues(document: dict) -> list[dict]:
     return issues
 
 
+def _gate_private(path: str, config) -> bool:
+    """Whether skip-and-report makes this name private. Any other refusal of the name is raised."""
+    try:
+        check_model_path(path, fixture_roots=getattr(config, "fixture_roots", ()))
+    except AssistantError as exc:
+        if not (config.private_paths == "skip-and-report" and exc.code in WITHHELD_CODES):
+            raise
+        return True
+    return False
+
+
+def _withheld_by_name(path: str, model: dict, config) -> bool:
+    """Whether the gate withholds this path before its ignore check: private by name and not denied.
+
+    The gate refuses a denied path, and any other refused name, before it screens ignore rules,
+    so those stay in the preflight's scope and keep their own row.
+    """
+    try:
+        return _gate_private(path, config) and not any(_matches(path, prefix) for prefix in model["deny_paths"])
+    except AssistantError:
+        return False
+
+
 def _matches(path, prefix):
     """Prefix rule for str or bytes names: a trailing slash matches a directory."""
     slash = "/" if isinstance(prefix, str) else b"/"
@@ -459,8 +482,10 @@ class _Preflight:
                 stopped = exc.code
         ignored = set()
         if stopped is None:
-            # The gate's ignore scope: changed paths plus the policy's profile and fixture markers.
-            scope = paths + ([policy.profile_path] if policy.profile_path else []) + markers
+            # The gate's ignore scope: the changed paths it reviews, plus the policy's profile and
+            # fixture markers. A path it withholds by name is never read, so it is not screened.
+            scope = ([path for path in paths if not _withheld_by_name(path, model, config)]
+                     + ([policy.profile_path] if policy.profile_path else []) + markers)
             try:
                 screen_ignores(repo, {base, ancestor}, scope)
             except AssistantError as exc:
@@ -504,13 +529,7 @@ class _Preflight:
         row = {"path": _shown(path, config.extra_sensitive_patterns)}
         try:
             # Name-only rules first: they read nothing.
-            try:
-                check_model_path(path, fixture_roots=getattr(config, "fixture_roots", ()))
-                private = False
-            except AssistantError as exc:
-                if not (config.private_paths == "skip-and-report" and exc.code in WITHHELD_CODES):
-                    raise
-                private = True
+            private = _gate_private(path, config)
             if any(_matches(path, prefix) for prefix in model["deny_paths"]):
                 raise AssistantError("gate_denied_path")
             if private:  # The gate withholds this path unread, inside allow_paths or not, so it is not a blocker...
