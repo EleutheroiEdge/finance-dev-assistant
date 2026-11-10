@@ -83,7 +83,7 @@ finassist init --detect --purpose quant --write --output finassist.json
   - a changed file travels with its earlier version;
   - the packet escapes its text as JSON once, and the provider request escapes the packet again, so tabs, quotes and non-ASCII text grow most;
   - the proposal measures the largest source files that way and adds 64 KiB for instructions;
-  - when even 2,000,000 bytes can't fit one file's change, it warns with `request_cap_cannot_fit_file`.
+  - when even 8,000,000 bytes can't fit one file's change, it warns with `request_cap_cannot_fit_file`.
 - **Proposals stay narrow:**
   - a file name that only looks generated, such as `assets/name-<hash>.js`, must have a digit in its hash, and never widens a generated prefix beyond its own `assets` or `dist` directory;
   - only each runner's own test command is proposed, so `npm publish test` or `make deploy test` never is;
@@ -285,6 +285,14 @@ An allowed/protected prefix must also satisfy the configured path policy.
 Configuration files are bounded to 2 MB. Budget values must be finite and nonnegative;
 limits must be integers from 1 to 2,000,000. A limit error names the option and its
 allowed range, for example `{"code":"invalid_limit","option":"max_file_bytes","minimum":1,"maximum":2000000}`.
+
+`max_packet_bytes`, and a gate policy's `max_request_bytes`, may go up to 8,000,000 for a range too
+large for anything smaller. A packet holds the earlier and later text of every changed file, so a
+range that touches large files is much larger than its diff. Before raising either limit, check
+what the preflight can't:
+- **The model's context window.** Source code runs at roughly three to four bytes per token.
+- **`timeout_seconds`.** A large request takes longer to answer.
+- **`max_run_usd`.** The spend reserve counts about one token per byte of request.
 Unknown configuration keys are rejected.
 
 `finassist doctor` reports defaults unless you pass `--config`, and says so in

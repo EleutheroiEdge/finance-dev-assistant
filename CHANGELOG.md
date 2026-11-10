@@ -5,6 +5,20 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 ## Unreleased
 
 ### Changed
+- **Larger ranges fit.** `max_packet_bytes`, and a gate policy's `max_request_bytes`, may now be set up
+  to 8,000,000 bytes; the ceiling was 2,000,000. A packet holds the earlier and later text of every
+  changed file, so a range that touches large files could exceed the old ceiling in any setup.
+  - The defaults (120,000 and whatever a policy states) are unchanged, and so is every other limit,
+    including `max_file_bytes` at 2,000,000.
+  - `review`, `propose`, `workflow` and `verify-gate` read a packet file up to the new ceiling.
+  - A gate whose policy keeps `max_request_bytes` at or under 2,000,000 behaves as before. One that
+    states more is bounded by that figure.
+  - `init --detect` sizes its proposal against the new ceiling.
+  - The configuration guide lists what to check before raising either limit: the model's context
+    window, `timeout_seconds` and `max_run_usd`.
+
+  This changes what a gate accepts only for a reviewed policy that states a `max_request_bytes` above
+  2,000,000, which no earlier version accepted.
 - **A gate with `private_paths: skip-and-report` withholds a private path wherever it sits.** A
   private path outside `allow_paths` used to refuse the run with `gate_path_not_allowed`, although
   `plan` and `review` withhold it. It is now withheld unread and counted, like one inside
