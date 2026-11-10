@@ -139,6 +139,20 @@ def test_with_a_provider_the_draft_is_a_whole_policy_the_gate_accepts(tmp_path, 
     assert {row["status"] for row in report["paths"]} == {"included"}
 
 
+def test_a_draft_the_gate_schema_refuses_is_reported_and_the_proposal_still_prints(tmp_path, capsys):
+    crowded = {**LAYOUT, **{f"NOTE_{number:03d}.md": "A note.\n" for number in range(130)}}
+    proposal = _proposal(capsys, ["init", "--detect", "--repo", str(_repo(tmp_path, crowded)), *PROVIDER])
+    assert len(proposal["gate_policy_draft"]["model_review"]["allow_paths"]) > 128  # Over the policy's limit.
+    assert proposal["gate_policy_missing"] == []
+    assert {"code": "gate_policy_invalid"} in proposal["warnings"]
+    assert proposal["evidence"]["max_run_usd"][0]["rule"] == "one_request_at_the_limit"
+
+
+def test_a_name_a_gate_policy_would_refuse_as_a_prefix_is_not_proposed(tmp_path):
+    proposal = detect_module.detect(_repo(tmp_path, {**LAYOUT, "notes[old]/plan.md": "A plan.\n"}))
+    assert not [prefix for prefix in proposal["config"]["allow_paths"] if "[" in prefix]
+
+
 def _history(tmp_path, changes: int = 3, files: int = 6, size: int = 40_000):
     """A repository whose recent changes each rewrite several mid-sized modules."""
     line = "value = compute_total(opening, deposits)  # synthetic {n:07d}\n"
