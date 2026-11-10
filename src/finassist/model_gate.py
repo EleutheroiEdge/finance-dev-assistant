@@ -148,14 +148,16 @@ def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_rep
         except AssistantError as exc:
             if not (skipping and exc.code in WITHHELD_CODES):
                 raise
-            private = True  # skip-and-report: withheld by name, unread, if the policy admits the path.
+            private = True  # skip-and-report: withheld by name and never read.
         if any(path.startswith(prefix) if prefix.endswith("/") else path == prefix
                for prefix in rules["deny_paths"]):
             raise AssistantError("gate_denied_path")
-        if not config.allows(path):
-            raise AssistantError("gate_path_not_allowed")
         if private:
+            # allow_paths admits files for review. A withheld file is not reviewed, so it needs no
+            # entry there, as in plan and review. An explicit deny_paths entry still refuses above.
             withhold.add(path)
+        elif not config.allows(path):
+            raise AssistantError("gate_path_not_allowed")
     reviewed = [path for path in paths if path not in withhold]
     _screen_ignores(repo, {base, ancestor}, reviewed + source_profile_paths + (marker_paths if same_source else []))
     if policy_repo is not None and (policy_repo != repo or policy.base != base):

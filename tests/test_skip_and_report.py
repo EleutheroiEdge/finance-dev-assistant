@@ -271,10 +271,45 @@ def _gate_change(case, files):
     case["head"] = command(repo, "rev-parse", "HEAD")
 
 
+def test_the_gate_withholds_a_private_path_outside_allow_paths(gate_case, reads):
+    """allow_paths admits files for review; a withheld file is not reviewed, as in plan and review."""
+    change_policy(gate_case, private_paths="skip-and-report")
+    _gate_change(gate_case, {"data/prices.csv": "day,price\n1,2\n", "zq_area/private/notes.md": "Synthetic.\n"})
+    report, calls = run(gate_case)
+    assert report["verdict"] == "PASS", report["reasons"]
+    assert report["coverage"] == {"complete": False, "withheld": 2}
+    assert not {"data/prices.csv", "zq_area/private/notes.md"} & set(reads)
+    request = calls[0].content.decode()
+    for fragment in ("prices.csv", "zq_area", "day,price", "Synthetic."):
+        assert fragment not in request and fragment not in canonical(report).decode()
+    preflight = policy_preflight(gate_case["repo"], gate_case["base"], gate_case["head"], "gate-policy.json",
+                                 gate_case["pin"])
+    rows = {row["path"]: row for row in preflight["paths"]}
+    for name in ("data/prices.csv", "zq_area/private/notes.md"):
+        assert rows[name] == {"path": name, "status": "withheld", "reason": WITHHELD_REASON}
+    assert preflight["status"] == "ready" and preflight["coverage_complete"] is False
+
+
+def test_refuse_still_refuses_a_private_path_outside_allow_paths(gate_case):
+    _gate_change(gate_case, {"data/prices.csv": "day,price\n1,2\n"})
+    report, calls = run(gate_case)
+    assert report["verdict"] == "BLOCKED" and not calls
+    assert len(report["reasons"]) == 1 and report["reasons"][0] in scope.WITHHELD_CODES
+
+
+def test_a_reviewable_file_outside_allow_paths_still_refuses_beside_a_withheld_one(gate_case):
+    change_policy(gate_case, private_paths="skip-and-report", allow_paths=["tests/"])
+    _gate_change(gate_case, {"data/prices.csv": "day,price\n1,2\n"})
+    # The fixture's own change to src/cash.py is now outside allow_paths and is not private: it refuses.
+    report, calls = run(gate_case)
+    assert report["verdict"] == "BLOCKED" and report["reasons"] == ["gate_path_not_allowed"] and not calls
+
+
 @pytest.mark.parametrize("changes, files, code", [
     ({"allow_paths": ["src/", "tests/"], "deny_paths": ["src/data/"]},
      {"src/data/notes.py": "X = 1\n", "tests/test_a.py": "def test_a():\n    pass\n"}, "gate_denied_path"),
-    ({}, {"data/a.csv": "a,b\n1,2\n"}, "gate_path_not_allowed"),
+    ({"deny_paths": ["data/"]}, {"data/a.csv": "a,b\n1,2\n"}, "gate_denied_path"),
+    ({}, {"notes/plan.md": "Synthetic.\n"}, "gate_path_not_allowed"),
 ])
 def test_a_private_path_still_meets_the_policy_boundaries(gate_case, changes, files, code):
     change_policy(gate_case, private_paths="skip-and-report", **changes)

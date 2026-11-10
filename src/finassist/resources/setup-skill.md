@@ -90,11 +90,11 @@ Start from one of its examples and apply the confirmed fields:
   the default).
 
 Explain this rule before the person chooses: the gate refuses a range that changes any
-file outside `allow_paths`, or in `deny_paths`. If `private_paths` lists files outside
-`allow_paths` (the warning `private_paths_outside_scope`), a pull request that changes them
-is refused. Either keep such files out of
-pull requests, or add their directory to `allow_paths` and choose `skip-and-report`. Then
-their names are withheld before any read, and the report says coverage is incomplete.
+reviewable file outside `allow_paths`, or any file in `deny_paths`. By default it also
+refuses a range that changes a private file, wherever that file is (the warning
+`private_paths_outside_scope` counts those outside `allow_paths`). Either keep such files
+out of pull requests, or choose `skip-and-report`. Then they are withheld before any read,
+with no `allow_paths` entry needed, and the report says coverage is incomplete.
 
 Save the policy where the person chooses, for example `gate-policy.json`, and show the
 whole file. It takes effect only once committed on the base branch through their normal

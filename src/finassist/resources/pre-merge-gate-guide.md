@@ -410,8 +410,9 @@ created by this feature. Default `mode: checks-only` preserves the v1 adapter.
 A policy can set `"private_paths": "skip-and-report"` in `model_review`. Private paths in
 the range are then withheld unread instead of refusing the run, and the report adds
 `coverage: {complete: false, withheld: N}`. The default, `refuse`, keeps the run blocked.
-- **Policy boundaries still apply:** a private path outside `allow_paths` or under `deny_paths`
-  still refuses the run.
+- **Where the path sits:** a private path is withheld whether or not `allow_paths` covers it,
+  since `allow_paths` only admits files for review. One under `deny_paths` still refuses the run,
+  and so does any other changed file outside `allow_paths`.
 - **A PASS covers only what was reviewed:** the Actions summary says coverage is incomplete, and
   the action's `withheld-count` and `coverage-complete` outputs carry the count. Readiness and the CI
   check gate still refuse incomplete coverage.

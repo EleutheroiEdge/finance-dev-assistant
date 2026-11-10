@@ -513,12 +513,12 @@ class _Preflight:
                 private = True
             if any(_matches(path, prefix) for prefix in model["deny_paths"]):
                 raise AssistantError("gate_denied_path")
-            if not config.allows(path):
-                raise AssistantError("gate_path_not_allowed")
-            if private:  # The gate withholds this path unread, so it is not a blocker...
+            if private:  # The gate withholds this path unread, inside allow_paths or not, so it is not a blocker...
                 # ...unless the name matches a configured pattern: then it refuses, as the gate does.
                 check_text(path, extra_patterns=config.extra_sensitive_patterns)
                 return {**row, "status": "withheld", "reason": WITHHELD_REASON}
+            if not config.allows(path):
+                raise AssistantError("gate_path_not_allowed")
             if path in ignored:
                 raise AssistantError("gate_ignored_path")
             if stopped is not None:
