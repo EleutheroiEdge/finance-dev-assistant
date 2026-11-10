@@ -199,7 +199,8 @@ class _Detector:
         for path in sorted(self.files):
             parts = PurePosixPath(path).parts
             if (self.private(path) or _refusal(path) or parts[0].startswith(".")
-                    or PurePosixPath(path).suffix.lower() not in TEXT_SUFFIXES):
+                    or PurePosixPath(path).suffix.lower() not in TEXT_SUFFIXES
+                    or any(character in parts[0] for character in "*?[]")):  # A gate policy refuses such a prefix.
                 continue
             if len(parts) == 1:
                 if path not in LOCKFILES:
@@ -847,10 +848,16 @@ def run_init(args, config: Config) -> int:
     model = proposal["gate_policy_draft"]["model_review"]
     model.update(_provider_fields(configured, model))
     proposal["gate_policy_missing"] = missing_fields(proposal["gate_policy_draft"])
-    if not proposal["gate_policy_missing"]:
-        check_draft(proposal["gate_policy_draft"])  # A whole draft has to be one the gate's schema accepts.
+    if "max_run_usd" in model:
         proposal["evidence"].setdefault("max_run_usd", []).append(
             {"value": model["max_run_usd"], "rule": "one_request_at_the_limit"})
+    if not proposal["gate_policy_missing"]:
+        try:
+            check_draft(proposal["gate_policy_draft"])
+        except AssistantError:
+            # For example more than 128 allow_paths entries. The proposal still prints; the gate
+            # preflight names each field when the draft is checked with `doctor --policy-file`.
+            proposal["warnings"].append({"code": "gate_policy_invalid"})
     if args.write:
         if not proposal["source_detected"]:
             raise AssistantError("detect_no_source_to_write")
