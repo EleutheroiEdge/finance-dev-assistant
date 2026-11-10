@@ -65,6 +65,18 @@ def test_the_ceiling_is_stated_once_and_the_other_limits_keep_theirs():
     assert Config().max_packet_bytes == 120_000  # The default did not move.
 
 
+@pytest.mark.parametrize("code", ["packet_limit_exceeded", "patch_limit_exceeded", "gate_request_bytes_exceeded",
+                                  "file_limit_above_request_limit", "request_cap_cannot_fit_file", "invalid_limit"])
+def test_every_hint_about_the_packet_ceiling_names_the_figure_in_the_code(code):
+    from finassist.error_hints import hints
+
+    entry = hints()[code]
+    text = entry["summary"] + " " + entry["fix"]
+    assert f"{MAX_PACKET_BYTES:,}" in text
+    # The earlier ceiling may appear only where a limit that kept it is named beside the new one.
+    assert "2,000,000" not in text or code == "invalid_limit"
+
+
 def test_plan_and_review_handle_a_packet_over_two_megabytes(large_range, tmp_path, capsys):
     repo, base, head = large_range
     config = _config(tmp_path, max_packet_bytes=4_000_000)
