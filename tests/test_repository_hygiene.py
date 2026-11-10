@@ -1,8 +1,11 @@
 """Guard repository automation permissions and safe contributor entry points."""
 
+import importlib.util
 from pathlib import Path
 import re
+import sys
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -18,7 +21,6 @@ def events(workflow):
 
 def test_weekly_dependency_updates_cover_all_manifests():
     config = document(".github/dependabot.yml")
-    assert "-r requirements-dev.lock" in (ROOT / "requirements.txt").read_text(encoding="utf-8")
     assert config["version"] == 2
     assert {(row["package-ecosystem"], row["directory"]) for row in config["updates"]} == {
         ("pip", "/"), ("npm", "/dashboard"), ("github-actions", "/")
@@ -26,6 +28,56 @@ def test_weekly_dependency_updates_cover_all_manifests():
     for row in config["updates"]:
         assert row["schedule"]["interval"] == "weekly"
         assert list(row["groups"].values()) == [{"patterns": ["*"]}]
+
+
+HASHED = "anyio==4.15.1 \\\n    --hash=sha256:" + "0" * 64 + "\n"
+
+
+def dependabot_requirements_script():
+    path = ROOT / "scripts/dependabot_requirements.py"
+    spec = importlib.util.spec_from_file_location("dependabot_requirements", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_dependabot_entry_point_is_the_reviewed_lock_with_no_include():
+    module = dependabot_requirements_script()
+    lock = (ROOT / "requirements-dev.lock").read_text(encoding="utf-8")
+    entry = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+    assert entry == module.dependabot_requirements(lock)
+    assert entry.endswith(lock) and entry[: -len(lock)] == module.HEADER
+    # Dependabot fetches an included file only when its name ends in .txt or .in. With any other
+    # include, pip fails to open the missing file and every Dependabot pip job fails.
+    assert not module.INCLUDE.search(entry)
+    assert all(line.startswith("#") for line in module.HEADER.splitlines())
+
+
+@pytest.mark.parametrize("include", [
+    "-r requirements-dev.lock", "-rother.txt", "  -c constraints.txt", "--requirement=other.txt",
+    "--constraint other.txt",
+])
+def test_dependabot_entry_point_refuses_a_lock_that_needs_another_file(include):
+    module = dependabot_requirements_script()
+    assert module.dependabot_requirements(HASHED) == module.HEADER + HASHED
+    with pytest.raises(ValueError, match="includes another requirements file"):
+        module.dependabot_requirements(include + "\n" + HASHED)
+    with pytest.raises(ValueError, match="not hashed"):
+        module.dependabot_requirements("anyio==4.15.1\n")
+
+
+def test_dependabot_entry_point_script_writes_and_checks(tmp_path, monkeypatch):
+    module = dependabot_requirements_script()
+    (tmp_path / "requirements-dev.lock").write_text(HASHED, encoding="utf-8", newline="\n")
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["dependabot_requirements.py"])
+    module.main()
+    assert (tmp_path / "requirements.txt").read_bytes() == (module.HEADER + HASHED).encode()
+    monkeypatch.setattr(sys, "argv", ["dependabot_requirements.py", "--check"])
+    module.main()
+    (tmp_path / "requirements.txt").write_text("-r requirements-dev.lock\n", encoding="utf-8", newline="\n")
+    with pytest.raises(SystemExit, match="drifted"):
+        module.main()
 
 
 def test_scanners_are_pinned_with_bounded_permissions():

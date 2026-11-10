@@ -43,7 +43,12 @@ and [CodeQL setup](https://docs.github.com/en/code-security/how-tos/find-and-fix
 
 Dependabot checks pip, the dashboard's npm ecosystem (pnpm lockfile) and Actions
 weekly, with one version-update group per ecosystem. `requirements.txt` exposes
-the included exact development lockfile to pip dependency discovery. Security-update scheduling
+the exact development lockfile to pip dependency discovery. It is a derived copy of
+`requirements-dev.lock`, because Dependabot finds requirement files by name and follows only
+includes that end in `.txt` or `.in`. After changing the lockfile, run
+`python scripts/dependabot_requirements.py`; a test fails when the copy drifts. A Dependabot pip
+update changes only the copy, so adopt one by regenerating the lockfile from `pyproject.toml` and
+rerunning the script. Security-update scheduling
 is controlled separately by GitHub. Keep lockfiles and manifests consistent,
 review grouped upgrades, regenerate assets and run all tests. No update is
 merged automatically. Consult the [Dependabot reference](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference).
