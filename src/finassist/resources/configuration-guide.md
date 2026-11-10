@@ -83,7 +83,7 @@ finassist init --detect --purpose quant --write --output finassist.json
   - a changed file travels with its earlier version;
   - the packet escapes its text as JSON once, and the provider request escapes the packet again, so tabs, quotes and non-ASCII text grow most;
   - the proposal measures the largest source files that way and adds 64 KiB for instructions;
-  - when even 2,000,000 bytes can't fit one file's change, it warns with `request_cap_cannot_fit_file`.
+  - when even 8,000,000 bytes can't fit one file's change, it warns with `request_cap_cannot_fit_file`.
 - **Proposals stay narrow:**
   - a file name that only looks generated, such as `assets/name-<hash>.js`, must have a digit in its hash, and never widens a generated prefix beyond its own `assets` or `dist` directory;
   - only each runner's own test command is proposed, so `npm publish test` or `make deploy test` never is;
