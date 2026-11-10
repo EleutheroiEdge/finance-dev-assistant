@@ -2,7 +2,7 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.9.0 - 2026-11-10
 
 ### Added
 - **`doctor --policy-file` for a past range.** The gate preflight can read a policy file on this
@@ -69,10 +69,42 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 - The 0.8.0 install line now uses `--only-binary=:all:`, like the README and the upgrading guide.
 
 ### Upgrading
+
+No evidence-store migration is needed, and gate reports keep schema version 2. Upgrades never edit
+project configuration or evidence. The configuration hash is the same as in 0.8.0, so reviews,
+saved check records and workflow plans recorded by 0.8.0 still count. If you are coming from 0.7.1
+or earlier, the 0.8.0 notes below still apply, and `finassist doctor` now names what to run again
+(`evidence_configuration_changed`).
+
+Behaviour that scripts may depend on:
+
+- **`doctor` with a range but no policy.** `doctor --repo R --base B --head H` used to refuse with
+  `doctor_policy_required`. It now runs the configuration preflight and exits 0 (ready) or 1
+  (blocked). With only part of a range it refuses with `doctor_policy_range_required`.
+- **`doctor` reads the audit ledger.** Without a range, it now opens `audit.sqlite` in the state
+  directory read-only, if one exists, to report `evidence`. It still writes nothing.
+- **`plan` refusals.** A refusal can now carry `refused_count` and a `local` object. Scripts should
+  key on `code` and ignore fields they don't know. Every changed name is checked before any file is
+  read, so a range with both a refused name and a file that can't be read (too large, for example)
+  now reports the name's code.
+- **New fields in existing output.** Each appears only when it applies, except `policy.source`:
+  - `config_warnings` in `plan` and `init` output;
+  - `policy.source` in every gate preflight report;
+  - `reconciled_runs`, `abandoned_workflows` and `closed_run` in `audit` output;
+  - `warnings` in `verify-gate` output;
+  - the workflow status `abandoned`.
+- **Changed codes.**
+  - A gate policy or CI policy passed to `--config`: `unknown_config_option` is now
+    `config_is_gate_policy` or `config_is_ci_policy`.
+  - A finassist.json configuration passed to `doctor --policy`: `gate_model_opt_in_required` or
+    `gate_policy_invalid` is now `gate_policy_is_configuration`. `gate run` is unchanged.
 - **State directories that use the new recovery events need this release or later.** After
   `audit close-run`, 0.8.0 still lists the run as incomplete. After `workflow abandon`, 0.8.0's workflow
   commands and readiness refuse the ledger with `workflow_state_invalid`. Don't downgrade a state
   directory once either command has been used.
+
+Install the release requirements with
+`python -m pip install --require-hashes --only-binary=:all: -r finledgerpoli-0.9.0-requirements.txt`.
 
 ## 0.8.0 - 2026-11-09
 
