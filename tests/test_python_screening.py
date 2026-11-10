@@ -360,6 +360,7 @@ def test_separated_decimals_keep_their_value(path):
         screen_source("n = 1.2_1\n", path, listed)       # 1.21
 
 
+@pytest.mark.alone
 @pytest.mark.parametrize("path", ["src/cash.py", "data.csv"])
 def test_long_zero_runs_screen_in_linear_time(path):
     import time
@@ -418,6 +419,7 @@ def test_out_of_range_exact_values_are_not_their_rounded_neighbours(template):
         screen_source(template.format(exactly_one), "src/cash.py", listed_one)
 
 
+@pytest.mark.alone
 def test_many_numeric_credential_values_screen_in_linear_time():
     import time
     account, api = "account_" + "id", "api_" + "key"
@@ -432,6 +434,7 @@ def test_many_numeric_credential_values_screen_in_linear_time():
     refuses(passing + f"{api} = 123456789012\n", "src/settings.py")
 
 
+@pytest.mark.alone
 def test_many_literals_screen_in_linear_time():
     import time
     source = "x = 7\n" * 20_000 + 'y = f"{7}"\n' * 20_000
