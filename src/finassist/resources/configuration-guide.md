@@ -168,6 +168,32 @@ The same field works in a gate policy's `model_review` object.
 The default stays `none` until phase 4 of the [roadmap](https://github.com/EleutheroiEdge/finance-dev-assistant/issues/64)
 measures whether the block helps.
 
+## Checking a range first
+
+Before the first `plan` or `review` of a range, run the configuration preflight:
+
+```sh
+finassist --config finassist.json doctor --repo . --base BASE --head HEAD
+```
+
+It reports every blocker `plan` and `review` would hit for that range in one run, each with a
+`hint`, and exits 0 when the range is ready and 1 when it is blocked:
+- **Each changed path** as `included`, `withheld`, `omitted` (with its reason) or `refused`
+  (with the code and any limit or size). Refused paths, and omitted ones that make `review`
+  refuse a partial range (`scope_incomplete`), are grouped by code with a `count` and up to
+  20 example `paths`.
+- **Settings with no effect,** the same `config_warnings` that `doctor` reports.
+- **The packet's size** against `max_packet_bytes`, from the real packet builder once nothing
+  else blocks.
+- **For a model provider:** the network setting, whether the key variable is set (never its
+  value), the prices, and the request's reserved spend against `max_run_usd`,
+  `daily_budget_usd` and `monthly_budget_usd`. Spend already recorded is not read.
+
+It makes no network call, reads no key value, opens no ledger and writes nothing. Path names
+appear only in its local output, as `[redacted]` when a name fails screening. A `ready`
+report lists the `plan` and `review` commands to run next. Without `--config` it checks the
+defaults. For a gate range, use `doctor --policy` instead (see the pre-merge gate guide).
+
 ## Skipping private paths
 
 With `private_paths` set to `refuse` (the default), a private path anywhere in the range refuses

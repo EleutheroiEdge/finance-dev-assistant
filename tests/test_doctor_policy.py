@@ -245,7 +245,10 @@ def test_cli_exit_codes_and_option_conflicts(gate_case, capsys):
     assert main(argv) == 0 and json.loads(capsys.readouterr().out)["status"] == "ready"
     assert main([*argv, "--fix"]) == 2
     assert json.loads(capsys.readouterr().err)["code"] == "doctor_policy_options_conflict"
+    # A range without --policy or --policy-file checks the configuration route, which needs all three.
     assert main(["doctor", "--repo", str(gate_case["repo"])]) == 2
+    assert json.loads(capsys.readouterr().err)["code"] == "doctor_policy_range_required"
+    assert main(["doctor", "--policy-sha256", "0" * 64, "--repo", str(gate_case["repo"])]) == 2
     assert json.loads(capsys.readouterr().err)["code"] == "doctor_policy_required"
     assert main(["doctor", "--policy", "gate-policy.json"]) == 2
     assert json.loads(capsys.readouterr().err)["code"] == "doctor_policy_range_required"
@@ -356,7 +359,7 @@ def test_empty_preflight_options_never_reach_plain_doctor(gate_case, capsys, mon
     monkeypatch.setattr(maintenance, "fix_local_state", refuse)
     for argv, code in (
         (["doctor", "--policy", "", "--fix"], "doctor_policy_options_conflict"),
-        (["doctor", "--base", ""], "doctor_policy_required"),
+        (["doctor", "--base", ""], "doctor_policy_range_required"),
         (["doctor", "--policy", "gate-policy.json", "--repo", str(gate_case["repo"]), "--base", "",
           "--head", gate_case["head"]], "doctor_policy_range_required"),
         (["doctor", "--policy", "gate-policy.json", "--repo", "", "--base", gate_case["base"],

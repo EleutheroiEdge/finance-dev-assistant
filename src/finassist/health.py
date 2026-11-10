@@ -36,13 +36,56 @@ def config_warnings(config: Config, config_path: Path | None = None, *, file_sel
     return warnings
 
 
+def evidence_status(state_dir: Path, config: Config) -> tuple[dict | None, list[dict]]:
+    """Saved check records and workflow plans in the audit ledger bound to another configuration.
+
+    The configuration hash covers every setting with its default, so a default that changes
+    between releases changes it too. Evidence recorded before an upgrade that adds settings
+    then stops counting, and the warning says what to run again. The ledger is opened
+    read-only; nothing is written. Without a ledger there is nothing to report.
+    """
+    from dataclasses import asdict
+    import sqlite3
+
+    from .errors import AssistantError
+    from .ledger import Ledger
+    from .security import canonical, digest
+
+    path = Path(state_dir) / "audit.sqlite"
+    if not path.is_file():
+        return None, []
+    current = digest(canonical(asdict(config)))
+    kinds = {"check_completed": "check_records", "workflow_plan_bound": "workflow_plans"}
+    recorded, other = dict.fromkeys(kinds.values(), 0), dict.fromkeys(kinds.values(), 0)
+    try:
+        with Ledger(path, read_only=True) as ledger:
+            after = 0
+            while page := ledger.events(after=after, limit=1000):
+                for row in page:
+                    kind, bound = kinds.get(row["payload"].get("event")), row["payload"].get("config_hash")
+                    if kind and isinstance(bound, str):
+                        recorded[kind] += 1
+                        other[kind] += bound != current
+                after = page[-1]["seq"]
+    except (AssistantError, sqlite3.Error, OSError) as exc:
+        return {"readable": False, "reason": getattr(exc, "code", type(exc).__name__)}, []
+    status = {"readable": True, "config_hash": current, "recorded": recorded, "other_configuration": other}
+    if not any(other.values()):
+        return status, []
+    return status, [{"code": "evidence_configuration_changed", **other,
+                     "hint": "These no longer count for readiness. Run `finassist check` for each required recipe "
+                             "and `finassist review` again, and bind new workflow plans. The hash covers every "
+                             "setting with its default, so an upgrade that adds settings changes it too."}]
+
+
 def doctor_report(config: Config, *, update_check: dict | None = None, config_path: Path | None = None,
-                  file_selected: bool = False) -> dict:
+                  file_selected: bool = False, state_dir: Path | None = None) -> dict:
     from .updater import update_status
 
     updates = update_status()
     if update_check is not None:
         updates.update(update_check)
+    evidence, stale = evidence_status(state_dir, config) if state_dir is not None else (None, [])
     return {
         "version": installed_version(),
         "python": platform.python_version(),
@@ -58,7 +101,8 @@ def doctor_report(config: Config, *, update_check: dict | None = None, config_pa
         "profile": config.profile,
         "deprecated_config_options": list(getattr(config, "_deprecated_options", ())),
         "config_source": "defaults" if config_path is None else "file",
-        "config_warnings": config_warnings(config, config_path, file_selected=file_selected),
+        "config_warnings": config_warnings(config, config_path, file_selected=file_selected) + stale,
+        **({"evidence": evidence} if evidence is not None else {}),
         "updates": updates,
         "private_state_protection": private_state_protection(),
         "next_step": "inspect a plan packet before enabling any provider or running a recipe",

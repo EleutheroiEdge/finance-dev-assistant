@@ -624,9 +624,13 @@ def run_init(args, config: Config) -> int:
     if not args.detect and any(getattr(args, name) not in (None, False) for name in _DETECT_ONLY):
         raise AssistantError("init_option_requires_detect")
     configured = _configured(args, config)
+    from .health import config_warnings
+
     if not args.detect:
         save_config(Path(args.output), configured)
-        print(canonical({"created": args.output, "network_enabled": False}).decode())
+        warnings = config_warnings(configured, file_selected=True)  # Copied from --config, for example.
+        print(canonical({"created": args.output, "network_enabled": False,
+                         **({"config_warnings": warnings} if warnings else {})}).decode())
         return 0
     proposal = detect(Path(args.detect_repo or "."), revision=args.revision or "HEAD", purpose=args.purpose)
     detected = proposal["config"]
@@ -638,6 +642,8 @@ def run_init(args, config: Config) -> int:
                        protected_paths=tuple(detected["protected_paths"]),
                        max_file_bytes=detected["max_file_bytes"], max_packet_bytes=packet, profile=detected["profile"])
     proposed.validate()  # The proposal is checked by the same rules as a saved configuration.
+    if warnings := config_warnings(proposed, file_selected=True):
+        proposal["config_warnings"] = warnings
     document = config_document(proposed)
     proposal["config"] = {key: document[key] for key in (
         "provider", "model", "profile", "allow_paths", "generated_paths", "protected_paths", "max_file_bytes",

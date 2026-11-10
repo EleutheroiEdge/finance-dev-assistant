@@ -141,6 +141,17 @@ file again. Writes made on the two branches are not merged automatically.
 Read the [compatibility policy](maintainers/compatibility.md) for deprecation
 windows, concurrent-writer limits and the installed historical-wheel tests.
 
+## Evidence after an upgrade
+
+Reviews, saved check records and workflow plans are bound to the configuration hash, which covers
+every setting with its default. A release that adds settings changes that hash even for an
+unchanged `finassist.json`, so evidence recorded before the upgrade stops counting for
+readiness. `finassist doctor` reports the saved check records and plans in the audit ledger, and warns
+`evidence_configuration_changed` with their counts when any were recorded under another hash.
+Run `finassist check` for each required recipe and `finassist review` again, and bind new
+workflow plans. Defaults stay in the hash on purpose: a default that changes between releases
+changes what was checked, so the evidence should be renewed.
+
 ## Hash-verified release installation
 
 For a release that includes a `finledgerpoli-<VERSION>-requirements.txt` asset,

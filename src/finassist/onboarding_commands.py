@@ -27,7 +27,9 @@ def add_onboarding_commands(commands) -> None:
     doctor.add_argument("--fix", action="store_true", help="Apply only explicit safe reversible local migrations")
     doctor.add_argument("--state-dir", type=Path)
     doctor.add_argument("--check-updates", action="store_true", help="Check PyPI once when project network use is allowed")
-    preflight = doctor.add_argument_group("gate preflight", "Report every gate blocker for one range, offline and without reading a key")
+    preflight = doctor.add_argument_group(
+        "range preflight", "Report every blocker for one range, offline and without reading a key: the gate's with "
+        "--policy or --policy-file, or plan and review's for --config (or the defaults) without them")
     preflight.add_argument("--policy", help="Gate policy path, read at --base")
     preflight.add_argument("--policy-file", help="Gate policy file on this machine, for a range whose base predates "
                                                  "the policy; checks the range but authorizes nothing")

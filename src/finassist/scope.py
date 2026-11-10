@@ -433,7 +433,7 @@ def build_packet(
         packet["related"] = _related(repo, head_sha, files, config, room, related_admit, related_screen)
     encoded = canonical(packet)
     if len(encoded) > config.max_packet_bytes:
-        raise AssistantError("packet_limit_exceeded")
+        raise AssistantError("packet_limit_exceeded", {"limit": config.max_packet_bytes, "bytes": len(encoded)})
     return {**packet, "packet_hash": digest(encoded)}
 
 
