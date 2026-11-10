@@ -95,7 +95,7 @@ finassist init --detect --purpose quant --write --output finassist.json
   - it then sizes the last 40 first-parent changes from Git's object headers, without reading a file
     and never sizing a private name, and scales them by the escaping it measured. The limits fit the
     largest, and `recent_change_over_ceiling` warns when that needs more than 8,000,000 bytes;
-  - when even 2,000,000 bytes can't fit one file's change, it warns with `request_cap_cannot_fit_file`.
+  - when even 8,000,000 bytes can't fit one file's change, it warns with `request_cap_cannot_fit_file`.
 - **Proposals stay narrow:**
   - a file name that only looks generated, such as `assets/name-<hash>.js`, must have a digit in its hash, and never widens a generated prefix beyond its own `assets` or `dist` directory;
   - only each runner's own test command is proposed, so `npm publish test` or `make deploy test` never is;
