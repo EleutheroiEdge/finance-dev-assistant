@@ -71,6 +71,20 @@ _SCHEMA = {
 }
 
 
+def missing_fields(document: dict) -> list[str]:
+    """Required fields a policy draft does not state yet, for a person to fill in."""
+    model = document.get("model_review", {})
+    return sorted(set(_PROPERTIES) - set(model)) + ([] if "schema_version" in document else ["schema_version"])
+
+
+def check_draft(document: dict) -> None:
+    """Schema check only: nothing is read from a repository and no price or path rule runs."""
+    try:
+        jsonschema.Draft202012Validator(_SCHEMA).validate(document)
+    except jsonschema.ValidationError as exc:
+        raise AssistantError("gate_policy_invalid") from exc
+
+
 @dataclass(frozen=True)
 class ModelGatePolicy:
     document: dict
