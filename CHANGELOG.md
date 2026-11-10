@@ -2,6 +2,17 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+- **Dependabot can read the pinned development environment.** `requirements.txt` pointed at
+  `requirements-dev.lock` with `-r`, and Dependabot follows only includes that end in `.txt` or
+  `.in`. Its dependency graph job and its weekly pip update job therefore failed on every run.
+  `requirements.txt` is now a derived copy of the lock with the same pins and hashes, written by
+  `scripts/dependabot_requirements.py` and checked by a test. CI and installs still use
+  `requirements-dev.lock`. This changes the repository and the source distribution, not the
+  installed package.
+
 ## 0.9.0 - 2026-11-10
 
 ### Added
