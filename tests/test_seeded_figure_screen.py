@@ -132,6 +132,9 @@ ESCAPED_SPACE = chr(92) + "u00a0"  # A no-break space as source text writes it.
     lambda figure: figure + "000",
     lambda figure: "".join(chr(0xFF10 + int(c)) if c.isdigit() else c for c in figure),   # fullwidth digits
     lambda figure: "".join(chr(0x0660 + int(c)) if c.isdigit() else c for c in figure),   # Arabic-Indic digits
+    # Every digit as a four-digit and as an eight-digit character escape.
+    lambda figure: "".join(chr(92) + "u00" + format(ord(c), "x") if c.isdigit() else c for c in figure),
+    lambda figure: "".join(chr(92) + "U000000" + format(ord(c), "x") if c.isdigit() else c for c in figure),
 ])
 def test_a_control_figure_in_any_spelling_is_a_collision(repository, capsys, monkeypatch, respell):
     repo, _base, _head = repository
@@ -140,6 +143,13 @@ def test_a_control_figure_in_any_spelling_is_a_collision(repository, capsys, mon
     monkeypatch.setattr(seeded, "outcome", lambda text, path, snapshot: "forbidden_token_present")
     code, shown = _run(capsys, repo, "--seed", "7")
     assert code == 2 and "'control_collisions': 1" in shown and "false_alarms" not in shown
+
+
+def test_an_escape_past_the_last_code_point_is_left_as_written():
+    assert seeded.digit_lines(chr(92) + "UFFFFFFFF total 12") == ["12"]
+    # Each escape length is spelled out: the line is read as written and as the three digits it spells.
+    escaped = chr(92) + "U00000031" + chr(92) + "u0032" + chr(92) + "x33"
+    assert sorted(seeded.digit_lines(escaped)) == ["00000031003233", "123"]
 
 
 def test_an_added_line_that_starts_with_two_plus_signs_is_read(repository, capsys, monkeypatch):

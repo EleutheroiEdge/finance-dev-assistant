@@ -38,7 +38,7 @@ from finassist.security import TEXT_SUFFIXES, check_model_path
 MAX_FILE_BYTES = 400_000
 _NUMBER = re.compile(r"(?<![\w.])\d[\d_,]*(?:\.\d[\d_]*)?(?![\w.])")
 _GROUPED = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?")
-_ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})")
+_ESCAPE = re.compile(r"\\U([0-9a-fA-F]{8})|\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})")
 
 
 class Incomplete(Exception):
@@ -68,13 +68,20 @@ def control_figures(seed: int, count: int = 1000) -> list[str]:
             for _ in range(count)]
 
 
+def _escaped_character(match: re.Match) -> str:
+    try:
+        return chr(int(match.group(1) or match.group(2) or match.group(3), 16))
+    except ValueError:  # Past the last code point: not a character, so it stays as written.
+        return match.group()
+
+
 def digit_lines(text: str) -> list[str]:
     """Each line's digits alone, as ASCII, read as written and with escapes and entities spelled out.
 
     This is the independent check for a control figure. It parses no notation: a figure is in a
     file when its digits occur in order on one line, whatever separates or decorates them.
     """
-    spelled = html.unescape(_ESCAPE.sub(lambda match: chr(int(match.group(1) or match.group(2), 16)), text))
+    spelled = html.unescape(_ESCAPE.sub(_escaped_character, text))
     return ["".join(str(unicodedata.decimal(character)) for character in line if character.isdecimal())
             for line in {*text.splitlines(), *spelled.splitlines()}]
 
