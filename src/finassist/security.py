@@ -482,6 +482,20 @@ def check_credentials(text: str, *, extra_patterns: tuple[str, ...] = (), source
     _screen_text(text, credential_screening_view(text, source_path), extra_patterns, syntax, credential_labels=labels)
 
 
+def check_texts(texts, *, extra_patterns: tuple[str, ...] = ()) -> None:
+    """`check_text` for several texts that stand together and are not the content of a file.
+
+    A credential in any of them is reported before a hidden character in another, so the
+    refusal does not depend on the order they come in. A reader with checks of its own between
+    the texts calls `check_credentials` at each place instead and lets the other half wait.
+    """
+    texts = list(texts)
+    for text in texts:
+        check_credentials(text, extra_patterns=extra_patterns)
+    for text in texts:
+        check_hidden(text)
+
+
 def check_context_document(document: dict, *, extra_patterns: tuple[str, ...] = (), records_key="files",
                            placeholders: tuple[str, ...] = (), waiting: Waiting | None = None) -> None:
     """Screen each record with its path, then the remaining typed envelope.

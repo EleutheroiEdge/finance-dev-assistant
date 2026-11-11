@@ -15,7 +15,7 @@ import math
 from jsonschema import Draft202012Validator
 
 from .errors import AssistantError
-from .security import canonical, check_text, digest
+from .security import canonical, check_texts, digest
 
 MAX_DOCUMENT_BYTES = 2_000_000
 GROUPS = ("patterns", "files", "checks")
@@ -85,10 +85,8 @@ def validate_request(request: dict) -> None:
     all_ids = [item["id"] for group in GROUPS for item in request["candidates"][group]]
     if len(all_ids) != len(set(all_ids)):
         raise AssistantError("triage_candidate_duplicate")
-    check_text(request["context"])
-    for group in GROUPS:
-        for item in request["candidates"][group]:
-            check_text(item["description"])
+    check_texts([request["context"],
+                 *(item["description"] for group in GROUPS for item in request["candidates"][group])])
 
 
 def request_hash(request: dict) -> str:
