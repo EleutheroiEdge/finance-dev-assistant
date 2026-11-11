@@ -181,3 +181,31 @@ def test_a_credential_in_a_checklist_comes_before_a_later_profile_that_is_not_va
     assert code_of(labelled.validate) == "sensitive_content"  # as before this change and before the hidden screen
     hidden = replace(Config(), profiles={**shipped, "general": [HIDDEN.strip()], **later})
     assert code_of(hidden.validate) == code  # the hidden character waits; the profile is refused for what it was
+
+
+# --- A configuration as a whole ----------------------------------------------
+
+@pytest.mark.parametrize("change,code", [
+    # The project's own pattern, matched in another profile. Codex noted this one on the change before.
+    ({"extra_sensitive_patterns": ("PROJECT-[0-9]{4}",), "profiles": {"second": ["See PROJECT-1234."]}},
+     "project_content_blocked"),
+    ({"max_file_bytes": -1}, None),
+    ({"blocking_severities": ("urgent",)}, "invalid_blocking_severities"),
+    ({"profile": "no-such-profile"}, "unknown_profile"),
+    ({"extra_sensitive_patterns": ("(",)}, "invalid_content_pattern"),
+])
+def test_a_hidden_character_is_the_last_refusal_of_a_configuration(change, code):
+    """Whatever else is wrong with a configuration is reported first, as before the hidden screen existed."""
+    shipped = Config().profiles
+    profiles = {**shipped, "general": [HIDDEN.strip()], **change.pop("profiles", {})}
+    without = replace(Config(), profiles={**profiles, "general": [PLAIN.strip()]}, **change)
+    expected = code_of(without.validate)  # what this configuration is refused for without the hidden character
+    assert expected is not None and (code is None or expected == code)
+    assert code_of(replace(Config(), profiles=profiles, **change).validate) == expected
+
+
+def test_a_hidden_character_alone_still_refuses_a_configuration():
+    shipped = Config().profiles
+    assert code_of(replace(Config(), profiles={**shipped, "general": [HIDDEN.strip()]}).validate) == "hidden_characters"
+    assert code_of(replace(Config(), endpoint="https://example.invalid/v1" + chr(0x200B)).validate) == "hidden_characters"
+    assert code_of(replace(Config(), profiles=shipped).validate) is None

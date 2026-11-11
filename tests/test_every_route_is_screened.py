@@ -242,7 +242,7 @@ def test_every_reader_that_runs_the_first_half_of_the_screen_runs_the_second():
         ("workspace.py", "export_snapshot"): "check",
         ("workflow.py", "_methodology_bindings"): "check",
         ("workflow_packs.py", "_load_pack"): "check",
-        ("config.py", "validate"): "check_hidden",
+        ("config.py", "validate"): "check",
         ("security.py", "check_texts"): "check_hidden",
     }
     assert callers("check_credentials") == set(second_half)
@@ -257,7 +257,7 @@ def test_every_reader_that_runs_the_first_half_of_the_screen_runs_the_second():
                                   ("model_gate.py", "_evaluate_model_gate"), ("proposal.py", "propose"),
                                   ("patching.py", "apply_patch_artifact"), ("patching.py", "rollback_patch"),
                                   ("workspace.py", "export_snapshot"), ("workflow.py", "_methodology_bindings"),
-                                  ("workflow_packs.py", "resolve_bundle")}
+                                  ("workflow_packs.py", "resolve_bundle"), ("config.py", "validate")}
 
 
 _LOOPS = (ast.For, ast.AsyncFor, ast.While, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)

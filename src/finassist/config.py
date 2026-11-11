@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 
 from .errors import AssistantError
 from .config_compat import check_min_version, compatible_document, decode_config, unknown_option
-from .hidden_text import check_hidden
+from .hidden_text import Waiting
 from .forbidden_tokens import (DEFAULT_MIN_DIGITS, MATCHES, MAX_MIN_DIGITS, MAX_SOURCE_FILES, MAX_TOKENS,
                                MIN_DIGITS)
 from .security import (
@@ -165,8 +165,12 @@ class Config:
             raise AssistantError("invalid_key_variable")
         if self.model and (len(self.model) > 200 or not re.fullmatch(r"[A-Za-z0-9._:/-]+", self.model)):
             raise AssistantError("invalid_model_identifier")
-        check_text(self.model)
-        check_text(self.endpoint)
+        # A hidden character in a text of the configuration is its last refusal: whatever else is
+        # wrong with the configuration is reported first, as it was before that screen existed.
+        unseen = Waiting()
+        for text in (self.model, self.endpoint):
+            check_credentials(text)
+            unseen.check(text)
         if self.runner_image:
             pinned_image(self.runner_image)
         if type(self.schema_version) is not int or self.schema_version != 1 or self.provider not in PROVIDERS:
@@ -231,10 +235,7 @@ class Config:
                 raise AssistantError("invalid_profile_checklist")
             for item in checklist:
                 check_credentials(item)
-        # A hidden character in one item waits until every checklist has been read for credentials.
-        for checklist in self.profiles.values():
-            for item in checklist:
-                check_hidden(item)
+                unseen.check(item)
         if (
             not isinstance(self.profile_files, (list, tuple))
             or len(self.profile_files) > 16
@@ -402,6 +403,7 @@ class Config:
             value not in {"critical", "high", "medium", "low", "info"} for value in self.blocking_severities
         ):
             raise AssistantError("invalid_blocking_severities")
+        unseen.release()
         return self
 
     @property
