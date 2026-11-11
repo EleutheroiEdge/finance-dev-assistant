@@ -1,6 +1,7 @@
 """`init --detect` proposes something a real repository can use as it stands. Synthetic data only."""
 
-from decimal import Decimal
+from dataclasses import replace
+from decimal import ROUND_CEILING, Decimal
 import json
 import subprocess
 
@@ -11,6 +12,8 @@ from test_model_gate import run
 from test_providers_review import envelope
 from finassist import detect as detect_module
 from finassist.cli import main
+from finassist.config import Config
+from finassist.config_preflight import budgets_for_the_packet_limit, one_request_at_the_limit
 from finassist.model_policy import check_draft, missing_fields
 from finassist.onboarding import policy_preflight
 from finassist.review import ENVELOPE_ALLOWANCE, reserved_usd
@@ -176,6 +179,151 @@ def test_the_drafted_budget_covers_a_request_near_the_drafted_limit(tmp_path, ca
         "reviewed_paths": [file["path"] for file in packet["files"]]})))
     assert result["verdict"] == "PASS", result["reasons"]
     assert len(calls) == 1 and len(calls[0].content) == size
+
+
+BUDGETS = {"run_budget_exceeded", "daily_budget_exceeded", "monthly_budget_exceeded"}
+
+
+def _near_the_limit(tmp_path):
+    """A repository whose latest change makes a packet near the 120,000-byte floor of the drafted limit."""
+    line = "value = compute_total(opening, deposits)  # synthetic {n:07d}\n"
+    body = lambda seed: "".join(line.format(n=seed * 100_000 + number) for number in range(NEAR_LIMIT // len(line)))  # noqa: E731
+    repo = _repo(tmp_path, {**LAYOUT, **{f"engine/part_{n}.py": body(n) for n in range(3)}})
+    base = command(repo, "rev-parse", "HEAD")
+    return repo, base, _commit(repo, {f"engine/part_{n}.py": body(n + 10) for n in range(3)}, "Synthetic large change")
+
+
+def _doctor(capsys, path, repo, base, head) -> dict:
+    """The configuration preflight's report. It exits with 1 while the network is not approved."""
+    main(["--config", str(path), "doctor", "--repo", str(repo), "--base", base, "--head", head])
+    return json.loads(capsys.readouterr().out.splitlines()[-1])
+
+
+def test_the_drafted_configuration_can_pay_for_a_request_near_its_own_packet_limit(tmp_path, capsys, monkeypatch):
+    """Prices high enough that the default budget of 1 is too small for the packet limit the draft proposes."""
+    monkeypatch.setenv("REVIEW_PROVIDER_KEY", "fictional-provider-value")
+    repo, base, head = _near_the_limit(tmp_path)
+    pricey = [*PROVIDER[:-4], "--input-usd-per-million", "100", "--output-usd-per-million", "2"]
+    path = tmp_path / "finassist.json"
+    proposal = _proposal(capsys, ["init", "--detect", "--repo", str(repo), *pricey, "--write", "--output", str(path)])
+    config = proposal["config"]
+    run, daily = Decimal(str(config["max_run_usd"])), Decimal(str(config["daily_budget_usd"]))
+    # One request at the limit, by the configuration route's arithmetic, and not a cent more than it needs.
+    bare = reserved_usd(config["max_packet_bytes"] + ENVELOPE_ALLOWANCE, 4096, 100, 2)
+    assert bare < run < bare + Decimal("1.00") and daily == 3 * run and "monthly_budget_usd" not in config
+    assert {"code": "budget_raised_for_packet_limit", "max_run_usd": float(run), "daily_budget_usd": float(daily)} in proposal["warnings"]
+    assert {"value": float(run), "rule": "one_packet_at_the_limit", "document": "config"} in proposal["evidence"]["max_run_usd"]
+    assert {"value": float(daily), "rule": "one_packet_at_the_limit", "document": "config"} in proposal["evidence"]["daily_budget_usd"]
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert (saved["max_run_usd"], saved["daily_budget_usd"]) == (float(run), float(daily))
+    # The saved draft reviews the change it made room for, and the default budget would not have.
+    report = _doctor(capsys, path, repo, base, head)
+    assert not BUDGETS & {blocker["code"] for blocker in report["blockers"]}
+    assert Decimal("1") < Decimal(report["request"]["reserved_usd"]) <= run
+    assert 0 < report["packet"]["bytes"] <= report["packet"]["limit"] == config["max_packet_bytes"]
+    path.write_text(json.dumps({**saved, "max_run_usd": 1.0, "daily_budget_usd": 5.0}), encoding="utf-8")
+    report = _doctor(capsys, path, repo, base, head)
+    assert BUDGETS & {blocker["code"] for blocker in report["blockers"]} == {"run_budget_exceeded", "daily_budget_exceeded"}
+
+
+def test_a_budget_that_is_enough_is_left_alone_and_none_is_lowered(tmp_path, capsys):
+    repo, _base, _head = _near_the_limit(tmp_path)
+    # Ordinary prices: the default budget pays for the drafted limit, so the draft names no budget.
+    proposal = _proposal(capsys, ["init", "--detect", "--repo", str(repo), *PROVIDER])
+    assert not {"max_run_usd", "daily_budget_usd", "monthly_budget_usd"} & set(proposal["config"])
+    assert "budget_raised_for_packet_limit" not in {entry["code"] for entry in proposal["warnings"]}
+    # No provider: nothing can be worked out, and nothing is invented.
+    proposal = _proposal(capsys, ["init", "--detect", "--repo", str(repo)])
+    assert not {"max_run_usd", "daily_budget_usd", "monthly_budget_usd"} & set(proposal["config"])
+    # A stated budget that is already enough stays as stated, with high prices too.
+    pricey = [*PROVIDER[:-4], "--input-usd-per-million", "100", "--output-usd-per-million", "2"]
+    stated = tmp_path / "stated.json"
+    stated.write_text(json.dumps({"max_run_usd": 50, "daily_budget_usd": 60}), encoding="utf-8")
+    proposal = _proposal(capsys, ["--config", str(stated), "init", "--detect", "--repo", str(repo), *pricey])
+    assert not {"max_run_usd", "daily_budget_usd", "monthly_budget_usd"} & set(proposal["config"])
+    assert "budget_raised_for_packet_limit" not in {entry["code"] for entry in proposal["warnings"]}
+
+
+def test_a_month_cannot_hold_less_than_a_day_of_the_drafted_budget(tmp_path, capsys):
+    repo, _base, _head = _near_the_limit(tmp_path)
+    costly = [*PROVIDER[:-4], "--input-usd-per-million", "400", "--output-usd-per-million", "2"]
+    config = _proposal(capsys, ["init", "--detect", "--repo", str(repo), *costly])["config"]
+    assert config["max_run_usd"] > 48 and config["daily_budget_usd"] == 3 * config["max_run_usd"]
+    assert config["monthly_budget_usd"] == config["daily_budget_usd"] > 100
+
+
+@pytest.mark.parametrize("stated,raised,refused", [
+    ({"max_run_usd": 50, "daily_budget_usd": 0.01}, {"daily_budget_usd"}, {"daily_budget_exceeded"}),
+    ({"max_run_usd": 50, "daily_budget_usd": 60, "monthly_budget_usd": 0.01}, {"monthly_budget_usd"},
+     {"monthly_budget_exceeded"}),
+    ({"max_run_usd": 50, "daily_budget_usd": 0.01, "monthly_budget_usd": 0.01},
+     {"daily_budget_usd", "monthly_budget_usd"}, {"daily_budget_exceeded", "monthly_budget_exceeded"}),
+])
+def test_a_day_or_a_month_too_small_for_one_request_is_raised_on_its_own(tmp_path, capsys, monkeypatch, stated, raised,
+                                                                        refused):
+    """Codex P109-1: a run budget that is enough does not excuse the other two."""
+    monkeypatch.setenv("REVIEW_PROVIDER_KEY", "fictional-provider-value")
+    repo, base, head = _near_the_limit(tmp_path)
+    pricey = [*PROVIDER[:-4], "--input-usd-per-million", "100", "--output-usd-per-million", "2"]
+    given, path = tmp_path / "stated.json", tmp_path / "finassist.json"
+    given.write_text(json.dumps(stated), encoding="utf-8")
+    proposal = _proposal(capsys, ["--config", str(given), "init", "--detect", "--repo", str(repo), *pricey,
+                                  "--write", "--output", str(path)])
+    config = proposal["config"]
+    names = {"max_run_usd", "daily_budget_usd", "monthly_budget_usd"}
+    assert names & set(config) == raised  # The run budget of 50 was enough and stays as stated.
+    amounts = {name: config[name] for name in raised}
+    assert {"code": "budget_raised_for_packet_limit", **amounts} in proposal["warnings"]
+    bare = reserved_usd(config["max_packet_bytes"] + ENVELOPE_ALLOWANCE, 4096, 100, 2)
+    if "daily_budget_usd" in raised:  # three requests at the limit, as when the run budget is raised
+        assert 3 * bare < Decimal(str(config["daily_budget_usd"])) < 3 * (bare + Decimal("1.00"))
+    if "monthly_budget_usd" in raised:  # the day beside it: the proposed one, or the stated 60
+        assert config["monthly_budget_usd"] == config.get("daily_budget_usd", 60.0)
+    for name in raised:
+        assert {"value": config[name], "rule": "one_packet_at_the_limit", "document": "config"} in proposal["evidence"][name]
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["max_run_usd"] == 50 and all(saved[name] == config[name] for name in raised)
+    # The saved draft pays for the change it made room for. With the budgets as they were stated, it does not.
+    report = _doctor(capsys, path, repo, base, head)
+    assert not BUDGETS & {blocker["code"] for blocker in report["blockers"]}
+    path.write_text(json.dumps({**saved, **stated}), encoding="utf-8")
+    report = _doctor(capsys, path, repo, base, head)
+    assert BUDGETS & {blocker["code"] for blocker in report["blockers"]} == refused
+
+
+def test_a_month_that_holds_one_request_stays_beside_a_larger_day(tmp_path, capsys):
+    repo, _base, _head = _near_the_limit(tmp_path)
+    pricey = [*PROVIDER[:-4], "--input-usd-per-million", "100", "--output-usd-per-million", "2"]
+    stated = tmp_path / "stated.json"
+    # One request reserves about 12.6: the month holds it, though it is smaller than the day.
+    stated.write_text(json.dumps({"max_run_usd": 50, "daily_budget_usd": 60, "monthly_budget_usd": 20}), encoding="utf-8")
+    proposal = _proposal(capsys, ["--config", str(stated), "init", "--detect", "--repo", str(repo), *pricey])
+    assert not {"max_run_usd", "daily_budget_usd", "monthly_budget_usd"} & set(proposal["config"])
+    assert "budget_raised_for_packet_limit" not in {entry["code"] for entry in proposal["warnings"]}
+    # The same when the run budget is the one that is raised: the day holds three requests and stays, so the
+    # month is asked only whether it holds one.
+    stated.write_text(json.dumps({"max_run_usd": 1, "daily_budget_usd": 60, "monthly_budget_usd": 20}), encoding="utf-8")
+    proposal = _proposal(capsys, ["--config", str(stated), "init", "--detect", "--repo", str(repo), *pricey])
+    assert {"max_run_usd", "daily_budget_usd", "monthly_budget_usd"} & set(proposal["config"]) == {"max_run_usd"}
+    assert [set(entry) for entry in proposal["warnings"] if entry["code"] == "budget_raised_for_packet_limit"] == [
+        {"code", "max_run_usd"}]
+
+
+def test_a_budget_that_holds_the_request_stays_though_it_is_under_the_next_cent():
+    """Second reviewer: the comparison was with the reserve rounded up to a cent, so such a budget was raised."""
+    config = replace(Config(), provider="google", model="review-model", input_usd_per_million=100,
+                     output_usd_per_million=2, max_packet_bytes=137_951).validate()
+    reserve = one_request_at_the_limit(config)
+    cent = reserve.quantize(Decimal("0.01"), rounding=ROUND_CEILING)
+    assert reserve < cent  # The case needs a reserve that is not a whole number of cents.
+    between = float((reserve + cent) / 2)
+    assert reserve < Decimal(str(between)) < cent
+    enough = replace(config, max_run_usd=between, daily_budget_usd=between, monthly_budget_usd=between)
+    assert budgets_for_the_packet_limit(enough) == {}
+    # One step under the reserve is too small, and what is proposed is the reserve rounded up to a cent.
+    short = replace(enough, max_run_usd=float(reserve - Decimal("0.000001")))
+    assert budgets_for_the_packet_limit(short) == {
+        "max_run_usd": float(cent), "daily_budget_usd": float(3 * cent), "monthly_budget_usd": float(3 * cent)}
 
 
 def test_a_draft_the_gate_schema_refuses_is_reported_and_the_proposal_still_prints(tmp_path, capsys):
