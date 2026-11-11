@@ -7,6 +7,7 @@ from decimal import Decimal
 import json
 import math
 import os
+import re
 import time
 from urllib.parse import quote
 
@@ -28,20 +29,32 @@ def _not_json(_name: str):
     raise ValueError("NaN and Infinity are not JSON")
 
 
+_ZERO = re.compile(r"-?0*(?:\.0*)?(?:[eE][+-]?[0-9]+)?")  # every digit before the exponent is a zero
+
+
 def _number(text: str) -> int | float:
     """A number written with a point or an exponent.
 
     One whose digits say it is an integer is that integer, exactly: 2.0 and 2e0 are 2. That is
     asked of the digits as written, never of the binary value they round to, so
     2.0000000000000001 is not 2. A number which only rounding would make an integer is refused,
-    and so is one too small to hold: what it says cannot be kept.
+    and so is one too small to hold: what it says cannot be kept. Zero is zero whatever exponent
+    it is written with.
     """
     value = float(text)
     if not math.isfinite(value):
         raise ValueError("a number too large to hold")
-    exact = Decimal(text)
-    if exact == exact.to_integral_value():
-        return int(exact)  # At most 309 digits, because the value is finite.
+    if _ZERO.fullmatch(text):
+        return 0
+    try:
+        exact = Decimal(text)
+        whole = exact == exact.to_integral_value()
+    except ArithmeticError as exc:
+        # An exponent past what the exact reading takes. The value is not zero and its float is
+        # finite, so it is a number too small to hold.
+        raise ValueError("a number too small to hold") from exc
+    if whole:
+        return int(exact)  # At most 309 digits: the value is finite and is not zero.
     if value.is_integer():
         raise ValueError("a number that only rounding would make an integer")
     return value
@@ -72,6 +85,8 @@ def reply_json(text: str | bytes):
         return json.loads(text, parse_constant=_not_json, parse_float=_number, object_pairs_hook=_members)
     except RecursionError as exc:
         raise ValueError("nested too deeply") from exc
+    except ArithmeticError as exc:  # No number may leave this reader as an error of its own kind.
+        raise ValueError("a number that cannot be read") from exc
 
 
 def _usage(value) -> int | None:

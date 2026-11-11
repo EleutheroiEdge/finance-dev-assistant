@@ -40,6 +40,10 @@ NOT_JSON = {
     "just_under_an_integer": "[1.9999999999999999]",
     "a_half_too_large_to_keep": "[9007199254740993.5]",
     "too_small": "[1e-400]",
+    # A second reviewer: past the exponent that the exact reading takes, this left the reader as an
+    # error of another kind, and three routes with it.
+    "too_small_for_the_exact_reading": "[1e-999999999999999999999]",
+    "too_small_with_many_digits": "[123.456e-1000000000000000000]",
 }
 wider = pytest.mark.parametrize("text", NOT_JSON.values(), ids=NOT_JSON.keys())
 
@@ -65,6 +69,8 @@ def test_json_is_read_as_before(text):
     # Exactly, however large: the digits are read, not the binary value they would round to.
     ("9007199254740993.0", 9007199254740993), ("1e23", 10**23), ("1e308", 10**308),
     ("2.5", 2.5), ("0.1", 0.1), ("0.30000000000000004", 0.30000000000000004), ("5e-324", 5e-324),
+    # Zero is zero whatever exponent it is written with, also one that no exact reading takes.
+    ("0.0", 0), ("0e5", 0), ("0e999999999", 0), ("0e1000000000000000000", 0), ("-0.000e-999999999999999999999", 0),
 ])
 def test_a_number_that_is_an_integer_as_written_is_read_as_that_integer(written, value):
     read = reply_json('{"line": %s}' % written)["line"]
@@ -73,7 +79,9 @@ def test_a_number_that_is_an_integer_as_written_is_read_as_that_integer(written,
 
 def test_a_very_long_number_is_read_or_refused_at_once():
     assert reply_json("1." + "0" * 1_000_000) == 1
-    for text in ("9" * 1_000_000 + ".0", "0." + "0" * 1_000_000 + "1", "1e1000000000", "1e-1000000000"):
+    assert reply_json("0." + "0" * 1_000_000 + "e1000000000000000000") == 0
+    for text in ("9" * 1_000_000 + ".0", "0." + "0" * 1_000_000 + "1", "1e1000000000", "1e-1000000000",
+                 "1e1000000000000000000", "1e-1000000000000000000", "9" * 1_000_000 + "e-999999999999999999999"):
         with pytest.raises(ValueError):
             reply_json(text)
 
