@@ -11,13 +11,12 @@ import subprocess
 import tempfile
 import time
 import uuid
-import sys
 
 from .config import Config
 from .errors import AssistantError
 from .security import canonical, digest, pinned_image, regular_path
 from .platform_support import clean_environment, container_environment, find_tool
-from .posix_process import ExitObserver, non_reaping_wait_available, zombie_group_only
+from .posix_process import ExitObserver, non_reaping_wait_available, signal_group
 
 
 def run_bounded(argv: list[str], *, cwd: Path, env: dict, timeout: float, max_bytes: int = 1_000_000) -> dict:
@@ -85,18 +84,7 @@ def run_bounded(argv: list[str], *, cwd: Path, env: dict, timeout: float, max_by
         # Keep the leader unreaped until all group signals are complete. Escaped
         # descendants still require OS/container isolation.
         for sig in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(process.pid, sig)
-            except ProcessLookupError:
-                pass
-            except PermissionError:
-                if not (
-                    sys.platform == "darwin"
-                    and observer is not None
-                    and observer.poll()
-                    and zombie_group_only(process.pid)
-                ):
-                    raise
+            signal_group(process.pid, sig, observer)
             if sig == signal.SIGTERM:
                 time.sleep(0.1)
         try:

@@ -93,6 +93,11 @@ Nothing else about what a gate accepts, authorizes or spends has changed.
 ### Fixed
 - **A gate range that changed only withheld files was refused with the wrong code.** It reported
   `gate_ignore_check_unavailable`; it now reports `review_scope_entirely_withheld`.
+- **On macOS a check could fail with `PermissionError` when its command exited as the runner stopped
+  reading its output.** macOS refuses to signal a process group that holds only a zombie, and the
+  runner raised that refusal when it came a moment before the exit was reported. The signal is now
+  tried again until the group is proved to hold only a zombie. A group with a live member still
+  raises.
 - **`init --detect` left hidden directories out of `allow_paths`.** A change to `.github/workflows/`,
   to a tool's settings directory or to a root file such as `.pre-commit-config.yaml` then left every
   range that touched it incomplete, or refused by a gate. On nine real repositories that was the most

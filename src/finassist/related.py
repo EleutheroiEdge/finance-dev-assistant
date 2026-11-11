@@ -14,6 +14,7 @@ import re
 
 from .config import Config
 from .errors import AssistantError
+from .python_source import SOURCE_ERRORS
 from .security import canonical, check_text, digest
 
 RULE_VERSION = 1
@@ -50,7 +51,7 @@ def _changed_lines(before: str | None, after: str | None) -> set[int]:
 def _parse(text: str):
     try:
         return ast.parse(text.removeprefix("\ufeff"))  # A byte-order mark keeps line numbers.
-    except (SyntaxError, ValueError, RecursionError, MemoryError):
+    except SOURCE_ERRORS:
         return None
 
 
