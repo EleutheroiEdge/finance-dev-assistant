@@ -86,7 +86,8 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   before, and so is a reference whose expression holds one: after `||`, `??`, `?:` or `+`, as a
   later argument, as the argument of `orElse`, `default` and similar calls, or handed to a call
   that hashes, encodes or wraps it. Only the name a lookup is given, the text of an error and a
-  field of an argument object are not counted. A string, a comment, a
+  field of an argument object are not counted, and a call is a lookup only when every word of
+  its name is a lookup word. A string, a comment, a
   number, `.jsx` and `.tsx` files, a script that holds markup, and any file that does not read
   cleanly as its language keep the strict rules, and so does everything read without a path: a
   name, a setting, and what a model returns. The cost is stated in `docs/security-design.md` and
