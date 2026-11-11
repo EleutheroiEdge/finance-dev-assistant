@@ -14,7 +14,8 @@ from urllib.parse import urlsplit
 
 from .errors import AssistantError
 from .config_compat import check_min_version, compatible_document, decode_config, unknown_option
-from .forbidden_tokens import MAX_TOKENS
+from .forbidden_tokens import (DEFAULT_MIN_DIGITS, MATCHES, MAX_MIN_DIGITS, MAX_SOURCE_FILES, MAX_TOKENS,
+                               MIN_DIGITS)
 from .security import (
     check_path,
     check_text,
@@ -101,12 +102,23 @@ class Config:
     protected_branches: tuple[str, ...] = ("main", "master", "trunk", "production", "release", "release/*")
     extra_sensitive_patterns: tuple[str, ...] = ()
     # Confidential figures that must never be sent: a private file with one figure per line,
-    # SHA256 hashes of canonical figures, or both. Both empty (the default): no figure screen.
+    # SHA256 hashes of canonical figures, delimited files whose numeric cells are all listed
+    # (sources), or any of these. All empty (the default): no figure screen.
     forbidden_token_file: str = field(default="", metadata={"identity": "when-set", "json_schema": {"maxLength": 4096}})
     forbidden_token_hashes: tuple[str, ...] = field(default=(), metadata={
         "identity": "when-set",
         "json_schema": {"maxItems": MAX_TOKENS, "uniqueItems": True,
                         "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}})
+    forbidden_token_sources: tuple[str, ...] = field(default=(), metadata={
+        "identity": "when-set",
+        "json_schema": {"maxItems": MAX_SOURCE_FILES, "uniqueItems": True,
+                        "items": {"type": "string", "minLength": 1, "maxLength": 4096}}})
+    # value: the same value in any notation. digits: also the same significant digits at any
+    # scale, and a two-place rounding, for figures of at least forbidden_token_min_digits digits.
+    forbidden_token_match: str = field(default=MATCHES[0], metadata={
+        "identity": "when-set", "json_schema": {"enum": list(MATCHES)}})
+    forbidden_token_min_digits: int = field(default=DEFAULT_MIN_DIGITS, metadata={
+        "identity": "when-set", "json_schema": {"minimum": MIN_DIGITS, "maximum": MAX_MIN_DIGITS}})
     max_file_bytes: int = field(default=48_000, metadata={"json_schema": {"minimum": 1, "maximum": 2_000_000}})
     max_packet_bytes: int = field(default=120_000, metadata={"json_schema": {"minimum": 1, "maximum": MAX_PACKET_BYTES}})
     max_output_tokens: int = field(default=4096, metadata={"json_schema": {"minimum": 1, "maximum": 2_000_000}})
@@ -272,6 +284,7 @@ class Config:
             "required_recipes",
             "blocking_severities",
             "forbidden_token_hashes",
+            "forbidden_token_sources",
         ):
             if not isinstance(getattr(self, key), (tuple, list)) or any(
                 not isinstance(x, str) for x in getattr(self, key)
@@ -283,6 +296,13 @@ class Config:
         if (len(hashes) > MAX_TOKENS or len(set(hashes)) != len(hashes)
                 or any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in hashes)):
             raise AssistantError("forbidden_token_hashes_invalid")
+        sources = self.forbidden_token_sources
+        if (len(sources) > MAX_SOURCE_FILES or len(set(sources)) != len(sources)
+                or any(not item or len(item) > 4096 for item in sources)):
+            raise AssistantError("forbidden_token_source_invalid")
+        if (self.forbidden_token_match not in MATCHES or type(self.forbidden_token_min_digits) is not int
+                or not MIN_DIGITS <= self.forbidden_token_min_digits <= MAX_MIN_DIGITS):
+            raise AssistantError("forbidden_token_match_invalid")
         if len(self.generated_paths) > 128 or len(set(self.generated_paths)) != len(self.generated_paths):
             raise AssistantError("invalid_generated_paths")
         for prefix in self.generated_paths:
@@ -360,6 +380,11 @@ class Config:
             rules["forbidden_token_file"] = self.forbidden_token_file
         if self.forbidden_token_hashes:
             rules["forbidden_token_hashes"] = list(self.forbidden_token_hashes)
+        if self.forbidden_token_sources:
+            rules["forbidden_token_sources"] = list(self.forbidden_token_sources)
+        if rules:  # How to match belongs to the list: a screen built with another rule is another screen.
+            rules.update(forbidden_token_match=self.forbidden_token_match,
+                         forbidden_token_min_digits=self.forbidden_token_min_digits)
         return rules
 
     def allows(self, path: str) -> bool:
@@ -435,6 +460,7 @@ def load_config(path: Path | None = None, *, content: bytes | None = None,
             "text_suffixes",
             "profile_files",
             "forbidden_token_hashes",
+            "forbidden_token_sources",
         ):
             if key in raw and isinstance(raw[key], list):
                 raw[key] = tuple(raw[key])
