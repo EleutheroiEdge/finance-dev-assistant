@@ -39,8 +39,9 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   token formats, account numbers, listed figures and `extra_sensitive_patterns` are refused there
   as everywhere. The list is empty by default, an empty list leaves the configuration hash as it
   was, and `doctor` names each file the setting covered and warns with
-  `credential_labels_not_screened`. On the 225 reference changes, with test paths listed on top of
-  both skip settings, a gate is ready for 195 (87%) and the configuration route for 185 (82%).
+  `credential_labels_not_screened`. On 225 reference changes at pinned commits, with test paths
+  listed on top of both skip settings, a gate is ready for 195 (87%) and the configuration route
+  for 185 (82%).
 - **A credential refusal says which rule and which lines.** Both `doctor` reports, and the error
   `plan` prints, now name the rule (`credential_label`, `github_token` and so on), the version of
   the file (`base` or `head`) and up to 20 line numbers. This is local output only, and it never
@@ -92,7 +93,10 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   `password` that is given `process.env.DB_PASSWORD`, a member, a call or a column is no longer
   refused. In any file read with its path, a quoted value that is exactly one expansion, such as
   `${NAME}` or `${{ secrets.NAME }}`, is a reference too, and in YAML a key under a
-  credential-named key is not its value. On the 225 reference changes with both skip settings, a gate is now ready for 181 (80%), up from 175, and the configuration route for 175 (78%), up from 168. Changes that a gate blocks for credential content fall from 35 to 27, and no file is newly refused.
+  credential-named key is not its value. On 225 reference changes at pinned commits, with both
+  skip settings, a gate is now ready for 180 (80%), up from 173, and the configuration route for
+  174 (77%), up from 166. Changes that a gate blocks for credential content fall from 36 to 28,
+  and no file is newly refused.
 - **What is still refused, and what the new reading costs.** A quoted literal is refused as
   before, and so is a reference whose expression holds one: after `||`, `??`, `?:` or `+`, as a
   later argument, as the argument of `orElse`, `default` and similar calls, or handed to a call
