@@ -10,6 +10,8 @@ import re
 import warnings
 import tokenize
 
+from .python_source import SOURCE_ERRORS
+
 
 def credential_screening_view(text: str, source_path: str | None) -> str:
     if source_path is None or PurePosixPath(source_path).suffix.lower() not in {".py", ".pyi"}:
@@ -21,7 +23,7 @@ def credential_screening_view(text: str, source_path: str | None) -> str:
             warnings.simplefilter("ignore", SyntaxWarning)
             warnings.simplefilter("ignore", DeprecationWarning)
             tree = ast.parse(text)
-    except (SyntaxError, ValueError, RecursionError, MemoryError):
+    except SOURCE_ERRORS:
         return text  # Unparseable source retains strict generic screening.
     lines = re.findall(r"[^\r\n]*(?:\r\n|\r|\n|$)", text)
     starts, position = [], 0
@@ -47,7 +49,7 @@ def credential_screening_view(text: str, source_path: str | None) -> str:
                 end = starts[token.end[0] - 1] + token.end[1]
                 comments.append(text[start:end])
                 syntax[start:end] = " " * (end - start)
-    except (tokenize.TokenError, IndentationError):
+    except SOURCE_ERRORS:
         return text
     syntax = "".join(syntax)
     spans = []
