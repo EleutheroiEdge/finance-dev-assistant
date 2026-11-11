@@ -184,6 +184,13 @@ Nothing else about what a gate accepts, authorizes or spends has changed.
   reason, and its report is valid.
 - **A key given twice in one object of a reply is refused as invalid JSON.** The last value was
   taken before, without a word. Which of the two a model meant is not for the reader to choose.
+- **A credential is reported before a hidden character in every reader of several texts.** Six
+  readers screened each text in turn: the cases of an evaluation suite, the files of an export,
+  the methodology documents of a workflow, the packs of a workflow bundle, the checklists of a
+  configuration, and the context and candidates of a triage request. A hidden character in an early text was then reported
+  before a credential in a later one, so the refusal depended on their order. Nothing got
+  through either way. An export still never writes a file that holds a hidden character. A test
+  now reads the source for a screen that runs on each of several texts.
 - **A gate range that changed only withheld files was refused with the wrong code.** It reported
   `gate_ignore_check_unavailable`; it now reports `review_scope_entirely_withheld`.
 - **On macOS a check could fail with `PermissionError` when its command exited as the runner stopped

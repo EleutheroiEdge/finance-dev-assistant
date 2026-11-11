@@ -13,7 +13,7 @@ from .platform_support import find_tool
 from .errors import AssistantError
 from .review import review_packet
 from .scope import build_packet, config_token_guard
-from .security import canonical, check_context_document, check_text, digest
+from .security import canonical, check_context_document, check_credentials, digest
 
 
 def validate_suite(
@@ -40,7 +40,11 @@ def validate_suite(
         for side in ("before", "after"):
             if not isinstance(case[side], str) or not case[side] or len(case[side].encode()) > 48_000:
                 raise AssistantError("invalid_eval_source")
-            check_text(case[side], extra_patterns=extra_patterns, source_path=case["path"], placeholders=placeholders)
+            # A credential is reported here, case by case, as it always was. A hidden character waits
+            # for the screen of the whole suite below, so that one in an earlier case never comes
+            # before a credential in a later one.
+            check_credentials(case[side], extra_patterns=extra_patterns, source_path=case["path"],
+                              placeholders=placeholders)
 
     check_context_document(suite, extra_patterns=extra_patterns, records_key="cases", placeholders=placeholders)
 

@@ -4,8 +4,9 @@ from pathlib import Path
 
 from .config import Config
 from .errors import AssistantError
+from .hidden_text import Waiting
 from .scope import git, read_entry, resolve
-from .security import PUBLIC_ASSETS, check_name, check_text, digest
+from .security import PUBLIC_ASSETS, check_credentials, check_name, digest
 
 
 def export_snapshot(repo: Path, ref: str, destination: Path, config: Config) -> dict:
@@ -15,6 +16,7 @@ def export_snapshot(repo: Path, ref: str, destination: Path, config: Config) -> 
     destination.mkdir(mode=0o755)
     paths = git(repo, "ls-tree", "-r", "-z", "--name-only", sha, binary=True).decode().split("\0")
     manifest = []
+    unseen = Waiting()  # A hidden character in one file waits for the credential screen of every file.
     for path in paths:
         if not path or not config.allows(path):
             continue
@@ -27,15 +29,20 @@ def export_snapshot(repo: Path, ref: str, destination: Path, config: Config) -> 
         if data is None:
             raise AssistantError("snapshot_blob_missing")
         try:
-            check_text(data.decode(), extra_patterns=config.extra_sensitive_patterns, source_path=path,
-                       placeholders=config.placeholder_credential_paths)
+            text = data.decode()
         except UnicodeError as exc:
             raise AssistantError("snapshot_non_text_blob") from exc
+        check_credentials(text, extra_patterns=config.extra_sensitive_patterns, source_path=path,
+                          placeholders=config.placeholder_credential_paths)
+        unseen.check(text, file=True)
+        if unseen.first is not None:
+            continue  # The export will be refused. No file is written from here on; the rest are still screened.
         target = destination / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
         target.chmod(0o555 if mode == "100755" else 0o444)
         manifest.append({"path": path, "sha256": digest(data), "mode": mode})
+    unseen.release()
     if not manifest:
         raise AssistantError("empty_snapshot")
     for directory in sorted((p for p in destination.rglob("*") if p.is_dir()), reverse=True):

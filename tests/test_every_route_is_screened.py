@@ -235,6 +235,15 @@ def test_every_reader_that_runs_the_first_half_of_the_screen_runs_the_second():
         ("scope.py", "verify_packet"): "check",
         ("related.py", "verify_related"): "check",
         ("review.py", "call_model"): "release",
+        # Readers of several texts that stand together: an evaluation suite, an export, a workflow's
+        # methodology, the packs of a bundle, a configuration's checklists, and `check_texts` for a
+        # triage request.
+        ("evaluation.py", "validate_suite"): "check_context_document",
+        ("workspace.py", "export_snapshot"): "check",
+        ("workflow.py", "_methodology_bindings"): "check",
+        ("workflow_packs.py", "_load_pack"): "check",
+        ("config.py", "validate"): "check_hidden",
+        ("security.py", "check_texts"): "check_hidden",
     }
     assert callers("check_credentials") == set(second_half)
     for reader, call in second_half.items():
@@ -246,7 +255,71 @@ def test_every_reader_that_runs_the_first_half_of_the_screen_runs_the_second():
                                   ("security.py", "check_context_document"), ("related.py", "verify_related"),
                                   ("review.py", "call_model"), ("review.py", "review_packet"),
                                   ("model_gate.py", "_evaluate_model_gate"), ("proposal.py", "propose"),
-                                  ("patching.py", "apply_patch_artifact"), ("patching.py", "rollback_patch")}
+                                  ("patching.py", "apply_patch_artifact"), ("patching.py", "rollback_patch"),
+                                  ("workspace.py", "export_snapshot"), ("workflow.py", "_methodology_bindings"),
+                                  ("workflow_packs.py", "resolve_bundle")}
+
+
+_LOOPS = (ast.For, ast.AsyncFor, ast.While, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+
+
+def _whole_screen(node) -> bool:
+    return (isinstance(node, ast.Call) and _called(node) == "check_text"
+            and not any(keyword.arg == "waiting" for keyword in node.keywords))
+
+
+def _screens_in_a_loop(tree) -> set:
+    """What runs the whole screen inside a loop or a comprehension of a module, with no list that waits.
+
+    Directly: the function whose loop holds a `check_text` call. Or one step away: a function of
+    the same module that makes such a call and is itself called in a loop, which is how the packs
+    of a workflow bundle were read.
+    """
+    whole, found = set(), set()
+
+    def collect(node, function):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            function = node.name
+        if _whole_screen(node) and function:
+            whole.add(function)
+        for child in ast.iter_child_nodes(node):
+            collect(child, function)
+
+    def visit(node, function, looped):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            function, looped = getattr(node, "name", function), False
+        elif isinstance(node, _LOOPS):
+            looped = True
+        if looped and _whole_screen(node):
+            found.add(function)
+        elif looped and isinstance(node, ast.Call) and _called(node) in whole and _called(node) != function:
+            found.add(_called(node))
+        for child in ast.iter_child_nodes(node):
+            visit(child, function, looped)
+
+    collect(tree, "")
+    visit(tree, "", False)
+    return found
+
+
+def test_the_whole_screen_is_not_run_on_each_of_several_texts():
+    """`check_text` screens one text that stands alone, hidden characters included, at once.
+
+    Run on each of several texts, it reports a hidden character in an early one before a
+    credential in a later one, and the refusal depends on their order. So a call inside a loop
+    passes a list that waits, or is named here with the reason it may stand. The same holds for a
+    function that makes such a call and is called in a loop of its own module. A helper in another
+    module, a `map` and a recursion are not seen by this test.
+    """
+    alone = {
+        # The publication scan gives each file a finding of its own and refuses nothing as a whole.
+        ("cli.py", "execute"),
+        # A command that fails the screen is not proposed. Nothing is refused.
+        ("detect.py", "propose"),
+    }
+    found = {(file.name, function) for file in sorted(SOURCE.glob("*.py"))
+             for function in _screens_in_a_loop(ast.parse(file.read_text(encoding="utf-8")))}
+    assert found == alone
 
 
 # --- What comes back ---------------------------------------------------------
