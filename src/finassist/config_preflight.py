@@ -21,8 +21,9 @@ from .onboarding import _shown_argument
 from .providers import request_payload
 from .review import review_schema, spend_estimate
 from .forbidden_tokens import screen_source
-from .scope import _private_name, build_packet, config_token_guard, git, left_out, read_sides, resolve
-from .security import PUBLIC_ASSETS, canonical, check_text, local_name, regular_path
+from .scope import (_private_name, build_packet, config_token_guard, git, left_out, omission_reason, read_sides,
+                    resolve)
+from .security import canonical, check_text, local_name, regular_path
 
 _EXAMPLES = 20  # Example names kept per grouped blocker.
 _LEFT_OUT = frozenset({"unsupported_file_type", "file_limit_exceeded", "non_text_blob"})  # Reasons the setting adds.
@@ -166,12 +167,9 @@ class _ConfigPreflight:
                 return {**row, "status": "withheld"}
             config.check_path(path, source_only=False, metadata_only=True)
             check_text(path, extra_patterns=config.extra_sensitive_patterns)
-            if config.generated(path):
-                return {**row, "status": "omitted", "reason": "generated_artifact_excluded"}
-            if Path(path).suffix.lower() in PUBLIC_ASSETS:
-                return {**row, "status": "omitted", "reason": "binary_asset_excluded"}
-            if not config.allows(path):
-                return {**row, "status": "omitted", "reason": "outside_allowlist"}
+            reason = omission_reason(config, path)
+            if reason is not None:
+                return {**row, "status": "omitted", "reason": reason}
             guard = self.guard
             screen = None if guard is None else (lambda text, name: screen_source(text, name, guard.snapshot))
             read_sides(repo, revisions, path, config, screen)

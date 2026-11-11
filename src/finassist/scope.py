@@ -237,6 +237,21 @@ def left_out(config: Config, code: str) -> str | None:
     return UNREVIEWABLE_REASONS.get(code)
 
 
+def omission_reason(config: Config, path: str) -> str | None:
+    """Why a path is left out of a packet by its name alone, or None when its content decides.
+
+    The packet builder, both preflights and the gate use this one order, so a path gets the
+    same reason wherever it is reported: generated, then a binary asset, then the allow list.
+    """
+    if config.generated(path):
+        return "generated_artifact_excluded"
+    if Path(path).suffix.lower() in PUBLIC_ASSETS:
+        return "binary_asset_excluded"
+    if not config.allows(path):
+        return "outside_allowlist"
+    return None
+
+
 def read_sides(repo: Path, revisions: tuple[str, str], path: str, config: Config, screen=None) -> list[tuple]:
     """Both versions of one changed file, as (bytes, mode, text), read and screened.
 
@@ -438,14 +453,9 @@ def build_packet(
         raise _refused_names(refused, config)
     for status, path in selected:
         changed.append(path)
-        if config.generated(path):
-            omitted.append({"path": path, "reason": "generated_artifact_excluded"})
-            continue
-        if Path(path).suffix.lower() in PUBLIC_ASSETS:
-            omitted.append({"path": path, "reason": "binary_asset_excluded"})
-            continue
-        if not config.allows(path):
-            omitted.append({"path": path, "reason": "outside_allowlist"})
+        reason = omission_reason(config, path)
+        if reason is not None:
+            omitted.append({"path": path, "reason": reason})
             continue
         try:
             (before, before_mode, before_text), (after, after_mode, after_text) = read_sides(

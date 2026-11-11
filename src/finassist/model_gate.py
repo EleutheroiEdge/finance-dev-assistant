@@ -19,7 +19,7 @@ from .ledger import Ledger
 from .model_policy import load_model_policy
 from .providers import request_identity, request_shape
 from .review import PolicyRequestApproval, call_model, review_schema, validate_review
-from .scope import WITHHELD_CODES, build_packet, checkout_roots, git, left_out, resolve
+from .scope import WITHHELD_CODES, build_packet, checkout_roots, git, left_out, omission_reason, resolve
 from .policy_ignores import ignored_paths, screen_ignores as _screen_ignores
 from .security import canonical, check_model_path as _scope_path, digest, regular_path
 
@@ -138,7 +138,8 @@ def name_outcome(path: str, config, deny_paths) -> tuple[str, str | None]:
         reason = left_out(config, "gate_path_not_allowed")
         if reason is None:
             raise AssistantError("gate_path_not_allowed")
-    return ("left-out", reason) if reason else ("review", None)
+    # The reason shown is the one the packet will carry for this path.
+    return ("left-out", omission_reason(config, path) or reason) if reason else ("review", None)
 
 
 def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_repo: Path | None = None) -> dict:

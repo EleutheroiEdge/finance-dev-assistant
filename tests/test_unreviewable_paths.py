@@ -33,6 +33,10 @@ UNREVIEWABLE = {
     "src/large.py": ("file_limit_exceeded", LARGE),
     "src/latin1.py": ("non_text_blob", b"NAME = '" + bytes([0xE9]) + b"'\n"),
     "tools/build.py": ("outside_allowlist", b"print('synthetic')\n"),
+    # Two reasons at once: the name rules give one answer, the allow list first.
+    "tools/events.jsonl": ("outside_allowlist", b'{"synthetic": 3}\n'),
+    "tools/diagram.svg": ("binary_asset_excluded", b"<svg/>\n"),
+    "src/logo.svg": ("binary_asset_excluded", b"<svg/>\n"),
 }
 REASONS = {name: reason for name, (reason, _data) in UNREVIEWABLE.items()}
 # Private by name. The second also has a suffix no review reads: it must stay private, never named.
@@ -108,7 +112,7 @@ def test_files_that_cannot_be_reviewed_are_left_out_and_named(mixed, monkeypatch
 
 
 def test_every_reason_is_one_the_shared_table_gives():
-    assert set(REASONS.values()) == set(UNREVIEWABLE_REASONS.values())
+    assert set(REASONS.values()) == {*UNREVIEWABLE_REASONS.values(), "binary_asset_excluded"}
     assert all(left_out(LEAVE, code) == reason for code, reason in UNREVIEWABLE_REASONS.items())
     for code in ("sensitive_content", "forbidden_token_present", "private_path", "gate_private_path",
                  "private_or_binary_path", "gate_denied_path", "gate_ignored_path", "linked_or_special_git_object",
@@ -211,14 +215,14 @@ def test_the_gate_leaves_them_out_and_counts_them(gate_case, monkeypatch):
     read = _blob_reads(monkeypatch, gate_case["repo"], gate_case["head"], UNREVIEWABLE)
     report, calls = run(gate_case)
     assert report["verdict"] == "PASS", report["reasons"]
-    assert report["coverage"] == {"complete": False, "withheld": 4}
+    assert report["coverage"] == {"complete": False, "withheld": len(UNREVIEWABLE)}
     assert read == ["src/latin1.py"]
     packet = json.loads(json.loads(calls[0].content)["input"])
     assert [item["path"] for item in packet["files"]] == ["src/cash.py"]
     assert {row["path"]: row["reason"] for row in packet["omitted"]} == REASONS
     assert "X = 1" not in calls[0].content.decode() and "print(" not in calls[0].content.decode()
     summary = summary_markdown(report)
-    assert "Coverage: **incomplete**" in summary and "4 changed file(s) were left out" in summary
+    assert "Coverage: **incomplete**" in summary and "7 changed file(s) were left out" in summary
     assert not any(name in summary or name in canonical(report).decode() for name in UNREVIEWABLE)
 
 
@@ -226,7 +230,7 @@ def test_the_gate_counts_private_and_unreviewable_files_together_and_names_no_pr
     _gate(gate_case, _files(private=True), unreviewable_paths="skip-and-report", private_paths="skip-and-report")
     report, calls = run(gate_case)
     assert report["verdict"] == "PASS", report["reasons"]
-    assert report["coverage"] == {"complete": False, "withheld": 6}
+    assert report["coverage"] == {"complete": False, "withheld": len(UNREVIEWABLE) + len(PRIVATE)}
     request = calls[0].content.decode()
     assert "data/" not in request and "clients" not in request and "notes.jsonl" not in request
     packet = json.loads(json.loads(calls[0].content)["input"])
@@ -292,7 +296,7 @@ def test_the_gate_preflight_lists_them_without_blocking(gate_case):
     rows = {row["path"]: row for row in report["paths"]}
     assert {name: rows[name] for name in UNREVIEWABLE} == {
         name: {"path": name, "status": "omitted", "reason": reason} for name, reason in REASONS.items()}
-    assert {"code": "unreviewable_paths_left_out", "count": 4} in [
+    assert {"code": "unreviewable_paths_left_out", "count": len(UNREVIEWABLE)} in [
         {key: warning[key] for key in ("code", "count")} for warning in report["warnings"]]
 
 
