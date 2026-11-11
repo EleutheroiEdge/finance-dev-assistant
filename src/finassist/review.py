@@ -18,7 +18,7 @@ from .errors import AssistantError, network_not_approved, prices_required
 from .forbidden_tokens import screen_review_output, token_file_audit
 from .hidden_text import Waiting
 from .ledger import Ledger
-from .providers import invoke, request_identity, request_shape
+from .providers import invoke, reply_json, request_identity, request_shape
 from .scope import WITHHELD_REASON, triage, verify_packet, review_omissions
 from .security import canonical, check_context_document, check_credentials, check_output_document, digest
 
@@ -285,7 +285,7 @@ def review_packet(
         token_guard=token_guard,
     )
     try:
-        data = json.loads(result.text)
+        data = reply_json(result.text)
     except ValueError as exc:
         raise AssistantError("review_json_invalid") from exc
     unseen = Waiting()  # A hidden character in a reply is refused after its other checks, as one in a request is.

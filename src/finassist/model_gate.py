@@ -18,7 +18,7 @@ from .hidden_text import Waiting
 from .github_context import pull_request_context, verify_origin
 from .ledger import Ledger
 from .model_policy import load_model_policy
-from .providers import request_identity, request_shape
+from .providers import reply_json, request_identity, request_shape
 from .review import PolicyRequestApproval, call_model, review_schema, validate_review
 from .scope import (WITHHELD_CODES, build_packet, checkout_roots, git, left_out, omission_reason, require_regular,
                     resolve)
@@ -295,7 +295,7 @@ def _evaluate_model_gate(repo: Path, base: str, head: str, policy_loader, state_
         if key and key in result.text:
             raise AssistantError("gate_provider_echoed_key")
         try:
-            data = json.loads(result.text)
+            data = reply_json(result.text)
         except ValueError as exc:
             raise AssistantError("review_json_invalid") from exc
         if key and _contains_key(data, key):

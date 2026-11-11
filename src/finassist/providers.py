@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import math
 import os
 import time
 from urllib.parse import quote
@@ -20,6 +21,31 @@ class ModelResult:
     text: str
     input_tokens: int | None = None
     output_tokens: int | None = None
+
+
+def _not_json(_name: str):
+    raise ValueError("NaN and Infinity are not JSON")
+
+
+def _finite(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError("a number too large to hold")
+    return value
+
+
+def reply_json(text: str | bytes):
+    """What a provider or a model sent, read as JSON and nothing wider.
+
+    Python's reader also takes NaN and Infinity, turns a number too large to hold into
+    infinity, and gives up on deep nesting with an error of its own kind. The canonical form
+    that every screen and record uses can carry none of those values. They are refused here
+    as text that is not JSON, so each route answers with the refusal it has for that.
+    """
+    try:
+        return json.loads(text, parse_constant=_not_json, parse_float=_finite)
+    except RecursionError as exc:
+        raise ValueError("nested too deeply") from exc
 
 
 def _usage(value) -> int | None:
@@ -215,7 +241,7 @@ def invoke(
                     if length > 2_000_000:
                         raise AssistantError("provider_response_limit")
                     chunks.append(block)
-        data = json.loads(b"".join(chunks))
+        data = reply_json(b"".join(chunks))
         result = parse_response(config.provider, data)
         if result.output_tokens is not None and result.output_tokens > config.max_output_tokens:
             raise AssistantError("provider_usage_exceeds_limit")

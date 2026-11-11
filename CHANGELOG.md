@@ -141,6 +141,15 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 Nothing else about what a gate accepts, authorizes or spends has changed.
 
 ### Fixed
+- **A reply that is wider than JSON is refused as invalid JSON on every route.** Python's reader
+  takes `NaN` and `Infinity`, turns a number too large to hold into infinity, and stops on deep
+  nesting with an error of its own. A deeply nested reply ended `review` and `propose` with a
+  traceback, and a gate blocked it as `gate_input_or_audit_unavailable`. A provider's envelope
+  nested like that ended the call the same way. Such text is now refused where it is read:
+  `review_json_invalid` from a review and a gate, `proposal_schema_invalid` from a proposal, and
+  `provider_transport_failed` for the envelope. `NaN`, `Infinity` and a number too large were
+  refused before as well, by the schema that came next; they now get the same refusal as other
+  text that is not JSON. No route returned a PASS for such a reply before.
 - **A gate range that changed only withheld files was refused with the wrong code.** It reported
   `gate_ignore_check_unavailable`; it now reports `review_scope_entirely_withheld`.
 - **On macOS a check could fail with `PermissionError` when its command exited as the runner stopped
