@@ -5,9 +5,6 @@ console command remain **`finassist`**; **`finledgerpoli`** is an additional com
 alias for the same entry point. Config/state paths remain `finassist.json` and
 `.finassist/`. The first public release is 0.3.0; adapt the publisher identity for your own repository.
 
-Before preparing a release, check every gate in [Release readiness](release-readiness.md). A release
-is ready when each gate passes on the built wheel.
-
 ## One-time maintainer setup
 
 These are account and repository settings changes. An owner must explicitly
