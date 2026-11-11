@@ -33,6 +33,20 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
     (`configured`, `listed`) so a ready report says whether any figure screen ran;
   - a request prepared without the screen is refused with `forbidden_token_guard_required`.
 
+- **Figure lists from files you already hold, and matching by digits.** For a configuration and
+  for a gate policy alike:
+  - `forbidden_token_sources` names up to 16 delimited files, such as custody exports. Every cell
+    that holds exactly one number of enough significant digits is listed, in any notation. Dates
+    and cells with other text are not;
+  - `forbidden_token_match: "digits"` also refuses the same significant digits at any scale and a
+    two-place rounding in either direction, as common figure guards do. It leaves out digits
+    inside a hexadecimal word such as a commit id. `forbidden_token_min_digits` (5 unless set)
+    is the fewest significant digits a figure may have;
+  - `doctor --base --head` reports the match rule and how many figures and digit forms are listed.
+
+  Unset, nothing changes. New codes: `forbidden_token_source_invalid` and
+  `forbidden_token_match_invalid`.
+
 ### Changed
 - **Adding these settings does not change the configuration hash.** A setting marked this way is
   left out of the hash while it has its default, so saved check records, workflow plans and

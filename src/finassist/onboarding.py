@@ -74,6 +74,8 @@ HINTS = {
     "linked_or_special_git_object": "Symbolic links and submodules are not reviewed.",
     "forbidden_token_present": "This content contains a listed confidential figure.",
     "forbidden_token_file_invalid": "The token file must be an absolute path outside every checkout of the repository.",
+    "forbidden_token_source_invalid": "Each figure source must be a delimited text file outside every checkout "
+                                      "of the repository, with at least one numeric cell.",
     "gate_request_bytes_exceeded": "Raise max_request_bytes (up to 8,000,000) or review a smaller range.",
     "run_budget_exceeded": "Raise max_run_usd above the reserved estimate, or review a smaller range.",
     "daily_budget_exceeded": "Raise daily_budget_usd above the reserved estimate.",
@@ -466,11 +468,12 @@ class _Preflight:
         if rule_changes:
             stopped = stopped or rule_changes[0][0]
         guard = None
-        if stopped is None and "forbidden_token_file" in model and self.pin is None:
+        outside = next((name for name in ("forbidden_token_file", "forbidden_token_sources") if name in model), None)
+        if stopped is None and outside and self.pin is None:
             # A file the policy points outside the repository is opened only once the
             # caller has confirmed the policy bytes with --policy-sha256.
-            self.block("gate_policy_pin_required", field="/model_review/forbidden_token_file",
-                       hint="Pass --policy-sha256 so the preflight may open the policy's token file.")
+            self.block("gate_policy_pin_required", field="/model_review/" + outside,
+                       hint="Pass --policy-sha256 so the preflight may open the policy's figure files.")
             stopped = "gate_policy_pin_required"
         if stopped is None:
             try:

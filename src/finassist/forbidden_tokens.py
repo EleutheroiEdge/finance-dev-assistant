@@ -3,7 +3,9 @@
 This module does not load policy, authorize a request or dispatch a provider.
 """
 
+import csv
 from dataclasses import dataclass, field
+from datetime import date
 import hashlib
 import html
 import io
@@ -89,6 +91,14 @@ def _plain_decimal(integer: str, fraction: str, exponent: int, max_digits: int) 
 
 MAX_TOKEN_BYTES = 131_072
 MAX_TOKENS = 1024
+# Figure sources: delimited files, such as custody exports, whose numeric cells are all listed.
+MAX_SOURCE_FILES = 16
+MAX_SOURCE_BYTES = 8_000_000
+MAX_SOURCE_FIGURES = 200_000
+MATCHES = ("value", "digits")
+# The settings that name a list. The screen runs when any is set.
+LIST_RULES = ("forbidden_token_file", "forbidden_token_hashes", "forbidden_token_sources")
+MIN_DIGITS, MAX_MIN_DIGITS, DEFAULT_MIN_DIGITS = 4, 18, 5
 
 
 @dataclass(frozen=True)
@@ -99,20 +109,31 @@ class TokenSnapshot:
     file_path: Path | None = field(default=None, repr=False)
     line_count: int = 0
     file_digest: str | None = field(default=None, repr=False)
+    # Digit matching: hashes of significant-digit strings, and the lengths that occur among them.
+    digit_hashes: frozenset[str] = field(default=frozenset(), repr=False)
+    digit_lengths: frozenset[int] = field(default=frozenset(), repr=False)
+    source_digests: tuple[str, ...] = field(default=(), repr=False)
+    source_figures: int = 0
+    listed: int = 0  # Distinct figures listed, however they are matched.
+
+    @property
+    def active(self) -> bool:
+        return bool(self.hashes or self.digit_hashes)
 
 
-def _read_token_file(value: str, excluded_roots: tuple[Path, ...]) -> tuple[bytes, Path]:
+def _read_token_file(value: str, excluded_roots: tuple[Path, ...], *, limit: int = MAX_TOKEN_BYTES,
+                     home: bool = False) -> tuple[bytes, Path]:
     """Read a bounded regular non-linked external file, with identity checks."""
     descriptor = None
     try:
-        candidate = Path(value)
+        candidate = Path(value).expanduser() if home else Path(value)
         if not candidate.is_absolute() or ".git" in candidate.parts:
             raise ValueError
         path = regular_path(candidate)
         if any(path.is_relative_to(root.resolve()) for root in excluded_roots):
             raise ValueError
         before = path.stat()
-        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > MAX_TOKEN_BYTES:
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > limit:
             raise ValueError
         flags = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
                  | getattr(os, "O_BINARY", 0))
@@ -123,8 +144,8 @@ def _read_token_file(value: str, excluded_roots: tuple[Path, ...]) -> tuple[byte
         if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1:
             raise ValueError
         chunks, size = [], 0
-        while size <= MAX_TOKEN_BYTES:
-            chunk = os.read(descriptor, min(8192, MAX_TOKEN_BYTES + 1 - size))
+        while size <= limit:
+            chunk = os.read(descriptor, min(65_536, limit + 1 - size))
             if not chunk:
                 break
             chunks.append(chunk)
@@ -137,25 +158,98 @@ def _read_token_file(value: str, excluded_roots: tuple[Path, ...]) -> tuple[byte
             return (*identity(st), st.st_ctime_ns, st.st_nlink)
         # Windows stat/fstat can expose different ctime semantics. Compare
         # ctime within each API, and cross-check the shared object identity.
-        if (size > MAX_TOKEN_BYTES or metadata(opened) != metadata(after)
+        if (size > limit or metadata(opened) != metadata(after)
                 or metadata(before) != metadata(current) or identity(after) != identity(current)):
             raise ValueError
         return b"".join(chunks), path
-    except (OSError, ValueError, AssistantError):
+    except (OSError, ValueError, RuntimeError, AssistantError):
         raise AssistantError("forbidden_token_file_invalid") from None
     finally:
         if descriptor is not None:
             os.close(descriptor)
 
 
-def load_token_snapshot(rules: dict, excluded_roots: tuple[Path, ...]) -> TokenSnapshot:
-    """Union optional literal and normalized-hash declarations without logging."""
+def _digest(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _is_date(digits: str) -> bool:
+    """Eight digits that name a real day from 1900 to 2100, as a date column holds; not a figure."""
+    if len(digits) != 8 or not 1900 <= int(digits[:4]) <= 2100:
+        return False
+    try:
+        date(int(digits[:4]), int(digits[4:6]), int(digits[6:]))
+    except ValueError:
+        return False
+    return True
+
+
+def _digit_forms(whole: str, fraction: str, min_digits: int) -> set[str]:
+    """Significant-digit strings that stand for one decimal: its own and its two-place rounding's.
+
+    Leading and trailing zeros are dropped, so the same digits match at any scale. A form
+    shorter than min_digits is left out, because it would match ordinary numbers.
+    """
+    whole, fraction = whole.lstrip("0"), fraction.rstrip("0")
+    forms = {(whole + fraction).strip("0")}
+    if len(fraction) > 2:  # Half up at two places, on the digits: a digit string has no point.
+        forms.add(str(int((whole + fraction[:2]) or "0") + (fraction[2] >= "5")).strip("0"))
+    return {form for form in forms if len(form) >= min_digits}
+
+
+# A cell is a figure when nothing but a sign, a currency sign or code, brackets, a percent sign,
+# quotes or spaces surrounds its one number.
+_CELL_EDGE = re.compile(r"[\s$\u20ac\u00a3\u00a5%()+\-\u2212\"']*(?:[A-Z]{3})?[\s$\u20ac\u00a3\u00a5%()+\-\u2212\"']*")
+
+
+def _cell_readings(cell: str) -> list[tuple[str, str]]:
+    """Every (whole, fraction) reading of a cell that holds exactly one number, in any notation."""
+    runs = list(_RUN.finditer(cell))
+    if not runs or len(runs) > 64 or not (_CELL_EDGE.fullmatch(cell[:runs[0].start()])
+                                         and _CELL_EDGE.fullmatch(cell[runs[-1].end():])):
+        return []
+    return [(whole, fraction) for whole, fraction, exponent, first, last in _readings(cell)
+            if exponent == 0 and first == 0 and last == len(runs) - 1]
+
+
+def _source_figures(raw: bytes, min_digits: int) -> tuple[set[str], set[str]]:
+    """(canonical values, digit forms) of every cell of one delimited text that holds a figure.
+
+    The delimiter is the commonest of comma, semicolon, tab and bar in the first lines. A cell
+    with fewer significant digits than min_digits, or one that is a date, is not a figure.
+    """
+    text = raw.decode("utf-8", errors="replace")
+    delimiter = max(",;\t|", key=text[:8192].count)
+    values, forms = set(), set()
+    for row in csv.reader(io.StringIO(text, newline=""), delimiter=delimiter):
+        for cell in row:
+            for whole, fraction in _cell_readings(cell):
+                found = _digit_forms(whole, fraction, min_digits)
+                number = _plain_decimal(whole, fraction.rstrip("0"), 0, 128)
+                if not found or number is None or (not fraction and _is_date(whole.lstrip("0"))):
+                    continue
+                values.add(number)
+                forms |= found
+    return values, forms
+
+
+def load_token_snapshot(rules: dict, excluded_roots: tuple[Path, ...], parsed: dict | None = None) -> TokenSnapshot:
+    """Union optional literal and normalized-hash declarations without logging.
+
+    Every file is read again on each call. `parsed` keeps a source's figures by the digest of its
+    bytes, so a guard that rechecks an unchanged source does not parse it again.
+    """
     configured = rules.get("forbidden_token_hashes", [])
     if (not isinstance(configured, list) or len(configured) > MAX_TOKENS
             or any(not isinstance(h, str) or re.fullmatch(r"[0-9a-f]{64}", h) is None for h in configured)):
         raise AssistantError("forbidden_token_hashes_invalid")
     hashes = set(configured)
     path, count, fingerprint = None, 0, None
+    match = rules.get("forbidden_token_match", MATCHES[0])
+    min_digits = rules.get("forbidden_token_min_digits", DEFAULT_MIN_DIGITS)
+    if match not in MATCHES or type(min_digits) is not int or not MIN_DIGITS <= min_digits <= MAX_MIN_DIGITS:
+        raise AssistantError("forbidden_token_match_invalid")
+    forms: set[str] = set()
     if "forbidden_token_file" in rules:
         value = rules["forbidden_token_file"]
         if not isinstance(value, str) or not value or len(value) > 4096:
@@ -169,12 +263,47 @@ def load_token_snapshot(rules: dict, excluded_roots: tuple[Path, ...]) -> TokenS
                 raise ValueError
             for line in lines:
                 normalized = normalize_numeric_token(line)
-                hashes.add(hashlib.sha256(normalized.encode("utf-8")).hexdigest())
+                hashes.add(_digest(normalized))
+                whole, _, fraction = normalized.lstrip("-").partition(".")
+                forms |= _digit_forms(whole, fraction, min_digits)
         except (UnicodeError, ValueError, AssistantError):
             raise AssistantError("forbidden_token_file_invalid") from None
         count = len(lines)
         fingerprint = hashlib.sha256(raw).hexdigest()
-    return TokenSnapshot(frozenset(hashes), path, count, fingerprint)
+    sources = rules.get("forbidden_token_sources", [])
+    if (not isinstance(sources, (list, tuple)) or len(sources) > MAX_SOURCE_FILES or len(set(sources)) != len(sources)
+            or any(not isinstance(item, str) or not item or len(item) > 4096 for item in sources)):
+        raise AssistantError("forbidden_token_source_invalid")
+    digests, figures = [], set()
+    for source in sources:
+        try:
+            raw, _path = _read_token_file(source, excluded_roots, limit=MAX_SOURCE_BYTES, home=True)
+            source_digest = hashlib.sha256(raw).hexdigest()
+            if parsed is None or source_digest not in parsed:
+                values, found = _source_figures(raw, min_digits)
+                if parsed is not None:
+                    parsed[source_digest] = (values, found)
+            else:
+                values, found = parsed[source_digest]
+        except (csv.Error, ValueError, ArithmeticError, AssistantError):
+            raise AssistantError("forbidden_token_source_invalid") from None
+        if not values:  # A source with no figure is a wrong file or a wrong setting: never a pass.
+            raise AssistantError("forbidden_token_source_invalid")
+        figures |= values
+        forms |= found
+        digests.append(source_digest)
+    if len(figures) > MAX_SOURCE_FIGURES:
+        raise AssistantError("forbidden_token_source_invalid")
+    listed = len(hashes) + len(figures)
+    if match == "digits":
+        # A source figure's digit forms cover every notation of its value, and they leave out
+        # digits inside a hash, which an exact entry for a short whole number would refuse.
+        pass
+    else:
+        hashes.update(_digest(value) for value in figures)
+        forms = set()
+    return TokenSnapshot(frozenset(hashes), path, count, fingerprint, frozenset(_digest(form) for form in forms),
+                         frozenset(len(form) for form in forms), tuple(digests), len(figures), listed)
 
 
 _RUN = re.compile(r"\d+")  # Any Unicode decimal digits, like str.isdecimal.
@@ -190,8 +319,8 @@ _GAP_CLASS = {
 _MARKS = (".", ",")
 _GROUP_CLASSES = frozenset(". ,'")
 _LEADING_POINTS = ".\uff0e"
-# Inside a longer row of three-digit groups, readings up to this many groups are tried from each
-# start, and the longest one. Eight groups past the first is 27 digits.
+# Inside a row of three-digit groups, a start after the row's first run is read up to this many
+# groups past its own: 27 digits. The first run is read at every length.
 _GROUPS_TRIED = 8
 # No reading reaches further than this many runs past its first: a whole part of at most
 # MAX_FIGURE_DIGITS + 1 runs, a fraction of as many, and an exponent.
@@ -207,8 +336,30 @@ def _gap_class(text: str, end: int, start: int) -> str | None:
     return None
 
 
-def _readings(text: str):
-    """Yield (whole, fraction, exponent) for every way the digits in text can be read as a number.
+_DIGIT_JOINS = frozenset("_., '")
+_WORD = frozenset("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_")
+_HEX = frozenset("0123456789abcdefABCDEF")
+_HEX_LETTERS = frozenset("abcdfABCDF")  # Without e: `482135712e-4` is a number with an exponent.
+
+
+def _in_hex_token(text: str, start: int, end: int) -> bool:
+    """True when a digit run sits inside a word of seven or more hexadecimal characters that holds
+    a letter other than e: a commit or content hash, whose digits are not a figure."""
+    while start and text[start - 1] in _WORD:
+        start -= 1
+    while end < len(text) and text[end] in _WORD:
+        end += 1
+    word = text[start:end]
+    return len(word) >= 7 and all(c in _HEX for c in word) and any(c in _HEX_LETTERS for c in word)
+
+
+def _readings(text: str, digit_limit: int = 0):
+    """Yield (whole, fraction, exponent, first, last) for every way the digits in text read as a number.
+
+    first and last number the digit runs the reading spans, counted from the start of the text.
+    With digit_limit, also yield (digits, None, None, first, last) for digit matching: the digits
+    of every row of runs joined by separators, from each start, up to digit_limit significant
+    digits. A lone run inside a hexadecimal word is left out of those.
 
     A number is a whole part, an optional fraction and an optional exponent. The whole part is
     one digit run, runs joined by underscores, or groups of three joined by one separator.
@@ -220,7 +371,7 @@ def _readings(text: str):
 
     Leading zeros are dropped from each whole part, so padding never hides a value. Work is
     linear in the text and memory is bounded: runs are read through a sliding window, and
-    only the first run of a row of groups or of underscore-joined runs is read to its end.
+    only the first run of a row of groups or of underscore-joined runs is read at every length.
     """
     starts, digits, before, gaps, inner = [], [], [], [], []
 
@@ -232,10 +383,12 @@ def _readings(text: str):
         return value, last
 
     def with_exponent(whole: str, fraction: str, last: int):
-        yield whole, fraction, 0
+        yield whole, fraction, 0, last
         gap = gaps[last]
-        if gap is not None and gap[0] == "e" and len(digits[last + 1]) <= 3:
-            yield whole, fraction, int(digits[last + 1]) * (-1 if gap[-1] == "-" else 1)
+        if gap is not None and gap[0] == "e":
+            power = digits[last + 1].lstrip("0")  # Zero padding never changes an exponent.
+            if len(power) <= 3:
+                yield whole, fraction, int(power or "0") * (-1 if gap[-1] == "-" else 1), last + 1
 
     def with_fraction(whole: str, last: int, separator: str | None, alone: bool):
         mark = gaps[last]
@@ -260,8 +413,8 @@ def _readings(text: str):
                 yield from with_fraction(whole, last, None, not fractional)
         separator = gaps[index]
         if separator in _GROUP_CLASSES and len(first) <= 3:
-            # Inside a row of groups a few readings are tried from each start; its first run
-            # is also read to the end of the row.
+            # A row's first run is read at every length, so a long figure that starts a row is
+            # found whatever follows it. From a later start only a few groups are tried.
             most = MAX_FIGURE_DIGITS if before[index] != separator else _GROUPS_TRIED
             whole, last, groups = first, index, 0
             while (gaps[last] == separator and len(digits[last + 1]) == 3 and groups < most
@@ -269,9 +422,6 @@ def _readings(text: str):
                 last += 1
                 whole = (whole + digits[last]).lstrip("0")
                 groups += 1
-                if groups <= _GROUPS_TRIED:
-                    yield from with_fraction(whole, last, separator, True)
-            if groups > _GROUPS_TRIED:
                 yield from with_fraction(whole, last, separator, True)
         start = starts[index]
         if start and text[start - 1] in _LEADING_POINTS and not fractional:
@@ -279,8 +429,18 @@ def _readings(text: str):
             fraction, far = joined(index, digits[index])
             if far > index:
                 yield from with_exponent("", fraction, far)
+        # Digit matching: significant digits never start with a zero run, and a row is followed
+        # only while it can still be as short as a listed form (trailing zeros do not count).
+        if digit_limit and first:
+            row, last = first, index
+            if not _in_hex_token(text, start, start + len(digits[index])):
+                yield row, None, None, index
+            while gaps[last] in _DIGIT_JOINS and len(row.rstrip("0")) <= digit_limit and len(row) <= digit_limit + 32:
+                last += 1
+                row += digits[last]
+                yield row, None, None, last
 
-    previous_end, significant = None, False
+    previous_end, significant, passed = None, False, 0
     for match in _RUN.finditer(text):
         gap = None if previous_end is None else _gap_class(text, previous_end, match.start())
         if previous_end is not None:
@@ -296,11 +456,14 @@ def _readings(text: str):
         if len(digits) > 2 * _LOOKAHEAD:
             ready = len(digits) - _LOOKAHEAD
             for index in range(ready):
-                yield from from_run(index)
+                for whole, fraction, exponent, last in from_run(index):
+                    yield whole, fraction, exponent, passed + index, passed + last
             del starts[:ready], digits[:ready], before[:ready], gaps[:ready], inner[:ready]
+            passed += ready
     gaps.append(None)
     for index in range(len(digits)):
-        yield from from_run(index)
+        for whole, fraction, exponent, last in from_run(index):
+            yield whole, fraction, exponent, passed + index, passed + last
 
 
 _ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})|\\U([0-9a-fA-F]{8})|\\x([0-9a-fA-F]{2})")
@@ -332,19 +495,36 @@ def _listed(magnitude: str, snapshot: TokenSnapshot) -> bool:
     return any(hashlib.sha256(form.encode("utf-8")).hexdigest() in snapshot.hashes for form in forms)
 
 
+def _digits_listed(forms, snapshot: TokenSnapshot) -> bool:
+    return any(len(form) in snapshot.digit_lengths and _digest(form) in snapshot.digit_hashes for form in forms)
+
+
 def screen_text(text: str, snapshot: TokenSnapshot) -> None:
     """Check content only; callers must select typed content, not filenames."""
-    if not snapshot.hashes:
+    if not snapshot.active:
         return
-    seen = set()
+    limit = max(snapshot.digit_lengths, default=0)
+    seen, rows = set(), set()
     for view in (text, _spelled_out(text)):
-        for whole, fraction, exponent in _readings(view or ""):
+        for whole, fraction, exponent, _first, _last in _readings(view or "", limit):
+            if exponent is None:  # A row of digits, matched by its significant digits.
+                row = whole.rstrip("0")
+                if row not in rows:
+                    rows.add(row)
+                    if _digits_listed((row,), snapshot):
+                        raise AssistantError("forbidden_token_present")
+                continue
             # Zeros that never change the value are dropped before the bounds apply.
-            number = _plain_decimal(whole, fraction.rstrip("0"), exponent, MAX_FIGURE_DIGITS)
+            fraction = fraction.rstrip("0")
+            number = _plain_decimal(whole, fraction, exponent, MAX_FIGURE_DIGITS)
             if number is None or number in seen:
                 continue
             seen.add(number)
             if _listed(number, snapshot):
+                raise AssistantError("forbidden_token_present")
+            # A longer decimal also matches by its two-place rounding, as the list's own figures do.
+            if limit and len(fraction) > 2 and len(whole) + len(fraction) <= 64 and _digits_listed(
+                    _digit_forms(whole, fraction, MIN_DIGITS) - {(whole + fraction).strip("0")}, snapshot):
                 raise AssistantError("forbidden_token_present")
 
 
@@ -359,11 +539,14 @@ def _screen_python_numbers(numbers, snapshot: TokenSnapshot) -> None:
             continue
         if _listed(number.lstrip("-"), snapshot):
             raise AssistantError("forbidden_token_present")
+        whole, _, fraction = number.lstrip("-").partition(".")
+        if snapshot.digit_hashes and len(number) <= 64 and _digits_listed(_digit_forms(whole, fraction, MIN_DIGITS), snapshot):
+            raise AssistantError("forbidden_token_present")
 
 
 def screen_source(text: str, path: str | None, snapshot: TokenSnapshot) -> None:
     """Screen one file's text; in Python, also read every number as Python does."""
-    if not snapshot.hashes:
+    if not snapshot.active:
         return
     # What leaves the machine is text, so the text screen runs on every file,
     # Python included: `(6,729,102.50)` is a tuple in code but reads as the figure.
@@ -417,7 +600,7 @@ def _line_numbers(line: str) -> list[str | None]:
 
 def screen_lines(lines: list[str], path: str | None, snapshot: TokenSnapshot) -> None:
     """Screen a related-context snippet: its text, and in Python every number on each line."""
-    if not snapshot.hashes:
+    if not snapshot.active:
         return
     screen_text("\n".join(lines), snapshot)
     if not is_python_path(path):
@@ -458,9 +641,16 @@ class TokenGuard:
     rules: dict = field(repr=False)
     roots: tuple[Path, ...] = field(repr=False)
     snapshot: TokenSnapshot = field(repr=False)
+    # Figures of each source by the digest of its bytes: an unchanged source is not parsed twice.
+    parsed: dict = field(default_factory=dict, repr=False, compare=False)
+
+    @classmethod
+    def load(cls, rules: dict, roots: tuple[Path, ...]) -> "TokenGuard":
+        parsed: dict = {}
+        return cls(dict(rules), tuple(roots), load_token_snapshot(rules, tuple(roots), parsed), parsed)
 
     def recheck(self, packet: dict, system: str) -> None:
-        current = load_token_snapshot(self.rules, self.roots)
+        current = load_token_snapshot(self.rules, self.roots, self.parsed)
         # Even a semantically equivalent rewrite invalidates a prior snapshot.
         if current != self.snapshot:
             raise AssistantError("forbidden_token_configuration_changed")
@@ -469,12 +659,14 @@ class TokenGuard:
 
 def token_file_audit(snapshot: TokenSnapshot) -> dict | None:
     """Only non-content metadata may enter the private budget audit."""
-    if snapshot.file_path is None:
+    if snapshot.file_path is None and not snapshot.source_digests:
         return None
-    path = str(snapshot.file_path)
+    path = None if snapshot.file_path is None else str(snapshot.file_path)
     try:
-        screen_text(path, snapshot)
+        screen_text(path or "", snapshot)
     except AssistantError:
         path = "[redacted]"
-    return {"event": "forbidden_token_file_screened", "file_path": path,
-            "line_count": snapshot.line_count}
+    event = {"event": "forbidden_token_file_screened", "file_path": path, "line_count": snapshot.line_count}
+    if snapshot.source_digests:  # Counts only: never a source's path, digest or contents.
+        event.update(source_files=len(snapshot.source_digests), source_figures=snapshot.source_figures)
+    return event

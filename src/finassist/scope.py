@@ -12,7 +12,7 @@ import subprocess
 from .config import Config
 from .platform_support import find_tool, clean_environment
 from .errors import AssistantError, local_details
-from .forbidden_tokens import TokenGuard, load_token_snapshot, screen_related, screen_source, screen_text
+from .forbidden_tokens import TokenGuard, screen_related, screen_source, screen_text
 from .security import PUBLIC_ASSETS, canonical, check_private_name, check_text, digest, local_name
 
 
@@ -297,8 +297,7 @@ def config_token_guard(config: Config, repo: Path) -> TokenGuard | None:
     rules = config.forbidden_token_rules
     if not rules:
         return None
-    roots = checkout_roots(repo)
-    return TokenGuard(rules, roots, load_token_snapshot(rules, roots))
+    return TokenGuard.load(rules, checkout_roots(repo))
 
 
 def _related(repo: Path, head: str, files: list[dict], config: Config, room: int, admit=None, screen=None) -> dict:

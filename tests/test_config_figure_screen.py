@@ -60,12 +60,14 @@ def leaking(repository):
 def test_unset_figure_settings_leave_the_configuration_hash_as_it_was():
     config = Config()
     assert config.forbidden_token_rules == {}
-    assert not {"forbidden_token_file", "forbidden_token_hashes"} & set(config_identity(config))
+    assert not {name for name in config_identity(config) if name.startswith("forbidden_token_")}
     assert config_hash(config) == DEFAULT_HASH_0_10_0
     assert config_hash(replace(config, forbidden_token_hashes=(HASH,))) != DEFAULT_HASH_0_10_0
     assert config_hash(replace(config, **{"forbidden_token_file": "/synthetic/figures.txt"})) != DEFAULT_HASH_0_10_0
     # Every other setting is hashed whether or not it has its default.
-    assert set(asdict(config)) - set(config_identity(config)) == {"forbidden_token_file", "forbidden_token_hashes"}
+    assert set(asdict(config)) - set(config_identity(config)) == {
+        "forbidden_token_file", "forbidden_token_hashes", "forbidden_token_sources", "forbidden_token_match",
+        "forbidden_token_min_digits"}
 
 
 @pytest.mark.parametrize("document,code", [
@@ -181,20 +183,21 @@ def test_propose_never_sends_without_the_screen(leaking, listed, tmp_path, monke
 def test_doctor_lists_the_file_and_says_whether_a_figure_screen_ran(leaking, listed):
     repo, base, head = leaking
     report = config_preflight(repo, base, head, replace(Config(), **listed["file"]))
-    assert report["status"] == "blocked" and report["figure_screen"] == {"configured": True, "listed": 1}
+    assert report["status"] == "blocked"
+    assert report["figure_screen"] == {"configured": True, "listed": 1, "match": "value", "digit_forms": 0}
     assert [(row["path"], row["status"], row.get("code")) for row in report["paths"]] == [
         ("src/cash.py", "refused", "forbidden_token_present")]
     assert [(item["code"], item["count"]) for item in report["blockers"]] == [("forbidden_token_present", 1)]
     assert not _shows_figure(canonical(report).decode())
     unlisted = config_preflight(repo, base, head, Config())
-    assert unlisted["status"] == "ready" and unlisted["figure_screen"] == {"configured": False, "listed": 0}
+    assert unlisted["status"] == "ready" and unlisted["figure_screen"]["configured"] is False
 
 
 def test_doctor_reports_an_unusable_list_and_still_lists_the_paths(leaking):
     repo, base, head = leaking
     report = config_preflight(repo, base, head, replace(Config(), forbidden_token_file=str(repo / "missing.txt")))
     assert report["status"] == "blocked" and report["blockers"][0]["code"] == "forbidden_token_file_invalid"
-    assert report["paths"] and report["figure_screen"] == {"configured": True, "listed": 0}
+    assert report["paths"] and report["figure_screen"]["configured"] is True and report["figure_screen"]["listed"] == 0
 
 
 def test_related_context_drops_a_file_holding_a_listed_figure(pricing):
