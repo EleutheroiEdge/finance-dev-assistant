@@ -317,7 +317,9 @@ def _spelled_out(text: str) -> str | None:
     def character(match: re.Match) -> str:
         try:
             return chr(int(match.group(1) or match.group(2) or match.group(3), 16))
-        except ValueError:  # Past the last code point: not a character.
+        except (ValueError, OverflowError):
+            # Past the last code point: not a character. Before Python 3.13, chr() raises
+            # OverflowError, not ValueError, for a number of 2**31 or more.
             return match.group()
 
     decoded = html.unescape(_ESCAPE.sub(character, text))
