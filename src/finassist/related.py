@@ -432,7 +432,7 @@ def verify_related(block, changed: list[str], config: Config, private) -> None:
                 refuse()
             previous = entry[0]
         for text in (item["symbol"], "\n".join(line for _number, line in item["lines"])):
-            check_text(text, extra_patterns=extras, source_path=path)
+            check_text(text, extra_patterns=extras, source_path=path, placeholders=config.placeholder_credential_paths)
         size = len(canonical(item))
         if size > MAX_SNIPPET_BYTES:
             refuse()

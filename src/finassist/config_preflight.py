@@ -146,6 +146,10 @@ class _ConfigPreflight:
         if withheld:
             self.report["warnings"].append({"code": "private_paths_withheld", "count": withheld,
                                             "hint": _hint("private_paths_withheld")})
+        placeholders = sum("credential_labels" in row for row in rows)
+        if placeholders:
+            self.report["warnings"].append({"code": "credential_labels_not_screened", "count": placeholders,
+                                            "hint": _hint("credential_labels_not_screened")})
         left = sum(row["status"] == "omitted" and row["reason"] in _LEFT_OUT for row in rows)
         if left:
             self.report["warnings"].append({"code": "unreviewable_paths_left_out", "count": left,
@@ -181,7 +185,7 @@ class _ConfigPreflight:
             if reason is not None:
                 return {**row, "status": "omitted", "reason": reason}
             return {**row, "status": "refused", "code": exc.code, **exc.public_details, **refusal_location(exc)}
-        return {**row, "status": "included"}
+        return {**row, "status": "included", **({"credential_labels": "not_screened"} if config.placeholder(path) else {})}
 
     def _provider(self, packet: dict | None) -> None:
         config = self.config

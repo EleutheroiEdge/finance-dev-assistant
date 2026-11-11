@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from fnmatch import fnmatchcase
 from functools import lru_cache
 import hashlib
 import json
@@ -143,6 +144,8 @@ _RULES = dict(zip(SECRET_PATTERNS, (
     "nine_digit_identifier", "credential_label", "credential_label", "account_label"), strict=True))
 _REFERENCE_PATTERNS = tuple(pattern for pattern in LABEL_PATTERNS if "value" in pattern.groupindex)
 MIN_SECRET_LENGTH = 12  # the shortest value a label rule reads as a credential
+MAX_PLACEHOLDER_PATHS = 64  # entries a configuration may list as holding placeholder credentials
+PLACEHOLDER_PATTERN = re.compile(r"[A-Za-z0-9_./*-]{1,512}")  # what such an entry may hold when it has a star
 _NAMED_LINES = 20  # line numbers a refusal names in local output
 
 
@@ -370,30 +373,49 @@ def local_name(name, extra_patterns: tuple[str, ...] = ()) -> str:
     return name
 
 
-def check_text(text: str, *, extra_patterns: tuple[str, ...] = (), source_path: str | None = None) -> None:
+def holds_placeholders(path: str | None, entries) -> bool:
+    """True when the configuration says the credential-named values in this file are placeholders.
+
+    An entry is a directory prefix ending in a slash, an exact path, or a pattern in which a star
+    stands for any characters, slashes included.
+    """
+    if path is None:
+        return False
+    return any(fnmatchcase(path, entry) if "*" in entry else path.startswith(entry) if entry.endswith("/")
+               else path == entry for entry in entries)
+
+
+def check_text(text: str, *, extra_patterns: tuple[str, ...] = (), source_path: str | None = None,
+               placeholders: tuple[str, ...] = ()) -> None:
     """Refuse credentials and listed patterns in text.
 
     File content read with its path is also asked what its own syntax says: a credential-named
     field given an expression in code, or one variable expansion in quotes, names a value kept
     elsewhere and is not refused. Anything read without a path keeps the strict text rules.
+
+    Under a path listed in `placeholders` the credential label rules are not applied: the
+    operator has said that the credential-named values there are made up. Known formats, account
+    numbers and the project's own patterns are refused there as everywhere.
     """
+    labels = not holds_placeholders(source_path, placeholders)
     if is_python_path(source_path) and "\0" not in text:
         screen = python_screen(text)
         if screen is not None:
-            _screen_python(text, screen, extra_patterns)
+            _screen_python(text, screen, extra_patterns, labels)
             return
     # Python that does not tokenize and parse is text, and so is every language code_text does not read.
     syntax = _FileSyntax(text, source_path) if source_path is not None else None
-    _screen_text(text, credential_screening_view(text, source_path), extra_patterns, syntax)
+    _screen_text(text, credential_screening_view(text, source_path), extra_patterns, syntax, credential_labels=labels)
 
 
-def check_context_document(document: dict, *, extra_patterns: tuple[str, ...] = (), records_key="files") -> None:
+def check_context_document(document: dict, *, extra_patterns: tuple[str, ...] = (), records_key="files",
+                           placeholders: tuple[str, ...] = ()) -> None:
     """Screen each record with its path, then the remaining typed envelope."""
     envelope = deepcopy(document)
     for item in envelope[records_key]:
         for side in ("before", "after"):
             if item[side] is not None:
-                check_text(item[side], extra_patterns=extra_patterns, source_path=item["path"])
+                check_text(item[side], extra_patterns=extra_patterns, source_path=item["path"], placeholders=placeholders)
                 # Already screened with its path; a JSON copy must not undo
                 # the Python-aware decision with text rules.
                 item[side] = ""
@@ -409,14 +431,17 @@ def check_context_document(document: dict, *, extra_patterns: tuple[str, ...] = 
 
 
 def check_output_document(
-    document: dict, source_files: list[dict], *, extra_patterns: tuple[str, ...] = (), diff: bool = False
+    document: dict, source_files: list[dict], *, extra_patterns: tuple[str, ...] = (), diff: bool = False,
+    placeholders: tuple[str, ...] = ()
 ) -> None:
     """Permit only exact credential-label quotes from screened source.
 
     Two kinds of quote are permitted. One is an annotation: a credential-named
     field with its type. The other is a reference: a label rule's match in
     screened source whose value is an expression or one expansion, with nothing
-    after it on its line that could give the label another value.
+    after it on its line that could give the label another value. From a file
+    under `placeholders`, where the label rules are not applied, every label
+    match is such a quote, a quoted placeholder included.
 
     A match includes its label, separator and complete candidate value; a word
     merely present elsewhere in source confers no output exception. Paths and
@@ -430,8 +455,8 @@ def check_output_document(
             text = item.get(side)
             if text is None:
                 continue
-            check_text(text, source_path=item["path"], extra_patterns=extra_patterns)
-            references.update(_reference_quotes(text))
+            check_text(text, source_path=item["path"], extra_patterns=extra_patterns, placeholders=placeholders)
+            references.update(_reference_quotes(text, every=holds_placeholders(item["path"], placeholders)))
             view = credential_screening_view(text, item["path"])
             for match in CREDENTIAL_KEY_PATTERN.finditer(text):
                 separator = text.find(":", match.start(), match.end())
@@ -530,17 +555,18 @@ class _FileSyntax:
 _TEXT_IN_PYTHON = _FileSyntax("", None)
 
 
-def _reference_quotes(text: str) -> set[str]:
+def _reference_quotes(text: str, *, every: bool = False) -> set[str]:
     """Every label match in screened source whose value is a reference, as exact text.
 
     The text has passed the screen. So an unquoted value in it is an expression its syntax
-    excused, and a quoted one that is a single expansion names a variable.
+    excused, and a quoted one that is a single expansion names a variable. `every` is for a file
+    the operator listed as holding placeholders: there each match is kept, whatever its value.
     """
     quotes = set()
     for pattern in _REFERENCE_PATTERNS:
         for match in pattern.finditer(text):
             value = match.group("value")
-            if value[0] not in "\"'" or is_expansion(value[1:-1]):
+            if every or value[0] not in "\"'" or is_expansion(value[1:-1]):
                 quotes.add(match.group())
     return quotes
 
@@ -615,11 +641,12 @@ def refusal_location(error: AssistantError) -> dict:
 
 
 def _screen_text(text: str, credential_text: str, extra_patterns: tuple[str, ...], syntax: _FileSyntax | None = None,
-                 *, label_text: str | None = None) -> None:
+                 *, label_text: str | None = None, credential_labels: bool = True) -> None:
     """Refuse a credential in text.
 
     Known formats read `text`. The label rules read `label_text` when the caller gives one, and
-    the key rule reads only `credential_text`, where annotations are blanked.
+    the key rule reads only `credential_text`, where annotations are blanked. With
+    `credential_labels` off, the two credential label rules are not applied.
     """
     if "\0" in text:
         raise AssistantError("binary_input")
@@ -629,6 +656,8 @@ def _screen_text(text: str, credential_text: str, extra_patterns: tuple[str, ...
         return dict.fromkeys(candidates)  # the same text is read once
 
     for pattern in SECRET_PATTERNS:
+        if not credential_labels and pattern in _REFERENCE_PATTERNS:
+            continue
         if pattern is CREDENTIAL_KEY_PATTERN:
             searched = views(credential_text)
         elif pattern in FORMAT_PATTERNS:
@@ -644,17 +673,19 @@ def _screen_text(text: str, credential_text: str, extra_patterns: tuple[str, ...
     _screen_extra(text, extra_patterns)
 
 
-def _screen_python(text: str, screen, extra_patterns: tuple[str, ...]) -> None:
+def _screen_python(text: str, screen, extra_patterns: tuple[str, ...], credential_labels: bool = True) -> None:
     """Parsed Python: formats on raw text, the AST for code, label rules for text."""
     for pattern in FORMAT_PATTERNS:
         lines = _hits(pattern, text, None)
         if lines:
             raise _sensitive(_RULES[pattern], lines)
-    hits = [(line, "account_label" if kind == "account" else "credential_label") for line, kind in screen.credential_hits]
+    hits = [(line, "account_label" if kind == "account" else "credential_label") for line, kind in screen.credential_hits
+            if credential_labels or kind == "account"]
+    rules = LABEL_PATTERNS if credential_labels else tuple(p for p in LABEL_PATTERNS if p not in _REFERENCE_PATTERNS)
     for segment, first_line in zip(screen.text_segments, screen.segment_lines, strict=True):
         if len(hits) > _NAMED_LINES:
             break
-        for pattern in LABEL_PATTERNS:
+        for pattern in rules:
             hits += [(line, _RULES[pattern]) for line in _hits(pattern, segment, _TEXT_IN_PYTHON, first_line)]
     if hits:
         rule = min(hits)[1]

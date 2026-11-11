@@ -63,7 +63,7 @@ def propose(
     if artifact["head"] != packet["head"]:
         raise AssistantError("proposal_head_mismatch")
     check_output_document({"summary": artifact["summary"]}, packet["files"],
-                          extra_patterns=config.extra_sensitive_patterns)
+                          extra_patterns=config.extra_sensitive_patterns, placeholders=config.placeholder_credential_paths)
     paths = patch_paths(artifact["patch"], config, source_files=packet["files"])
     if not set(paths) <= {file["path"] for file in packet["files"]}:
         raise AssistantError("proposal_outside_review_scope")

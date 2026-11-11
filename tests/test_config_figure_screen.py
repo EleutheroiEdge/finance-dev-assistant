@@ -70,7 +70,7 @@ def test_unset_figure_settings_leave_the_configuration_hash_as_it_was():
     # Every setting from 0.10.0 is hashed whether or not it has its default; the ones added since are not.
     assert set(asdict(config)) - set(config_identity(config)) == {
         "forbidden_token_file", "forbidden_token_hashes", "forbidden_token_sources", "forbidden_token_match",
-        "forbidden_token_min_digits", "unreviewable_paths"}
+        "forbidden_token_min_digits", "unreviewable_paths", "placeholder_credential_paths"}
 
 
 @pytest.mark.parametrize("document,code", [

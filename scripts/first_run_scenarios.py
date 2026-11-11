@@ -2,8 +2,9 @@
 
 For each repository, take the last N first-parent changes on a branch. Run `init --detect` at the
 revision before the oldest of them, as someone setting up once would, then check each later change
-with `doctor` on both routes: as drafted, with `private_paths: skip-and-report`, and with
-`unreviewable_paths: skip-and-report` as well.
+with `doctor` on both routes: as drafted, with `private_paths: skip-and-report`, with
+`unreviewable_paths: skip-and-report` as well, and with test files listed in
+`placeholder_credential_paths` on top of both.
 
 Nothing is sent anywhere and no key is read: `doctor` is offline and the key variable holds a
 placeholder. Nothing is written inside a repository. Only codes, counts and timings are printed,
@@ -36,9 +37,13 @@ PROVIDER = ["--provider", "google", "--model", "review-model", "--input-usd-per-
             "--output-usd-per-million", "5"]
 # Blockers that say the operator has not authorized a call yet. They are not setup failures.
 AUTHORIZATION = frozenset({"network_not_approved", "provider_key_missing", "provider_prices_required"})
-VARIANTS = ("config", "config+skip", "config+leave", "gate", "gate+skip", "gate+leave")
+VARIANTS = ("config", "config+skip", "config+leave", "config+tests", "gate", "gate+skip", "gate+leave", "gate+tests")
 SKIP = {"private_paths": "skip-and-report"}
 LEAVE = {**SKIP, "unreviewable_paths": "skip-and-report"}
+# What an operator who says "our test files hold only made-up logins" would list.
+TESTS = {**LEAVE, "placeholder_credential_paths": [
+    "tests/", "test/", "e2e/", "*/tests/*", "*/test/*", "*/__tests__/*", "*/fixtures/*", "*.test.*", "*.spec.*",
+    "*_test.go", "*/test_*.py", "*/conftest.py"]}
 _SUFFIX = re.compile(r"\.[a-z0-9]{1,8}")
 
 
@@ -117,8 +122,10 @@ def scenario(command: list[str], label: str, repo: Path, branch: str, changes: i
     except (ValueError, KeyError, TypeError):
         raise Incomplete("init --detect") from None
     documents = {"config": config, "config+skip": {**config, **SKIP}, "config+leave": {**config, **LEAVE},
+                 "config+tests": {**config, **TESTS},
                  "gate": gate, "gate+skip": {**gate, "model_review": {**gate["model_review"], **SKIP}},
-                 "gate+leave": {**gate, "model_review": {**gate["model_review"], **LEAVE}}}
+                 "gate+leave": {**gate, "model_review": {**gate["model_review"], **LEAVE}},
+                 "gate+tests": {**gate, "model_review": {**gate["model_review"], **TESTS}}}
     files = {}
     for variant, document in documents.items():
         files[variant] = output / f"{label}-{variant}.json"

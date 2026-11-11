@@ -94,6 +94,8 @@ WARNINGS = {
     "private_paths_withheld": "These private paths will be withheld unread; the review's coverage will be incomplete.",
     "unreviewable_paths_left_out": "These files cannot be reviewed and will be left out; the review's coverage will be "
                                    "incomplete.",
+    "credential_labels_not_screened": "These files are under placeholder_credential_paths, so a credential-named value "
+                                      "in them is not refused. Known formats still are.",
     "policy_from_working_tree": "Read from a file on this machine, so this preflight authorizes nothing: gate run reads "
                                 "the policy only at --base.",
 }
@@ -515,6 +517,9 @@ class _Preflight:
         left = sum(row["status"] == "omitted" for row in rows)
         if left:
             self.warn("unreviewable_paths_left_out", count=left)
+        placeholders = sum("credential_labels" in row for row in rows)
+        if placeholders:
+            self.warn("credential_labels_not_screened", count=placeholders)
         for row in rows:
             if row["status"] == "refused" and row["code"] != "gate_ignored_path":  # Ignored paths are named above.
                 self.block_path(row["code"], row["path"], row.get("hint"))
@@ -558,7 +563,7 @@ class _Preflight:
             if exc.code == "private_or_binary_path":
                 refused["hint"] = _format_hint(path)
             return refused
-        return {**row, "status": "included"}
+        return {**row, "status": "included", **({"credential_labels": "not_screened"} if config.placeholder(path) else {})}
 
     def _gate_source(self, repo: Path, base: str, head: str, policy: ModelGatePolicy) -> None:
         """Run the gate's own loader and source builder, then size the key-free request body."""

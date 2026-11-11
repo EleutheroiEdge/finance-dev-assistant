@@ -16,7 +16,8 @@ from .policy_fixtures import FIXTURE_PROPERTIES, fixture_settings, load_policy_c
 from .profiles import PROFILES
 from .scope import read_entry
 from .forbidden_tokens import MATCHES, MAX_MIN_DIGITS, MAX_SOURCE_FILES, MAX_TOKENS, MIN_DIGITS
-from .security import canonical, check_model_path, check_path, check_text, digest, safe_relative
+from .security import (MAX_PLACEHOLDER_PATHS, canonical, check_model_path, check_path, check_text, digest,
+                       safe_relative)
 
 _PATHS = {"type": "array", "maxItems": 128, "uniqueItems": True,
           "items": {"type": "string", "minLength": 1, "maxLength": 512}}
@@ -59,6 +60,9 @@ _TOKEN_PROPERTIES = {
 # Optional. refuse (the default) keeps today's behaviour; skip-and-report withholds private paths.
 _COVERAGE_PROPERTIES = {"private_paths": {"enum": ["refuse", "skip-and-report"]},
                         "unreviewable_paths": {"enum": ["refuse", "skip-and-report"]},
+                        "placeholder_credential_paths": {
+                            "type": "array", "maxItems": MAX_PLACEHOLDER_PATHS, "uniqueItems": True,
+                            "items": {"type": "string", "minLength": 1, "maxLength": 512}},
                         "related_context": {"enum": ["none", "related"]},
                         "related_max_bytes": {"type": "integer", "minimum": 1, "maximum": 400_000}}
 _SCHEMA = {
@@ -213,7 +217,8 @@ def policy_config_fields(model: dict, profile_text: list[str] | None) -> dict:
     config_fields.update(allow_network=True, allowed_hosts=[model["allowed_host"]], generated_paths=[],
                          max_packet_bytes=max(2_000_000, model["max_request_bytes"]),
                          monthly_budget_usd=1_000_000)
-    for key in ("private_paths", "unreviewable_paths", "related_context", "related_max_bytes"):
+    for key in ("private_paths", "unreviewable_paths", "placeholder_credential_paths", "related_context",
+                "related_max_bytes"):
         if key in model:
             config_fields[key] = model[key]
     if profile_text is not None:

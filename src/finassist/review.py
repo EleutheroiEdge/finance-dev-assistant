@@ -99,7 +99,8 @@ def validate_review(
                 or evidence["line"] > max(1, len(file[evidence["side"]].splitlines()))
             ):
                 raise AssistantError("finding_evidence_invalid")
-    check_output_document(result, packet["files"], extra_patterns=extra_patterns)
+    check_output_document(result, packet["files"], extra_patterns=extra_patterns,
+                          placeholders=config.placeholder_credential_paths if config else ())
 
 
 def call_model(
@@ -122,7 +123,7 @@ def call_model(
                    or any(token_guard.rules.get(name) != value for name, value in listed.items())):
         # A configuration that lists figures sends nothing without the screen built from that list.
         raise AssistantError("forbidden_token_guard_required")
-    check_context_document(packet, extra_patterns=config.extra_sensitive_patterns)
+    check_context_document(packet, extra_patterns=config.extra_sensitive_patterns, placeholders=config.placeholder_credential_paths)
     if approved_packet_hash != packet["packet_hash"]:
         raise AssistantError("packet_approval_required")
     if not config.allow_network or not network_approved:
@@ -139,7 +140,8 @@ def call_model(
                 size, limit = len(file[side].encode()), config.file_byte_limit(file["path"])
                 if size > limit:
                     raise AssistantError("file_limit_exceeded", {"limit": limit, "bytes": size})
-                check_text(file[side], extra_patterns=config.extra_sensitive_patterns, source_path=file["path"])
+                check_text(file[side], extra_patterns=config.extra_sensitive_patterns, source_path=file["path"],
+                           placeholders=config.placeholder_credential_paths)
     if not packet["changed_paths"] and packet.get("withheld"):
         raise AssistantError("review_scope_entirely_withheld")
     if not packet["changed_paths"]:
@@ -246,7 +248,7 @@ def review_packet(
 ) -> dict:
     verify_packet(packet, config)
     config.validate()
-    check_context_document(packet, extra_patterns=config.extra_sensitive_patterns)
+    check_context_document(packet, extra_patterns=config.extra_sensitive_patterns, placeholders=config.placeholder_credential_paths)
     triaged = triage(packet, config)
     if not packet["changed_paths"] and packet.get("withheld"):
         raise AssistantError("review_scope_entirely_withheld")
