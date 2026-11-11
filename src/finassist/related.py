@@ -437,9 +437,11 @@ def verify_related(block, changed: list[str], config: Config, private, waiting: 
                     or entry[0] <= previous or not isinstance(entry[1], str) or _NEWLINE.search(entry[1])):
                 refuse()
             previous = entry[0]
-        for text in (item["symbol"], "\n".join(line for _number, line in item["lines"])):
-            check_credentials(text, extra_patterns=extras, source_path=path)
-            held.check(text)
+        lines = "\n".join(line for _number, line in item["lines"])
+        check_credentials(item["symbol"], extra_patterns=extras, source_path=path)  # a name, never placeholder text
+        held.check(item["symbol"])
+        check_credentials(lines, extra_patterns=extras, source_path=path, placeholders=config.placeholder_credential_paths)
+        held.check(lines)
         size = len(canonical(item))
         if size > MAX_SNIPPET_BYTES:
             refuse()

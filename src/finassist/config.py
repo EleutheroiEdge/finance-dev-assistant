@@ -17,8 +17,13 @@ from .config_compat import check_min_version, compatible_document, decode_config
 from .forbidden_tokens import (DEFAULT_MIN_DIGITS, MATCHES, MAX_MIN_DIGITS, MAX_SOURCE_FILES, MAX_TOKENS,
                                MIN_DIGITS)
 from .security import (
+    MAX_PLACEHOLDER_PATHS,
+    PLACEHOLDER_PATTERN,
+    PLACEHOLDER_STARS,
     check_path,
     check_text,
+    holds_placeholders,
+    placeholder_pattern_names_something,
     pinned_image,
     regular_path,
     write_private,
@@ -78,6 +83,13 @@ class Config:
     # skip-and-report: it is left out unread, and the packet names it with the reason.
     unreviewable_paths: str = field(default="refuse", metadata={
         "identity": "when-set", "json_schema": {"enum": ["refuse", "skip-and-report"]}})
+    # Files whose credential-named values are placeholders, such as test fixtures: a directory
+    # prefix ending in /, an exact path, or a pattern with *. Empty (the default): none. Under
+    # these paths the credential label rules are not applied; known formats still refuse.
+    placeholder_credential_paths: tuple[str, ...] = field(default=(), metadata={
+        "identity": "when-set",
+        "json_schema": {"maxItems": MAX_PLACEHOLDER_PATHS, "uniqueItems": True,
+                        "items": {"type": "string", "minLength": 1, "maxLength": 512}}})
     # none: the packet holds only the changed files (the default).
     # related: it also holds skeletons of unchanged Python definitions the change calls, is called by or extends.
     related_context: str = field(default="none", metadata={"json_schema": {"enum": ["none", "related"]}})
@@ -291,6 +303,7 @@ class Config:
             "blocking_severities",
             "forbidden_token_hashes",
             "forbidden_token_sources",
+            "placeholder_credential_paths",
         ):
             if not isinstance(getattr(self, key), (tuple, list)) or any(
                 not isinstance(x, str) for x in getattr(self, key)
@@ -315,6 +328,21 @@ class Config:
             if any(character in prefix for character in "*?[]"):
                 raise AssistantError("invalid_generated_paths")
             self.check_path(prefix.rstrip("/"), source_only=False)
+        entries = self.placeholder_credential_paths
+        if len(entries) > MAX_PLACEHOLDER_PATHS or len(set(entries)) != len(entries):
+            raise AssistantError("invalid_placeholder_credential_paths")
+        for entry in entries:
+            # Only a star is a pattern character, and no path has an empty part, so "tests//" would match nothing.
+            if any(character in entry for character in "?[]") or "//" in entry:
+                raise AssistantError("invalid_placeholder_credential_paths")
+            if "*" in entry:
+                if PLACEHOLDER_PATTERN.fullmatch(entry) is None or not placeholder_pattern_names_something(entry):
+                    raise AssistantError("invalid_placeholder_credential_paths")
+                entry = PLACEHOLDER_STARS.sub("x", entry)  # a path the pattern fits, for the checks every entry gets
+            try:
+                self.check_path(entry.rstrip("/"), source_only=False)
+            except AssistantError as exc:
+                raise AssistantError("invalid_placeholder_credential_paths") from exc
         for prefix in self.allow_paths:
             self.check_path(prefix.rstrip("/"), source_only=False)
         for prefix in self.protected_paths:
@@ -396,6 +424,10 @@ class Config:
     def allows(self, path: str) -> bool:
         return any(path.startswith(p) if p.endswith("/") else path == p for p in self.allow_paths)
 
+    def placeholder(self, path: str) -> bool:
+        """True when the credential-named values in this file are placeholders by configuration."""
+        return holds_placeholders(path, self.placeholder_credential_paths)
+
     def generated(self, path: str) -> bool:
         return any(
             path.startswith(prefix) if prefix.endswith("/") else path == prefix
@@ -467,6 +499,7 @@ def load_config(path: Path | None = None, *, content: bytes | None = None,
             "profile_files",
             "forbidden_token_hashes",
             "forbidden_token_sources",
+            "placeholder_credential_paths",
         ):
             if key in raw and isinstance(raw[key], list):
                 raw[key] = tuple(raw[key])

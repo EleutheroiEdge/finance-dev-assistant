@@ -19,6 +19,7 @@ from .security import canonical, check_context_document, check_text, digest
 def validate_suite(
     suite: dict, *, extra_patterns: tuple[str, ...] = (), config: Config | None = None
 ) -> None:
+    placeholders = config.placeholder_credential_paths if config else ()
     if set(suite) != {"version", "cases"} or suite["version"] != 1:
         raise AssistantError("invalid_eval_suite")
     if not isinstance(suite["cases"], list) or not 1 <= len(suite["cases"]) <= 50:
@@ -39,9 +40,9 @@ def validate_suite(
         for side in ("before", "after"):
             if not isinstance(case[side], str) or not case[side] or len(case[side].encode()) > 48_000:
                 raise AssistantError("invalid_eval_source")
-            check_text(case[side], extra_patterns=extra_patterns, source_path=case["path"])
+            check_text(case[side], extra_patterns=extra_patterns, source_path=case["path"], placeholders=placeholders)
 
-    check_context_document(suite, extra_patterns=extra_patterns, records_key="cases")
+    check_context_document(suite, extra_patterns=extra_patterns, records_key="cases", placeholders=placeholders)
 
 
 def _fixture_git(repo: Path, *args: str) -> None:

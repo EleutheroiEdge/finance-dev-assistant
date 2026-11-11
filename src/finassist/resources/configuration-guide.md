@@ -33,6 +33,7 @@ commands and the `doctor --check-updates` network gate.
 | `related_max_bytes` | Byte cap for the related-code block, 1 to 400,000; default 24,000. |
 | `private_paths` | `refuse` (default): a private path in the range, such as a data file or a path under a private directory, refuses the whole review. `skip-and-report`: such a path is never read or sent; the packet carries only how many were withheld, and names appear only in local output. Coverage is then incomplete. See [skipping private paths](#skipping-private-paths). |
 | `unreviewable_paths` | `refuse` (default): a changed file that cannot be reviewed refuses the whole review. `skip-and-report`: such a file is left out unread and the packet names it with the reason, so the rest of the range is reviewed. See [leaving out files that cannot be reviewed](#leaving-out-files-that-cannot-be-reviewed). |
+| `placeholder_credential_paths` | Files whose credential-named values are placeholders, such as test fixtures: directory prefixes ending in /, exact paths, or patterns with `*`. Empty by default. Under them the credential label rule is not applied; known formats still refuse. See [placeholder credentials in test files](#placeholder-credentials-in-test-files). |
 | `allowed_hosts` | Additional approved MODEL endpoint hostnames; distinct from github_host. |
 | `generated_paths` | Exact relative files or directory prefixes excluded from review and snapshot source. Defaults to src/finassist/resources/dashboard/. No globs; rebuild/integrity CI must verify these artifacts. |
 | `allow_paths` | Exact source paths or prefixes ending in /. Denied components still apply. |
@@ -325,6 +326,58 @@ field works in a gate policy's `model_review` object. What happens then:
 A pass then covers only what was reviewed. A change can put code in a file no review reads, such
 as an oversized file or one with an unusual suffix, so read the `omitted` list of a review you
 rely on.
+
+## Placeholder credentials in test files
+
+A test or a fixture often holds a made-up login: a field named `password` with a value
+that was never real. The credential screen cannot tell that from a real one, so by
+default it refuses the file, and with it the whole range.
+
+List such files in `placeholder_credential_paths` to have them reviewed. The same field
+works in a gate policy's `model_review` object. Each entry is one of:
+
+| Entry | Matches |
+|---|---|
+| `tests/` | every file under that directory |
+| `web/e2e/login.spec.ts` | that file |
+| `*.test.ts`, `*/__tests__/*` | every path the pattern fits; `*` stands for any characters, `/` included |
+
+What happens then:
+
+- **A credential-named value in those files is not refused,** quoted or not. This is the
+  rule that `doctor` names `credential_label`.
+- **Known formats are refused there as everywhere:** a private key block, a GitHub token,
+  an AWS access key ID, an `sk-` key. So are account and routing numbers, a listed figure,
+  and anything that matches `extra_sensitive_patterns`.
+- **The files are sent to the provider as they are.** That is the decision this setting
+  records: you are saying that no value under these paths is real. Check before you list a
+  path, and keep the list narrow. A real credential pasted into a listed file is sent.
+- **A model may repeat such a value** exactly as it stands in the file it was sent, and
+  nothing else under its label. A proposed patch may keep or move it. It may not bring a
+  new credential-named value into a listed file, a reference included: what the patch
+  itself writes there has been read by no label rule.
+- **`doctor` says which files this covered.** Each is listed as `included` with
+  `credential_labels: not_screened`, and the report warns with
+  `credential_labels_not_screened` and the count.
+
+What an entry may be:
+
+- No `?`, no brackets and no empty part such as `tests//`, which would match nothing.
+- Not a private path, as a pattern too: `*/.env` is refused like `.env`.
+- A pattern names three letters or digits besides its file suffix, and ends in a name or a
+  star. So `*.py` and `*/*.yaml` are refused, because they would list every file of a
+  language, and `*.test.ts`, `*_test.go` and `*/fixtures/*` are not.
+- At most 64 entries.
+
+A star also matches inside a name: `*test*` covers `src/latest.py` too. Bound the word with
+a slash, a dot or an underscore, and read the list `doctor` prints.
+
+The setting covers file content read for review. Two things keep the strict rules under a
+listed path: the name of a definition in related context, and a methodology document that
+a workflow binds.
+
+Like the other settings added since 0.10.0, an empty list leaves the configuration hash as
+it was.
 
 ## Confidential figures
 
