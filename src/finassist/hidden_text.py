@@ -202,26 +202,59 @@ def check_hidden(text: str, *, file: bool = False) -> None:
     raise error
 
 
-def check_hidden_document(value, *, file_lines: bool = False) -> None:
+def check_hidden_document(value) -> None:
     """Refuse a hidden character in any string of a JSON-shaped value, keys included.
 
-    `file_lines` is for a request, which holds lines taken from files as the items of lists: the
-    first line of a file may begin with a byte order mark, so such an item may too. A key and a
-    value under a key may not. A list or an object that holds itself is read once.
+    No string here is the whole content of a file, so none may begin with a byte order mark. A
+    list or an object that holds itself is read once.
     """
-    stack = [(value, False)]
+    stack = [value]
     seen: set[int] = set()
     while stack:
-        item, listed = stack.pop()
+        item = stack.pop()
         if isinstance(item, str):
-            if hidden(item, file=file_lines and listed) is not None:
+            if hidden(item) is not None:
                 raise AssistantError("hidden_characters")
         elif isinstance(item, (dict, list, tuple)):
             if id(item) in seen:
                 continue
             seen.add(id(item))
             if isinstance(item, dict):
-                stack.extend((key, False) for key in item)
-                stack.extend((entry, False) for entry in item.values())
+                stack.extend(item.keys())
+                stack.extend(item.values())
             else:
-                stack.extend((entry, True) for entry in item)
+                stack.extend(item)
+
+
+class Waiting:
+    """Hidden-character refusals that wait until an operation's other checks have had their say.
+
+    An operation that screens several texts gives each one to `check`, which raises nothing.
+    When every other check has passed, `release` raises the first refusal that waited. So what
+    was refused before this screen existed is still refused for the same reason, wherever in
+    the operation the hidden character stands: in another version, another file, or a field
+    that is read earlier.
+    """
+
+    def __init__(self) -> None:
+        self.first: AssistantError | None = None
+
+    def check(self, text: str, *, file: bool = False, **details) -> None:
+        """Screen one text now. `details` go into the refusal's local details, for local output."""
+        if self.first is None:
+            try:
+                check_hidden(text, file=file)
+            except AssistantError as refusal:
+                refusal.local_details.update(details)
+                self.first = refusal
+
+    def check_document(self, value) -> None:
+        if self.first is None:
+            try:
+                check_hidden_document(value)
+            except AssistantError as refusal:
+                self.first = refusal
+
+    def release(self) -> None:
+        if self.first is not None:
+            raise self.first

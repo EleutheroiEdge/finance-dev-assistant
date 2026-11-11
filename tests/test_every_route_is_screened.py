@@ -73,11 +73,18 @@ def test_that_function_runs_every_screen_before_the_request():
             first[_called(node)] = min(node.lineno, first.get(_called(node), node.lineno))
     raised = [node.lineno for node in ast.walk(function) if isinstance(node, ast.Constant)
               and node.value == "forbidden_token_guard_required"]
-    # The packet's shape, names and hashes; credentials and hidden characters in the packet; hidden
-    # characters in the instructions; each file again with its path; the figure screen, twice.
-    for screen in ("verify_packet", "check_context_document", "check_hidden", "check_text", "recheck"):
+    # The packet's shape, names and hashes; credentials in the packet; each file again with its path;
+    # the figure screen; and last, hidden characters in everything that waited and in the instructions.
+    for screen in ("verify_packet", "check_context_document", "check_credentials", "recheck", "check", "release"):
         assert first[screen] < first["invoke"], screen
     assert raised and raised[0] < first["invoke"]
+    last = {}
+    for node in ast.walk(function):
+        if isinstance(node, ast.Call) and _called(node) is not None:
+            last[_called(node)] = max(node.lineno, last.get(_called(node), 0))
+    # Nothing but the cost of the request and the ledger stands between the release and the request.
+    assert last["verify_packet"] < first["release"] and last["check_context_document"] < first["release"]
+    assert last["check_credentials"] < first["release"] and first["recheck"] < first["release"]
 
 
 # --- A packet changed after it was built ------------------------------------
@@ -96,6 +103,12 @@ def with_text(text):
     return change
 
 
+def with_field(name, value):
+    def change(packet):
+        packet[name] = value
+    return change
+
+
 def renamed(name):
     def change(packet):
         packet["files"][0]["path"] = name
@@ -111,6 +124,10 @@ CHANGES = {
     "a private path": (renamed("src/secrets/logic.py"), {}, {"private_path"}),
     "a credential store": (renamed(".env"), {}, {"private_path", "private_or_binary_path", "unsupported_file_type"}),
     "a path with a hidden character": (renamed("src/ca" + ZERO_WIDTH_SPACE + "sh.py"), {}, {"unsafe_path"}),
+    "a byte order mark that begins a field": (with_field("classification_limit", chr(0xFEFF) + "Synthetic metadata"), {},
+                                              {"hidden_characters"}),
+    "a credential and a hidden character": (with_text(CREDENTIAL + "# to" + ZERO_WIDTH_SPACE + "tal\n"), {},
+                                            {"sensitive_content"}),
 }
 ROUTES = {"review": review_packet, "propose": propose}
 
@@ -198,10 +215,31 @@ def test_a_gate_stops_on_each_screen_before_any_request(gate_case, name, text, p
 
 # --- Texts with a format of their own ----------------------------------------
 
-def test_four_readers_run_their_own_validation_between_the_two_halves_of_the_screen():
-    """A name, a gate profile and a fixture marker keep the codes they were always refused with."""
-    own = {("security.py", "check_name"): "hidden", ("security.py", "check_path"): "hidden",
-           ("model_policy.py", "_profile"): "check_hidden", ("policy_fixtures.py", "fixture_settings"): "check_hidden"}
-    assert callers("check_credentials") == {("security.py", "check_text"), *own}
-    for reader, second_half in own.items():
-        assert reader in callers(second_half), reader
+def test_every_reader_that_runs_the_first_half_of_the_screen_runs_the_second():
+    """`check_text` is the screen. A reader that calls its first half alone must reach the second itself.
+
+    Some have a format of their own and run its validation in between: a name, a gate profile, a
+    fixture marker. The others read several texts and run the first half on all of them before the
+    hidden-character screen reads any, so that no refusal which existed before changes its code.
+    """
+    second_half = {
+        ("security.py", "check_text"): "check_hidden",
+        ("security.py", "check_name"): "hidden",
+        ("security.py", "check_path"): "hidden",
+        ("security.py", "check_context_document"): "check_document",
+        ("security.py", "check_output_document"): "check_hidden_document",
+        ("model_policy.py", "_profile"): "check_hidden",
+        ("policy_fixtures.py", "fixture_settings"): "check_hidden",
+        ("scope.py", "read_sides"): "check",
+        ("scope.py", "verify_packet"): "check",
+        ("related.py", "verify_related"): "check",
+        ("review.py", "call_model"): "release",
+    }
+    assert callers("check_credentials") == set(second_half)
+    for reader, call in second_half.items():
+        assert reader in callers(call), reader
+    # A list that waits is released by whoever made it: the builder of a packet, its verifier, the
+    # reader of a file, the screen of a request, the function that calls a provider, an offline review.
+    assert callers("release") == {("scope.py", "build_packet"), ("scope.py", "verify_packet"), ("scope.py", "read_sides"),
+                                  ("security.py", "check_context_document"), ("related.py", "verify_related"),
+                                  ("review.py", "call_model"), ("review.py", "review_packet")}

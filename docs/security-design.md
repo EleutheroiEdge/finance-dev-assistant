@@ -269,14 +269,22 @@ Three kinds that ordinary text needs pass, each only where that text puts it:
 For a direction mark a line is a line as an editor shows it: it also ends at a carriage
 return, a form feed and the line and paragraph separators.
 
-A file may begin with a byte order mark. Line and paragraph separators, no-break and other
-wide spaces, and format characters that print are not refused: each takes up room or shows
-a glyph.
+A file may begin with a byte order mark. Nothing else may: not a field of a request, and
+not a line taken from a file for context, from which the mark is dropped. Line and
+paragraph separators, no-break and other wide spaces, and format characters that print are
+not refused: each takes up room or shows a glyph.
 
 The list is fixed data in `src/finassist/hidden_text.py`, so the answer does not depend on
 the Python version. This refusal is never turned into leaving the file out:
 `unreviewable_paths` and `private_paths` do not apply to it, and a version of a file that
-cannot be read does not stop the other version from being screened. Local output names the
+cannot be read does not stop the other version from being screened.
+
+It is the last check of an operation. Every other screen and every scope check of a range
+or a request runs first, on every version and every file, so a refusal that existed before
+this screen is reported as it always was: a credential in one file is reported before a
+hidden character in another, and `hidden_characters` is reported only when nothing else
+refuses. `doctor` lists each file with its own outcome. Before a provider is called, it
+is the last check before the cost of the request is worked out. Local output names the
 rule, the version and up to 20 line numbers, and never the character. A change that
 removes a hidden character is refused too, because the version it replaces still holds
 one, exactly as a change that removes a credential is.

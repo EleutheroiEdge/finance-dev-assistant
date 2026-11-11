@@ -15,7 +15,8 @@ import re
 from .config import Config
 from .errors import AssistantError
 from .python_source import SOURCE_ERRORS
-from .security import canonical, check_name, check_text, digest
+from .hidden_text import BYTE_ORDER_MARK, Waiting
+from .security import canonical, check_credentials, check_name, digest
 
 RULE_VERSION = 1
 # Fixed ranking tiers, in order. No graph ranking: the same commit gives the same block.
@@ -261,6 +262,8 @@ class _Collector:
 
 def _numbered(text: str, numbers: list[int]) -> list[list]:
     lines = source_lines(text)
+    if lines:
+        lines[0] = lines[0].removeprefix(BYTE_ORDER_MARK)  # It marks the file, and is no part of its first line.
     return [[number, lines[number - 1]] for number in numbers if 1 <= number <= len(lines)]
 
 
@@ -387,11 +390,14 @@ _SNIPPET_KEYS = {"path", "symbol", "relation", "reference", "lines", "sha256"}
 _CODE = re.compile(r"[a-z][a-z0-9_]{0,80}")
 
 
-def verify_related(block, changed: list[str], config: Config, private) -> None:
+def verify_related(block, changed: list[str], config: Config, private, waiting: Waiting | None = None) -> None:
     """Re-check a packet's related block as strictly as the builder made it.
 
     ``private(path)`` is the packet builder's private-name rule: a private name never appears.
+    A snippet is lines of a file, never the start of one, so it may not begin with a byte order
+    mark. With ``waiting``, a hidden-character refusal is left there for the caller to release.
     """
+    held = waiting if waiting is not None else Waiting()
     def refuse():
         raise AssistantError("packet_related_invalid")
 
@@ -432,7 +438,8 @@ def verify_related(block, changed: list[str], config: Config, private) -> None:
                 refuse()
             previous = entry[0]
         for text in (item["symbol"], "\n".join(line for _number, line in item["lines"])):
-            check_text(text, extra_patterns=extras, source_path=path)
+            check_credentials(text, extra_patterns=extras, source_path=path)
+            held.check(text)
         size = len(canonical(item))
         if size > MAX_SNIPPET_BYTES:
             refuse()
@@ -453,4 +460,7 @@ def verify_related(block, changed: list[str], config: Config, private) -> None:
             refuse()
         check_name(item["path"], extra_patterns=extras)
         if item["symbol"] is not None:
-            check_text(item["symbol"], extra_patterns=extras)
+            check_credentials(item["symbol"], extra_patterns=extras)
+            held.check(item["symbol"])
+    if waiting is None:
+        held.release()

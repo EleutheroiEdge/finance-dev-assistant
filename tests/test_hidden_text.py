@@ -4,6 +4,7 @@ Every character outside ASCII is written by its code point. All text is made up.
 """
 
 from dataclasses import replace
+import hashlib
 import json
 import subprocess
 import sys
@@ -17,8 +18,10 @@ from finassist.config import Config
 from finassist.config_preflight import config_preflight
 from finassist.errors import AssistantError
 from finassist.hidden_text import HIDDEN_RANGES, NAMED_LINES, PLACED_RANGES, check_hidden, check_hidden_document, hidden
-from finassist.scope import build_packet
-from finassist.security import check_context_document, check_output_document, check_text
+from finassist.related import _numbered
+from finassist.review import review_packet
+from finassist.scope import build_packet, verify_packet
+from finassist.security import canonical, check_context_document, check_output_document, check_text, digest
 from test_doctor_policy import preflight
 from test_forbidden_token_gate import candidate
 from test_model_gate import change_policy, run
@@ -161,9 +164,12 @@ def packet(**fields):
 def test_a_packet_is_refused_for_a_hidden_character_in_a_file_or_in_any_other_field():
     check_context_document(packet(profile={"name": "review", "instructions": ["Check the totals."]}))
     check_context_document(packet(files=[{"path": "src/cash.py", "before": BYTE_ORDER_MARK + "TOTAL = 1\n", "after": None}]))
-    # A line taken from a file for context may be its first, and that one may begin with the mark.
-    check_context_document(packet(related=[{"path": "src/rates.py", "lines": [[1, BYTE_ORDER_MARK + "def rate():"]]}]))
+    # Lines taken from a file for context never carry the mark: it is no part of the first line.
+    assert _numbered(BYTE_ORDER_MARK + "def rate():\n    return 1\n", [1, 2]) == [[1, "def rate():"], [2, "    return 1"]]
     for document in (packet(related=[{"path": "src/rates.py", "lines": [[2, "def " + BYTE_ORDER_MARK + "rate():"]]}]),
+                     packet(related=[{"path": "src/rates.py", "lines": [[1, BYTE_ORDER_MARK + "def rate():"]]}]),
+                     packet(related=[{"path": "src/rates.py", "lines": [[25, BYTE_ORDER_MARK + "def rate():"]]}]),
+                     packet(classification_limit=BYTE_ORDER_MARK + "Synthetic metadata"),
                      packet(note=BYTE_ORDER_MARK + "not a line of any file"),      # a value under a key is no line
                      packet(**{BYTE_ORDER_MARK + "note": "text"})):                # and neither is a key
         with pytest.raises(AssistantError, match="^hidden_characters$"):
@@ -256,16 +262,91 @@ def test_a_character_in_the_version_being_replaced_refuses_too(repository):
 @pytest.mark.parametrize("unreadable", [b"\xff\xfe synthetic bytes that are not text\n", b"x = 1\n" * 20_000],
                          ids=["not text", "over the size limit"])
 def test_a_version_that_cannot_be_read_never_hides_the_other_one(repository, unreadable):
-    """Leaving out what cannot be reviewed is a setting. A hidden character in the readable version is not left out."""
+    """A file that would be left out for a version that cannot be read is refused for a hidden character in the other."""
     repo, _base, _head = repository
     base = commit(repo, "src/ledger.py", unreadable)
     head = commit(repo, "src/ledger.py", CODE % ZERO_WIDTH_SPACE)
-    for config in (Config(), LEAVE):
+
+    def row(config):
+        return next(row for row in config_preflight(repo, base, head, config)["paths"] if row["path"] == "src/ledger.py")
+
+    # Without the setting the range is refused as it always was, for the version that cannot be read.
+    with pytest.raises(AssistantError) as raised:
+        build_packet(repo, base, head, Config())
+    assert raised.value.code in ("non_text_blob", "file_limit_exceeded")
+    assert (row(Config())["status"], row(Config())["code"]) == ("refused", raised.value.code)
+    # With it the file would be left out, and the hidden character in the other version would go unseen.
+    with pytest.raises(AssistantError, match="^hidden_characters$") as raised:
+        build_packet(repo, base, head, LEAVE)
+    assert raised.value.local_details["version"] == "head" and raised.value.local_details["path"] == "src/ledger.py"
+    assert (row(LEAVE)["status"], row(LEAVE)["code"], row(LEAVE)["version"]) == ("refused", "hidden_characters", "head")
+
+
+# --- It is the last check: no refusal that existed before changes its code ----
+
+SECRET = "pass" + "word" + ' = "synthetic-' + "value-0123456789" + '"\n'
+UNSEEN = CODE % ZERO_WIDTH_SPACE
+
+
+def reseal(sealed):
+    for file in sealed["files"]:
+        for side in ("before", "after"):
+            file[side + "_hash"] = None if file[side] is None else digest(file[side].encode())
+    sealed["packet_hash"] = digest(canonical({key: value for key, value in sealed.items() if key != "packet_hash"}))
+    return sealed
+
+
+@pytest.mark.parametrize("before,after", [(UNSEEN, SECRET), (SECRET, UNSEEN)], ids=["hidden first", "credential first"])
+def test_a_credential_in_one_version_is_reported_before_a_hidden_character_in_the_other(repository, tmp_path, before, after):
+    repo, _base, _head = repository
+    base = commit(repo, "src/cash.py", before)
+    head = commit(repo, "src/cash.py", after)
+    with pytest.raises(AssistantError, match="^sensitive_content$"):
+        build_packet(repo, base, head, Config())
+    rows = config_preflight(repo, base, head, Config())["paths"]
+    assert [(row["status"], row["code"]) for row in rows if row["path"] == "src/cash.py"] == [("refused", "sensitive_content")]
+
+
+@pytest.mark.parametrize("hidden_name,secret_name", [("src/a.py", "src/z.py"), ("src/z.py", "src/a.py")],
+                         ids=["hidden file first", "credential file first"])
+def test_a_credential_in_one_file_is_reported_before_a_hidden_character_in_another(repository, hidden_name, secret_name):
+    repo, base, _head = repository
+    commit(repo, hidden_name, UNSEEN)
+    head = commit(repo, secret_name, SECRET)
+    with pytest.raises(AssistantError, match="^sensitive_content$"):
+        build_packet(repo, base, head, Config())
+    rows = {row["path"]: row["code"] for row in config_preflight(repo, base, head, Config())["paths"] if row["status"] == "refused"}
+    assert rows == {hidden_name: "hidden_characters", secret_name: "sensitive_content"}  # doctor lists each file's own
+
+
+def test_a_listed_figure_is_reported_before_a_hidden_character(repository):
+    repo, _base, _head = repository
+    listed = replace(Config(), forbidden_token_hashes=(hashlib.sha256(b"6729102.5").hexdigest(),))
+    base = commit(repo, "src/cash.py", UNSEEN)
+    head = commit(repo, "src/cash.py", "LIMIT = 6729102.50\n")
+    with pytest.raises(AssistantError, match="^forbidden_token_present$"):
+        build_packet(repo, base, head, listed)
+    with pytest.raises(AssistantError, match="^hidden_characters$"):
+        build_packet(repo, base, head, Config())
+
+
+@pytest.mark.parametrize("before,after", [(UNSEEN, SECRET), (SECRET, UNSEEN)], ids=["hidden first", "credential first"])
+def test_a_resealed_packet_reports_a_credential_before_a_hidden_character(repository, tmp_path, before, after):
+    repo, base, head = repository
+    sealed = build_packet(repo, base, head, Config())
+    sealed["files"][0]["before"], sealed["files"][0]["after"] = before, after
+    reseal(sealed)
+    for check in (lambda: verify_packet(sealed, Config()), lambda: check_context_document(sealed),
+                  lambda: review_packet(sealed, Config(), tmp_path / "audit.db")):
+        with pytest.raises(AssistantError, match="^sensitive_content$"):
+            check()
+    sealed["files"][0]["before"], sealed["files"][0]["after"] = UNSEEN, CODE % ""
+    reseal(sealed)
+    for check in (lambda: verify_packet(sealed, Config()), lambda: check_context_document(sealed),
+                  lambda: review_packet(sealed, Config(), tmp_path / "audit.db")):  # an offline review sends nothing, and refuses too
         with pytest.raises(AssistantError, match="^hidden_characters$"):
-            build_packet(repo, base, head, config)
-        report = config_preflight(repo, base, head, config)
-        row = next(row for row in report["paths"] if row["path"] == "src/ledger.py")
-        assert (row["status"], row["code"], row["version"]) == ("refused", "hidden_characters", "head")
+            check()
+    assert not (tmp_path / "audit.db").exists()
 
 
 def test_a_gate_stops_before_any_request_whatever_it_is_set_to_leave_out(gate_case):
