@@ -277,6 +277,38 @@ SHORT = '"' + "x" * 11 + '"'
     ("go", "k = @settings.Get[string](" + LONG + ")", False),
     ("go", "k = @handlers[0](" + LONG + ")", True),
     ("ts", "k = @count < limit ? a : b, other: " + LONG, True),   # a comparison is read on, never short
+    # A line ends the expression only when it ends with an operand and the next code begins something new.
+    ("ts", "k = @config.value\n  - 0 || " + LONG, True),
+    ("ts", "k = @config.value\n  | 0 || " + LONG, True),
+    ("ts", "k = @config.value\n  % 2 || " + LONG, True),
+    ("ts", "k = @config.value /\n  2 || " + LONG, True),
+    ("ts", "k = @config.value <\n  2 || " + LONG, True),
+    ("ts", "k = @config.value\n  instanceof Object || " + LONG, True),
+    ("ts", "k = @config.value\n  as string || " + LONG, True),
+    ("ts", "k = @config.value\n  (" + LONG + ")", True),
+    ("ts", "k = @config.value\n  [" + LONG + "]", True),
+    ("ts", "k = @config.value\n" + LONG, True),
+    ("ts", "k = @config.value\nother = " + LONG, False),
+    ("ts", "k = @config.value!\nother = " + LONG, False),
+    ("ts", "k = @config.value\n\n// a note\nother = " + LONG, False),
+    ("ts", "k = { a: @config.value\n}\nother = " + LONG, False),
+    ("ts", "if (ok) k = @config.value\nelse k = " + LONG, True),   # read on: the other branch has its own label
+    ("go", "k = @config.Value\nother := " + LONG, False),
+    ("kt", "val k = @config.value\n    ?: " + LONG, True),
+    ("ts", "k = @config.value instanceof\n  Object || " + LONG, True),
+    ("ts", "k = @config.value in\n  registry || " + LONG, True),
+    ("ts", "k = @typeof\n  config.value || " + LONG, True),
+    ("ts", "k = @config.value // instanceof\nother = " + LONG, False),   # a word in a comment is not code
+    ("kt", "val k = @compute()\n{ " + LONG + " }", True),
+    # A name longer than the reader keeps is not a lookup by its end alone.
+    ("ts", "k = @" + "x" * 90 + "GetValue(" + LONG + ")", True),
+    ("ts", "k = @" + "x" * 40 + "GetValue(" + LONG + ")", True),
+    ("ts", "k = @getValue(" + LONG + ")", False),
+    # Type arguments are counted as they are read, however long they are.
+    ("ts", "k = @derive<T" + "x" * 90 + ", B>(" + LONG + ")", True),
+    ("ts", "k = @derive<(a: A) => B, C>(" + LONG + ")", True),
+    ("kt", "val k = @derive<(A) -> B, C>(" + LONG + ")", True),
+    ("ts", "k = @derive<A>(first, " + LONG + ")", True),
     # The text of an error is not a value, at any place in the call.
     ("ts", "k = @config.value ?? fail(" + LONG + ")", False),
     ("ts", "k = @config.value ?? raise(new Error(" + LONG + "))", False),
