@@ -305,12 +305,14 @@ def _evaluate_model_gate(repo: Path, base: str, head: str, policy_loader, state_
         if token_guard is not None:
             screen_review_output(data, token_guard.snapshot)
         unseen.release()
-        report["findings"] = [{"severity": finding["severity"], "file": finding["path"],
-                               "line": finding["line"], "claim": finding["claim"],
-                               "evidence_status": "source-reference-validated-not-reproduced"}
-                              for finding in data["findings"]]
+        findings = [{"severity": finding["severity"], "file": finding["path"],
+                     "line": finding["line"], "claim": finding["claim"],
+                     "evidence_status": "source-reference-validated-not-reproduced"}
+                    for finding in data["findings"]]
+        # Put into the report only when every finding has its identifier: a refusal on the way
+        # leaves a report that says BLOCKED and why, and never one that fails its own schema.
         report["findings"] = [{**finding, "id": finding_identifier(request_hash, index, finding)}
-                              for index, finding in enumerate(report["findings"])]
+                              for index, finding in enumerate(findings)]
         report["verdict"] = "FAIL" if any(f["severity"] in rules["blocking_severities"]
                                           for f in data["findings"]) else "PASS"
         if report["verdict"] == "FAIL":

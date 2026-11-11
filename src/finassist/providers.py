@@ -27,11 +27,19 @@ def _not_json(_name: str):
     raise ValueError("NaN and Infinity are not JSON")
 
 
-def _finite(text: str) -> float:
+def _number(text: str) -> int | float:
+    """A number written with a point or an exponent. One that equals an integer is that integer."""
     value = float(text)
     if not math.isfinite(value):
         raise ValueError("a number too large to hold")
-    return value
+    return int(value) if value.is_integer() else value
+
+
+def _members(pairs: list) -> dict:
+    members = dict(pairs)
+    if len(members) != len(pairs):
+        raise ValueError("a key is given twice")
+    return members
 
 
 def reply_json(text: str | bytes):
@@ -41,9 +49,14 @@ def reply_json(text: str | bytes):
     infinity, and gives up on deep nesting with an error of its own kind. The canonical form
     that every screen and record uses can carry none of those values. They are refused here
     as text that is not JSON, so each route answers with the refusal it has for that.
+
+    Two things JSON leaves open are settled here as well. A key given twice in one object
+    says two things, and choosing between them is not ours to do: it is refused. A number
+    such as 2.0 is the integer it equals, which is how the schemas for a reply read it, so
+    a line number written that way is a line number.
     """
     try:
-        return json.loads(text, parse_constant=_not_json, parse_float=_finite)
+        return json.loads(text, parse_constant=_not_json, parse_float=_number, object_pairs_hook=_members)
     except RecursionError as exc:
         raise ValueError("nested too deeply") from exc
 

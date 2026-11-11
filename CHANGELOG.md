@@ -150,6 +150,13 @@ Nothing else about what a gate accepts, authorizes or spends has changed.
   `provider_transport_failed` for the envelope. `NaN`, `Infinity` and a number too large were
   refused before as well, by the schema that came next; they now get the same refusal as other
   text that is not JSON. No route returned a PASS for such a reply before.
+- **A gate run no longer ends without a report when a model writes a line number as `2.0`.** The
+  run ended with `gate_report_invalid`. A number with a point or an exponent that equals an
+  integer is now read as that integer on every route, which is how the reply schema reads it.
+  And a gate that is refused while it gives its findings their identifiers now blocks with that
+  reason, and its report is valid.
+- **A key given twice in one object of a reply is refused as invalid JSON.** The last value was
+  taken before, without a word. Which of the two a model meant is not for the reader to choose.
 - **A gate range that changed only withheld files was refused with the wrong code.** It reported
   `gate_ignore_check_unavailable`; it now reports `review_scope_entirely_withheld`.
 - **On macOS a check could fail with `PermissionError` when its command exited as the runner stopped
