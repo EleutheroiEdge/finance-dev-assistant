@@ -1,6 +1,7 @@
 """`init --detect` proposes something a real repository can use as it stands. Synthetic data only."""
 
-from decimal import Decimal
+from dataclasses import replace
+from decimal import ROUND_CEILING, Decimal
 import json
 import subprocess
 
@@ -11,6 +12,8 @@ from test_model_gate import run
 from test_providers_review import envelope
 from finassist import detect as detect_module
 from finassist.cli import main
+from finassist.config import Config
+from finassist.config_preflight import budgets_for_the_packet_limit, one_request_at_the_limit
 from finassist.model_policy import check_draft, missing_fields
 from finassist.onboarding import policy_preflight
 from finassist.review import ENVELOPE_ALLOWANCE, reserved_usd
@@ -304,6 +307,23 @@ def test_a_month_that_holds_one_request_stays_beside_a_larger_day(tmp_path, caps
     assert {"max_run_usd", "daily_budget_usd", "monthly_budget_usd"} & set(proposal["config"]) == {"max_run_usd"}
     assert [set(entry) for entry in proposal["warnings"] if entry["code"] == "budget_raised_for_packet_limit"] == [
         {"code", "max_run_usd"}]
+
+
+def test_a_budget_that_holds_the_request_stays_though_it_is_under_the_next_cent():
+    """Second reviewer: the comparison was with the reserve rounded up to a cent, so such a budget was raised."""
+    config = replace(Config(), provider="google", model="review-model", input_usd_per_million=100,
+                     output_usd_per_million=2, max_packet_bytes=137_951).validate()
+    reserve = one_request_at_the_limit(config)
+    cent = reserve.quantize(Decimal("0.01"), rounding=ROUND_CEILING)
+    assert reserve < cent  # The case needs a reserve that is not a whole number of cents.
+    between = float((reserve + cent) / 2)
+    assert reserve < Decimal(str(between)) < cent
+    enough = replace(config, max_run_usd=between, daily_budget_usd=between, monthly_budget_usd=between)
+    assert budgets_for_the_packet_limit(enough) == {}
+    # One step under the reserve is too small, and what is proposed is the reserve rounded up to a cent.
+    short = replace(enough, max_run_usd=float(reserve - Decimal("0.000001")))
+    assert budgets_for_the_packet_limit(short) == {
+        "max_run_usd": float(cent), "daily_budget_usd": float(3 * cent), "monthly_budget_usd": float(3 * cent)}
 
 
 def test_a_draft_the_gate_schema_refuses_is_reported_and_the_proposal_still_prints(tmp_path, capsys):
