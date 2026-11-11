@@ -21,8 +21,8 @@ import jsonschema
 from .ci_policy import decode_document
 from .config import Config
 from .errors import AssistantError
-from .forbidden_tokens import screen_packet
-from .model_gate import prepare_model_source, prepare_token_guard
+from .forbidden_tokens import screen_packet, screen_source
+from .model_gate import name_outcome, prepare_model_source, prepare_token_guard
 from .model_policy import (_PROPERTIES, _SCHEMA, ModelGatePolicy, _prefix, _profile, load_model_policy,
                            policy_config_fields)
 from .policy_fixtures import fixture_settings, load_policy_config
@@ -30,8 +30,8 @@ from .policy_ignores import screen_ignores
 from .providers import request_payload
 from .review import review_schema, spend_estimate
 from .error_hints import error_fields
-from .scope import WITHHELD_CODES, WITHHELD_REASON, git, read_entry, resolve
-from .security import (TEXT_FIXTURE_SUFFIXES, canonical, local_name, check_fixture_private, check_model_path, check_path,
+from .scope import WITHHELD_REASON, git, omission_for, read_entry, read_sides, require_regular, resolve
+from .security import (TEXT_FIXTURE_SUFFIXES, canonical, local_name, check_fixture_private, check_path,
                        check_text, digest, regular_path)
 
 HINTS = {
@@ -92,6 +92,8 @@ WARNINGS = {
     "daily_budget_below_run_budget": "daily_budget_usd is below max_run_usd, so a full run can never fit in one day.",
     "fixture_limit_without_roots": "fixture_max_file_bytes has no effect without fixture_roots.",
     "private_paths_withheld": "These private paths will be withheld unread; the review's coverage will be incomplete.",
+    "unreviewable_paths_left_out": "These files cannot be reviewed and will be left out; the review's coverage will be "
+                                   "incomplete.",
     "policy_from_working_tree": "Read from a file on this machine, so this preflight authorizes nothing: gate run reads "
                                 "the policy only at --base.",
 }
@@ -151,25 +153,14 @@ def _schema_issues(document: dict) -> list[dict]:
     return issues
 
 
-def _gate_private(path: str, config) -> bool:
-    """Whether skip-and-report makes this name private. Any other refusal of the name is raised."""
-    try:
-        check_model_path(path, fixture_roots=getattr(config, "fixture_roots", ()))
-    except AssistantError as exc:
-        if not (config.private_paths == "skip-and-report" and exc.code in WITHHELD_CODES):
-            raise
-        return True
-    return False
-
-
-def _withheld_by_name(path: str, model: dict, config) -> bool:
-    """Whether the gate withholds this path before its ignore check: private by name and not denied.
+def _out_by_name(path: str, model: dict, config) -> bool:
+    """Whether the gate sets this path aside before its ignore check: withheld or left out by name.
 
     The gate refuses a denied path, and any other refused name, before it screens ignore rules,
     so those stay in the preflight's scope and keep their own row.
     """
     try:
-        return _gate_private(path, config) and not any(_matches(path, prefix) for prefix in model["deny_paths"])
+        return name_outcome(path, config, model["deny_paths"])[0] != "review"
     except AssistantError:
         return False
 
@@ -487,7 +478,7 @@ class _Preflight:
         if stopped is None:
             # The gate's ignore scope: the changed paths it reviews, plus the policy's profile and
             # fixture markers. A path it withholds by name is never read, so it is not screened.
-            scope = ([path for path in paths if not _withheld_by_name(path, model, config)]
+            scope = ([path for path in paths if not _out_by_name(path, model, config)]
                      + ([policy.profile_path] if policy.profile_path else []) + markers)
             try:
                 screen_ignores(repo, {base, ancestor}, scope)
@@ -521,6 +512,9 @@ class _Preflight:
         withheld = sum(row["status"] == "withheld" for row in rows)
         if withheld:
             self.warn("private_paths_withheld", count=withheld)
+        left = sum(row["status"] == "omitted" for row in rows)
+        if left:
+            self.warn("unreviewable_paths_left_out", count=left)
         for row in rows:
             if row["status"] == "refused" and row["code"] != "gate_ignored_path":  # Ignored paths are named above.
                 self.block_path(row["code"], row["path"], row.get("hint"))
@@ -531,35 +525,35 @@ class _Preflight:
         ancestor, head = revisions
         row = {"path": _shown(path, config.extra_sensitive_patterns)}
         try:
-            # Name-only rules first: they read nothing.
-            private = _gate_private(path, config)
-            if any(_matches(path, prefix) for prefix in model["deny_paths"]):
-                raise AssistantError("gate_denied_path")
-            if private:  # The gate withholds this path unread, inside allow_paths or not, so it is not a blocker...
-                # ...unless the name matches a configured pattern: then it refuses, as the gate does.
+            # Name-only rules first, by the gate's own function: they read nothing.
+            outcome, reason = name_outcome(path, config, model["deny_paths"])
+            if outcome != "review":
+                # The gate sets this path aside unread, so it is not a blocker, unless the name
+                # matches a configured pattern: then it refuses, as the gate does.
                 check_text(path, extra_patterns=config.extra_sensitive_patterns)
-                return {**row, "status": "withheld", "reason": WITHHELD_REASON}
-            if not config.allows(path):
-                raise AssistantError("gate_path_not_allowed")
+                if outcome == "withheld":
+                    return {**row, "status": "withheld", "reason": WITHHELD_REASON}
+                require_regular(repo, revisions, path)  # Only an ordinary file is left out, as in the gate.
+                return {**row, "status": "omitted", "reason": reason}
             if path in ignored:
                 raise AssistantError("gate_ignored_path")
             if stopped is not None:
                 return {**row, "status": "unchecked", "reason": stopped}
-            sides = {}
-            for side, revision in (("before", ancestor), ("after", head)):
-                data, _ = read_entry(repo, revision, path, config.file_byte_limit(path), config)
-                if data is None:
-                    sides[side] = None
-                    continue
-                try:
-                    text = data.decode("utf-8")
-                except UnicodeError as exc:
-                    raise AssistantError("non_text_blob") from exc
-                check_text(text, extra_patterns=config.extra_sensitive_patterns, source_path=path)
-                sides[side] = text
+            # The gate's own reader and figure screen, one version at a time, so a version that
+            # cannot be read never hides a figure or a credential in the other one.
+            screen = None if guard is None else (lambda text, name: screen_source(text, name, guard.snapshot))
+            before, after = (text for _data, _mode, text in read_sides(repo, revisions, path, config, screen))
             if guard is not None:
-                screen_packet({"files": [{"path": path, **sides}]}, "", guard.snapshot)
+                screen_packet({"files": [{"path": path, "before": before, "after": after}]}, "", guard.snapshot)
         except AssistantError as exc:
+            reason = None
+            if exc.code != "gate_path_not_allowed":
+                try:
+                    reason = omission_for(repo, revisions, path, config, exc.code)
+                except AssistantError as special:  # A link or submodule: never left out.
+                    exc = special
+            if reason is not None:
+                return {**row, "status": "omitted", "reason": reason}  # A version too large, or not UTF-8 text.
             refused = {**row, "status": "refused", "code": exc.code, **exc.public_details}
             if exc.code == "private_or_binary_path":
                 refused["hint"] = _format_hint(path)

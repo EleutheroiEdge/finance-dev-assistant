@@ -493,6 +493,15 @@
       "minimum": 1,
       "title": "Timeout seconds",
       "type": "integer"
+    },
+    "unreviewable_paths": {
+      "default": "refuse",
+      "enum": [
+        "refuse",
+        "skip-and-report"
+      ],
+      "title": "Unreviewable paths",
+      "type": "string"
     }
   },
   "title": "finassist configuration",

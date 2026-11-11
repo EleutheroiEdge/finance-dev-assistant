@@ -15,6 +15,7 @@ from conftest import command
 from test_model_gate import change_policy, run
 from test_model_policy import model_policy
 from finassist import maintenance, model_gate, onboarding, providers, review
+from finassist import scope as scope_module
 from finassist import model_policy as policy_module
 from finassist.errors import AssistantError
 from finassist.cli import main
@@ -348,6 +349,7 @@ def test_an_unavailable_screening_step_stops_content_reads(gate_case, tmp_path, 
         return original(repo, revision, path, *args, **kwargs)
 
     monkeypatch.setattr(onboarding, "read_entry", recording)
+    monkeypatch.setattr(scope_module, "read_entry", recording)
     report = preflight(gate_case)
     assert expected in codes(report) and report["status"] == "blocked"
     assert {row["status"] for row in report["paths"]} == {"unchecked"} and report["coverage_complete"] is False
@@ -389,6 +391,7 @@ def recording_reads(monkeypatch) -> list[str]:
         return original(repo, revision, path, *args, **kwargs)
 
     monkeypatch.setattr(onboarding, "read_entry", recording)
+    monkeypatch.setattr(scope_module, "read_entry", recording)
     return seen
 
 

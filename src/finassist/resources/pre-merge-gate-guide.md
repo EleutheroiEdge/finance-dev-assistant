@@ -410,6 +410,8 @@ created by this feature. Default `mode: checks-only` preserves the v1 adapter.
 A policy can set `"private_paths": "skip-and-report"` in `model_review`. Private paths in
 the range are then withheld unread instead of refusing the run, and the report adds
 `coverage: {complete: false, withheld: N}`. The default, `refuse`, keeps the run blocked.
+- **A private name comes first:** a private file with a suffix no review reads, such as a `.jsonl`
+  file under `data/`, is withheld like any other private path. Before, it refused the run.
 - **Where the path sits:** a private path is withheld whether or not `allow_paths` covers it,
   since `allow_paths` only admits files for review. One under `deny_paths` still refuses the run,
   and so does any other changed file outside `allow_paths`.
@@ -420,6 +422,22 @@ the range are then withheld unread instead of refusing the run, and the report a
   doesn't treat them as blockers.
 
 See [skipping private paths](configuration.md#skipping-private-paths).
+
+## Files that cannot be reviewed
+
+A policy can also set `"unreviewable_paths": "skip-and-report"` in `model_review`. A changed file
+with an unsupported suffix, over `max_file_bytes`, not UTF-8 text or outside `allow_paths` is then
+left out instead of refusing the run. The default, `refuse`, keeps the run blocked.
+- **The reviewer is told:** the request names each file left out with its reason. A private path is
+  never named; it is refused, or withheld under `private_paths: skip-and-report`.
+- **The count is one number:** `coverage.withheld` counts every changed file that was not reviewed,
+  private or left out, and the Actions summary and the `withheld-count` output carry it.
+- **What still refuses:** `deny_paths`; a change to the policy, the profile, a fixture marker or a
+  `.gitignore`; credential content; a listed figure; and a range with nothing left to review.
+- **The preflight** lists each file left out as `omitted` with its reason, warns with
+  `unreviewable_paths_left_out`, and doesn't treat them as blockers.
+
+See [leaving out files that cannot be reviewed](configuration.md#leaving-out-files-that-cannot-be-reviewed).
 
 ## Example policies
 

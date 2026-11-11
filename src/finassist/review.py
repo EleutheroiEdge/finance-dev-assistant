@@ -149,6 +149,9 @@ def call_model(
     omissions = review_omissions(packet)
     if config.private_paths == "skip-and-report" and packet.get("withheld"):
         omissions = [row for row in omissions if not (row["path"] is None and row["reason"] == WITHHELD_REASON)]
+    if config.unreviewable_paths == "skip-and-report":
+        # The same choice for files that cannot be reviewed: the packet names each one left out.
+        omissions = [row for row in omissions if row["path"] is None]
     if omissions and not config.allow_partial_review:
         raise AssistantError("scope_incomplete")
     if not packet["files"]:

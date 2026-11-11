@@ -32,6 +32,7 @@ commands and the `doctor --check-updates` network gate.
 | `related_context` | `none` (default): the packet holds only the changed files. `related`: it also holds signature-only skeletons of unchanged Python code the change calls, is called by or extends. See [related-code context](#related-code-context). |
 | `related_max_bytes` | Byte cap for the related-code block, 1 to 400,000; default 24,000. |
 | `private_paths` | `refuse` (default): a private path in the range, such as a data file or a path under a private directory, refuses the whole review. `skip-and-report`: such a path is never read or sent; the packet carries only how many were withheld, and names appear only in local output. Coverage is then incomplete. See [skipping private paths](#skipping-private-paths). |
+| `unreviewable_paths` | `refuse` (default): a changed file that cannot be reviewed refuses the whole review. `skip-and-report`: such a file is left out unread and the packet names it with the reason, so the rest of the range is reviewed. See [leaving out files that cannot be reviewed](#leaving-out-files-that-cannot-be-reviewed). |
 | `allowed_hosts` | Additional approved MODEL endpoint hostnames; distinct from github_host. |
 | `generated_paths` | Exact relative files or directory prefixes excluded from review and snapshot source. Defaults to src/finassist/resources/dashboard/. No globs; rebuild/integrity CI must verify these artifacts. |
 | `allow_paths` | Exact source paths or prefixes ending in /. Denied components still apply. |
@@ -275,6 +276,54 @@ works in a gate policy's `model_review` object. What happens then:
 `refuse` is the mode that requires complete coverage; there is no separate switch. Text inside a
 reviewed file that mentions a private file is outside this guarantee; it is screened like any other
 source.
+
+
+## Leaving out files that cannot be reviewed
+
+Some changed files can never be sent for review, though nothing about them is private:
+
+| Reason | The file |
+|---|---|
+| `unsupported_file_type` | has a suffix that is not in `text_suffixes`, such as `.jsonl` or `.vtt` |
+| `file_limit_exceeded` | is larger than `max_file_bytes` in either version |
+| `non_text_blob` | is not UTF-8 text in either version |
+| `outside_allowlist` | is outside `allow_paths` |
+
+With `unreviewable_paths` set to `refuse` (the default), the first three refuse the whole review,
+and so does a file outside `allow_paths` on a gate. `plan` already leaves a file outside
+`allow_paths` out, and a model review of the rest then needs `allow_partial_review`.
+
+Set `unreviewable_paths` to `skip-and-report` to review the rest of the range instead. The same
+field works in a gate policy's `model_review` object. What happens then:
+
+- **The file is left out and named.** The packet's `omitted` list holds its path and its reason,
+  so the reviewer knows the change is larger than what it sees. Its contents are never sent. An
+  oversized file is decided from its size alone, and a file with an unsupported suffix or outside
+  `allow_paths` from its name alone.
+- **A private file is still private.** Privacy is decided first, so a private name is refused or,
+  under `private_paths: skip-and-report`, withheld and counted. It is never listed as left out,
+  whatever its suffix or size.
+- **Some refusals still come first.** A path under a gate policy's `deny_paths`; a change to the
+  policy, its profile, a fixture marker or a `.gitignore`; credential content; a listed figure; a
+  name that matches `extra_sensitive_patterns`; and a range with nothing left to review all refuse,
+  whatever this setting.
+- **Only an ordinary file is left out.** A symbolic link or a submodule is never left out for this
+  setting's reasons: on a gate one anywhere in the range refuses, as it did before.
+- **A version that cannot be read never hides the other.** When one version of a file is too large
+  or not UTF-8, the other is still screened first, and a credential or a listed figure in it refuses.
+- **A model review goes ahead without `allow_partial_review`.** The setting is the choice to review
+  without these files. `allow_partial_review` keeps its meaning for configurations that use it.
+- **Coverage is incomplete wherever it is checked:**
+  - a review is `partial-review`;
+  - readiness, workflow plans and the CI check gate still refuse it with their coverage codes;
+  - a gate report carries `coverage: {complete: false, withheld: N}`, where N counts every changed
+    file that was not reviewed: private files withheld and files left out;
+  - `doctor` lists each such file as `omitted` with its reason and warns with
+    `unreviewable_paths_left_out`.
+
+A pass then covers only what was reviewed. A change can put code in a file no review reads, such
+as an oversized file or one with an unusual suffix, so read the `omitted` list of a review you
+rely on.
 
 ## Confidential figures
 

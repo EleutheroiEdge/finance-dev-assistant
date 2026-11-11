@@ -19,7 +19,8 @@ from .ledger import Ledger
 from .model_policy import load_model_policy
 from .providers import request_identity, request_shape
 from .review import PolicyRequestApproval, call_model, review_schema, validate_review
-from .scope import WITHHELD_CODES, build_packet, checkout_roots, git, resolve
+from .scope import (WITHHELD_CODES, build_packet, checkout_roots, git, left_out, omission_reason, require_regular,
+                    resolve)
 from .policy_ignores import ignored_paths, screen_ignores as _screen_ignores
 from .security import canonical, check_model_path as _scope_path, digest, regular_path
 
@@ -106,6 +107,42 @@ def prepare_token_guard(policy, source_repo: Path | None = None) -> TokenGuard |
     return TokenGuard.load(rules, roots)
 
 
+def name_outcome(path: str, config, deny_paths) -> tuple[str, str | None]:
+    """What the gate does with one changed path by its name alone. Nothing is read.
+
+    ("review", None), ("withheld", None) or ("left-out", reason); any other refusal is raised.
+    The gate and its preflight both ask here. Privacy is decided before reviewability, so a
+    private name is withheld, or refused, whatever its suffix, and is never listed as left out.
+    """
+    roots = getattr(config, "fixture_roots", ())
+    private, reason = False, None
+    try:
+        _scope_path(path, fixture_roots=roots, source_only=False)
+    except AssistantError as exc:
+        if not (config.private_paths == "skip-and-report" and exc.code in WITHHELD_CODES):
+            raise
+        private = True  # skip-and-report: withheld by name and never read.
+    if not private:
+        try:
+            _scope_path(path, fixture_roots=roots)
+        except AssistantError as exc:
+            reason = left_out(config, exc.code)
+            if reason is None:
+                raise
+    if any(path.startswith(prefix) if prefix.endswith("/") else path == prefix for prefix in deny_paths):
+        raise AssistantError("gate_denied_path")  # An explicit deny entry refuses whatever else applies.
+    if private:
+        # allow_paths admits files for review. A withheld file is not reviewed, so it needs no
+        # entry there, as in plan and review.
+        return "withheld", None
+    if reason is None and not config.allows(path):
+        reason = left_out(config, "gate_path_not_allowed")
+        if reason is None:
+            raise AssistantError("gate_path_not_allowed")
+    # The reason shown is the one the packet will carry for this path.
+    return ("left-out", omission_reason(config, path) or reason) if reason else ("review", None)
+
+
 def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_repo: Path | None = None) -> dict:
     """Shared offline source construction; never reads a provider key or ledger."""
     rules, config = policy.document["model_review"], policy.config
@@ -131,26 +168,17 @@ def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_rep
         raise AssistantError("gate_profile_change_requires_review")
     if any(PurePosixPath(path).name == ".gitignore" for path in guarded):
         raise AssistantError("gate_ignore_change_requires_review")
-    skipping = config.private_paths == "skip-and-report"
-    withhold = set()
+    withhold, left = set(), set()
     for path in paths:
-        try:
-            _scope_path(path, fixture_roots=getattr(config, "fixture_roots", ()))
-            private = False
-        except AssistantError as exc:
-            if not (skipping and exc.code in WITHHELD_CODES):
-                raise
-            private = True  # skip-and-report: withheld by name and never read.
-        if any(path.startswith(prefix) if prefix.endswith("/") else path == prefix
-               for prefix in rules["deny_paths"]):
-            raise AssistantError("gate_denied_path")
-        if private:
-            # allow_paths admits files for review. A withheld file is not reviewed, so it needs no
-            # entry there, as in plan and review. An explicit deny_paths entry still refuses above.
+        outcome, _reason = name_outcome(path, config, rules["deny_paths"])
+        if outcome == "withheld":
             withhold.add(path)
-        elif not config.allows(path):
-            raise AssistantError("gate_path_not_allowed")
-    reviewed = [path for path in paths if path not in withhold]
+        elif outcome == "left-out":
+            # Never read; the packet names it with the reason. Only an ordinary file is left out:
+            # a link or submodule refuses here, as it does when it is inside the reviewed scope.
+            require_regular(repo, (ancestor, head), path)
+            left.add(path)
+    reviewed = [path for path in paths if path not in withhold and path not in left]
     _screen_ignores(repo, {base, ancestor}, reviewed + source_profile_paths + (marker_paths if same_source else []))
     if policy_repo is not None and (policy_repo != repo or policy.base != base):
         _screen_ignores(policy_repo, {policy.base}, reviewed + profile_paths + marker_paths)
@@ -177,10 +205,15 @@ def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_rep
     packet = build_packet(repo, base, head, config, withhold=frozenset(withhold), related_admit=admit,
                           token_guard=guard)
     withheld = packet.get("withheld", {}).get("count", 0)
-    if packet["omitted"] or withheld != len(withhold) or len(packet["files"]) != len(reviewed):
+    omitted = {row["path"] for row in packet["omitted"]}
+    # Every changed path is accounted for exactly once: reviewed, withheld by name, or left out
+    # because it cannot be reviewed. Nothing is left out unless the policy says to leave it out.
+    if (withheld != len(withhold) or not left <= omitted
+            or (omitted and config.unreviewable_paths != "skip-and-report")
+            or len(packet["files"]) + len(omitted) != len(paths) - len(withhold)):
         raise AssistantError("scope_incomplete")
     if not packet["files"]:
-        raise AssistantError("review_scope_entirely_withheld")
+        raise AssistantError("empty_model_context" if omitted else "review_scope_entirely_withheld")
     return packet
 
 
@@ -235,9 +268,12 @@ def _evaluate_model_gate(repo: Path, base: str, head: str, policy_loader, state_
         report["policy_sha256"] = policy.sha256
         rules, config = policy.document["model_review"], policy.config
         packet = prepare_model_source(repo, base, head, policy, policy_repo=policy_repo)
-        if packet.get("withheld"):
-            # A count only: the names stay in local output. Coverage is never complete here.
-            report["coverage"] = {"complete": False, "withheld": packet["withheld"]["count"]}
+        not_reviewed = packet.get("withheld", {}).get("count", 0) + len(packet["omitted"])
+        if not_reviewed:
+            # A count only, of every changed file left out of the review: private ones withheld by
+            # name and ones that cannot be reviewed. Names stay in local output. Coverage is never
+            # complete here.
+            report["coverage"] = {"complete": False, "withheld": not_reviewed}
         # Keys are first accessed here, after identity, scope and screening.
         token_guard = prepare_token_guard(policy, repo)
         request_hash, schema, system = prepare_model_request(policy, packet, source_repo=repo, token_guard=token_guard)

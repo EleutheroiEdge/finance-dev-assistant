@@ -21,10 +21,12 @@ from .onboarding import _shown_argument
 from .providers import request_payload
 from .review import review_schema, spend_estimate
 from .forbidden_tokens import screen_source
-from .scope import _private_name, build_packet, config_token_guard, git, read_entry, resolve
-from .security import PUBLIC_ASSETS, canonical, check_text, local_name, regular_path
+from .scope import (_private_name, build_packet, config_token_guard, git, omission_for, omission_reason, read_sides,
+                    resolve)
+from .security import canonical, check_text, local_name, regular_path
 
 _EXAMPLES = 20  # Example names kept per grouped blocker.
+_LEFT_OUT = frozenset({"unsupported_file_type", "file_limit_exceeded", "non_text_blob"})  # Reasons the setting adds.
 _DEFAULT_HINT = "See the configuration guide for this code."
 
 
@@ -132,16 +134,22 @@ class _ConfigPreflight:
         self.report["paths"] = rows
         self.report["coverage_complete"] = all(row["status"] == "included" for row in rows)
         # Only a model call refuses omissions or an empty context: offline review answers before those checks.
+        # unreviewable_paths: skip-and-report is the choice to review without the files it names.
         model = config.provider != "offline"
+        partial = config.allow_partial_review or config.unreviewable_paths == "skip-and-report"
         for row in rows:
             if row["status"] == "refused":
                 self.block_path(row["code"], row["path"])
-            elif row["status"] == "omitted" and model and not config.allow_partial_review:
+            elif row["status"] == "omitted" and model and not partial:
                 self.block_path("scope_incomplete", row["path"])
         withheld = sum(row["status"] == "withheld" for row in rows)
         if withheld:
             self.report["warnings"].append({"code": "private_paths_withheld", "count": withheld,
                                             "hint": _hint("private_paths_withheld")})
+        left = sum(row["status"] == "omitted" and row["reason"] in _LEFT_OUT for row in rows)
+        if left:
+            self.report["warnings"].append({"code": "unreviewable_paths_left_out", "count": left,
+                                            "hint": _hint("unreviewable_paths_left_out")})
         if withheld == len(rows):
             self.block("review_scope_entirely_withheld")
         elif model and not any(row["status"] == "included" for row in rows) and not self._grouped:
@@ -159,24 +167,19 @@ class _ConfigPreflight:
                 return {**row, "status": "withheld"}
             config.check_path(path, source_only=False, metadata_only=True)
             check_text(path, extra_patterns=config.extra_sensitive_patterns)
-            if config.generated(path):
-                return {**row, "status": "omitted", "reason": "generated_artifact_excluded"}
-            if Path(path).suffix.lower() in PUBLIC_ASSETS:
-                return {**row, "status": "omitted", "reason": "binary_asset_excluded"}
-            if not config.allows(path):
-                return {**row, "status": "omitted", "reason": "outside_allowlist"}
-            for revision in revisions:
-                data, _mode = read_entry(repo, revision, path, config.file_byte_limit(path), config)
-                if data is None:
-                    continue
-                try:
-                    text = data.decode("utf-8")
-                except UnicodeError as exc:
-                    raise AssistantError("non_text_blob") from exc
-                check_text(text, extra_patterns=config.extra_sensitive_patterns, source_path=path)
-                if self.guard is not None:
-                    screen_source(text, path, self.guard.snapshot)
+            reason = omission_reason(config, path)
+            if reason is not None:
+                return {**row, "status": "omitted", "reason": reason}
+            guard = self.guard
+            screen = None if guard is None else (lambda text, name: screen_source(text, name, guard.snapshot))
+            read_sides(repo, revisions, path, config, screen)
         except AssistantError as exc:
+            try:
+                reason = omission_for(repo, revisions, path, config, exc.code)
+            except AssistantError as special:  # A link or submodule: never left out.
+                exc, reason = special, None
+            if reason is not None:
+                return {**row, "status": "omitted", "reason": reason}
             return {**row, "status": "refused", "code": exc.code, **exc.public_details}
         return {**row, "status": "included"}
 

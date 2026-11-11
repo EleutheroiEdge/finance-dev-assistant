@@ -53,6 +53,8 @@ def ignored_paths(repo: Path, revisions: set[str], paths: list[str]) -> set[str]
 
 
 def screen_ignores(repo: Path, revisions: set[str], paths: list[str]) -> None:
+    if not paths:
+        return  # Nothing will be read, so no ignore rule can apply.
     if _ignored(repo, paths):
         raise AssistantError("gate_ignored_path")
     # Read immutable ignore rules from the policy base AND merge base. A stale

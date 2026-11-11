@@ -49,8 +49,8 @@ def summary_markdown(report: dict) -> str:
                  "", "Report hash: `" + report["report_hash"] + "`."]
         if "coverage" in report:
             lines += ["", "Coverage: **incomplete**. " + str(report["coverage"]["withheld"])
-                      + " changed file(s) were withheld unread by repository policy (`private_paths`)"
-                      + " and were not reviewed."]
+                      + " changed file(s) were left out by repository policy (`private_paths`,"
+                      + " `unreviewable_paths`) and were not reviewed."]
         if report["reasons"]:
             lines += ["", *("- `" + code + "`" for code in report["reasons"])]
         return "\n".join(lines) + "\n"
