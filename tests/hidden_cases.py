@@ -19,7 +19,8 @@ REFUSED = {
         0x034F,  # combining grapheme joiner
         0x115F, 0x1160, 0x3164, 0xFFA0,  # Hangul fillers: a blank that some languages take for a letter
         0x17B4, 0x17B5,  # Khmer inherent vowels
-        0x180B, 0x180D, 0x180E, 0x180F,  # Mongolian selectors and vowel separator
+        0x180E,  # Mongolian vowel separator
+        0x070F,  # Syriac abbreviation mark: a format character that is not drawn
         0x200B,  # zero width space
         0x2060, 0x2061, 0x2062, 0x2063, 0x2064,  # word joiner and invisible operators
         0x2065, 0x206A, 0x206F,  # reserved and deprecated format characters
@@ -29,6 +30,8 @@ REFUSED = {
         0x1BCA0, 0x1BCA3,  # shorthand format controls
         0x1D173, 0x1D17A,  # musical format controls
         0xE0080, 0xE00FF, 0xE0100, 0xE01EF, 0xE01F0, 0xE0FFF,  # selector supplement and the reserved rest
+        0xFDD0, 0xFDEF, 0xFFFE, 0xFFFF, 0x1FFFE, 0xDFFFF, 0x10FFFE, 0x10FFFF,  # noncharacters
+        0xD800, 0xDBFF, 0xDC00, 0xDFFF,  # lone surrogates
     ],
     "byte_order_mark": [0xFEFF],
 }
@@ -36,9 +39,10 @@ REFUSED = {
 # Characters next to a refused range, and blanks and format characters that are shown. All pass.
 SHOWN = [
     0x09, 0x0A, 0x0C, 0x0D, 0x20, 0x7E, 0xA0, 0xAC, 0xAE, 0x034E, 0x0350, 0x0600, 0x0605, 0x061B, 0x061D, 0x06DD,
-    0x070F, 0x08E2, 0x115E, 0x1161, 0x17B3, 0x17B6, 0x180A, 0x1810, 0x200A, 0x2010, 0x2028, 0x2029, 0x202F, 0x205F,
-    0x2070, 0x2800, 0x3000, 0x3163, 0x3165, 0xFDFF, 0xFE10, 0xFF9F, 0xFFA1, 0xFFEF, 0xFFFC, 0xFFFD, 0x110BD, 0x1342F,
-    0x13440, 0x1BC9F, 0x1BCA4, 0x1D172, 0x1D17B, 0xDFFFF, 0xE1000, 0x10FFFF,
+    0x070E, 0x0710, 0x08E2, 0x115E, 0x1161, 0x17B3, 0x17B6, 0x180A, 0x1810, 0x200A, 0x2010, 0x2028, 0x2029, 0x202F,
+    0x205F, 0x2070, 0x2800, 0x3000, 0x3163, 0x3165, 0xD7FF, 0xE000, 0xFDCF, 0xFDF0, 0xFDFF, 0xFE10, 0xFF9F, 0xFFA1,
+    0xFFEF, 0xFFFC, 0xFFFD, 0x110BD, 0x1342F, 0x13440, 0x1BC9F, 0x1BCA4, 0x1D172, 0x1D17B, 0x1FFFD, 0x20000, 0xE1000,
+    0x10FFFD,
 ]
 
 # One line of each kind of file, with @ where the character goes.
@@ -86,6 +90,7 @@ ALLOWED = [
     ("blanks that take up room", "a" + spell(0xA0, 0x3000, 0x202F, 0x2800) + "b"),
     ("format characters that print", spell(0x0600, 0x0661) + " " + spell(0x06DD)),
     ("combining marks", "e" + spell(0x0301) + " n" + spell(0x0303)),
+    ("a Mongolian word with its selector", spell(0x182A, 0x1820, 0x180B, 0x1837)),
 ]
 
 # The same characters where ordinary text never puts them. Each is refused, by this rule.
@@ -109,6 +114,17 @@ MISPLACED = [
     ("misplaced_direction_mark", "a letter mark beside digits only", spell(ARABIC_MARK) + "123"),
     ("misplaced_direction_mark", "right-to-left letters on other lines only",
      spell(ALEF) + "\nadmin" + spell(RIGHT_MARK) + "\n" + spell(ALEF)),
+    # Found by review: one right-to-left letter on the line let a mark into a plain word, and a
+    # line as an editor shows it also ends at a carriage return and at the two separators.
+    ("misplaced_direction_mark", "a mark inside a plain word on a line with right-to-left text",
+     spell(ALEF) + ' note: "ad' + spell(RIGHT_MARK) + 'min"'),
+    ("misplaced_direction_mark", "a mark that ends a plain word on such a line", spell(ALEF) + ' "admin' + spell(RIGHT_MARK) + '"'),
+    ("misplaced_direction_mark", "a mark that begins a plain word on such a line", spell(ALEF) + " " + spell(LEFT_MARK) + "admin"),
+    ("misplaced_direction_mark", "a mark beside a digit on such a line", spell(ALEF) + " 1" + spell(ARABIC_MARK)),
+    ("misplaced_direction_mark", "right-to-left text before a line separator only", spell(ALEF, 0x2028) + "(" + spell(RIGHT_MARK) + ")"),
+    ("misplaced_direction_mark", "right-to-left text before a carriage return only", spell(ALEF) + "\r(" + spell(RIGHT_MARK) + ")"),
+    ("misplaced_direction_mark", "right-to-left text after a form feed only", "(" + spell(RIGHT_MARK) + ")\x0c" + spell(ALEF)),
+    ("misplaced_selector", "a Mongolian selector after a plain letter", "ad" + spell(0x180B) + "min"),
 ]
 
 # The patterns that have been published as attacks. Each is refused, by this rule.
@@ -127,4 +143,5 @@ ATTACKS = [
     ("control_character", "an escape sequence that repaints the terminal line", "ok\x1b[2K\x1b[1Gapproved"),
     ("control_character", "a backspace over what was printed", "deny\x08\x08\x08\x08allow"),
     ("byte_order_mark", "a zero-width mark inside a name", "is" + spell(0xFEFF) + "Admin"),
+    ("invisible_character", "a noncharacter inside a name", "to" + spell(0xFFFE) + "tal = 1"),
 ]

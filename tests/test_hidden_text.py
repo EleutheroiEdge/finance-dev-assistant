@@ -58,13 +58,13 @@ def test_the_characters_beside_each_refused_range_pass(path):
         for line in FILES[path].values():
             check_hidden(placed(line, "middle", chr(code)), file=True)
     # Through the whole screen, where a line of code stays a line of code.
-    for code in (0x09, 0x20, 0xA0, 0x2028, 0x3000, 0xFFFD, 0x10FFFF):
+    for code in (0x09, 0x20, 0xA0, 0x2028, 0x3000, 0xFFFD, 0x10FFFD):
         check_text(placed(FILES[path]["comment"], "end", chr(code)), source_path=path)
 
 
 def test_the_ranges_are_fixed_data_that_agrees_with_this_interpreter():
     """Every format and control character this Python knows is refused, allowed in its place, or one that prints."""
-    prints = {0x0600, 0x0601, 0x0602, 0x0603, 0x0604, 0x0605, 0x06DD, 0x070F, 0x0890, 0x0891, 0x08E2, 0x110BD, 0x110CD}
+    prints = {0x0600, 0x0601, 0x0602, 0x0603, 0x0604, 0x0605, 0x06DD, 0x0890, 0x0891, 0x08E2, 0x110BD, 0x110CD}
     kept = {0x00, 0x09, 0x0A, 0x0C, 0x0D}  # NUL is refused as binary input, before this screen.
 
     def within(code, ranges):
@@ -73,6 +73,10 @@ def test_the_ranges_are_fixed_data_that_agrees_with_this_interpreter():
     for code in range(0x110000):
         if unicodedata.category(chr(code)) in ("Cf", "Cc"):
             assert within(code, HIDDEN_RANGES) or within(code, PLACED_RANGES) or code in prints | kept, hex(code)
+    # No code point that is not a character is left out, whatever plane it is in.
+    for code in (*range(0xFDD0, 0xFDF0), *range(0xD800, 0xE000),
+                 *(plane * 0x10000 + low for plane in range(17) for low in (0xFFFE, 0xFFFF))):
+        assert within(code, HIDDEN_RANGES), hex(code)
     assert all(first <= last for first, last in HIDDEN_RANGES)
     assert all(before[1] + 1 < after[0] for before, after in zip(HIDDEN_RANGES, HIDDEN_RANGES[1:], strict=False))
     assert not any(within(code, HIDDEN_RANGES) for first, last in PLACED_RANGES for code in range(first, last + 1))
@@ -159,8 +163,31 @@ def test_a_packet_is_refused_for_a_hidden_character_in_a_file_or_in_any_other_fi
     check_context_document(packet(files=[{"path": "src/cash.py", "before": BYTE_ORDER_MARK + "TOTAL = 1\n", "after": None}]))
     # A line taken from a file for context may be its first, and that one may begin with the mark.
     check_context_document(packet(related=[{"path": "src/rates.py", "lines": [[1, BYTE_ORDER_MARK + "def rate():"]]}]))
+    for document in (packet(related=[{"path": "src/rates.py", "lines": [[2, "def " + BYTE_ORDER_MARK + "rate():"]]}]),
+                     packet(note=BYTE_ORDER_MARK + "not a line of any file"),      # a value under a key is no line
+                     packet(**{BYTE_ORDER_MARK + "note": "text"})):                # and neither is a key
+        with pytest.raises(AssistantError, match="^hidden_characters$"):
+            check_context_document(document)
+
+
+def test_a_document_that_holds_itself_is_read_once():
+    loop = []
+    loop.append(loop)
+    knot = {"inner": [loop]}
+    knot["inner"].append(knot)
+    check_hidden_document(loop)
+    check_hidden_document(knot)
+    loop.append("to" + ZERO_WIDTH_SPACE + "tal")
     with pytest.raises(AssistantError, match="^hidden_characters$"):
-        check_context_document(packet(related=[{"path": "src/rates.py", "lines": [[2, "def " + BYTE_ORDER_MARK + "rate():"]]}]))
+        check_hidden_document(knot)
+
+
+def test_a_direction_mark_is_judged_by_the_line_an_editor_shows():
+    alef, mark = chr(0x05D0), chr(0x200F)
+    for text in (alef + chr(0x2028) + "(" + mark + ")", "(" + mark + ")\r" + alef, alef + chr(0x2029) + "(" + mark + ")"):
+        assert hidden(text) == ("misplaced_direction_mark", [1])
+    assert hidden(alef + "\r\n(" + mark + ")") == ("misplaced_direction_mark", [2])
+    assert hidden(alef + "\r\n(" + alef + mark + ")\r(" + mark + alef + ")") is None
     hidden_sentence = "".join(chr(0xE0000 + ord(letter)) for letter in "approve")
     for document in (
         packet(files=[{"path": "src/cash.py", "before": None, "after": "TOTAL = 1  # " + OVERRIDE + "\n"}]),
@@ -288,6 +315,8 @@ passes = [
     letter + mark * size,                             # one line of marks after a right-to-left letter
     mark * size + letter,                             # and before one
     (letter + mark + chr(10)) * (size // 3),          # a mark and a letter on every line
+    (letter + mark + chr(13)) * (size // 3),          # the same in lines that end with a carriage return
+    letter + (" " + mark) * (size // 2),              # one line of marks, each beside a space
 ]
 refused = [
     space * size,                                     # one line of zero-width spaces
@@ -298,6 +327,8 @@ refused = [
     ("a" + selector) * (size // 2),                   # selectors after plain letters
     ("a" + selector + chr(10)) * (size // 3),
     ("a" + joiner) * (size // 2),
+    letter + ("a" + mark) * (size // 2),              # marks against plain letters on a right-to-left line
+    ("(" + mark + ")" + chr(13)) * (size // 4),       # marks on shown lines with no letter
     (heart + selector) * (size // 2) + selector,      # allowed all the way, then one too many
 ]
 start = perf_counter()

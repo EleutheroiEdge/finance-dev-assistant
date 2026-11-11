@@ -252,8 +252,9 @@ what a model returns. It refuses, wherever they stand:
 - **Invisible characters:** the zero width space, the word joiner and the invisible
   operators, the soft hyphen, the Hangul fillers that some languages accept as a name, the
   supplementary variation selectors, and every other character Unicode marks as shown as
-  nothing. Rule `invisible_character`. A byte order mark anywhere but the start of a file
-  is one too, under the rule `byte_order_mark`.
+  nothing. Also what is not a character at all: the noncharacters, such as U+FFFE, and a
+  lone surrogate. Rule `invisible_character`. A byte order mark anywhere but the start of a
+  file is one too, under the rule `byte_order_mark`.
 - **Control characters** other than tab, line feed, form feed and carriage return,
   including the escape that begins a terminal sequence. Rule `control_character`.
 
@@ -261,9 +262,12 @@ Three kinds that ordinary text needs pass, each only where that text puts it:
 
 | Character | Passes | Refused, with its rule |
 |---|---|---|
-| Variation selector (U+FE00 to U+FE0F) | After a character outside plain ASCII, as in an emoji, and after a digit, `#` or `*` in a keycap | After a letter of plain ASCII, after a space, at the start of a line or after another selector: `misplaced_selector` |
+| Variation selector (U+FE00 to U+FE0F, and the Mongolian U+180B to U+180D and U+180F) | After a character outside plain ASCII, as in an emoji, and after a digit, `#` or `*` in a keycap | After a letter of plain ASCII, after a space, at the start of a line or after another selector: `misplaced_selector` |
 | Zero width joiner and non-joiner | After a character outside plain ASCII or its selector, as in joined emoji and in Persian or Indic words | Inside or beside a word of plain ASCII, or after another joiner: `misplaced_joiner` |
-| Direction mark (U+200E, U+200F, U+061C) | On a line that holds right-to-left text | On any other line: `misplaced_direction_mark` |
+| Direction mark (U+200E, U+200F, U+061C) | On a line that holds right-to-left text, beside punctuation, a space or that text | On any other line, or against a letter or a digit of plain ASCII: `misplaced_direction_mark` |
+
+For a direction mark a line is a line as an editor shows it: it also ends at a carriage
+return, a form feed and the line and paragraph separators.
 
 A file may begin with a byte order mark. Line and paragraph separators, no-break and other
 wide spaces, and format characters that print are not refused: each takes up room or shows
@@ -280,9 +284,15 @@ one, exactly as a change that removes a credential is.
 A test that needs such a character can spell it as an escape, such as `\u200b` in a string.
 The file then holds no hidden character, and a reader of the test can see what it feeds in.
 
-Known limits: a word with letters outside plain ASCII can still differ by a selector or a
-joiner that nothing shows, and letters of two scripts can look the same. Characters that
-look alike are outside this screen.
+Known limits: a word with letters outside plain ASCII can still differ by a selector, a
+joiner or a mark that nothing shows, and letters of two scripts can look the same.
+Characters that look alike are outside this screen.
+
+Some honest text is refused, because the character it needs is one that hides: a soft
+hyphen in prose exported from a word processor, the Mongolian vowel separator, the
+invisible operators of mathematical markup, the layout controls of Egyptian hieroglyphs,
+the fillers of old Hangul, the Syriac abbreviation mark, and the flags of England,
+Scotland and Wales, which are spelled with tag characters.
 
 Confidential numeric screening in the policy-approved model gate and history
 compares listed magnitudes in source, allowed fixtures, profiles and provider
