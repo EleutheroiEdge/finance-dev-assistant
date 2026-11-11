@@ -58,6 +58,7 @@ _TOKEN_PROPERTIES = {
 }
 # Optional. refuse (the default) keeps today's behaviour; skip-and-report withholds private paths.
 _COVERAGE_PROPERTIES = {"private_paths": {"enum": ["refuse", "skip-and-report"]},
+                        "unreviewable_paths": {"enum": ["refuse", "skip-and-report"]},
                         "related_context": {"enum": ["none", "related"]},
                         "related_max_bytes": {"type": "integer", "minimum": 1, "maximum": 400_000}}
 _SCHEMA = {
@@ -212,7 +213,7 @@ def policy_config_fields(model: dict, profile_text: list[str] | None) -> dict:
     config_fields.update(allow_network=True, allowed_hosts=[model["allowed_host"]], generated_paths=[],
                          max_packet_bytes=max(2_000_000, model["max_request_bytes"]),
                          monthly_budget_usd=1_000_000)
-    for key in ("private_paths", "related_context", "related_max_bytes"):
+    for key in ("private_paths", "unreviewable_paths", "related_context", "related_max_bytes"):
         if key in model:
             config_fields[key] = model[key]
     if profile_text is not None:

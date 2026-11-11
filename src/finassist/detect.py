@@ -382,6 +382,10 @@ class _Detector:
 
         Sizes come from Git's object headers: no file is read. A name the path policy treats
         as private, or that the proposal would not review, is skipped before its size is asked for.
+
+        It also counts the changes that hold a file the proposal cannot review, though the file is
+        not private: one outside allow_paths, with an unsupported suffix or over the file limit. A
+        gate refuses such a range unless `unreviewable_paths` is skip-and-report.
         """
         try:
             chain = git(self.repo, "rev-list", "--first-parent", f"--max-count={_HISTORY + 1}", self.head).split()
@@ -395,27 +399,34 @@ class _Detector:
             except AssistantError:
                 break  # A shallow clone has no earlier history.
             records = raw.split(b"\0")
-            sides = []
+            sides, unreviewable = [], False
             for index in range(0, len(records) - 1, 2):
                 meta = records[index].split()
                 try:
                     path = records[index + 1].decode("utf-8")
                 except UnicodeDecodeError:
                     continue
-                if (len(meta) < 5 or self.private(path) or _refusal(path) or not _allowed(path, allow)
-                        or _allowed(path, generated) or PurePosixPath(path).suffix.lower() not in TEXT_SUFFIXES):
+                if len(meta) < 5 or self.private(path) or _refusal(path):
+                    continue
+                if not _allowed(path, allow) or _unsupported(path):
+                    unreviewable = True  # By its name alone; a private name never counts here.
+                if (not _allowed(path, allow) or _allowed(path, generated)
+                        or PurePosixPath(path).suffix.lower() not in TEXT_SUFFIXES):
                     continue
                 pair = [oid.decode("ascii") for mode, oid in zip(meta[0:2], meta[2:4], strict=True)
                         if mode.lstrip(b":") in (b"100644", b"100755")]
                 sides.append(pair)
                 wanted.update(pair)
-            changes.append((commit, sides, (len(records) - 1) // 2))
+            changes.append((commit, sides, (len(records) - 1) // 2, unreviewable))
         sizes = self._sizes(sorted(wanted))
-        rows = []
-        for commit, sides, paths in changes:
+        rows, held = [], 0
+        for commit, sides, paths, unreviewable in changes:
             kept = [pair for pair in sides if all(sizes.get(oid, limit + 1) <= limit for oid in pair)]
+            held += unreviewable or len(kept) < len(sides)
             if kept:
                 rows.append((commit, sum(sizes[oid] for pair in kept for oid in pair), paths))
+        if held:
+            self.warn("unreviewable_files_in_recent_changes", count=held, changes_measured=len(changes))
         return rows
 
     def fit_recent(self, packet: int, request: int, allow: list[str], generated: list[str],
@@ -582,6 +593,15 @@ def _refusal(path: str) -> str | None:
     except AssistantError as exc:
         return exc.code
     return None
+
+
+def _unsupported(path: str) -> bool:
+    """Whether a review refuses this name for its suffix alone. Names only."""
+    try:
+        check_path(path)
+    except AssistantError as exc:
+        return exc.code == "unsupported_file_type"
+    return False
 
 
 def _fixture_refusal(path: str, root: str) -> str | None:

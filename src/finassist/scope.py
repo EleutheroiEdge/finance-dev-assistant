@@ -220,7 +220,46 @@ class ContextFile:
 # Any other refusal, including a name that itself looks like a credential, still refuses.
 WITHHELD_CODES = frozenset({"private_path", "private_or_binary_path", "private_profile_path", "gate_private_path"})
 WITHHELD_REASON = "private_path_policy"
+# Refusals that mean only "this file cannot be reviewed", with the reason each gets when
+# unreviewable_paths is skip-and-report: the file is left out unread and named in the packet.
+# Every route asks left_out(); none keeps its own list. Any other refusal stands.
+UNREVIEWABLE_REASONS = {"unsupported_file_type": "unsupported_file_type",
+                        "file_limit_exceeded": "file_limit_exceeded",
+                        "non_text_blob": "non_text_blob",
+                        "gate_path_not_allowed": "outside_allowlist"}
 _NAMED = 20  # Example names kept per refusal code in local output.
+
+
+def left_out(config: Config, code: str) -> str | None:
+    """The reason to leave a file out for this refusal, or None when the refusal stands."""
+    if config.unreviewable_paths != "skip-and-report":
+        return None
+    return UNREVIEWABLE_REASONS.get(code)
+
+
+def read_sides(repo: Path, revisions: tuple[str, str], path: str, config: Config, screen=None) -> list[tuple]:
+    """Both versions of one changed file, as (bytes, mode, text), read and screened.
+
+    The one reader for plan and both preflights, so each refuses or leaves out the same file
+    for the same reason. Both entries are read first: a version over the byte limit is decided
+    from its object header, before any text is decoded. Then each version is decoded and screened
+    for credentials, and by `screen(text, path)` when the caller lists confidential figures.
+    """
+    limit = config.file_byte_limit(path)
+    entries = [read_entry(repo, revision, path, limit, config) for revision in revisions]
+    sides = []
+    for data, mode in entries:
+        text = None
+        if data is not None:
+            try:
+                text = data.decode("utf-8")
+            except UnicodeError as exc:
+                raise AssistantError("non_text_blob") from exc
+            check_text(text, extra_patterns=config.extra_sensitive_patterns, source_path=path)
+            if screen is not None:
+                screen(text, path)
+        sides.append((data, mode, text))
+    return sides
 
 
 def _private_name(config: Config, path: str) -> bool:
@@ -376,6 +415,7 @@ def build_packet(
     withheld = 0
     skipping = config.private_paths == "skip-and-report"
     selected, refused = [], []
+    screen = None if guard is None else (lambda text, name: screen_source(text, name, guard.snapshot))
     # Every name is checked before any file is read, so one refusal can name every refused path.
     for pos in range(0, len(tokens) - 1, 2):
         status, path = tokens[pos : pos + 2]
@@ -408,29 +448,24 @@ def build_packet(
             omitted.append({"path": path, "reason": "outside_allowlist"})
             continue
         try:
-            before, before_mode = read_entry(repo, ancestor, path, config.file_byte_limit(path), config)
-            after, after_mode = read_entry(repo, head_sha, path, config.file_byte_limit(path), config)
-            decoded = []
-            for data in (before, after):
-                try:
-                    text = data.decode("utf-8") if data is not None else None
-                except UnicodeError as exc:
-                    raise AssistantError("non_text_blob") from exc
-                if text is not None:
-                    check_text(text, extra_patterns=config.extra_sensitive_patterns, source_path=path)
-                    if guard is not None:
-                        screen_source(text, path, guard.snapshot)
-                decoded.append(text)
+            (before, before_mode, before_text), (after, after_mode, after_text) = read_sides(
+                repo, (ancestor, head_sha), path, config, screen)
         except AssistantError as exc:
-            # Local output only (plan and watch print it); never in a packet, report or audit row.
-            exc.local_details.setdefault("path", local_name(path, config.extra_sensitive_patterns))
-            raise
+            reason = left_out(config, exc.code)
+            if reason is None:
+                # Local output only (plan and watch print it); never in a packet, report or audit row.
+                exc.local_details.setdefault("path", local_name(path, config.extra_sensitive_patterns))
+                raise
+            # It cannot be reviewed, and the configuration leaves such files out: named, never sent.
+            omitted.append({"path": path, "reason": reason})
+            continue
         files.append(
             asdict(
                 ContextFile(
                     path,
                     status,
-                    *decoded,
+                    before_text,
+                    after_text,
                     digest(before) if before is not None else None,
                     digest(after) if after is not None else None,
                     before_mode,
@@ -457,7 +492,6 @@ def build_packet(
     if config.related_context == "related":
         # 16 KiB is kept for the block's own fields and the names of skipped candidates.
         room = config.max_packet_bytes - len(canonical(packet)) - 16_384
-        screen = None if guard is None else (lambda text, path: screen_source(text, path, guard.snapshot))
         packet["related"] = _related(repo, head_sha, files, config, room, related_admit, screen)
         if guard is not None:
             screen_related(packet, guard.snapshot)

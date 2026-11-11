@@ -74,6 +74,10 @@ class Config:
     # refuse: a private path in the range refuses the whole review (the default).
     # skip-and-report: a private path is never read or sent; the packet carries only a count.
     private_paths: str = field(default="refuse", metadata={"json_schema": {"enum": ["refuse", "skip-and-report"]}})
+    # refuse: a changed file that cannot be reviewed refuses the whole review (the default).
+    # skip-and-report: it is left out unread, and the packet names it with the reason.
+    unreviewable_paths: str = field(default="refuse", metadata={
+        "identity": "when-set", "json_schema": {"enum": ["refuse", "skip-and-report"]}})
     # none: the packet holds only the changed files (the default).
     # related: it also holds skeletons of unchanged Python definitions the change calls, is called by or extends.
     related_context: str = field(default="none", metadata={"json_schema": {"enum": ["none", "related"]}})
@@ -235,6 +239,8 @@ class Config:
             raise AssistantError("unsupported_auth_header")
         if self.private_paths not in {"refuse", "skip-and-report"}:
             raise AssistantError("invalid_private_paths")
+        if self.unreviewable_paths not in {"refuse", "skip-and-report"}:
+            raise AssistantError("invalid_unreviewable_paths")
         if self.related_context not in {"none", "related"}:
             raise AssistantError("invalid_related_context")
         if type(self.related_max_bytes) is not int or not 1 <= self.related_max_bytes <= 400_000:

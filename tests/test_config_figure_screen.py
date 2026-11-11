@@ -67,10 +67,10 @@ def test_unset_figure_settings_leave_the_configuration_hash_as_it_was():
     assert config_hash(replace(config, forbidden_token_hashes=[]).validate()) == DEFAULT_HASH_0_10_0
     assert config_hash(load_config(content=b'{"forbidden_token_hashes": [], "forbidden_token_file": ""}')) == DEFAULT_HASH_0_10_0
     assert config_hash(replace(config, **{"forbidden_token_file": "/synthetic/figures.txt"})) != DEFAULT_HASH_0_10_0
-    # Every other setting is hashed whether or not it has its default.
+    # Every setting from 0.10.0 is hashed whether or not it has its default; the ones added since are not.
     assert set(asdict(config)) - set(config_identity(config)) == {
         "forbidden_token_file", "forbidden_token_hashes", "forbidden_token_sources", "forbidden_token_match",
-        "forbidden_token_min_digits"}
+        "forbidden_token_min_digits", "unreviewable_paths"}
 
 
 @pytest.mark.parametrize("document,code", [

@@ -55,6 +55,19 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   Unset, nothing changes. New codes: `forbidden_token_source_invalid` and
   `forbidden_token_match_invalid`.
 
+- **Leave out files that cannot be reviewed, and name them.** `unreviewable_paths: "skip-and-report"`,
+  in a configuration or a gate policy, reviews the rest of a range when a changed file has an
+  unsupported suffix, is over `max_file_bytes`, is not UTF-8 text or is outside `allow_paths`.
+  - The packet's `omitted` list names each file left out with its reason, so the reviewer knows
+    what it does not see. A private path is never named.
+  - Coverage is incomplete wherever it is checked, and a gate report's `coverage.withheld` counts
+    every changed file that was not reviewed.
+  - `deny_paths`, a change to the policy or a `.gitignore`, credential content and a listed figure
+    still refuse.
+
+  Unset, nothing changes. New codes: `invalid_unreviewable_paths` and the warning
+  `unreviewable_paths_left_out`.
+
 ### Changed
 - **Adding these settings does not change the configuration hash.** A setting marked this way is
   left out of the hash while it has its default, so saved check records, workflow plans and
@@ -70,10 +83,16 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   private name, or a credential store, is refused with `private_path`, `gate_private_path` or
   `private_profile_path`, or withheld under `private_paths: skip-and-report`. On nine real
   repositories no tracked file and none of 225 recent changes is affected.
+- **Under `private_paths: skip-and-report`, a gate withholds a private name whatever its suffix.**
+  A private file with a suffix no review reads, such as a `.jsonl` file under `data/`, refused the
+  run with `unsupported_file_type`; `plan` already withheld it. Without the setting it still
+  refuses, now as `gate_private_path`.
 
 Nothing else about what a gate accepts, authorizes or spends has changed.
 
 ### Fixed
+- **A gate range that changed only withheld files was refused with the wrong code.** It reported
+  `gate_ignore_check_unavailable`; it now reports `review_scope_entirely_withheld`.
 - **`init --detect` left hidden directories out of `allow_paths`.** A change to `.github/workflows/`,
   to a tool's settings directory or to a root file such as `.pre-commit-config.yaml` then left every
   range that touched it incomplete, or refused by a gate. On nine real repositories that was the most

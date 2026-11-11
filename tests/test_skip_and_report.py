@@ -371,7 +371,7 @@ def test_the_action_summary_and_outputs_show_incomplete_coverage(gate_case, tmp_
     report, _calls = run(gate_case)
     assert report["verdict"] == "PASS" and report["coverage"]["withheld"] == 1
     summary = summary_markdown(report)
-    assert "Coverage: **incomplete**" in summary and "1 changed file(s) were withheld" in summary
+    assert "Coverage: **incomplete**" in summary and "1 changed file(s) were left out" in summary
     assert "clients" not in summary and "data/" not in summary
     report_path = tmp_path / "report.json"
     report_path.write_text(json.dumps(report), encoding="utf-8")
