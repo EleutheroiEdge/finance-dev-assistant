@@ -15,6 +15,7 @@ from .errors import AssistantError, prices_required
 from .policy_fixtures import FIXTURE_PROPERTIES, fixture_settings, load_policy_config
 from .profiles import PROFILES
 from .scope import read_entry
+from .forbidden_tokens import MATCHES, MAX_MIN_DIGITS, MAX_SOURCE_FILES, MAX_TOKENS, MIN_DIGITS
 from .security import canonical, check_model_path, check_path, check_text, digest, safe_relative
 
 _PATHS = {"type": "array", "maxItems": 128, "uniqueItems": True,
@@ -48,8 +49,12 @@ _PROFILE_PROPERTIES = {
 }
 _TOKEN_PROPERTIES = {
     "forbidden_token_file": {"type": "string", "minLength": 1, "maxLength": 4096},
-    "forbidden_token_hashes": {"type": "array", "minItems": 1, "maxItems": 1024, "uniqueItems": True,
+    "forbidden_token_hashes": {"type": "array", "minItems": 1, "maxItems": MAX_TOKENS, "uniqueItems": True,
                               "items": {"type": "string", "pattern": r"^[0-9a-f]{64}$"}},
+    "forbidden_token_sources": {"type": "array", "minItems": 1, "maxItems": MAX_SOURCE_FILES, "uniqueItems": True,
+                               "items": {"type": "string", "minLength": 1, "maxLength": 4096}},
+    "forbidden_token_match": {"enum": list(MATCHES)},
+    "forbidden_token_min_digits": {"type": "integer", "minimum": MIN_DIGITS, "maximum": MAX_MIN_DIGITS},
 }
 # Optional. refuse (the default) keeps today's behaviour; skip-and-report withholds private paths.
 _COVERAGE_PROPERTIES = {"private_paths": {"enum": ["refuse", "skip-and-report"]},
