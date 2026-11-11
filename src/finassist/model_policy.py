@@ -15,7 +15,7 @@ from .errors import AssistantError, prices_required
 from .policy_fixtures import FIXTURE_PROPERTIES, fixture_settings, load_policy_config
 from .profiles import PROFILES
 from .scope import read_entry
-from .security import canonical, check_model_path, check_path, check_text, digest
+from .security import canonical, check_model_path, check_path, check_text, digest, safe_relative
 
 _PATHS = {"type": "array", "maxItems": 128, "uniqueItems": True,
           "items": {"type": "string", "minLength": 1, "maxLength": 512}}
@@ -96,10 +96,18 @@ class ModelGatePolicy:
     repo: Path | None = None
 
 
-def _prefix(value: str, fixture_roots: tuple[str, ...] = ()) -> str:
+def _prefix(value: str, fixture_roots: tuple[str, ...] = (), *, denied: bool = False) -> str:
+    """One allow_paths or deny_paths entry: a literal path or directory prefix.
+
+    An allow entry also meets the path policy, because it admits files for review. A deny
+    entry reads and sends nothing, so it may name a private path such as `.env.example`.
+    """
     if any(character in value for character in "*?[]"):
         raise AssistantError("gate_policy_path_invalid")
-    check_path(value.removesuffix("/"), source_only=False, fixture_roots=fixture_roots)
+    if denied:
+        check_text(safe_relative(value.removesuffix("/")))
+    else:
+        check_path(value.removesuffix("/"), source_only=False, fixture_roots=fixture_roots)
     return value
 
 
@@ -175,8 +183,9 @@ def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePo
     # fields are screened, including unknown fields rejected by the schema.
     check_text(canonical(document).decode())
     settings = fixture_settings(repo, base, model)
-    for prefix in (*model["allow_paths"], *model["deny_paths"]):
-        _prefix(prefix, tuple(model.get("fixture_roots", ())))
+    for name in ("allow_paths", "deny_paths"):
+        for prefix in model[name]:
+            _prefix(prefix, tuple(model.get("fixture_roots", ())), denied=name == "deny_paths")
     endpoint = urlsplit(model["endpoint"])
     if endpoint.hostname != model["allowed_host"]:
         raise AssistantError("gate_endpoint_host_mismatch")

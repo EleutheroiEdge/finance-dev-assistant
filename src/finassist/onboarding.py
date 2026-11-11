@@ -365,7 +365,7 @@ class _Preflight:
         for name in ("allow_paths", "deny_paths"):
             for index, prefix in enumerate(model[name]):
                 try:
-                    _prefix(prefix, roots)
+                    _prefix(prefix, roots, denied=name == "deny_paths")
                 except AssistantError as exc:
                     usable = False
                     self.failed(exc, field=f"/model_review/{name}/{index}", prefix=_shown(prefix))
