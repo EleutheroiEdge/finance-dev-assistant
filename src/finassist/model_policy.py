@@ -16,7 +16,9 @@ from .policy_fixtures import FIXTURE_PROPERTIES, fixture_settings, load_policy_c
 from .profiles import PROFILES
 from .scope import read_entry
 from .forbidden_tokens import MATCHES, MAX_MIN_DIGITS, MAX_SOURCE_FILES, MAX_TOKENS, MIN_DIGITS
-from .security import canonical, check_model_path, check_path, check_text, digest, safe_relative
+from .hidden_text import check_hidden
+from .security import (canonical, check_credentials, check_model_path, check_name, check_path, check_text,
+                       digest, safe_relative)
 
 _PATHS = {"type": "array", "maxItems": 128, "uniqueItems": True,
           "items": {"type": "string", "minLength": 1, "maxLength": 512}}
@@ -111,7 +113,7 @@ def _prefix(value: str, fixture_roots: tuple[str, ...] = (), *, denied: bool = F
     if any(character in value for character in "*?[]"):
         raise AssistantError("gate_policy_path_invalid")
     if denied:
-        check_text(safe_relative(value.removesuffix("/")))
+        check_name(safe_relative(value.removesuffix("/")))
     else:
         check_path(value.removesuffix("/"), source_only=False, fixture_roots=fixture_roots)
     return value
@@ -155,11 +157,13 @@ def _profile(repo: Path, base: str, model: dict) -> tuple[list[str] | None, str 
         text = raw.decode("utf-8")
     except UnicodeError as exc:
         raise AssistantError("gate_profile_encoding_invalid") from exc
-    check_text(text)
+    check_credentials(text)
     # Only LF and CRLF delimit physical instruction lines. Other separators,
     # including whitespace-only controls, must reach the line validator intact.
     lines = text.replace("\r\n", "\n").split("\n")
-    return _profile_lines([line for line in lines if line.strip(" ")]), path
+    instructions = _profile_lines([line for line in lines if line.strip(" ")])
+    check_hidden(text)  # The second half of check_text, after the line rule has named what it refuses.
+    return instructions, path
 
 
 def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePolicy:

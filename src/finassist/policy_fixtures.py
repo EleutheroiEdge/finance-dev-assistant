@@ -4,9 +4,10 @@ from pathlib import Path, PurePosixPath
 
 from .config import Config, load_config
 from .errors import AssistantError
+from .hidden_text import check_hidden
 from .scope import git, read_entry
-from .security import (canonical, check_fixture_private, check_model_path, check_path,
-                       check_text, digest, is_text_fixture)
+from .security import (canonical, check_credentials, check_fixture_private, check_model_path, check_path,
+                       digest, is_text_fixture)
 
 FIXTURE_PROPERTIES = {
     "fixture_roots": {"type": "array", "maxItems": 128, "uniqueItems": True,
@@ -82,9 +83,10 @@ def fixture_settings(repo: Path, base: str, options: dict) -> dict | None:
             text = raw.decode("utf-8")
         except UnicodeError as exc:
             raise AssistantError("fixture_root_unqualified") from exc
-        check_text(text)
+        check_credentials(text)
         if text.split("\n", 1)[0] != "synthetic: true":
             raise AssistantError("fixture_root_unqualified")
+        check_hidden(text)  # The second half of check_text, after the marker's own rule.
         markers[marker] = digest(raw)
     return {"fixture_roots": roots, "fixture_max_file_bytes": limit, "fixture_markers": markers}
 

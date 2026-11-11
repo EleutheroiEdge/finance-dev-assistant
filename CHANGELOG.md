@@ -28,6 +28,18 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   they sit: `.netrc`, `.pypirc`, `.git-credentials`, `.docker/config.json`, `.kube/`, `.gnupg/`,
   `.config/gcloud/`, `.config/gh/` and the others listed in `docs/configuration.md`. The content
   screen does not recognise every one of them, such as the encoded login in a Docker `auths` entry.
+- **Text a reviewer cannot see is refused on every route.** Nothing screened file content, a request
+  or a model's reply for hidden characters, so a change could show its reviewer one thing and send a
+  model another: a bidirectional override that reorders a line, a sentence in tag characters that
+  nothing displays, a zero-width character inside a name. These are now refused with
+  `hidden_characters` in both versions of every changed file, in every other field of a request, in
+  the instructions a profile or a policy supplies, and in what a model returns. Emoji selectors,
+  joiners and direction marks pass where ordinary text puts them, and are refused anywhere else,
+  such as inside a word of plain ASCII. The refusal is never turned into leaving the file out, and
+  `doctor` names the rule, the version and the lines. Nothing that was refused before changes its
+  code: a hidden character in a file name is still `unsafe_path`. On the 225 reference changes,
+  one of them holds a refused character and the emoji in 24 keep passing. It was blocked for its
+  size already, so the first-run numbers above do not move. See `docs/security-design.md`.
 
 ### Added
 - **A credential refusal says which rule and which lines.** Both `doctor` reports, and the error
@@ -81,7 +93,10 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   `password` that is given `process.env.DB_PASSWORD`, a member, a call or a column is no longer
   refused. In any file read with its path, a quoted value that is exactly one expansion, such as
   `${NAME}` or `${{ secrets.NAME }}`, is a reference too, and in YAML a key under a
-  credential-named key is not its value. On the 225 reference changes with both skip settings, a gate is now ready for 181 (80%), up from 175, and the configuration route for 175 (78%), up from 168. Changes that a gate blocks for credential content fall from 35 to 27, and no file is newly refused.
+  credential-named key is not its value. On 225 reference changes at pinned commits, with both
+  skip settings, a gate is now ready for 180 (80%), up from 173, and the configuration route for
+  174 (77%), up from 166. Changes that a gate blocks for credential content fall from 36 to 28,
+  and no file is newly refused.
 - **What is still refused, and what the new reading costs.** A quoted literal is refused as
   before, and so is a reference whose expression holds one: after `||`, `??`, `?:` or `+`, as a
   later argument, as the argument of `orElse`, `default` and similar calls, or handed to a call

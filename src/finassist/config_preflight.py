@@ -23,7 +23,8 @@ from .review import review_schema, spend_estimate
 from .forbidden_tokens import screen_source
 from .scope import (_private_name, build_packet, config_token_guard, git, omission_for, omission_reason, read_sides,
                     resolve)
-from .security import canonical, check_text, local_name, refusal_location, regular_path
+from .hidden_text import Waiting
+from .security import canonical, check_name, local_name, refusal_location, regular_path
 
 _EXAMPLES = 20  # Example names kept per grouped blocker.
 _LEFT_OUT = frozenset({"unsupported_file_type", "file_limit_exceeded", "non_text_blob"})  # Reasons the setting adds.
@@ -160,28 +161,34 @@ class _ConfigPreflight:
         """The same rules plan applies, in the same order, for one changed path."""
         config = self.config
         row = {"path": local_name(path, config.extra_sensitive_patterns)}
+        waiting = Waiting()  # A hidden character is this path's outcome only when nothing else refuses it.
         try:
             if config.private_paths == "skip-and-report" and _private_name(config, path):
                 # A name matching a configured sensitive pattern still refuses, as in plan.
-                check_text(path, extra_patterns=config.extra_sensitive_patterns)
+                check_name(path, extra_patterns=config.extra_sensitive_patterns)
                 return {**row, "status": "withheld"}
             config.check_path(path, source_only=False, metadata_only=True)
-            check_text(path, extra_patterns=config.extra_sensitive_patterns)
+            check_name(path, extra_patterns=config.extra_sensitive_patterns)
             reason = omission_reason(config, path)
             if reason is not None:
                 return {**row, "status": "omitted", "reason": reason}
             guard = self.guard
             screen = None if guard is None else (lambda text, name: screen_source(text, name, guard.snapshot))
-            read_sides(repo, revisions, path, config, screen)
+            read_sides(repo, revisions, path, config, screen, waiting=waiting)
         except AssistantError as exc:
             try:
                 reason = omission_for(repo, revisions, path, config, exc.code)
             except AssistantError as special:  # A link or submodule: never left out.
                 exc, reason = special, None
-            if reason is not None:
-                return {**row, "status": "omitted", "reason": reason}
-            return {**row, "status": "refused", "code": exc.code, **exc.public_details, **refusal_location(exc)}
-        return {**row, "status": "included"}
+            if reason is None:
+                return {**row, "status": "refused", "code": exc.code, **exc.public_details, **refusal_location(exc)}
+            outcome = {**row, "status": "omitted", "reason": reason}
+        else:
+            outcome = {**row, "status": "included"}
+        if waiting.first is None:
+            return outcome
+        # Never left out, and never sent.
+        return {**row, "status": "refused", "code": "hidden_characters", **refusal_location(waiting.first)}
 
     def _provider(self, packet: dict | None) -> None:
         config = self.config
