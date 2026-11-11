@@ -196,7 +196,7 @@ def check_path(
     for index, part in enumerate(parts):
         names = last if index == len(parts) - 1 else _component_aliases(part)
         if _reserved_match(names, reserved) or any(
-                alias.startswith(prefix) for alias in names for prefix in environment):
+                _one_dot(alias).startswith(prefix) for alias in names for prefix in environment):
             raise AssistantError("private_path")
         aliases.append(names)
     if _in_credential_store(aliases):
@@ -261,6 +261,11 @@ def _reserved_aliases(reserved: frozenset[str]) -> frozenset[str]:
 @lru_cache(maxsize=128)
 def _hidden_aliases(reserved: frozenset[str]) -> frozenset[str]:
     return _reserved_aliases(frozenset(name.lstrip(".") for name in reserved))
+
+
+def _one_dot(alias: str) -> str:
+    """A hidden spelling with its leading dots read as one: `..env.local` is `.env.local`."""
+    return "." + alias.lstrip(".") if alias.startswith(".") else alias
 
 
 def _reserved_match(aliases: set[str], reserved) -> bool:
