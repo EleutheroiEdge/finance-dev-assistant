@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from copy import deepcopy
 from functools import lru_cache
 import hashlib
@@ -12,8 +13,11 @@ import re
 import tempfile
 import stat
 import sys
+from typing import NamedTuple
 import unicodedata
 
+from .code_text import (code_text, in_block_scalar, is_expansion, is_shell, is_yaml, looks_like_nested_key,
+                        yaml_block_scalars)
 from .errors import AssistantError
 from .platform_support import canonical_system_path
 from .path_alias_data import ASCII_CONFUSABLES, DEFAULT_IGNORABLE_RANGES
@@ -110,8 +114,8 @@ PUBLIC_ASSETS = {".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif", ".ico"}
 # boundary would retry the greedy prefix after every hyphen, causing quadratic
 # scans. Keep unbounded prefixes so long labels cannot hide sensitive suffixes.
 CREDENTIAL_KEY_PATTERN = re.compile(
-    r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:secret|private|signing|encryption|access|client|master|auth|api)[_-]?(?:access[_-]?)?key\b[\"']?\s*[=:]\s*"
-    r"(?:[\"'][^\"'\n]{12,}[\"']|(?![A-Za-z_][A-Za-z0-9_.]*\s*\()(?!(?-i:[A-Z][A-Za-z_]*)(?![A-Za-z0-9_./+=:@-]))(?!(?:[A-Za-z_][A-Za-z0-9_]*\.)+[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_.]))[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
+    r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:secret|private|signing|encryption|access|client|master|auth|api)[_-]?(?:access[_-]?)?key\b[\"']?\s*(?P<sep>[=:])\s*"
+    r"(?P<value>[\"'][^\"'\n]{12,}[\"']|(?![A-Za-z_][A-Za-z0-9_.]*\s*\()(?!(?-i:[A-Z][A-Za-z_]*)(?![A-Za-z0-9_./+=:@-]))(?!(?:[A-Za-z_][A-Za-z0-9_]*\.)+[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_.]))[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
 )
 
 # Known secret formats and an identifier format; these read text, not syntax.
@@ -127,8 +131,8 @@ FORMAT_PATTERNS = (
 # and these rules read only comment and string text.
 LABEL_PATTERNS = (
     re.compile(
-        r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:api[_-]?key|password|secret|access[_-]?token|gh[_-]?token|github[_-](?:enterprise[_-])?token)\b[\"']?\s*[=:]\s*"
-        r"(?:[\"'][^\"'\n]{12,}[\"']|[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
+        r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:api[_-]?key|password|secret|access[_-]?token|gh[_-]?token|github[_-](?:enterprise[_-])?token)\b[\"']?\s*(?P<sep>[=:])\s*"
+        r"(?P<value>[\"'][^\"'\n]{12,}[\"']|[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
     ),
     CREDENTIAL_KEY_PATTERN,
     re.compile(
@@ -136,6 +140,13 @@ LABEL_PATTERNS = (
     ),
 )
 SECRET_PATTERNS = (*FORMAT_PATTERNS, *LABEL_PATTERNS)
+# The name a refusal gives its rule in local output. Patterns for one kind of thing share a name.
+_RULES = dict(zip(SECRET_PATTERNS, (
+    "private_key_block", "github_token", "github_token", "aws_access_key_id", "sk_prefixed_key",
+    "nine_digit_identifier", "credential_label", "credential_label", "account_label"), strict=True))
+_REFERENCE_PATTERNS = tuple(pattern for pattern in LABEL_PATTERNS if "value" in pattern.groupindex)
+MIN_SECRET_LENGTH = 12  # the shortest value a label rule reads as a credential
+_NAMED_LINES = 20  # line numbers a refusal names in local output
 
 
 def digest(data: bytes) -> str:
@@ -363,13 +374,20 @@ def local_name(name, extra_patterns: tuple[str, ...] = ()) -> str:
 
 
 def check_text(text: str, *, extra_patterns: tuple[str, ...] = (), source_path: str | None = None) -> None:
+    """Refuse credentials and listed patterns in text.
+
+    File content read with its path is also asked what its own syntax says: a credential-named
+    field given an expression in code, or one variable expansion in quotes, names a value kept
+    elsewhere and is not refused. Anything read without a path keeps the strict text rules.
+    """
     if is_python_path(source_path) and "\0" not in text:
         screen = python_screen(text)
         if screen is not None:
             _screen_python(text, screen, extra_patterns)
             return
-    # Text, and Python that does not tokenize and parse, keeps the strict text rules.
-    _screen_text(text, credential_screening_view(text, source_path), extra_patterns)
+    # Python that does not tokenize and parse is text, and so is every language code_text does not read.
+    syntax = _FileSyntax(text, source_path) if source_path is not None else None
+    _screen_text(text, credential_screening_view(text, source_path), extra_patterns, syntax)
 
 
 def check_context_document(document: dict, *, extra_patterns: tuple[str, ...] = (), records_key="files") -> None:
@@ -396,7 +414,12 @@ def check_context_document(document: dict, *, extra_patterns: tuple[str, ...] = 
 def check_output_document(
     document: dict, source_files: list[dict], *, extra_patterns: tuple[str, ...] = (), diff: bool = False
 ) -> None:
-    """Permit only exact credential-label quotes from screened annotations.
+    """Permit only exact credential-label quotes from screened source.
+
+    Two kinds of quote are permitted. One is an annotation: a credential-named
+    field with its type. The other is a reference: a label rule's match in
+    screened source whose value is an expression or one expansion, with nothing
+    after it on its line that could give the label another value.
 
     A match includes its label, separator and complete candidate value; a word
     merely present elsewhere in source confers no output exception. Paths and
@@ -404,12 +427,15 @@ def check_output_document(
     Other secret patterns and custom patterns always inspect original output.
     """
     allowed: dict[str, set[str]] = {}
+    references: dict[str, set[str]] = {}
     for item in source_files:
         for side in ("before", "after"):
             text = item.get(side)
             if text is None:
                 continue
             check_text(text, source_path=item["path"], extra_patterns=extra_patterns)
+            for quote, rests in _reference_quotes(text, item["path"]).items():
+                references.setdefault(quote, set()).update(rests)
             view = credential_screening_view(text, item["path"])
             for match in CREDENTIAL_KEY_PATTERN.finditer(text):
                 separator = text.find(":", match.start(), match.end())
@@ -424,9 +450,11 @@ def check_output_document(
                 quote = text[match.start():end].rstrip()
                 allowed.setdefault(match.group(), set()).add(quote)
 
-    def screening_view(value):
+    def screened(value):
+        """The value with permitted references blanked, and the same with permitted annotations blanked too."""
         if isinstance(value, str):
-            chars = list(value)
+            masked = _mask_references(value, references, diff)
+            chars = list(masked)
             for match in CREDENTIAL_KEY_PATTERN.finditer(value):
                 quote, start = match.group(), match.start()
                 # A removed unified-diff line has one leading '-' that the
@@ -454,44 +482,363 @@ def check_output_document(
             view = "".join(chars)
             # JSON escaping can otherwise hide quoted secret values from a
             # regex. Screen original string values as well as the envelope.
-            _screen_text(value, view, extra_patterns)
+            _screen_text(value, view, extra_patterns, label_text=masked)
             # A syntactically valid typed assignment in an output string must
             # not conceal a new value. The first check above retains strict
             # output screening: parsing alone never authorizes an annotation.
-            _screen_text(value, credential_screening_view(view, "output.py"), extra_patterns)
-            return view
+            _screen_text(value, credential_screening_view(view, "output.py"), extra_patterns, label_text=masked)
+            return masked, view
         if isinstance(value, list):
-            return [screening_view(item) for item in value]
+            pairs = [screened(item) for item in value]
+            return [pair[0] for pair in pairs], [pair[1] for pair in pairs]
         if isinstance(value, dict):
-            return {key: screening_view(item) for key, item in value.items()}
+            pairs = {key: screened(item) for key, item in value.items()}
+            return {key: pair[0] for key, pair in pairs.items()}, {key: pair[1] for key, pair in pairs.items()}
+        return value, value
+
+    masked, view = screened(document)
+    # Known formats and custom patterns read the intact document; the label rules read it with
+    # the permitted quotes blanked.
+    _screen_text(canonical(document).decode(), canonical(view).decode(), extra_patterns,
+                 label_text=canonical(masked).decode())
+
+
+class _FileSyntax:
+    """What a file's own syntax says about a label match. Only for file content read with its path."""
+
+    _UNREAD = object()
+
+    def __init__(self, text: str, path: str | None):
+        self._text, self._path, self._code = text, path, self._UNREAD
+        self._scalars = None  # the block scalars of a YAML file, read when first needed
+
+    def excuses(self, match: re.Match) -> bool:
+        """True when the matched value names a value kept elsewhere instead of holding one."""
+        value = match.group("value")
+        if value[0] in "\"'":
+            return is_expansion(value[1:-1], in_shell=value[0] == '"' and is_shell(self._path))
+        if value[0].isdigit():
+            return False  # A number is a literal in every language.
+        if is_yaml(self._path):
+            if not looks_like_nested_key(self._text, match.start("sep"), match.start("value"), match.end("value")):
+                return False
+            if self._scalars is None:
+                self._scalars = yaml_block_scalars(self._text)
+            return not in_block_scalar(self._scalars, match.start("sep"))
+        if self._code is self._UNREAD:
+            self._code = code_text(self._text, self._path)
+        code = self._code
+        # In a language where a string needs quotes, an unquoted value in code is an expression.
+        # It is still refused when the expression holds a literal the field would receive.
+        return (code is not None and code.in_code(match.start("sep")) and code.in_code(match.start("value"))
+                and code.written_as_code(match.start()) and not code.odd_slashes_before(match.start())
+                and code.literal_assigned(match.start("value"), MIN_SECRET_LENGTH) is False)
+
+
+# Text inside parsed Python: only a quoted expansion is a reference there.
+_TEXT_IN_PYTHON = _FileSyntax("", None)
+
+
+_REST_LIMIT = 200  # characters of its line kept after a reference
+
+
+def _reference_quotes(text: str, path: str) -> dict[str, set[str]]:
+    """Every label match in screened source whose value is a reference, as exact text.
+
+    The text has passed the screen. So an unquoted value in it is an expression its syntax
+    excused, and a quoted one that is a single expansion names a variable. With each goes what
+    follows it on its line, with and without a closing comma or semicolon: the rest of its
+    expression, such as the brackets of a call. Output may repeat that too.
+    """
+    quotes: dict[str, set[str]] = {}
+    for pattern in _REFERENCE_PATTERNS:
+        for match in pattern.finditer(text):
+            value = match.group("value")
+            if value[0] not in "\"'" or is_expansion(value[1:-1], in_shell=value[0] == '"' and is_shell(path)):
+                line_end = text.find("\n", match.end())
+                rest = text[match.end():len(text) if line_end < 0 else line_end].rstrip()
+                rests = quotes.setdefault(match.group(), set())
+                rests.update(part for part in (rest, rest.rstrip(",;").rstrip()) if part and len(part) <= _REST_LIMIT)
+    return quotes
+
+
+# In prose, after the code span that held a quote, the reply is read on to the end of its clause:
+# the first comma or semicolon outside the brackets opened on the way, the first closing bracket
+# that nothing opened, or the end of the reply. Up to there only plain prose may stand: nothing
+# that can begin a string, a comment or type arguments, and no long number. So no literal can
+# follow the quote, whatever sign or word stands before it, and nothing can hide where the clause
+# ends. Two things are plain though they hold a backtick: a code span too short to be a credential,
+# with no escape, quote mark, dollar or brace in it, and a span that holds another quote.
+# A string begins with a quote mark or a backtick, or in SQL with a dollar tag, spelled as the reader
+# of source spells it. A number is counted with the point it may begin with, as it is in source.
+_CLAUSE = re.compile(
+    r"(?P<plain>`[^`\\\"'${}\n]{0," + str(MIN_SECRET_LENGTH - 1) + r"}`)"
+    r"|(?P<end>[,;])|(?P<open>[(\[{])|(?P<close>[)\]}])"
+    r"|(?P<refused>[\"'`/\\#<]|--|\$(?:[^\W\d]\w*)?\$"
+    r"|(?<![A-Za-z0-9_$.])(?:\.[0-9][0-9A-Za-z_.]{" + str(MIN_SECRET_LENGTH - 2) + r",}"
+    r"|[0-9][0-9A-Za-z_.]{" + str(MIN_SECRET_LENGTH - 1) + r",}))")
+_CLAUSE_REACH = 4000  # characters read after a span for the end of its clause
+_CLAUSE_PARTS = 400  # and the brackets and short spans read in them
+_PATCH_MARK = re.compile(r"(?<=\n)[+\- ]")  # the mark that begins each further line of a patch
+_LINE_BREAK = re.compile(r"\n")
+_VALUE_MARK = re.compile(r"[\"'=]")
+_BLANK = re.compile(r"[ \t\r]*")
+# A quote that stops inside a bracket or a string it opened is not a whole expression.
+_WHOLE_STRING = re.compile(r"\"(?:[^\"\\\n]|\\.)*\"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\\n]|\\.)*`")
+# A quote that ends with one of these is a whole operand. One that ends with an operator is not
+# over, whatever follows it.
+_QUOTE_END = re.compile(r"[A-Za-z0-9_$)\]}\"'!,;]")
+# In code, the line after a quote that ends its line has to begin something new: a name that is no
+# operator, a closing bracket, a quoted key, or the end of a fenced block. Anything else may carry
+# the expression on, whatever the operator. The words are those the reader of source knows, and
+# the ones Python has; a test holds the two lists together.
+_BEGINS_NEW = re.compile(
+    r"```|[)\]}\"']|(?!(?:in|instanceof|as|satisfies|is|else|extends|or|and|not)\b)[A-Za-z_$@]")
+_COMMENT_LINE = re.compile(r"//|#|--")
+_PATCH_NOTE = "\\ No newline at end of file"
+
+
+class _Reply(NamedTuple):
+    """One string of model output as the rules for a quote read it, worked out once for all its quotes."""
+
+    value: str  # as written
+    text: str  # with every quote of a reference blanked
+    prose: str  # the same, and in a patch with the mark that begins each line blanked too
+    starts: list[int]  # where each line starts
+    new_after: list[bool]  # for each line: whether the next line that holds code begins something new
+    marks: list[int]  # where a quote mark or an equals sign stands
+    spans: dict[int, int]  # for each code span that holds a quote of a reference: where it opens, and where it closes
+    diff: bool
+
+
+def _read_reply(value: str, text: str, diff: bool, quotes: list) -> _Reply:
+    """Read one string of output once, so that each quote in it is then judged where it stands.
+
+    A reply can be made of quotes. Reading the rest of it again for each would take time that
+    grows with the square of its length.
+    """
+    starts = [0, *(found.end() for found in _LINE_BREAK.finditer(text))]
+    new_after, new = [True] * len(starts), True  # After the last line nothing follows.
+    for index in range(len(starts) - 1, -1, -1):
+        new_after[index] = new
+        line = text[starts[index]:starts[index + 1] - 1 if index + 1 < len(starts) else len(text)]
+        if diff and line[:1] in ("+", "-", " "):
+            line = line[1:]  # the mark of a patch line
+        line = line.strip(" \t\r")
+        if line and _COMMENT_LINE.match(line) is None and not (diff and line == _PATCH_NOTE):
+            new = _BEGINS_NEW.match(line) is not None
+    prose = _PATCH_MARK.sub(" ", text) if diff else text  # the mark of a patch line is not an operator
+    marks = [found.start() for found in _VALUE_MARK.finditer(text)]
+    spans = {}
+    for start, end, rests in quotes:
+        if value[start - 1:start] == "`":
+            for rest in ("", *rests):
+                closes = _BLANK.match(value, end + len(rest)).end() if value.startswith(rest, end) else -1
+                if closes >= 0 and value[closes:closes + 1] == "`":
+                    spans[start - 1] = closes
+    return _Reply(value, text, prose, starts, new_after, marks, spans, diff)
+
+
+def _ends_there(reply: _Reply, start: int, end: int, rests: set[str]) -> bool:
+    """Whether the expression that a permitted quote repeats is over where the quote ends.
+
+    It may first go on exactly as it does in the source: `rests` holds what follows this
+    reference on its line there.
+    """
+    value = reply.value
+    return any(_QUOTE_END.fullmatch(value[stop - 1:stop]) and not _leaves_open(value[start:stop])
+               and _is_over(reply, start, stop)
+               for stop in (end + len(rest) for rest in ("", *rests) if value.startswith(rest, end)))
+
+
+def _plain_to_the_end_of_its_clause(reply: _Reply, position: int) -> bool:
+    """Whether only plain prose stands from `position` to the end of the clause that begins there.
+
+    The clause ends at a comma or a semicolon outside the brackets opened on the way, at a closing
+    bracket that nothing opened, and with the reply. Brackets can be counted because nothing that
+    could hold one as text is let through: see `_CLAUSE`. A code span that holds another quote of
+    a reference is stepped over: if that quote is not permitted either, the label rules refuse
+    it. Short code spans with only space between them are one string, as strings that stand side
+    by side are in source, and count together. No end in reach is unclear, and unclear is refused.
+    """
+    prose, depth = reply.prose, 0
+    limit = min(len(prose), position + _CLAUSE_REACH)
+    together, last = 0, -1  # the length of the short spans that stand side by side, and where the last one ended
+    for _part in range(_CLAUSE_PARTS):
+        part = _CLAUSE.search(prose, position, limit)
+        if part is None:
+            return limit == len(prose)  # The reply ends here, and nothing was joined to the quote.
+        kind, position = part.lastgroup, part.end()
+        if kind == "plain":
+            beside = last >= 0 and not prose[last:part.start()].strip()
+            together, last = (together if beside else 0) + len(part.group()) - 2, part.end()
+            if together >= MIN_SECRET_LENGTH:
+                return False
+        if kind == "end" and not depth:
+            return True
+        if kind == "open":
+            depth += 1
+        elif kind == "close":
+            if not depth:
+                return True
+            depth -= 1
+        elif kind == "refused":
+            closes = reply.spans.get(part.start())
+            if closes is None:
+                return False
+            position = closes + 1
+    return False
+
+
+def _leaves_open(quote: str) -> bool:
+    """Whether a quote stops inside a bracket or a string that it opened.
+
+    Then its expression goes on over the next lines, as the arguments of a call do, and what
+    stands there is not looked at here.
+    """
+    code = _WHOLE_STRING.sub("", quote)
+    depth = 0
+    for character in code:
+        if character in "([{":
+            depth += 1
+        elif character in ")]}" and depth:
+            depth -= 1
+    return depth > 0 or any(mark in code for mark in "\"'`")
+
+
+def _is_over(reply: _Reply, start: int, end: int) -> bool:
+    """Whether nothing from `end` on can give the label that starts at `start` another value.
+
+    A quote is over in two shapes. In prose it is a code span: a backtick just before the label
+    and one just after the quote, with only plain prose after it to the end of its clause. In
+    code it ends its line, or a comma or a semicolon does, and the next line of code begins
+    something new. Anything else after the quote could hold a literal, in quote marks, in
+    backticks or as a number.
+    """
+    text = reply.text
+    line = bisect_right(reply.starts, end) - 1
+    line_end = reply.starts[line + 1] - 1 if line + 1 < len(reply.starts) else len(text)
+    mark = bisect_left(reply.marks, end)
+    if mark < len(reply.marks) and reply.marks[mark] < line_end:
+        return False  # a quote mark or an equals sign after the quote on its line
+    first = _BLANK.match(text, end, line_end).end()  # where the first thing after the quote on its line is
+    if first < line_end and text[first] == "`":
+        # The code span has ended. Only plain prose may follow it, to the end of its clause.
+        return text[start - 1:start] == "`" and _plain_to_the_end_of_its_clause(reply, first + 1)
+    if first < line_end:
+        return text[first] in ",;" and _BLANK.match(text, first + 1, line_end).end() == line_end
+    return reply.new_after[line]  # The quote ends its line: what begins the next line that holds code?
+
+
+def _mask_references(value: str, references: dict[str, set[str]], diff: bool) -> str:
+    """Blank each exact quote of a screened reference in model output.
+
+    A quote is permitted only when its expression ends where it does: see `_ends_there`. A quote
+    that fails this stays as it is, and the label rules then refuse it.
+    """
+    if not references:
+        return value
+    quotes = []
+    for pattern in _REFERENCE_PATTERNS:
+        for match in pattern.finditer(value):
+            quote, start = match.group(), match.start()
+            # A removed line of a unified diff starts with '-', which the label pattern takes in.
+            if diff and (start == 0 or value[start - 1] == "\n") and quote.startswith("-"):
+                quote, start = quote[1:], start + 1
+            if quote in references:
+                quotes.append((start, match.end(), references[quote]))
+    if not quotes:
         return value
 
-    _screen_text(canonical(document).decode(), canonical(screening_view(document)).decode(), extra_patterns)
+    def blanked(spans) -> str:
+        chars = list(value)
+        for start, end, _rests in spans:
+            for index in range(start, end):
+                if chars[index] not in "\r\n":
+                    chars[index] = " "
+        return "".join(chars)
+
+    without = blanked(quotes)
+    reply = _read_reply(value, without, diff, quotes)
+    permitted = [quote for quote in quotes if _ends_there(reply, *quote)]
+    return without if len(permitted) == len(quotes) else blanked(permitted)
 
 
-def _screen_text(text: str, credential_text: str, extra_patterns: tuple[str, ...]) -> None:
+def _hits(pattern: re.Pattern, text: str, syntax, first_line: int = 1) -> list[int]:
+    """The lines of the matches the file's syntax does not excuse: at most one more than a refusal names."""
+    lines = []
+    excusable = syntax is not None and "value" in pattern.groupindex
+    for match in pattern.finditer(text):
+        if excusable and syntax.excuses(match):
+            continue
+        lines.append(first_line + text.count("\n", 0, match.start()))
+        if len(lines) > _NAMED_LINES:
+            break
+    return lines
+
+
+def _sensitive(rule: str, lines: list[int] | None = None) -> AssistantError:
+    """The refusal. The rule and the lines are for local output only, and it never holds a value."""
+    error = AssistantError("sensitive_content")
+    error.local_details["rule"] = rule
+    if lines is not None:
+        error.local_details["lines"] = sorted(set(lines))[:_NAMED_LINES]
+        if len(lines) > _NAMED_LINES:
+            error.local_details["more_lines"] = True
+    return error
+
+
+def refusal_location(error: AssistantError) -> dict:
+    """The rule, the lines and the version of a content refusal, for a report that stays on this machine."""
+    return {key: error.local_details[key] for key in ("rule", "version", "lines", "more_lines")
+            if key in error.local_details}
+
+
+def _screen_text(text: str, credential_text: str, extra_patterns: tuple[str, ...], syntax: _FileSyntax | None = None,
+                 *, label_text: str | None = None) -> None:
+    """Refuse a credential in text.
+
+    Known formats read `text`. The label rules read `label_text` when the caller gives one, and
+    the key rule reads only `credential_text`, where annotations are blanked.
+    """
     if "\0" in text:
         raise AssistantError("binary_input")
+    labels = text if label_text is None else label_text
+
+    def views(*candidates):
+        return dict.fromkeys(candidates)  # the same text is read once
+
     for pattern in SECRET_PATTERNS:
         if pattern is CREDENTIAL_KEY_PATTERN:
-            matched = pattern.search(credential_text)
+            searched = views(credential_text)
+        elif pattern in FORMAT_PATTERNS:
+            searched = views(text, credential_text)
         else:
-            # Searching both views catches typed assignments without losing
-            # literal secret signatures or sensitive content in annotations.
-            matched = pattern.search(text) or pattern.search(credential_text)
-        if matched:
-            raise AssistantError("sensitive_content")
+            # Both views: this catches typed assignments without losing sensitive content in annotations.
+            searched = views(labels, credential_text)
+        for view in searched:
+            lines = _hits(pattern, view, syntax)
+            if lines:
+                # Line numbers mean something only for a file's own content.
+                raise _sensitive(_RULES[pattern], lines if syntax is not None else None)
     _screen_extra(text, extra_patterns)
 
 
 def _screen_python(text: str, screen, extra_patterns: tuple[str, ...]) -> None:
     """Parsed Python: formats on raw text, the AST for code, label rules for text."""
-    if any(pattern.search(text) for pattern in FORMAT_PATTERNS):
-        raise AssistantError("sensitive_content")
-    if screen.credential_literal or any(
-        pattern.search(segment) for segment in screen.text_segments for pattern in LABEL_PATTERNS
-    ):
-        raise AssistantError("sensitive_content")
+    for pattern in FORMAT_PATTERNS:
+        lines = _hits(pattern, text, None)
+        if lines:
+            raise _sensitive(_RULES[pattern], lines)
+    hits = [(line, "account_label" if kind == "account" else "credential_label") for line, kind in screen.credential_hits]
+    for segment, first_line in zip(screen.text_segments, screen.segment_lines, strict=True):
+        if len(hits) > _NAMED_LINES:
+            break
+        for pattern in LABEL_PATTERNS:
+            hits += [(line, _RULES[pattern]) for line in _hits(pattern, segment, _TEXT_IN_PYTHON, first_line)]
+    if hits:
+        rule = min(hits)[1]
+        raise _sensitive(rule, [line for line, name in hits if name == rule])
     _screen_extra(text, extra_patterns)
 
 

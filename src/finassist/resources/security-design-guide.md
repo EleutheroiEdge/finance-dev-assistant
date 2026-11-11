@@ -60,6 +60,91 @@ docstrings and other string text are screened with the text rules, and known
 secret formats are screened across the whole file. Python that does not tokenize
 and parse keeps the strict text rules.
 
+In TypeScript and JavaScript (`.ts`, `.mts`, `.cts`, `.js`, `.mjs`, `.cjs`), Go, Java,
+Kotlin and SQL files, the screen first finds the file's strings and comments. In these
+languages a string literal needs quotes, so a credential-named field followed by an
+unquoted value in code is being given an expression: a variable, a member, a call or an
+environment lookup. That is a reference, and it is not refused. The same words inside a
+string or a comment are text and keep the strict rules, and a number is a literal
+everywhere.
+
+A reference is still refused when its expression holds a quoted literal or a number of 12
+or more characters that the field would receive. That is every string and number in the
+expression except three kinds:
+
+- **The name a lookup is given.** When the name of a call or of an indexed object is made
+  of lookup words, its first string is the name of the value:
+  `config.get("auth.signing")`, `process.env["NAME"]`, `requireEnv("NAME")`,
+  `getSecretValue("name")`. One word must say that it looks something up, or where: `get`,
+  `getenv`, `read`, `load`, `fetch`, `require`, `lookup`, `resolve`, `find`, `must`, `env`,
+  `config`, `setting`, `param`, `header`, `query`, `option`, `property` and a few like
+  them. Every other word may only say what comes back, from where, or what happens when it
+  is missing: `secret`, `password`, `key`, `token`, `value`, `string`, `or`, `throw`,
+  `vault`, `from` and the like. Any other word means the call may use what it is given, so
+  `getPasswordHash("...")` and `builder.withConfig("...")` hold values. A later argument
+  is what the field gets when the lookup finds nothing, and it counts.
+- **The text of an error.** A call whose name has `error`, `fail`, `panic`, `throw`,
+  `exception` or a word like them, and `requireNonNull` and its relatives, stop the
+  program, so their strings are messages.
+- **A field of an object passed as an argument,** as in `createClient({ url: "..." })`.
+
+So a literal handed to a call that hashes, encodes or wraps it is still the literal:
+a field named `password` given `argon2.hashSync("...")` or `encoder.encode("...")` is
+refused, and so is an operand after `||`, `??`, `?:` or `+`, and the argument of a call
+that supplies a default (`orElse`, `getOrElse`, `unwrapOr`, `default`, `defaultValue`,
+`withDefault`, `fallback`). The expression ends at a comma, a semicolon or a closing
+bracket it did not open. It ends at the end of a line only when the line ends with an
+operand and the next line of code begins something new: a name, or a closing bracket. Any
+operator at either place carries it on, written as a sign or as a word such as `in` or
+`instanceof`, and so does anything the reader cannot place, because reading on can only
+refuse more. In SQL it also ends at the next keyword.
+A comma or a line break between type arguments, as in `derive<A, B>("...")`, is not an
+end.
+
+This reading is narrow on purpose. A file, or one match in it, keeps the strict text rules
+whenever it is not clear that the words are code:
+
+- The file does not read cleanly: a string or a comment is never closed, a quoted string
+  runs past the end of its line, or a SQL file holds a backslash before a quote, which
+  dialects read differently. In SQL and Kotlin a block comment can hold another one, and
+  is read to the end of the outer one.
+- A script holds a closing or self-closing tag. The text between two tags is not quoted,
+  so `.jsx` and `.tsx` files are not read this way at all.
+- In a SQL file, the words are in the rows after `COPY ... FROM stdin`, in a client command
+  such as `\connect`, or in a dollar-quoted string, whatever its tag (`$$`, `$body$`,
+  `$q1$`). A dollar-quoted body after `AS` or `DO` is a function or a block, and is read as
+  code.
+- The words are inside a regular expression. A slash starts one after an operator, an
+  opening bracket or a word such as `return`; after a name, a number, a string or a closing
+  bracket it is a division sign. Where one starts and does not end on its line within
+  1,000 characters, the whole file keeps the strict rules. As a second check, an odd
+  number of slashes in code before the label on its line keeps them for that match.
+- The label and a bare value are alone on their line outside every bracket. A settings
+  file saved under a code suffix reads the same. Code in front of the label on its line,
+  such as a keyword or the object the field belongs to, shows a program, and in SQL so
+  does a keyword earlier in the statement.
+- The expression has no end within 4,000 characters, or the file needs more work than the
+  screen allows one file.
+
+In any file read with its path, a quoted value that is exactly one expansion names a value
+kept elsewhere and is not refused: `${NAME}`, `${{ secrets.NAME }}`, `{{ name }}`,
+`$(NAME)` and `${provider:path}`. An expansion with a default written into it, such as
+`${NAME:-word}`, and an expansion with anything beside it are literals; an empty default,
+`${NAME:-}`, holds nothing and is a reference. A dollar and a name without braces, and
+`$(...)` around anything but a name, are references only inside double quotes in a shell
+script (`.sh`, `.bash`, `.zsh`, `.ksh`), where the shell always expands them. Anywhere
+else a password can be spelled that way. A substitution that holds `echo`, `printf` or a
+here-string prints its own words, and one that holds an expansion with a default carries
+that default: both are literals.
+
+In a YAML file, a key on the line after a credential-named key starts a mapping and is not
+a value, as in `github_token:` followed by `description:`. Inside a block scalar the same
+lines are text, and keep the strict rules, with or without a tag or an anchor before the
+`|` or `>`.
+
+Text read without a path keeps the strict rules: a file name, a setting, policy text and
+everything a model returns.
+
 Credential key screening requires a credential word in the label: secret,
 private, signing, encryption, access, client, master, auth or api, optionally
 followed by access and then key (underscore/hyphen separators are supported).
@@ -85,17 +170,96 @@ screening each complete post-image with its path, before any target worktree
 mutation. Rollback screens the original and current file with their Python paths
 when an active policy is supplied. Approval, head, scope and recovery checks remain.
 
+Review output may also repeat a reference from the screened source: the label, the
+separator and the complete value exactly as they stand there, and after them what follows
+on the same source line, such as the brackets of a call. The quote must be a whole
+operand: one that ends with an operator is refused, and so is one that stops inside a
+bracket or a string it opened, as the first line of a call that goes on over the next
+does. And it must end its expression, in one of two shapes:
+
+- **In prose, a code span:** a backtick just before the label and one just after the
+  quote. After the span, only plain prose may stand to the end of its clause. The clause
+  ends at the first comma or semicolon outside the brackets opened on the way, at the
+  first closing bracket that nothing opened, or with the reply. Plain prose holds nothing
+  that can begin a string, a comment or type arguments, and no long number: no quote
+  mark, backtick, slash, backslash, hash sign, double dash or `<`, no dollar tag such as
+  `$$` that opens a string in SQL, and no number of 12 or more characters, counted with
+  the point it may begin with. So no literal can follow the quote, whatever sign or word stands
+  before it, and nothing can hide where the clause ends. Two things with a backtick are
+  plain: a code span of fewer than 12 characters with no escape, quote mark, dollar or
+  brace in it, and a span that holds another permitted quote. Short spans with only
+  space between them count together, as strings that stand side by side do in source. A
+  clause with no end within 4,000 characters is refused.
+- **In code, the end of its line:** nothing after the quote but a comma or a semicolon.
+  Without one, the next line that holds code must begin something new: a name that is no
+  operator, a closing bracket, a quoted key, or the end of a fenced block. A word that
+  carries an expression on in source, such as `else` or `instanceof`, does so here.
+
+Nothing after the quote on its line may hold a quote mark or an equals sign. The same
+label with any other value, or with a literal added after it in quote marks, in backticks
+or as a number, on the same line or the next, is refused as before. So is a quote outside
+a code span with prose after it on its line: what follows cannot be told from code.
+
+A refusal names its rule, and for a file's content the version (`base` or `head`) and up
+to 20 line numbers, in local output only: under `local` in the error that `plan` prints,
+and in the path rows of both `doctor` reports. It never holds the value. The rules are
+`credential_label`, `account_label`, `private_key_block`, `github_token`,
+`aws_access_key_id`, `sk_prefixed_key` and `nine_digit_identifier`.
+
 Known limits of the text rules, which are no longer extended:
 
 - A typed assignment in non-Python text, such as `password: str = "..."` in a
   Markdown code block, is not detected.
 - A credential-named label followed by a digit-bearing type name, such as
-  `signing_key` annotated `Ed25519PrivateKey`, is refused in Markdown, YAML,
-  TypeScript or Kotlin.
+  `signing_key` annotated `Ed25519PrivateKey`, is refused in Markdown and YAML.
 - Digit-free all-caps unquoted values resemble constants and are not detected.
 - Labels outside the vocabulary (for example `auth_token` or `pwd`) and values
   shorter than the threshold are not detected.
 - Values split across lines, encoded or built at runtime are not detected.
+
+Known limits of reading a file as its language, each listed with its reason in
+`tests/credential_cases.py` and tested as it behaves today:
+
+- A string argument counts as a value unless the call's name says it looks something up
+  or raises an error. So a usage text, or a name given to a lookup the words above do not
+  cover, is refused: `flags.String("name", "", "the credential used for the database")`,
+  `loadTenantSecret("billing/jwt-signing-key")`.
+- Outside a shell script, a quoted `$NAME` without braces is refused. Inside one, a
+  command substitution that holds an expansion with a default is refused.
+- A comparison written with `<` after a name, before a comma, reads on past the comma, so
+  a literal in the next field can refuse the line.
+- SQL comments are read as nesting, which PostgreSQL does and MySQL does not.
+- A reply that repeats a reference whose expression goes on over the next line is refused.
+  So is one that quotes a reference outside a code span with more text on its line, or
+  with a bullet, a number or an opening bracket at the start of the next.
+- After a quoted code span, a reply is refused when anything but plain prose stands before
+  the next comma, semicolon or closing bracket: a longer code span, a fenced block, a
+  quotation mark or an apostrophe, a path or a link with a slash, a heading, the rule of
+  a table, a comparison written with `<`, or a long number. A full stop does not end the
+  clause. So a sentence that names the reference and then a file in a second code span
+  is refused, and the same sentence with a comma before the file is not.
+- A reply that repeats a reference whose rest holds a regular expression with a quote mark
+  in it is refused.
+- In Kotlin, an infix call on the next line inside brackets is not read as part of the
+  expression, so a literal it is given is not seen.
+- A statement that ends its line with something other than an operand is read on into the
+  next line, so a literal there can refuse it.
+- A reference in a `.jsx` or `.tsx` file, or in a script that holds markup, is refused.
+- The name of a stored secret written as a plain YAML scalar is refused when its key ends
+  in a credential word, as Helm's `existingSecret` does: a password is a plain scalar too.
+- A quoted value with an expansion and other text, such as `"prefix-${NAME}"`, is refused.
+- A literal in backticks is not detected, and neither is a literal after a short
+  expression: the label rules need 12 value characters after the separator, so
+  `env.DB || "..."` is not read. A literal that follows a label without a separator, as
+  in SQL's `PASSWORD '...'`, is not detected.
+- Inside a block of a script an unquoted value is an expression whatever it spells. A
+  settings line with a dotted name saved under a code suffix reads as code, and so does
+  a regular expression that directly follows a closing bracket when an even number of
+  slashes stands before it on its line.
+- A literal passes when it is the first string of a call whose name is made of lookup
+  words, or stands in brackets after such a name; when it is a field of an object passed
+  as an argument; and in a shell script when a command substitution other than `echo`,
+  `printf` or a here-string prints it.
 
 Known limits of the Python check: values computed at runtime (concatenation,
 variables and calls other than the two fallback forms above) are not literals and

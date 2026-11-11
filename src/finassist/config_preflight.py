@@ -23,7 +23,7 @@ from .review import review_schema, spend_estimate
 from .forbidden_tokens import screen_source
 from .scope import (_private_name, build_packet, config_token_guard, git, omission_for, omission_reason, read_sides,
                     resolve)
-from .security import canonical, check_text, local_name, regular_path
+from .security import canonical, check_text, local_name, refusal_location, regular_path
 
 _EXAMPLES = 20  # Example names kept per grouped blocker.
 _LEFT_OUT = frozenset({"unsupported_file_type", "file_limit_exceeded", "non_text_blob"})  # Reasons the setting adds.
@@ -180,7 +180,7 @@ class _ConfigPreflight:
                 exc, reason = special, None
             if reason is not None:
                 return {**row, "status": "omitted", "reason": reason}
-            return {**row, "status": "refused", "code": exc.code, **exc.public_details}
+            return {**row, "status": "refused", "code": exc.code, **exc.public_details, **refusal_location(exc)}
         return {**row, "status": "included"}
 
     def _provider(self, packet: dict | None) -> None:

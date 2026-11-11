@@ -32,7 +32,7 @@ from .review import review_schema, spend_estimate
 from .error_hints import error_fields
 from .scope import WITHHELD_REASON, git, omission_for, read_entry, read_sides, require_regular, resolve
 from .security import (TEXT_FIXTURE_SUFFIXES, canonical, local_name, check_fixture_private, check_path,
-                       check_text, digest, regular_path)
+                       check_text, digest, refusal_location, regular_path)
 
 HINTS = {
     "invalid_revision": "Pass a commit that exists in this repository.",
@@ -554,7 +554,7 @@ class _Preflight:
                     exc = special
             if reason is not None:
                 return {**row, "status": "omitted", "reason": reason}  # A version too large, or not UTF-8 text.
-            refused = {**row, "status": "refused", "code": exc.code, **exc.public_details}
+            refused = {**row, "status": "refused", "code": exc.code, **exc.public_details, **refusal_location(exc)}
             if exc.code == "private_or_binary_path":
                 refused["hint"] = _format_hint(path)
             return refused

@@ -18,6 +18,8 @@ import sys
 import tokenize
 import warnings
 
+from .code_text import is_expansion
+
 PYTHON_SUFFIXES = frozenset({".py", ".pyi"})
 # Comment and string text is still screened with the ordinary text rules.
 _TEXT_TOKENS = frozenset({"STRING", "COMMENT", "FSTRING_MIDDLE", "TSTRING_MIDDLE"})
@@ -263,7 +265,12 @@ class PythonScreen:
     """What the screen needs from one parsed Python file; never serialized."""
 
     text_segments: tuple[str, ...]
-    credential_literal: bool
+    segment_lines: tuple[int, ...]  # the line each text segment starts on
+    credential_hits: tuple[tuple[int, str], ...]  # (line, kind) of each credential-named literal
+
+    @property
+    def credential_literal(self) -> bool:
+        return bool(self.credential_hits)
 
 
 def python_screen(text: str) -> PythonScreen | None:
@@ -273,7 +280,9 @@ def python_screen(text: str) -> PythonScreen | None:
     tree = python_tree(normalized) if tokens is not None else None
     if tree is None:
         return None
-    return PythonScreen(tuple(text_segments(tokens)), credential_literal_present(tree, normalized))
+    segments = [token for token in tokens if tokenize.tok_name.get(token.type) in _TEXT_TOKENS]
+    return PythonScreen(tuple(token.string for token in segments), tuple(token.start[0] for token in segments),
+                        tuple(credential_literals(tree, normalized)))
 
 
 def _label_kind(name: str) -> str | None:
@@ -384,9 +393,14 @@ def _is_account_value(node: ast.AST, index: _SourceIndex) -> bool:
     return text is not None and re.match(r"\d{6,}", text.replace("_", "")) is not None
 
 
-def credential_literal_present(tree: ast.AST, source: str) -> bool:
-    """True when a credential-named target is given a literal value."""
+def credential_literals(tree: ast.AST, source: str) -> list[tuple[int, str]]:
+    """(line, kind) of every credential-named target given a literal value, in line order.
+
+    A literal that is one variable expansion, such as "${NAME}", names a value kept elsewhere
+    and is not counted.
+    """
     index = _SourceIndex(source)
+    found = set()
     for name, node in _labelled_values(tree):
         kind = _label_kind(name)
         if kind is None:
@@ -396,9 +410,14 @@ def credential_literal_present(tree: ast.AST, source: str) -> bool:
             continue
         if kind == "account":
             if _is_account_value(value, index):
-                return True
+                found.add((value.lineno, kind))
             continue
         text = _value_text(value, index)
-        if text is not None and len(text) >= _MIN_SECRET_LENGTH:
-            return True
-    return False
+        if text is not None and len(text) >= _MIN_SECRET_LENGTH and not is_expansion(text):
+            found.add((value.lineno, kind))
+    return sorted(found)
+
+
+def credential_literal_present(tree: ast.AST, source: str) -> bool:
+    """True when a credential-named target is given a literal value."""
+    return bool(credential_literals(tree, source))
