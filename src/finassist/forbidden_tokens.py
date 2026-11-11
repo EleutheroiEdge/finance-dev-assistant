@@ -15,7 +15,7 @@ import tokenize
 import unicodedata
 
 from .errors import AssistantError
-from .python_source import (MAX_FIGURE_DIGITS, fstring_constant_texts, hidden_fstring_fields, is_python_path,
+from .python_source import (MAX_FIGURE_DIGITS, SOURCE_ERRORS, fstring_constant_texts, hidden_fstring_fields, is_python_path,
                             number_text, python_tokens, python_tree, string_constant_values,
                             strings_read_differently)
 from .security import regular_path
@@ -402,7 +402,7 @@ def _line_numbers(line: str) -> list[str | None]:
     try:
         for token in tokenize.generate_tokens(io.StringIO(line + "\n").readline):
             tokens.append(token)
-    except (tokenize.TokenError, IndentationError, SyntaxError):
+    except SOURCE_ERRORS:
         pass
     found = [number_text(token.string) for token in tokens if token.type == tokenize.NUMBER]
     if hidden_fstring_fields(tokens):

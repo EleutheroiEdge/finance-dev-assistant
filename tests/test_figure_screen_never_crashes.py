@@ -1,4 +1,4 @@
-"""The figure screen answers every text with a pass or its own refusal, never another error.
+"""The screens answer every text with a pass or their own refusal, never another error.
 
 Every figure and text here is made up.
 """
@@ -10,6 +10,8 @@ import pytest
 
 from finassist.errors import AssistantError
 from finassist.forbidden_tokens import TokenSnapshot, screen_source, screen_text
+from finassist.python_source import python_tokens, python_tree
+from finassist.security import check_text
 
 BACKSLASH = chr(92)
 SNAPSHOT = TokenSnapshot(frozenset({hashlib.sha256(b"48213.57").hexdigest()}))
@@ -45,3 +47,17 @@ def test_random_text_gets_a_pass_or_a_refusal_never_another_error(seed):
                 screen_source(text, path, SNAPSHOT) if path else screen_text(text, SNAPSHOT)
             except AssistantError as refusal:
                 assert refusal.code in REFUSALS, (refusal.code, path)
+            try:  # The credential screen reads the same text first, on every route.
+                check_text(text, source_path=path)
+            except AssistantError:
+                pass
+
+
+def test_a_nul_character_after_an_open_string_is_not_python_on_any_version():
+    # CPython 3.12's tokenizer raises SystemError here, where other versions raise SyntaxError.
+    text = "TOTAL = '''" + chr(0) + "= 1"
+    assert python_tokens(text) is None and python_tree(text) is None
+    with pytest.raises(AssistantError, match="^forbidden_token_python_unreadable$"):
+        screen_source(text, "module.py", SNAPSHOT)
+    with pytest.raises(AssistantError):
+        check_text(text, source_path="module.py")
