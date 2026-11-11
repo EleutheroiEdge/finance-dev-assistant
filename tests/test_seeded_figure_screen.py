@@ -74,10 +74,7 @@ def test_numbers_split_by_plain_commas_are_separate_numbers(repository):
 
 
 def test_a_control_figure_that_is_in_a_file_is_a_collision_not_a_false_alarm(repository, capsys):
-    import random
-
-    generator = random.Random(7)
-    figure = f"{generator.randrange(100_000, 99_999_999)}.{generator.randrange(100):02d}"  # The first control for seed 7.
+    figure = seeded.control_figures(7)[0]
     repo, _base, _head = repository
     _change(repo, {"src/cash.py": f"CONTROL = {figure}\n"})
     code, shown = _run(capsys, repo, "--seed", "7")
@@ -110,3 +107,54 @@ def test_a_missing_repository_is_reported_without_its_path(tmp_path, capsys):
     assert seeded.main([str(missing)]) == 2
     shown = capsys.readouterr().out
     assert "repository 1: INCOMPLETE" in shown and "private-name" not in shown
+
+
+def test_no_control_figure_ends_in_a_zero():
+    figures = seeded.control_figures(20261110)
+    assert len(figures) == 1000 and len(set(figures)) > 990
+    assert all(len(figure.split(".")[1]) == 2 and figure[-1] != "0" and figure[0] != "0" for figure in figures)
+
+
+def _grouped(figure: str, separator: str) -> str:
+    whole, fraction = figure.split(".")
+    head = len(whole) % 3 or 3
+    return separator.join([whole[:head], *(whole[start:start + 3] for start in range(head, len(whole), 3))]) + "." + fraction
+
+
+ESCAPED_SPACE = chr(92) + "u00a0"  # A no-break space as source text writes it.
+
+
+@pytest.mark.parametrize("respell", [
+    lambda figure: _grouped(figure, ","),
+    lambda figure: _grouped(figure, ESCAPED_SPACE),
+    lambda figure: _grouped(figure, "&nbsp;"),
+    lambda figure: figure.replace(".", "") + "e-2",
+    lambda figure: figure + "000",
+    lambda figure: "".join(chr(0xFF10 + int(c)) if c.isdigit() else c for c in figure),   # fullwidth digits
+    lambda figure: "".join(chr(0x0660 + int(c)) if c.isdigit() else c for c in figure),   # Arabic-Indic digits
+])
+def test_a_control_figure_in_any_spelling_is_a_collision(repository, capsys, monkeypatch, respell):
+    repo, _base, _head = repository
+    _change(repo, {"src/control.py": "CONTROL = '" + respell(seeded.control_figures(7)[0]) + "'\n"})
+    # Whatever the screen makes of the spelling, a refusal here is explained by the file, not a false alarm.
+    monkeypatch.setattr(seeded, "outcome", lambda text, path, snapshot: "forbidden_token_present")
+    code, shown = _run(capsys, repo, "--seed", "7")
+    assert code == 2 and "'control_collisions': 1" in shown and "false_alarms" not in shown
+
+
+def test_an_added_line_that_starts_with_two_plus_signs_is_read(repository, capsys, monkeypatch):
+    repo, base, _head = repository
+    _change(repo, {"src/counter.ts": "let counter = 0;\n++counter; // 48213.57\n"})
+    assert seeded.added_numbers(repo, base, command(repo, "rev-parse", "HEAD"), "src/counter.ts") == {"48213.57"}
+    code, shown = _run(capsys, repo)
+    assert code == 0 and "'seeded_refused': 1" in shown
+    monkeypatch.setattr(seeded, "outcome", lambda text, path, snapshot: None)  # A screen that misses it fails the run.
+    code, shown = _run(capsys, repo)
+    assert code == 1 and "'seeded_missed': 1" in shown
+
+
+def test_a_history_shorter_than_asked_for_is_incomplete(repository, capsys):
+    repo, _base, _head = repository
+    assert seeded.main([str(repo), "--changes", "25", "--branch", "HEAD"]) == 2
+    shown = capsys.readouterr().out
+    assert "INCOMPLETE (history holds 1 of the 25 changes asked for)" in shown and str(repo) not in shown

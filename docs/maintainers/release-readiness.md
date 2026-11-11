@@ -127,11 +127,12 @@ repository: never a number, a line, a file name or a path.
 
 - **A private path is never read.** The seeded script decides by name, with the product's own
   path policy, before it diffs or opens a file, and counts what it leaves out.
-- **An incomplete run is not a measurement.** A missing repository or branch, a failed Git read
-  or a failed `init --detect` gives exit status 2, and the totals say how many repositories
-  were measured.
+- **An incomplete run is not a measurement.** A missing repository or branch, a failed Git read,
+  a failed `init --detect`, a `doctor` run that gives no report, or a history with fewer changes
+  than `--changes` asks for gives exit status 2, and the totals say how many repositories were
+  measured. A range that `doctor` refuses is a measurement.
 - **Raw output stays private.** `doctor` output, which names files, and the list of which number
   is which repository go to the output folder. The script creates that folder; it must not
-  exist yet and must be outside every repository.
+  exist yet and must be outside every repository. Give each repository by its root folder.
 - **To measure a wheel,** install it by hash into a fresh environment and run the scripts with
   that environment's interpreter (`--python` for the scenario script).

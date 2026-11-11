@@ -13,7 +13,8 @@ not exist yet and must be outside every repository. Keep it private.
     python scripts/first_run_scenarios.py --changes 25 --output /private/new-folder REPO [REPO ...]
 
 Exit status: 0 when every repository was measured in full; 2 when a repository, a branch, a Git
-read or `init --detect` failed, so the totals are not a whole measurement.
+read, `init --detect` or a `doctor` run failed, or a history holds fewer changes than asked for,
+so the totals are not a whole measurement. A range `doctor` refuses is a measurement, not a failure.
 """
 
 from __future__ import annotations
@@ -64,8 +65,19 @@ def doctor(command: list[str], arguments: list[str], cwd: Path, environment: dic
     done, seconds = finassist(command, arguments, cwd, environment)
     try:
         report = json.loads(done.stdout.splitlines()[-1])
+        if not isinstance(report, dict) or not isinstance(report.get("status"), str):
+            raise ValueError
     except (ValueError, IndexError):
-        return {"status": "error", "blockers": ["no_report_exit_%d" % done.returncode], "paths": {}, "seconds": seconds}
+        # No report. A refusal the product states is still a measurement: exit status 2 with its
+        # error document. Anything else is a failed run, and counting it would hide the failure.
+        try:
+            refusal = json.loads(done.stderr.splitlines()[-1])
+            code = refusal["code"]
+            if done.returncode != 2 or not isinstance(code, str):
+                raise ValueError
+        except (ValueError, IndexError, KeyError, TypeError):
+            raise Incomplete("doctor gave no report") from None
+        return {"status": "refused", "blockers": [code], "paths": {}, "seconds": seconds}
     paths = collections.Counter("%s:%s" % (row.get("status"), row.get("code") or row.get("reason") or "")
                                 for row in report.get("paths", []))
     return {"status": report.get("status"), "blockers": sorted({item.get("code") for item in report.get("blockers", [])}),
@@ -80,8 +92,8 @@ def scenario(command: list[str], label: str, repo: Path, branch: str, changes: i
         parents = git(repo, "rev-list", "--parents", "-n", "1", commit).split()[1:]
         if parents:
             ranges.append((parents[0], commit))
-    if not ranges:
-        raise Incomplete("no changes")
+    if len(ranges) < changes:  # A short or shallow history: fewer ranges than the totals would claim.
+        raise Incomplete(f"history holds {len(ranges)} of the {changes} changes asked for")
     done, seconds = finassist(command, ["init", "--detect", "--repo", str(repo), "--revision", ranges[0][0], *PROVIDER],
                               output, environment)
     try:
@@ -145,6 +157,13 @@ def main(argv: list[str] | None = None) -> int:
     repositories = [path.resolve() for path in args.repositories]
     if len(set(repositories)) != len(repositories):
         parser.error("a repository is listed twice")
+    for repo in repositories:
+        # Git reads a repository from any folder inside it, so the folder given must be its root:
+        # otherwise --output could sit inside the repository and still pass the check below.
+        found = subprocess.run(["git", "-C", str(repo), "rev-parse", "--show-toplevel"], capture_output=True,
+                               text=True, check=False)
+        if found.returncode == 0 and Path(found.stdout.strip()).resolve() != repo:
+            parser.error("give each repository by its root folder")
     if any(output == repo or repo in output.parents for repo in repositories):
         parser.error("--output must be outside every repository")
     try:

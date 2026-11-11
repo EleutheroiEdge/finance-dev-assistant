@@ -3,6 +3,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import sys
 
 import pytest
@@ -95,3 +96,54 @@ def test_an_incomplete_measurement_never_exits_zero(repository, tmp_path, capsys
     assert shown.count("INCOMPLETE") == 2 and "repositories measured: 0 | incomplete: 2" in shown
     assert "private-name" not in shown and str(repo) not in shown
     assert set(json.loads((output / "summary.json").read_text(encoding="utf-8"))) == {"repository-1", "repository-2"}
+
+
+def _doctor_answers(monkeypatch, answer, at: int):
+    """Replace the `at`-th doctor run's result with `answer`; every other run is the real one."""
+    real, calls = scenarios.finassist, []
+
+    def wrapped(command, arguments, cwd, environment):
+        if "doctor" in arguments:
+            calls.append(arguments)
+            if len(calls) == at:
+                return subprocess.CompletedProcess(arguments, *answer), 0.0
+        return real(command, arguments, cwd, environment)
+
+    monkeypatch.setattr(scenarios, "finassist", wrapped)
+
+
+def test_a_doctor_run_with_no_report_makes_the_measurement_incomplete(repository, tmp_path, capsys, monkeypatch):
+    repo, _base, _head = repository
+    _history(repo)
+    # One crashed run among ranges that would otherwise all count.
+    _doctor_answers(monkeypatch, (1, "Traceback (most recent call last):\n", "synthetic crash\n"), at=2)
+    assert _main(str(repo), "--changes", "3", "--branch", "main", "--output", str(tmp_path / "out")) == 2
+    shown = capsys.readouterr().out
+    assert "INCOMPLETE (doctor gave no report)" in shown and "repositories measured: 0 | incomplete: 1" in shown
+    assert "ALL " not in shown
+
+
+def test_a_refusal_the_product_states_is_a_measurement(repository, tmp_path, capsys, monkeypatch):
+    repo, _base, _head = repository
+    _history(repo)
+    _doctor_answers(monkeypatch, (2, "", '{"code": "synthetic_refusal"}\n'), at=1)
+    output = tmp_path / "out"
+    assert _main(str(repo), "--changes", "3", "--branch", "main", "--output", str(output)) == 0
+    config = json.loads((output / "summary.json").read_text(encoding="utf-8"))["repository-1"]["variants"]["config"]
+    assert config["blockers"]["synthetic_refusal"] == 1 and config["ready_but_for_authorization"] == 1
+
+
+def test_a_history_shorter_than_asked_for_is_incomplete(repository, tmp_path, capsys):
+    repo, _base, _head = repository
+    _history(repo)  # Five commits: four changes with a parent.
+    assert _main(str(repo), "--changes", "25", "--branch", "main", "--output", str(tmp_path / "out")) == 2
+    shown = capsys.readouterr().out
+    assert "INCOMPLETE (history holds 4 of the 25 changes asked for)" in shown
+    assert "repositories measured: 0 | incomplete: 1" in shown
+
+
+def test_a_folder_inside_a_repository_is_not_taken_for_its_root(repository, tmp_path):
+    repo, _base, _head = repository
+    # Git would read the repository from src/, and results/ is outside src/ yet inside the repository.
+    assert _main(str(repo / "src"), "--output", str(repo / "results")) == 2 and not (repo / "results").exists()
+    assert _main(str(repo / "src"), "--output", str(tmp_path / "out")) == 2 and not (tmp_path / "out").exists()
