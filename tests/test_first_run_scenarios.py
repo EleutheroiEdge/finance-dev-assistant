@@ -219,3 +219,25 @@ def test_a_tip_a_repository_does_not_hold_is_incomplete_and_pins_nothing(reposit
     assert _main(str(repo), "--tips", str(tips), "--output", str(output)) == 2
     shown = capsys.readouterr().out
     assert "INCOMPLETE" in shown and "reference set:" not in shown and not (output / "tips.txt").exists()
+
+
+def test_no_git_command_of_a_measurement_may_take_the_optional_lock(repository, tmp_path, monkeypatch):
+    repo, _base, _head = repository
+    _history(repo)
+    real_run, real_finassist, seen = subprocess.run, scenarios.finassist, []
+
+    def run(command, **options):
+        if command[0] == "git":
+            seen.append(("git", options.get("env", {}).get("GIT_OPTIONAL_LOCKS")))
+        return real_run(command, **options)
+
+    def finassist(command, arguments, cwd, environment):
+        seen.append(("finassist", environment.get("GIT_OPTIONAL_LOCKS")))
+        return real_finassist(command, arguments, cwd, environment)
+
+    monkeypatch.setattr(scenarios.subprocess, "run", run)
+    monkeypatch.setattr(scenarios, "finassist", finassist)
+    assert _main(str(repo), "--changes", "2", "--branch", "main", "--output", str(tmp_path / "out")) == 0
+    kinds = {kind for kind, _value in seen}
+    # The script's own Git reads, and every run of the product, which reads the repository with Git too.
+    assert kinds == {"git", "finassist"} and {value for _kind, value in seen} == {"0"}

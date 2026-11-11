@@ -241,3 +241,17 @@ def test_a_tip_the_repository_does_not_hold_is_incomplete(repository, tmp_path, 
     tips.write_text("0" * 40 + "\n", encoding="utf-8")
     code, shown = _run(capsys, repo, "--tips", str(tips))
     assert code == 2 and "INCOMPLETE" in shown and "reference set:" not in shown
+
+
+def test_no_git_command_here_may_take_the_optional_lock(repository, capsys, monkeypatch):
+    repo, _base, _head = repository
+    _change(repo, {"src/cash.py": "OPENING = 48_213.57\n"})
+    real_run, seen = seeded.subprocess.run, set()
+
+    def run(command, **options):
+        seen.add(options.get("env", {}).get("GIT_OPTIONAL_LOCKS"))
+        return real_run(command, **options)
+
+    monkeypatch.setattr(seeded.subprocess, "run", run)
+    code, _shown = _run(capsys, repo)
+    assert code == 0 and seen == {"0"}
