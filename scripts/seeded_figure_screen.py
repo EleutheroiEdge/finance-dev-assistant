@@ -77,13 +77,36 @@ def _escaped_character(match: re.Match) -> str:
         return match.group()
 
 
+_REFERENCE = re.compile(r"&#(?:[xX]([0-9a-fA-F]+)|([0-9]+));?")
+_NO_CHARACTER = chr(0xFFFD)
+
+
+def _referenced_character(match: re.Match) -> str:
+    """The character a numeric reference names, or the replacement character when it names none.
+
+    Read here, not by html.unescape: that converts the digits with int(), which refuses a number
+    of more than 4,300 digits. Leading zeros are dropped first, and a number with more digits
+    than any code point has names none.
+    """
+    digits, base = (match.group(1), 16) if match.group(1) else (match.group(2), 10)
+    digits = digits.lstrip("0") or "0"
+    if len(digits) > 7:
+        return _NO_CHARACTER
+    number = int(digits, base)
+    return chr(number) if number <= 0x10FFFF and not 0xD800 <= number <= 0xDFFF else _NO_CHARACTER
+
+
 def digit_lines(text: str) -> list[str]:
     """Each line's digits alone, as ASCII, read as written and with escapes and entities spelled out.
 
     This is the independent check for a control figure. It parses no notation: a figure is in a
-    file when its digits occur in order on one line, whatever separates or decorates them.
+    file when its digits occur in order on one line, whatever separates or decorates them. If the
+    text cannot be spelled out, the measurement is incomplete: it is never taken to hold no control.
     """
-    spelled = html.unescape(_ESCAPE.sub(_escaped_character, text))
+    try:
+        spelled = html.unescape(_REFERENCE.sub(_referenced_character, _ESCAPE.sub(_escaped_character, text)))
+    except (ValueError, OverflowError):
+        raise Incomplete("a file could not be decoded for the collision check") from None
     return ["".join(str(unicodedata.decimal(character)) for character in line if character.isdecimal())
             for line in {*text.splitlines(), *spelled.splitlines()}]
 

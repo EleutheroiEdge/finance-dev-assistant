@@ -135,6 +135,10 @@ ESCAPED_SPACE = chr(92) + "u00a0"  # A no-break space as source text writes it.
     # Every digit as a four-digit and as an eight-digit character escape.
     lambda figure: "".join(chr(92) + "u00" + format(ord(c), "x") if c.isdigit() else c for c in figure),
     lambda figure: "".join(chr(92) + "U000000" + format(ord(c), "x") if c.isdigit() else c for c in figure),
+    # Beside, and written with, numeric references longer than Python will convert to an integer.
+    lambda figure: "&#" + "9" * 5000 + "; " + figure + " &#x" + "F" * 5000,
+    lambda figure: "".join("&#" + "0" * 5000 + str(ord(c)) + ";" if c.isdigit() else c for c in figure),
+    lambda figure: "".join("&#x" + "0" * 5000 + format(ord(c), "x") + ";" if c.isdigit() else c for c in figure),
 ])
 def test_a_control_figure_in_any_spelling_is_a_collision(repository, capsys, monkeypatch, respell):
     repo, _base, _head = repository
@@ -168,3 +172,27 @@ def test_a_history_shorter_than_asked_for_is_incomplete(repository, capsys):
     assert seeded.main([str(repo), "--changes", "25", "--branch", "HEAD"]) == 2
     shown = capsys.readouterr().out
     assert "INCOMPLETE (history holds 1 of the 25 changes asked for)" in shown and str(repo) not in shown
+
+
+def test_a_reference_too_long_to_convert_is_read_not_raised():
+    # Each line is read twice: its digits as written, and as spelled out. The spelled view is the second here.
+    assert sorted(seeded.digit_lines("&#" + "9" * 5000 + "; total 12"), key=len) == ["12", "9" * 5000 + "12"]
+    # Leading zeros never change the character a reference names.
+    assert "123" in seeded.digit_lines("&#" + "0" * 5000 + "49;&#x" + "0" * 5000 + "32; 3")
+    # A surrogate, and a number past the last code point, name no character.
+    assert "7" in seeded.digit_lines("&#xD800;&#1114112;&#55296; 7")
+
+
+def test_a_file_that_cannot_be_decoded_makes_the_measurement_incomplete(repository, capsys, monkeypatch):
+    repo, _base, _head = repository
+    _change(repo, {"src/control.py": "CONTROL = '" + seeded.control_figures(7)[0] + "'\n"})
+    monkeypatch.setattr(seeded, "outcome", lambda text, path, snapshot: "forbidden_token_present")
+
+    def failing(_text):
+        raise ValueError("synthetic decoder failure")
+
+    monkeypatch.setattr(seeded.html, "unescape", failing)
+    code, shown = _run(capsys, repo, "--seed", "7")
+    # Not a collision that was proved, and never a false alarm or a clean run.
+    assert code == 2 and "INCOMPLETE (a file could not be decoded for the collision check)" in shown
+    assert "false_alarms" not in shown and "repositories incomplete: 1" in shown
