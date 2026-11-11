@@ -190,8 +190,8 @@ _GAP_CLASS = {
 _MARKS = (".", ",")
 _GROUP_CLASSES = frozenset(". ,'")
 _LEADING_POINTS = ".\uff0e"
-# Inside a longer row of three-digit groups, readings up to this many groups are tried from each
-# start, and the longest one. Eight groups past the first is 27 digits.
+# Inside a row of three-digit groups, a start after the row's first run is read up to this many
+# groups past its own: 27 digits. The first run is read at every length.
 _GROUPS_TRIED = 8
 # No reading reaches further than this many runs past its first: a whole part of at most
 # MAX_FIGURE_DIGITS + 1 runs, a fraction of as many, and an exponent.
@@ -220,7 +220,7 @@ def _readings(text: str):
 
     Leading zeros are dropped from each whole part, so padding never hides a value. Work is
     linear in the text and memory is bounded: runs are read through a sliding window, and
-    only the first run of a row of groups or of underscore-joined runs is read to its end.
+    only the first run of a row of groups or of underscore-joined runs is read at every length.
     """
     starts, digits, before, gaps, inner = [], [], [], [], []
 
@@ -234,8 +234,10 @@ def _readings(text: str):
     def with_exponent(whole: str, fraction: str, last: int):
         yield whole, fraction, 0
         gap = gaps[last]
-        if gap is not None and gap[0] == "e" and len(digits[last + 1]) <= 3:
-            yield whole, fraction, int(digits[last + 1]) * (-1 if gap[-1] == "-" else 1)
+        if gap is not None and gap[0] == "e":
+            power = digits[last + 1].lstrip("0")  # Zero padding never changes an exponent.
+            if len(power) <= 3:
+                yield whole, fraction, int(power or "0") * (-1 if gap[-1] == "-" else 1)
 
     def with_fraction(whole: str, last: int, separator: str | None, alone: bool):
         mark = gaps[last]
@@ -260,8 +262,8 @@ def _readings(text: str):
                 yield from with_fraction(whole, last, None, not fractional)
         separator = gaps[index]
         if separator in _GROUP_CLASSES and len(first) <= 3:
-            # Inside a row of groups a few readings are tried from each start; its first run
-            # is also read to the end of the row.
+            # A row's first run is read at every length, so a long figure that starts a row is
+            # found whatever follows it. From a later start only a few groups are tried.
             most = MAX_FIGURE_DIGITS if before[index] != separator else _GROUPS_TRIED
             whole, last, groups = first, index, 0
             while (gaps[last] == separator and len(digits[last + 1]) == 3 and groups < most
@@ -269,9 +271,6 @@ def _readings(text: str):
                 last += 1
                 whole = (whole + digits[last]).lstrip("0")
                 groups += 1
-                if groups <= _GROUPS_TRIED:
-                    yield from with_fraction(whole, last, separator, True)
-            if groups > _GROUPS_TRIED:
                 yield from with_fraction(whole, last, separator, True)
         start = starts[index]
         if start and text[start - 1] in _LEADING_POINTS and not fractional:
