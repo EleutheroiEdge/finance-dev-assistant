@@ -25,6 +25,13 @@ HIDDEN = [
     (FULLWIDTH_STOP + "secrets/notes.py", "private_path"),
     (".node_modules/pkg/index.js", "private_path"),
     ("..git/hooks.py", "private_path"),
+    # The environment family is a prefix rule, so it needs the same reading of leading dots.
+    ("..env/settings.py", "private_path"),
+    ("..env.local/config.py", "private_path"),
+    (".github/..env.local/config.py", "private_path"),
+    ("src/...env.production", "private_path"),
+    ("src/..envrc.py", "private_path"),
+    (FULLWIDTH_STOP + ".env.local/config.py", "private_path"),
     (".github/.data/rows.py", "gate_private_path"),
     (".private/notes.md", "gate_private_path"),
     ("src/.client/notes.py", "gate_private_path"),
@@ -35,6 +42,7 @@ HIDDEN = [
 # Names that only resemble a private one, or sit beside a credential store. Each stays reviewable.
 UNCHANGED = [
     "src/aws/s3.py", "env/settings.py", "git/hooks.py", "ssh/keys.py", "azure/pipelines.yml", "venv/tool.py",
+    "environment/settings.py", "src/env.local/config.py", "docs/env.production.md", "src/a..env/config.py",
     "docker/config.json", ".docker/compose.yml", ".docker/daemon.json", "config/gh/hosts.yml",
     ".config/nextest.toml", ".config/dotnet-tools.json", ".config/git/ignore.txt", ".cargo/config.toml",
     "src/netrc.py", "src/kube/config.py", ".github/workflows/ci.yml", ".secrets.baseline.json",
