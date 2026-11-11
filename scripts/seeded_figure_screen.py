@@ -71,7 +71,9 @@ def control_figures(seed: int, count: int = 1000) -> list[str]:
 def _escaped_character(match: re.Match) -> str:
     try:
         return chr(int(match.group(1) or match.group(2) or match.group(3), 16))
-    except ValueError:  # Past the last code point: not a character, so it stays as written.
+    except (ValueError, OverflowError):
+        # Past the last code point: not a character, so it stays as written. Before Python 3.13,
+        # chr() raises OverflowError, not ValueError, for a number of 2**31 or more.
         return match.group()
 
 
