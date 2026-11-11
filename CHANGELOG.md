@@ -91,6 +91,15 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 Nothing else about what a gate accepts, authorizes or spends has changed.
 
 ### Fixed
+- **The configuration that `init --detect` drafts can pay for the packet limit it proposes.** The
+  draft raises `max_packet_bytes` to fit the largest recent change, and it kept the default budget
+  of USD 1 a run. With prices stated, a change near that limit was then refused with
+  `run_budget_exceeded` by the very draft that had made room for it. The gate policy draft already
+  set its budget to one request at its limit. The configuration draft now does the same, by the
+  configuration route's own arithmetic: `max_run_usd`, and `daily_budget_usd` and
+  `monthly_budget_usd` where they would be too small, appear in the proposal only when the budget
+  you have is not enough, with a `budget_raised_for_packet_limit` warning that states the amounts.
+  A budget is never lowered, and without a provider, a model and both prices nothing is proposed.
 - **A gate range that changed only withheld files was refused with the wrong code.** It reported
   `gate_ignore_check_unavailable`; it now reports `review_scope_entirely_withheld`.
 - **On macOS a check could fail with `PermissionError` when its command exited as the runner stopped

@@ -80,7 +80,11 @@ finassist init --detect --purpose quant --write --output finassist.json
     the next by two; the evidence lists the words. Otherwise the default is kept and
     `purpose_not_stated` warns;
   - `max_file_bytes`: fitted to the largest reviewed source file;
-  - `max_packet_bytes`: enough for one file's change and for the largest recent change.
+  - `max_packet_bytes`: enough for one file's change and for the largest recent change;
+  - `max_run_usd`, `daily_budget_usd` and `monthly_budget_usd`, only when you pass a provider, a
+    model and both prices and the budget you have is too small for one request at the proposed
+    `max_packet_bytes`. The reserve is worked out as the configuration route works it out, and the
+    proposal warns with `budget_raised_for_packet_limit` and the amounts. A budget is never lowered.
 
   Its gate policy draft is a whole version-2 policy, apart from the choices that are yours:
   - `max_request_bytes`, `max_files`, `max_output_tokens`, `timeout_seconds` and `blocking_severities`;
