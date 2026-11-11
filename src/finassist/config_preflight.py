@@ -9,7 +9,7 @@ screening. Once its own checks pass it runs the real packet builder, so "ready" 
 plan builds this range's packet and review accepts it up to the provider call.
 """
 
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 import os
 from pathlib import Path
 
@@ -19,7 +19,7 @@ from .errors import AssistantError
 from .health import config_warnings
 from .onboarding import _shown_argument
 from .providers import request_payload
-from .review import review_schema, spend_estimate
+from .review import ENVELOPE_ALLOWANCE, reserved_usd, review_schema, spend_estimate
 from .forbidden_tokens import screen_source
 from .scope import (_private_name, build_packet, config_token_guard, git, omission_for, omission_reason, read_sides,
                     resolve)
@@ -240,3 +240,34 @@ def run_config_doctor(args, config: Config) -> int:
     report = config_preflight(args.repo, args.base, args.head, config, args.config)
     print(canonical(report).decode())
     return 0 if report["status"] == "ready" else 1
+
+
+# What the hash of a packet adds to it. The packet limit is checked before the hash is added, and the
+# reserve is worked out after.
+_PACKET_HASH_BYTES = len(canonical({"packet_hash": "0" * 64}))
+
+
+def budgets_for_the_packet_limit(proposed: Config) -> dict:
+    """The budgets a drafted configuration needs for one request at its own packet limit.
+
+    By this route's own arithmetic: it reserves the packet, the instructions and a fixed allowance
+    as input units, and every permitted output token. A draft that raises `max_packet_bytes` to
+    fit the largest recent change and keeps a smaller budget would refuse that change for its
+    cost. Only a budget that is too small is named, and none is lowered. With no provider, model
+    or prices there is nothing to work out, and nothing is invented.
+    """
+    prices = (proposed.input_usd_per_million, proposed.output_usd_per_million)
+    if (proposed.provider == "offline" or not proposed.model
+            or not (proposed.provider == "ollama" or all(value > 0 for value in prices))):
+        return {}
+    units = proposed.max_packet_bytes + _PACKET_HASH_BYTES + len(proposed.instructions().encode()) + ENVELOPE_ALLOWANCE
+    run = reserved_usd(units, proposed.max_output_tokens, *prices).quantize(Decimal("0.01"), rounding=ROUND_CEILING)
+    if run <= Decimal(str(proposed.max_run_usd)):
+        return {}
+    budgets = {"max_run_usd": float(run)}
+    daily = max(Decimal(str(proposed.daily_budget_usd)), 3 * run)  # as the gate policy draft does
+    if daily > Decimal(str(proposed.daily_budget_usd)):
+        budgets["daily_budget_usd"] = float(daily)
+    if daily > Decimal(str(proposed.monthly_budget_usd)):
+        budgets["monthly_budget_usd"] = float(daily)
+    return budgets
