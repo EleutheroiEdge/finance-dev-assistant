@@ -856,6 +856,7 @@ def run_init(args, config: Config) -> int:
     if not args.detect and any(getattr(args, name) not in (None, False) for name in _DETECT_ONLY):
         raise AssistantError("init_option_requires_detect")
     configured = _configured(args, config)
+    from .config_preflight import budgets_for_the_packet_limit
     from .health import config_warnings
 
     if not args.detect:
@@ -874,13 +875,21 @@ def run_init(args, config: Config) -> int:
                        generated_paths=tuple(detected["generated_paths"]),
                        protected_paths=tuple(detected["protected_paths"]),
                        max_file_bytes=detected["max_file_bytes"], max_packet_bytes=packet, profile=detected["profile"])
+    budgets = budgets_for_the_packet_limit(proposed)
+    proposed = replace(proposed, **budgets)
     proposed.validate()  # The proposal is checked by the same rules as a saved configuration.
     if warnings := config_warnings(proposed, file_selected=True):
         proposal["config_warnings"] = warnings
     document = config_document(proposed)
     proposal["config"] = {key: document[key] for key in (
         "provider", "model", "profile", "allow_paths", "generated_paths", "protected_paths", "max_file_bytes",
-        "max_packet_bytes", "input_usd_per_million", "output_usd_per_million")}
+        "max_packet_bytes", "input_usd_per_million", "output_usd_per_million", *budgets)}
+    for name, value in budgets.items():
+        proposal["evidence"].setdefault(name, []).append(
+            {"value": value, "rule": "one_packet_at_the_limit", "document": "config"})
+    if budgets:
+        # A draft that proposes to spend more than the default says so, with the amounts.
+        proposal["warnings"].append({"code": "budget_raised_for_packet_limit", **budgets})
     model = proposal["gate_policy_draft"]["model_review"]
     model.update(_provider_fields(configured, model))
     proposal["gate_policy_missing"] = missing_fields(proposal["gate_policy_draft"])
