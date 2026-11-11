@@ -120,6 +120,9 @@ _AFTER_STRING = '"'  # stands for a whole string in the record of what came befo
 # the file. After a name, a number, a string or a closing bracket it divides. A less-than sign is
 # left out on purpose: with a slash it closes a tag, which has_markup has to see.
 _BEFORE_REGEX = frozenset("(,=:[!&|?{};+-*%>~^}")
+# Characters one regular expression may span. Without a bound, every slash before an unfinished
+# class would be read to the end of its line, and a long line of them would take quadratic time.
+_REGEX_REACH = 1000
 _WORDS_BEFORE_REGEX = frozenset({"return", "typeof", "case", "in", "of", "delete", "void", "throw", "new", "do", "else",
                                  "yield", "await", "instanceof"})
 _REGEX_REST = re.compile(r"(?:[^/\\\[\r\n]|\\[^\r\n]|\[(?:[^\]\\\r\n]|\\[^\r\n])*\])+/[A-Za-z]*")
@@ -256,7 +259,8 @@ class _Reader:
         """Where the regular expression that starts with the slash at `start` ends, or None for a division sign.
 
         What stands before the slash decides, as it does for the language itself. A regular
-        expression ends on its line; a slash with no partner there is a division sign after all.
+        expression ends on its line and within _REGEX_REACH characters; a slash with no partner
+        there is a division sign after all.
         """
         index, last = start - 1, len(spans) - 1
         while index >= 0:
@@ -274,7 +278,7 @@ class _Reader:
                 word -= 1
             if text[word + 1:index + 1] not in _WORDS_BEFORE_REGEX:
                 return None
-        found = _REGEX_REST.match(text, start + 1)
+        found = _REGEX_REST.match(text, start + 1, min(len(text), start + 1 + _REGEX_REACH))
         return found.end() if found else None
 
     def _block(self, text: str, start: int, body: int, mark: str, spans: list, depths: list[int], *,
@@ -420,16 +424,17 @@ class CodeText:
         return pattern.search(text, start) is not None
 
     def odd_slashes_before(self, position: int) -> bool:
-        """True when an odd number of slashes stands in code between the line's start and `position`.
+        """True when an odd number of slashes stands in code just before `position` on its line.
 
         In a language with regular expression literals that can mean `position` is inside one,
-        where the words are text. A lone division sign gives the same answer, and so does running
-        out of the work limit. `position` must be in code.
+        where the words are text. Only as far back as one can reach is counted. A lone division
+        sign gives the same answer, and so does running out of the work limit. `position` must
+        be in code.
         """
         if not self._reader.language.regex_literals:
             return False
         text = self._text
-        cursor = text.rfind("\n", 0, position) + 1
+        cursor = max(text.rfind("\n", 0, position) + 1, position - _REGEX_REACH)
         index = bisect_right(self._starts, cursor) - 1
         if index >= 0 and self._ends[index] > cursor:
             cursor = self._ends[index]  # The line begins inside a string or a comment.
@@ -438,7 +443,7 @@ class CodeText:
         try:
             while cursor < position:
                 stop = min(position, self._starts[index]) if index < len(self._starts) else position
-                self._spend(stop - cursor + _STEP)
+                self._spend(_STEP + (stop - cursor) // 32)  # one count over a short stretch
                 count += text.count("/", cursor, stop)
                 if stop == position:
                     break

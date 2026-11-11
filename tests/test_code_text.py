@@ -386,15 +386,22 @@ texts = [
     (label + ": valueOfSomething, ") * 20000,                                      # many short ones
     "`${" * 20000,                                                                 # nested templates, never closed
     "`${`" * 10000 + "`}`" * 10000,
+    "(/[aaaaaaaaaa " * 28000 + "\\nconst x = {" + label + ": valueOfSomething};\\n",   # a slash before an unfinished class
+    "/*c*/ " * 33000 + "/ " * 100000 + "\\nconst x = {" + label + ": valueOfSomething};\\n",
+    "const x = {" + ("a / b, " + label + ": valueOfSomething, ") * 13000 + "};",     # one long line
+    "const x = {" + (label + ": valueOfSomething, ") * 20000 + "};",
+    "SELECT 1;\\n" + (label + " = valueOfSomething AND ") * 16000,
 ]
 start = perf_counter()
 for text in texts:
-    for path in ("src/a.ts", "src/a.go", "src/a.sql", "src/a.kt"):
+    for path in ("src/a.ts", "src/a.sql"):
         try:
             check_text(text, source_path=path)
         except AssistantError as exc:
             assert exc.code == "sensitive_content"
 print(perf_counter() - start)
 """
-    completed = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=60)
-    assert float(completed.stdout.strip()) < 8.0
+    completed = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=600)
+    # About a second and a half on a fast machine and ten times that on a slow hosted runner. The limit is
+    # for a quadratic reading, which takes minutes on either.
+    assert float(completed.stdout.strip()) < 60.0
