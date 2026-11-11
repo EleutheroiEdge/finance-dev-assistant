@@ -4,12 +4,15 @@ Synthetic values only. Credential words are written as markers and spelled out a
 in credential_cases.py, so this file holds no credential-shaped text of its own.
 """
 import json
+import subprocess
+import sys
 
 import pytest
 
 from credential_cases import KNOWN_FALSE_REFUSALS, KNOWN_MISSES, MUST_PASS, MUST_REFUSE, spell
 from finassist.errors import AssistantError
-from finassist.security import check_context_document, check_output_document, check_text
+from finassist.code_text import _WORD_OPERATORS
+from finassist.security import _leaves_open, check_context_document, check_output_document, check_text
 from test_forbidden_token_gate import candidate
 from test_model_gate import run
 from test_providers_review import envelope
@@ -233,6 +236,30 @@ SCRIPT = "export const settings = {\n  @pw@: process.env.DB_@PW@,\n  retries: 3,
     "Did you mean `@pw@: process.env.DB_@PW@`?",
     "- `@pw@: process.env.DB_@PW@`\n- `retries: 3` is new",
     "It reads `@pw@: process.env.DB_@PW@`\nIf it is unset, startup fails.",
+    "`@pw@: process.env.DB_@PW@` is unchanged.\nThe old code read `settings || {}` first, and `mode || \"fast\"` stays.",
+    "`@pw@: process.env.DB_@PW@` is unchanged.\n\n| field | note |\n| --- | --- |\n| `retries` | now 5 |",
+    # What prose is made of may follow a code span.
+    "| `@pw@: process.env.DB_@PW@` | read from the environment |",
+    "1. `@pw@: process.env.DB_@PW@`\n2. `retries: 3` is new",
+    "* `@pw@: process.env.DB_@PW@`\n* `retries: 3` is new",
+    "**`@pw@: process.env.DB_@PW@`** is unchanged.",
+    "(`@pw@: process.env.DB_@PW@`), as before.",
+    "`@pw@: process.env.DB_@PW@`\n\n## Next\n\nText.",
+    "`@pw@: process.env.DB_@PW@`\n> quoted from the guide",
+    "See `@pw@: process.env.DB_@PW@`:\n\n```ts\nconst retries = 3;\n```",
+    "`@pw@: process.env.DB_@PW@` - read once at start.",
+    "`@pw@: process.env.DB_@PW@` " + chr(0x2014) + " read once at start.",
+    "`@pw@: process.env.DB_@PW@` (line 2) is unchanged.",
+    "`@pw@: process.env.DB_@PW@`... and so on.",
+    "`@pw@: process.env.DB_@PW@` is read in `src/settings/loader.ts`.",
+    "`@pw@: process.env.DB_@PW@`, `retries: 3` and `src/settings/loader.ts` are unchanged.",
+    "`@pw@: process.env.DB_@PW@` or the value from `src/settings/loader.ts`.",
+    # A sign inside a later code span or block is text, and a comma or a semicolon ends the clause.
+    "`@pw@: process.env.DB_@PW@` is unchanged.\n\n```ts\nhost: process.env.DB_HOST || \"db.internal.example\",\n```",
+    "`@pw@: process.env.DB_@PW@` is fine,\nbut the default in `host || \"db.internal.example\"` is not.",
+    "`@pw@: process.env.DB_@PW@` is read once;\nlater the name + `-suffix-long-enough` is built.",
+    "Did you mean `@pw@: process.env.DB_@PW@`? See `src/settings/loader.ts` for the caller.",
+    "(as in `@pw@: process.env.DB_@PW@`) and so the fallback || `src/settings/loader.ts` is unused.",
     "```\nexport const settings = {\n  @pw@: process.env.DB_@PW@,\n  retries: 3,\n};\n```",
 ])
 def test_a_model_may_repeat_a_reference_from_the_source_it_was_sent(quote):
@@ -265,6 +292,62 @@ def test_a_model_may_repeat_a_reference_from_the_source_it_was_sent(quote):
     "`@pw@: process.env.DB_@PW@`\n|| `@V@`",
     "@pw@: process.env.DB_@PW@ || 123456789012345",    # or as a number
     "@pw@: process.env.DB_@PW@ /* note */ || 123456789012345",
+    # After a code span, on the next line or later: each has a same-line twin above or below.
+    "`@pw@: process.env.DB_@PW@` | 0 || `@V@`",
+    "`@pw@: process.env.DB_@PW@`\n | 0 || `@V@`",
+    "`@pw@: process.env.DB_@PW@`\n | 0 || 123456789012345",
+    "`@pw@: process.env.DB_@PW@`\n | 0\n || `@V@`",
+    "`@pw@: process.env.DB_@PW@`\n\n | 0 ||\n \"@V@\"",
+    "`@pw@: process.env.DB_@PW@`\n\n|| \"@V@\"",
+    "`@pw@: process.env.DB_@PW@` is the field.\n\nLater: fallback ?? '@V@'",
+    # After a code span, whatever is not prose. No list of operators decides.
+    "`@pw@: process.env.DB_@PW@`\n ? \"@V@\" : other",
+    "`@pw@: process.env.DB_@PW@` ?: `@V@`",
+    "`@pw@: process.env.DB_@PW@`\n? other : `@V@`",
+    "`@pw@: process.env.DB_@PW@`\n.concat(`@V@`)",
+    "`@pw@: process.env.DB_@PW@`.padEnd(20, `@V@`)",
+    "`@pw@: process.env.DB_@PW@`\n[`@V@`]",
+    "`@pw@: process.env.DB_@PW@`\n(`@V@`)",
+    "`@pw@: process.env.DB_@PW@` (`@V@`)",
+    "`@pw@: process.env.DB_@PW@` (first, `@V@`)",
+    "`@pw@: process.env.DB_@PW@` (123456789012345)",
+    "`@pw@: process.env.DB_@PW@`\n`@V@`",
+    "`@pw@: process.env.DB_@PW@` `@V@`",
+    "`@pw@: process.env.DB_@PW@``@V@`",
+    "`@pw@: process.env.DB_@PW@`\n & `@V@`",
+    "`@pw@: process.env.DB_@PW@` ^ `@V@`",
+    "`@pw@: process.env.DB_@PW@` % `@V@`",
+    "`@pw@: process.env.DB_@PW@` < `@V@`",
+    "`@pw@: process.env.DB_@PW@` / `@V@`",
+    "`@pw@: process.env.DB_@PW@`: `@V@`",
+    "`@pw@: process.env.DB_@PW@`!.concat(`@V@`)",
+    "`@pw@: process.env.DB_@PW@`** + `@V@`",
+    "`@pw@: process.env.DB_@PW@`) || `@V@`",
+    # Behind a word, a dash or a bar, the operator and the literal are found wherever they stand.
+    "`@pw@: process.env.DB_@PW@` as string ?: `@V@`",
+    "`@pw@: process.env.DB_@PW@` as string ? `@V@` : other",
+    "`@pw@: process.env.DB_@PW@` as string ? other : `@V@`",
+    "`@pw@: process.env.DB_@PW@`\n - 0 ?: `@V@`",
+    "`@pw@: process.env.DB_@PW@`\n | 0 || 0xDEADBEEFCAFEBABE1234",
+    "`@pw@: process.env.DB_@PW@`\n | 0 || 123_456_789_012_345",
+    "`@pw@: process.env.DB_@PW@`? `@V@` : other",
+    # The literal one call deeper, in a bracket, or behind type arguments with a comma.
+    "`@pw@: process.env.DB_@PW@` as string || derive(`@V@`)",
+    "`@pw@: process.env.DB_@PW@` as string\n ?? pick(first, `@V@`)",
+    "`@pw@: process.env.DB_@PW@` as string || [first, `@V@`][1]",
+    "`@pw@: process.env.DB_@PW@` in registry ? derive(`@V@`) : other",
+    "`@pw@: process.env.DB_@PW@` in registry ? other : derive(first, `@V@`)",
+    "`@pw@: process.env.DB_@PW@` as Map<string, string> || `@V@`",
+    "`@pw@: process.env.DB_@PW@` as Map<() => void, string> || `@V@`",
+    "`@pw@: process.env.DB_@PW@` as string || 123456789012345",
+    "`@pw@: process.env.DB_@PW@` as string + derive(\n`@V@`)",
+    # A bar is a table's only in a table row, and a row may not join a literal either.
+    "| `@pw@: process.env.DB_@PW@` | 0 || derive(`@V@`) |",
+    "`@pw@: process.env.DB_@PW@` | `@V@`",
+    "`@pw@: process.env.DB_@PW@`\n| 0 | `@V@`",
+    # A block or another span right after the span, with no word, colon or full stop between.
+    "`@pw@: process.env.DB_@PW@`\n```ts\nconst retries = 3;\n```",
+    "`@pw@: process.env.DB_@PW@` (unchanged) || `@V@`",
     # A whole program: the next line begins with an operator that is in no list.
     "export const settings = {\n  @pw@: process.env.DB_@PW@\n    | 0 || \"@V@\"\n};",
     "export const settings = {\n  @pw@: process.env.DB_@PW@\n    & 0 || \"@V@\"\n};",
@@ -298,6 +381,16 @@ def test_a_quote_outside_a_code_span_must_end_its_line(text):
                           source("src/settings.ts", "export const settings = { @pw@: process.env.DB_@PW@ };\n"))
 
 
+def test_in_a_patch_the_mark_of_a_line_is_not_an_operator():
+    files = source("src/settings.ts", SCRIPT)
+    head = "--- a/README.md\n+++ b/README.md\n@@ -1,2 +1,2 @@\n"
+    check_output_document({"patch": spell(head + "-see `@pw@: process.env.DB_@PW@`\n+\"a-long-quoted-key-name\": 1\n")},
+                          files, diff=True)
+    for body in ("-see `@pw@: process.env.DB_@PW@` + `@V@`\n", "-see `@pw@: process.env.DB_@PW@`\n+ || `@V@`\n"):
+        with pytest.raises(AssistantError, match="^sensitive_content$"):
+            check_output_document({"patch": spell(head + body)}, files, diff=True)
+
+
 def test_a_quote_that_ends_with_an_operator_is_not_over():
     carried = "export const settings = {\n  @pw@: process.env.DB_@PW@+\n    suffixValue,\n};\n"
     files = source("src/settings.ts", carried)
@@ -307,6 +400,109 @@ def test_a_quote_that_ends_with_an_operator_is_not_over():
             check_output_document(output(text), files)
     with pytest.raises(AssistantError, match="^sensitive_content$"):  # a number after the code span that held the quote
         check_output_document(output("`@pw@: process.env.DB_@PW@` | 0 || 123456789012345"), source("src/settings.ts", SCRIPT))
+
+
+def test_a_clause_after_a_code_span_that_has_no_end_in_reach_is_refused():
+    files = source("src/settings.ts", SCRIPT)
+    words = "and so on " * 500
+    check_output_document(output("`@pw@: process.env.DB_@PW@` is read, " + words + "|| `@V@`"), files)  # the comma ends it
+    check_output_document(output("`@pw@: process.env.DB_@PW@` is read " + "and so on " * 300), files)  # the reply ends it
+    for text in ("`@pw@: process.env.DB_@PW@` is read " + words + "|| `@V@`",       # the sign is out of reach
+                 "`@pw@: process.env.DB_@PW@` is read " + words + ", the end",       # and so is the comma
+                 "`@pw@: process.env.DB_@PW@` is read " + "( " * 500 + "the end"):   # too many parts
+        with pytest.raises(AssistantError, match="^sensitive_content$"):
+            check_output_document(output(text), files)
+
+
+def test_a_word_that_carries_an_expression_on_in_source_does_so_in_a_reply():
+    assert {"else", "extends", "in", "instanceof"} <= _WORD_OPERATORS
+    for word in sorted(_WORD_OPERATORS | {"or", "and", "not"}):
+        with pytest.raises(AssistantError, match="^sensitive_content$"):
+            check_output_document(output("@pw@: process.env.DB_@PW@\n  " + word + " \"@V@\""), source("src/settings.ts", SCRIPT))
+    check_output_document(output("@pw@: process.env.DB_@PW@\n  elsewhere: \"@V@\""), source("src/settings.ts", SCRIPT))
+
+
+@pytest.mark.parametrize("quote,expected", [
+    ("k: call(a, b)", False), ("k: call(a,", True), ("k: list[0", True), ("k: {", True), ("k: a })", False),
+    ('k: call("(")', False), ('k: call("a', True), ("k: call('it\\'s (')", False), ("k: `a ${b} (`", False),
+    ("k: `a", True), ("k: call(a) // don't", True), ("k: call(a)[0].b", False),
+])
+def test_what_a_quote_leaves_open(quote, expected):
+    assert _leaves_open(quote) is expected
+
+
+@pytest.mark.parametrize("suffix,written,with_literal", [
+    ("ts", "export const settings = {\n  @pw@: resolveFromSettings(lookup(),\n    other()),\n};\n",
+     "export const settings = {\n  @pw@: resolveFromSettings(lookup(),\n    \"@V@\"),\n};\n"),
+    ("ts", "export const settings = {\n  @pw@: resolveFromSettings(lookup(),\n    other()),\n};\n",
+     "export const settings = {\n  @pw@: resolveFromSettings(lookup(),\n    `@V@`),\n};\n"),
+    ("go", "func load() Config {\n\treturn Config{\n\t\t@Pw@: resolveFromSettings(lookup(),\n\t\t\tother()),\n\t}\n}\n",
+     "func load() Config {\n\treturn Config{\n\t\t@Pw@: resolveFromSettings(lookup(),\n\t\t\t\"@V@\"),\n\t}\n}\n"),
+    ("py", "import os\n@pw@ = os.environ.get(\"DB_@PW@\",\n    None)\n", "import os\n@pw@ = os.environ.get(\"DB_@PW@\",\n    \"@V@\")\n"),
+    ("kt", "class Settings {\n  val @pw@ = settingsFromVault.value\n  val retries = 3\n}\n",
+     "class Settings {\n  val @pw@ = settingsFromVault.value\n    else \"@V@\"\n}\n"),
+])
+def test_a_reply_is_refused_where_the_same_text_is_refused_as_source(suffix, written, with_literal):
+    """The expression goes on over the line in a bracket the quote left open, or behind a word."""
+    path = "src/settings." + suffix
+    files = source(path, written)
+    check_text(spell(written), source_path=path)
+    with pytest.raises(AssistantError, match="^sensitive_content$"):
+        check_text(spell(with_literal), source_path=path)
+    with pytest.raises(AssistantError, match="^sensitive_content$"):
+        check_output_document(output(with_literal.rstrip("\n")), files)
+    with pytest.raises(AssistantError, match="^sensitive_content$"):
+        check_output_document(output("```\n" + with_literal + "```"), files)
+    patch = "--- a/%s\n+++ b/%s\n@@ -1,4 +1,4 @@\n" % (path, path) + "".join("+" + line + "\n" for line in with_literal.rstrip("\n").split("\n"))
+    with pytest.raises(AssistantError, match="^sensitive_content$"):
+        check_output_document({"patch": spell(patch)}, files, diff=True)
+
+
+def test_a_quote_that_leaves_a_bracket_open_is_refused_though_nothing_is_added():
+    """The cost: the first line of a call that goes on over the next cannot be repeated."""
+    written = "export const settings = {\n  @pw@: resolveFromSettings(lookup(),\n    other()),\n};\n"
+    files = source("src/settings.ts", written)
+    for text in ("```ts\n" + written + "```", "`@pw@: resolveFromSettings(lookup(),` starts the call."):
+        with pytest.raises(AssistantError, match="^sensitive_content$"):
+            check_output_document(output(text), files)
+    check_output_document(output("`@pw@: resolveFromSettings` is called with two values."), files)
+
+
+@pytest.mark.alone
+def test_a_reply_made_of_quotes_is_screened_in_bounded_time():
+    # Timed inside the child, as in test_code_text.py; the subprocess timeout stops a hang.
+    code = """
+from time import perf_counter
+from finassist.security import check_output_document
+from finassist.errors import AssistantError
+label = "pass" + "word"
+bare = label + ": process.env.DB_" + label.upper()
+span = "`" + bare + "`"
+files = [{"path": "src/settings.ts", "before": None, "after": "export const settings = {\\n  " + bare + ",\\n};\\n"}]
+replies = [
+    (span + " is read. ") * 6000,                        # one long line of code spans
+    (span + "? and ") * 6000,
+    (span + " is read. ") * 6000 + "? x " * 120000,       # question marks after them, and no colon
+    (span + " is read +" + " " * 400) * 1500,             # long blank runs after an operator
+    (span + " is read ( ") * 6000,                        # brackets that never close, so no clause ends
+    (bare + "\\n") * 6000,                                # every line a quote, and each is blank to the others
+    (bare + ",\\n// note\\n") * 6000,
+    (span + ")" * 300 + " ") * 1000,
+]
+start = perf_counter()
+for text in replies:
+    for diff in (False, True):
+        document = {"patch": text} if diff else {"summary": "x", "findings": [{"claim": text}]}
+        try:
+            check_output_document(document, files, diff=diff)
+        except AssistantError as exc:
+            assert exc.code == "sensitive_content"
+print(perf_counter() - start)
+"""
+    completed = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=600)
+    # About two seconds on a fast machine when each reply is read once and a clause has a reach. Read to its
+    # end again for every quote, the third reply alone takes minutes. The limit leaves room for a slow runner.
+    assert float(completed.stdout.strip()) < 120.0
 
 
 def test_a_line_of_code_may_end_with_the_quote_when_the_next_line_begins_something_new():
