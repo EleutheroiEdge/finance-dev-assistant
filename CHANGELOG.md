@@ -20,6 +20,14 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
     `forbidden_token_present`.
 - **`plan`, `review` and `propose` had no figure screen.** Only the gate did, so a range that
   `doctor` called ready could carry listed figures on the configuration route. See Added.
+- **A private name hidden behind a dot was reviewable.** `.secrets/`, `.data/`, `.credentials.json`
+  and other hidden spellings of the private names were not refused, so a file under one could be
+  sent for review once its directory was allowed. A hidden spelling is now the same name, at any
+  depth and on every route.
+- **Credential stores are private by name.** Files where tools keep a login are refused wherever
+  they sit: `.netrc`, `.pypirc`, `.git-credentials`, `.docker/config.json`, `.kube/`, `.gnupg/`,
+  `.config/gcloud/`, `.config/gh/` and the others listed in `docs/configuration.md`. The content
+  screen does not recognise every one of them, such as the encoded login in a Docker `auths` entry.
 
 ### Added
 - **Confidential figures on the configuration route.** `forbidden_token_file` and
@@ -44,7 +52,12 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
     continuation or an adjacent literal;
   - a listed whole number no longer refuses a decimal that merely starts with it. `73026.04`
     passes when `73026` is listed, in every surrounding; 0.10.0 refused it in some.
-  Nothing else about what a gate accepts, authorizes or spends has changed.
+- **Every route refuses more names as private.** A range that changes a hidden spelling of a
+  private name, or a credential store, is refused with `private_path`, `gate_private_path` or
+  `private_profile_path`, or withheld under `private_paths: skip-and-report`. On nine real
+  repositories no tracked file and none of 225 recent changes is affected.
+
+Nothing else about what a gate accepts, authorizes or spends has changed.
 
 ### Fixed
 - **On macOS a check could fail with `PermissionError` when its command exited as the runner stopped
@@ -52,6 +65,13 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   runner raised that refusal when it came a moment before the exit was reported. The signal is now
   tried again until the group is proved to hold only a zombie. A group with a live member still
   raises.
+- **`init --detect` left hidden directories out of `allow_paths`.** A change to `.github/workflows/`,
+  to a tool's settings directory or to a root file such as `.pre-commit-config.yaml` then left every
+  range that touched it incomplete, or refused by a gate. On nine real repositories that was the most
+  common blocker: it left something out of 56 of 225 changes, and in 43 of them nothing else. The proposal now lists hidden directories and root dotfiles that
+  hold reviewable text. Private ones are never proposed, read or sized, at any depth: `.env` files,
+  hidden spellings such as `.secrets/`, and credential stores such as `.docker/config.json`. A
+  fixture root the gate would refuse, such as `tests/.data/`, is no longer drafted either.
 - **`init --detect` drafted a gate policy that the gate refused.** The draft listed private files
   found inside reviewed directories under `deny_paths`, and the policy check refused any policy whose
   `deny_paths` named a private path such as `.env.example`, `holdings/` or `USER.md`. Every range was

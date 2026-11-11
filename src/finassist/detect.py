@@ -26,8 +26,7 @@ from .errors import AssistantError, prices_required
 from .model_policy import check_draft, missing_fields
 from .review import ENVELOPE_ALLOWANCE, reserved_usd
 from .scope import git, git_command, git_environment, resolve
-from .security import (DENIED_PARTS, TEXT_SUFFIXES, _check_model_private, canonical, check_path,
-                       check_text, local_name)
+from .security import _check_model_private, TEXT_SUFFIXES, canonical, check_path, check_text, local_name
 
 PURPOSES = {"quant": "quant-review", "accounting": "finance-saas", "research": "investment-research",
             "general": "general"}
@@ -196,10 +195,15 @@ class _Detector:
                 self.note("allow_paths", name, "project_file", name)
         # A range that changes a reviewable file outside allow_paths is left incomplete or refused,
         # so other directories of text, and root text files such as a roadmap, are proposed too.
+        # That includes hidden ones, such as .github/ and .pre-commit-config.yaml: workflow and
+        # tool settings change in many pull requests. A private file never counts toward a
+        # directory, at any depth: the path policy refuses .env files, .git, .aws, a hidden
+        # spelling of a private name such as .secrets, and credential stores such as
+        # .docker/config.json, and the same rule guards every read and every size below.
         others: dict[str, str] = {}
         for path in sorted(self.files):
             parts = PurePosixPath(path).parts
-            if (self.private(path) or _refusal(path) or parts[0].startswith(".")
+            if (self.private(path) or _refusal(path)
                     or PurePosixPath(path).suffix.lower() not in TEXT_SUFFIXES
                     or any(character in parts[0] for character in "*?[]")):  # A gate policy refuses such a prefix.
                 continue
@@ -301,9 +305,9 @@ class _Detector:
             parts = PurePosixPath(path).parts
             suffix = PurePosixPath(path).suffix.lower()
             lowered = [part.lower() for part in parts[:-1]]
-            if suffix in {".csv", ".tsv"} and ("tests" in lowered or "fixtures" in lowered) and not (
-                    set(lowered) & DENIED_PARTS or "data" in lowered):
-                root = "/".join(parts[:-1]) + "/"
+            root = "/".join(parts[:-1]) + "/"
+            if (suffix in {".csv", ".tsv"} and ("tests" in lowered or "fixtures" in lowered)
+                    and _fixture_refusal(path, root) is None):
                 fixtures.setdefault(root, path)
             elif _allowed(path, allow):
                 inside += 1
@@ -575,6 +579,19 @@ def _refusal(path: str) -> str | None:
     try:
         check_path(path, source_only=False, metadata_only=True)
         _check_model_private(path)
+    except AssistantError as exc:
+        return exc.code
+    return None
+
+
+def _fixture_refusal(path: str, root: str) -> str | None:
+    """The code the path policy gives this file as a fixture under `root`, or None. Names only.
+
+    A root the gate would refuse is never drafted: one under a private or reserved directory, in
+    any spelling the policy reads as that name.
+    """
+    try:
+        check_path(path, source_only=False, fixture_roots=(root,))
     except AssistantError as exc:
         return exc.code
     return None
