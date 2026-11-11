@@ -12,7 +12,8 @@ import pytest
 from credential_cases import KNOWN_FALSE_REFUSALS, KNOWN_MISSES, MUST_PASS, MUST_REFUSE, spell
 from finassist.errors import AssistantError
 from finassist.code_text import _WORD_OPERATORS
-from finassist.security import _leaves_open, check_context_document, check_output_document, check_text
+from finassist.reply_quotes import leaves_open
+from finassist.security import check_context_document, check_output_document, check_text
 from test_forbidden_token_gate import candidate
 from test_model_gate import run
 from test_providers_review import envelope
@@ -538,7 +539,7 @@ def test_a_word_that_carries_an_expression_on_in_source_does_so_in_a_reply():
     ("k: `a", True), ("k: call(a) // don't", True), ("k: call(a)[0].b", False),
 ])
 def test_what_a_quote_leaves_open(quote, expected):
-    assert _leaves_open(quote) is expected
+    assert leaves_open(quote) is expected
 
 
 @pytest.mark.parametrize("suffix,written,with_literal", [

@@ -131,7 +131,8 @@ def patch_paths(patch: str, config: Config, *, source_files: list[dict] | None =
         for name in paths:
             before = source[name]
             if before is not None:
-                check_text(before, source_path=name, extra_patterns=config.extra_sensitive_patterns, waiting=waiting)
+                check_text(before, source_path=name, extra_patterns=config.extra_sensitive_patterns, waiting=waiting,
+                           placeholders=config.placeholder_credential_paths)
                 target = root / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(before.encode("utf-8"))
@@ -152,8 +153,9 @@ def patch_paths(patch: str, config: Config, *, source_files: list[dict] | None =
             except UnicodeError as exc:
                 raise AssistantError("binary_input") from exc
             images.append({"path": name, "before": source[name], "after": after})
+        # "before" is the file as it was supplied, and "after" is what this patch leaves.
         check_output_document({"patch": patch}, images, extra_patterns=config.extra_sensitive_patterns, diff=True,
-                              waiting=waiting)
+                              placeholders=config.placeholder_credential_paths, supplied=("before",), waiting=waiting)
     return paths
 
 
@@ -244,7 +246,8 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
         except UnicodeError as exc:
             raise AssistantError("binary_input") from exc
         if before is not None:
-            check_text(before, source_path=name, extra_patterns=config.extra_sensitive_patterns, waiting=unseen)
+            check_text(before, source_path=name, extra_patterns=config.extra_sensitive_patterns, waiting=unseen,
+                       placeholders=config.placeholder_credential_paths)
             # Patches describe committed blobs; the worktree can use CRLF under
             # Git's newline policy. Keep backup bytes exact for actual rollback.
             try:
@@ -254,7 +257,8 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
         source_files.append({"path": name, "after": before})
     patch_paths(artifact["patch"], config, source_files=source_files, waiting=unseen)
     check_output_document({"summary": artifact["summary"]}, source_files,
-                          extra_patterns=config.extra_sensitive_patterns, waiting=unseen)
+                          extra_patterns=config.extra_sensitive_patterns, waiting=unseen,
+                          placeholders=config.placeholder_credential_paths)
     # Git parses the entire patch before any mutation; --check is not an execution hook.
     command = git_command(repo, "apply", "--whitespace=error")
     command[1:1] = ["-c", "core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol"]
@@ -347,11 +351,12 @@ def rollback_patch(repo: Path, patch_hash: str, config: Config | None = None) ->
                     check_text(
                         base64.b64decode(encoded, validate=True).decode("utf-8"),
                         extra_patterns=config.extra_sensitive_patterns, source_path=name, waiting=unseen,
+                        placeholders=config.placeholder_credential_paths,
                     )
             target = regular_path(repo / name)
             if target.is_file():
                 check_text(read_utf8(target), extra_patterns=config.extra_sensitive_patterns, source_path=name,
-                           waiting=unseen)
+                           waiting=unseen, placeholders=config.placeholder_credential_paths)
     for name, expected in receipt["after"].items():
         target = regular_path(repo / policy.check_path(name))
         actual = digest(target.read_bytes()) if target.exists() else None

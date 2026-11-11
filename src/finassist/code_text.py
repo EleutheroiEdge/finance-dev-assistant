@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 import re
 
+MIN_SECRET_LENGTH = 12  # the shortest value a label rule reads as a credential
+
 STRING, COMMENT = "string", "comment"
 # A string with ${ ... } in it is read in parts: up to the first one, between two, after the last.
 WHOLE, HEAD, MIDDLE, TAIL = "whole", "head", "middle", "tail"

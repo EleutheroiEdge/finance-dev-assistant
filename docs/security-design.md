@@ -146,6 +146,13 @@ lines are text, and keep the strict rules, with or without a tag or an anchor be
 Text read without a path keeps the strict rules: a file name, a setting, policy text and
 everything a model returns.
 
+Under a path the operator lists in `placeholder_credential_paths`, the credential label
+rules are not applied. That is the operator's statement that the credential-named values
+there are made up, and the files are sent as they are. The format rules, the account
+rules and the project's own patterns are applied there as everywhere, and a model may
+repeat a labelled value from such a file only exactly, as it stands in the file it was
+sent. What its own patch writes into a listed file lends it nothing to repeat.
+
 Credential key screening requires a credential word in the label: secret,
 private, signing, encryption, access, client, master, auth or api, optionally
 followed by access and then key (underscore/hyphen separators are supported).
