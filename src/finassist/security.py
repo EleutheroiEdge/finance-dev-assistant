@@ -138,7 +138,8 @@ FORMAT_PATTERNS = (
     re.compile(r"\bpypi-AgEIcHlwaS5vcmc[0-9A-Za-z_-]{50,}"),
     re.compile(r"\bglpat-[0-9A-Za-z_-]{20,}"),
     re.compile(r"\bSG\.[0-9A-Za-z_-]{22}\.[0-9A-Za-z_-]{43}(?![0-9A-Za-z_-])"),
-    re.compile(r"AccountKey=[0-9A-Za-z/+]{80,}={0,2}"),
+    # A connection string's field names are read in any letter case. The key itself is not changed.
+    re.compile(r"(?i:AccountKey)=[0-9A-Za-z/+]{80,}={0,2}"),
 )
 # Label rules for text. In parseable Python, code is checked by the AST instead
 # and these rules read only comment and string text.

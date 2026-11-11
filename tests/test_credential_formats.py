@@ -25,6 +25,10 @@ FORMATS = {
     "gitlab": ("gitlab_token", "gl" + "pat-" + run(20)),
     "sendgrid": ("sendgrid_key", "SG" + "." + run(22) + "." + run(43)),
     "azure storage": ("azure_storage_key", "Account" + "Key=" + run(86) + "=="),
+    # Codex P113-1: the field name is read in any letter case, as the service's own parser reads it.
+    "azure storage, lower case": ("azure_storage_key", "account" + "key=" + run(86) + "=="),
+    "azure storage, upper case": ("azure_storage_key", "ACCOUNT" + "KEY=" + run(86) + "=="),
+    "azure storage, mixed case": ("azure_storage_key", "aCcOuNt" + "KeY=" + run(86) + "=="),
     "encrypted key block": ("private_key_block", "-----BEGIN " + "ENCRYPTED PRIVATE KEY-----"),
     "pgp key block": ("private_key_block", "-----BEGIN PGP " + "PRIVATE KEY BLOCK-----"),
 }
@@ -43,6 +47,8 @@ NEAR = {
     "gitlab, one short": "gl" + "pat-" + run(19),
     "sendgrid, short tail": "SG" + "." + run(22) + "." + run(42),
     "azure, short key": "Account" + "Key=" + run(79),
+    "azure, short key in lower case": "account" + "key=" + run(79),
+    "azure, another field": "Account" + "Name=" + run(86),
     "public key block": "-----BEGIN " + "PUBLIC KEY-----",
     "pgp public key block": "-----BEGIN PGP " + "PUBLIC KEY BLOCK-----",
     "pgp message": "-----BEGIN PGP " + "MESSAGE-----",
