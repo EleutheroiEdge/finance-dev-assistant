@@ -21,7 +21,7 @@ import jsonschema
 from .ci_policy import decode_document
 from .config import Config
 from .errors import AssistantError
-from .forbidden_tokens import screen_packet
+from .forbidden_tokens import screen_packet, screen_source
 from .model_gate import name_outcome, prepare_model_source, prepare_token_guard
 from .model_policy import (_PROPERTIES, _SCHEMA, ModelGatePolicy, _prefix, _profile, load_model_policy,
                            policy_config_fields)
@@ -30,7 +30,7 @@ from .policy_ignores import screen_ignores
 from .providers import request_payload
 from .review import review_schema, spend_estimate
 from .error_hints import error_fields
-from .scope import WITHHELD_REASON, git, left_out, read_entry, read_sides, resolve
+from .scope import WITHHELD_REASON, git, omission_for, read_entry, read_sides, require_regular, resolve
 from .security import (TEXT_FIXTURE_SUFFIXES, canonical, local_name, check_fixture_private, check_path,
                        check_text, digest, regular_path)
 
@@ -533,17 +533,26 @@ class _Preflight:
                 check_text(path, extra_patterns=config.extra_sensitive_patterns)
                 if outcome == "withheld":
                     return {**row, "status": "withheld", "reason": WITHHELD_REASON}
+                require_regular(repo, revisions, path)  # Only an ordinary file is left out, as in the gate.
                 return {**row, "status": "omitted", "reason": reason}
             if path in ignored:
                 raise AssistantError("gate_ignored_path")
             if stopped is not None:
                 return {**row, "status": "unchecked", "reason": stopped}
-            before, after = (text for _data, _mode, text in read_sides(repo, (ancestor, head), path, config))
+            # The gate's own reader and figure screen, one version at a time, so a version that
+            # cannot be read never hides a figure or a credential in the other one.
+            screen = None if guard is None else (lambda text, name: screen_source(text, name, guard.snapshot))
+            before, after = (text for _data, _mode, text in read_sides(repo, revisions, path, config, screen))
             if guard is not None:
                 screen_packet({"files": [{"path": path, "before": before, "after": after}]}, "", guard.snapshot)
         except AssistantError as exc:
-            reason = left_out(config, exc.code)
-            if reason is not None and exc.code != "gate_path_not_allowed":
+            reason = None
+            if exc.code != "gate_path_not_allowed":
+                try:
+                    reason = omission_for(repo, revisions, path, config, exc.code)
+                except AssistantError as special:  # A link or submodule: never left out.
+                    exc = special
+            if reason is not None:
                 return {**row, "status": "omitted", "reason": reason}  # A version too large, or not UTF-8 text.
             refused = {**row, "status": "refused", "code": exc.code, **exc.public_details}
             if exc.code == "private_or_binary_path":

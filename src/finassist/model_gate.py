@@ -19,7 +19,8 @@ from .ledger import Ledger
 from .model_policy import load_model_policy
 from .providers import request_identity, request_shape
 from .review import PolicyRequestApproval, call_model, review_schema, validate_review
-from .scope import WITHHELD_CODES, build_packet, checkout_roots, git, left_out, omission_reason, resolve
+from .scope import (WITHHELD_CODES, build_packet, checkout_roots, git, left_out, omission_reason, require_regular,
+                    resolve)
 from .policy_ignores import ignored_paths, screen_ignores as _screen_ignores
 from .security import canonical, check_model_path as _scope_path, digest, regular_path
 
@@ -173,7 +174,10 @@ def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_rep
         if outcome == "withheld":
             withhold.add(path)
         elif outcome == "left-out":
-            left.add(path)  # Never read; the packet names it with the reason.
+            # Never read; the packet names it with the reason. Only an ordinary file is left out:
+            # a link or submodule refuses here, as it does when it is inside the reviewed scope.
+            require_regular(repo, (ancestor, head), path)
+            left.add(path)
     reviewed = [path for path in paths if path not in withhold and path not in left]
     _screen_ignores(repo, {base, ancestor}, reviewed + source_profile_paths + (marker_paths if same_source else []))
     if policy_repo is not None and (policy_repo != repo or policy.base != base):

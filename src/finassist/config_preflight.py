@@ -21,7 +21,7 @@ from .onboarding import _shown_argument
 from .providers import request_payload
 from .review import review_schema, spend_estimate
 from .forbidden_tokens import screen_source
-from .scope import (_private_name, build_packet, config_token_guard, git, left_out, omission_reason, read_sides,
+from .scope import (_private_name, build_packet, config_token_guard, git, omission_for, omission_reason, read_sides,
                     resolve)
 from .security import canonical, check_text, local_name, regular_path
 
@@ -174,7 +174,10 @@ class _ConfigPreflight:
             screen = None if guard is None else (lambda text, name: screen_source(text, name, guard.snapshot))
             read_sides(repo, revisions, path, config, screen)
         except AssistantError as exc:
-            reason = left_out(config, exc.code)
+            try:
+                reason = omission_for(repo, revisions, path, config, exc.code)
+            except AssistantError as special:  # A link or submodule: never left out.
+                exc, reason = special, None
             if reason is not None:
                 return {**row, "status": "omitted", "reason": reason}
             return {**row, "status": "refused", "code": exc.code, **exc.public_details}

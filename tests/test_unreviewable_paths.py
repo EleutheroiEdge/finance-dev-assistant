@@ -5,6 +5,7 @@ Every repository, file and value here is synthetic.
 
 from dataclasses import replace
 import json
+import subprocess
 
 import httpx
 import pytest
@@ -20,8 +21,10 @@ from finassist.github_actions import summary_markdown
 from finassist.model_gate import prepare_model_source
 from finassist.model_policy import load_model_policy
 from finassist.onboarding import policy_preflight
+from finassist.platform_support import find_tool
 from finassist.review import review_packet
-from finassist.scope import UNREVIEWABLE_REASONS, WITHHELD_REASON, build_packet, left_out, verify_packet
+from finassist.scope import (UNREVIEWABLE_REASONS, WITHHELD_REASON, build_packet, git_environment, left_out,
+                             verify_packet)
 from finassist.security import canonical
 
 pytest_plugins = ("test_model_gate", "test_model_policy")
@@ -304,6 +307,137 @@ def test_a_policy_accepts_only_the_two_modes(gate_case):
     change_policy(gate_case, unreviewable_paths="skip-everything")
     report, calls = run(gate_case)
     assert report["verdict"] == "BLOCKED" and not calls
+
+
+# Links and submodules ----------------------------------------------------------------------------
+
+
+def _special_entry(repo, mode: str, path: str) -> str:
+    """Commit a tree entry of the given mode without a working-tree file: a link or a submodule."""
+    if mode == "160000":
+        oid = command(repo, "rev-parse", "HEAD")  # A submodule entry names a commit.
+    else:
+        oid = subprocess.run([find_tool("git"), "-C", str(repo), "hash-object", "-w", "--stdin"], input=b"cash.py",
+                             capture_output=True, check=True, env=git_environment()).stdout.decode().strip()
+    command(repo, "update-index", "--add", "--cacheinfo", f"{mode},{oid},{path}")
+    command(repo, "commit", "-q", "-m", "Synthetic special entry")
+    return command(repo, "rev-parse", "HEAD")
+
+
+SPECIAL = [("tools/link.py", "120000"),     # a link outside allow_paths
+           ("src/link.jsonl", "120000"),    # a link with a suffix no review reads
+           ("src/logo.svg", "120000"),      # a link named like an image
+           ("vendor/library", "160000")]    # a submodule outside allow_paths
+
+
+@pytest.mark.parametrize("path, mode", SPECIAL)
+def test_the_gate_never_leaves_out_a_link_or_a_submodule(gate_case, path, mode):
+    change_policy(gate_case, unreviewable_paths="skip-and-report")
+    gate_case["head"] = _special_entry(gate_case["repo"], mode, path)
+    report, calls = run(gate_case)
+    assert report["verdict"] == "BLOCKED" and report["reasons"] == ["linked_or_special_git_object"] and not calls
+    preflight = policy_preflight(gate_case["repo"], gate_case["base"], gate_case["head"], "gate-policy.json",
+                                 gate_case["pin"])
+    row = next(row for row in preflight["paths"] if row["path"] == path)
+    assert (row["status"], row["code"]) == ("refused", "linked_or_special_git_object")
+    assert preflight["status"] == "blocked"
+
+
+def test_plan_never_leaves_out_a_link_for_its_suffix(repository):
+    repo, base, _head = repository
+    head = _special_entry(repo, "120000", "src/link.jsonl")
+    with pytest.raises(AssistantError, match="^linked_or_special_git_object$"):
+        build_packet(repo, base, head, LEAVE)
+    report = config_preflight(repo, base, head, LEAVE)
+    row = next(row for row in report["paths"] if row["path"] == "src/link.jsonl")
+    assert (row["status"], row["code"]) == ("refused", "linked_or_special_git_object")
+
+
+# One version that cannot be read, beside one that must refuse -----------------------------------
+
+CREDENTIAL = b"API_KEY = 'synthetic-" + b"a" * 30 + b"'\n"
+NOT_UTF8 = b"NAME = '" + bytes([0xE9]) + b"'\n"
+FIGURE = b"TOTAL = 48213.57\n"
+# path: (earlier version, later version, the refusal that must stand, whether figures are listed).
+MIXED = {
+    "src/grown.py": (CREDENTIAL, LARGE, "sensitive_content", False),
+    "src/shrunk.py": (LARGE, CREDENTIAL, "sensitive_content", False),
+    "src/recoded.py": (NOT_UTF8, CREDENTIAL, "sensitive_content", False),
+    "src/decoded.py": (CREDENTIAL, NOT_UTF8, "sensitive_content", False),
+    "src/figure_after.py": (NOT_UTF8, FIGURE, "forbidden_token_present", True),
+    "src/figure_before.py": (FIGURE, LARGE, "forbidden_token_present", True),
+}
+
+
+def _figures(tmp_path) -> str:
+    listed = tmp_path / "figures.txt"
+    listed.write_text("48213.57\n", encoding="utf-8")
+    return str(listed)
+
+
+@pytest.mark.parametrize("path", MIXED)
+def test_an_unreadable_version_never_hides_a_refusal_in_the_other_on_the_configuration_route(
+        repository, tmp_path, path):
+    earlier, later, code, listed = MIXED[path]
+    repo, _base, _head = repository
+    base = _commit(repo, {path: earlier})
+    head = _commit(repo, {path: later, "src/cash.py": b"def balance(opening, deposits):\n    return opening\n"})
+    config = replace(LEAVE, **({"forbidden_token_file": _figures(tmp_path)} if listed else {}))
+    with pytest.raises(AssistantError, match="^" + code + "$"):
+        build_packet(repo, base, head, config)
+    report = config_preflight(repo, base, head, config)
+    row = next(row for row in report["paths"] if row["path"] == path)
+    assert (row["status"], row["code"]) == ("refused", code) and report["status"] == "blocked"
+
+
+@pytest.mark.parametrize("path", MIXED)
+def test_an_unreadable_version_never_hides_a_refusal_in_the_other_on_the_gate(gate_case, tmp_path, path):
+    earlier, later, code, listed = MIXED[path]
+    _commit(gate_case["repo"], {path: earlier})
+    policy = {"forbidden_token_file": _figures(tmp_path)} if listed else {}
+    _gate(gate_case, {path: later}, unreviewable_paths="skip-and-report", **policy)
+    report, calls = run(gate_case)
+    assert report["verdict"] == "BLOCKED" and report["reasons"] == [code] and not calls
+    preflight = policy_preflight(gate_case["repo"], gate_case["base"], gate_case["head"], "gate-policy.json",
+                                 gate_case["pin"])
+    row = next(row for row in preflight["paths"] if row["path"] == path)
+    assert (row["status"], row["code"]) == ("refused", code) and preflight["status"] == "blocked"
+
+
+def test_two_unreadable_versions_are_left_out_and_neither_is_sent(repository):
+    repo, _base, _head = repository
+    base = _commit(repo, {"src/both.py": NOT_UTF8})
+    head = _commit(repo, {"src/both.py": LARGE, "src/cash.py": b"def balance(opening, deposits):\n    return opening\n"})
+    packet = build_packet(repo, base, head, LEAVE)
+    assert packet["omitted"] == [{"path": "src/both.py", "reason": "non_text_blob"}]
+    assert [item["path"] for item in packet["files"]] == ["src/cash.py"]
+
+
+# Related context -----------------------------------------------------------------------------------
+
+
+def test_a_changed_file_that_is_left_out_is_never_related_context(repository, monkeypatch):
+    repo, _base, _head = repository
+    caller = b"from pricing.rates import discount\n\n\ndef price(face, rate):\n    return face%s\n"
+    base = _commit(repo, {"src/pricing/__init__.py": b"", "src/pricing/bond.py": caller % b"",
+                          "src/pricing/rates.py": b"# " + bytes([0xE9]) + b"\ndef discount(rate):\n    return 1\n"})
+    head = _commit(repo, {"src/pricing/bond.py": caller % b" * discount(rate)",
+                          "src/pricing/rates.py": b"def discount(rate):\n    return 1 / (1 + rate)\n"})
+    config = replace(LEAVE, related_context="related")
+    read, real = [], scope.read_entry
+
+    def spy(repository_, revision, path, *args, **kwargs):
+        read.append((revision, path))
+        return real(repository_, revision, path, *args, **kwargs)
+
+    monkeypatch.setattr(scope, "read_entry", spy)
+    packet = build_packet(repo, base, head, config)
+    assert packet["omitted"] == [{"path": "src/pricing/rates.py", "reason": "non_text_blob"}]
+    block = packet["related"]
+    assert all(item["path"] != "src/pricing/rates.py" for item in [*block["snippets"], *block["skipped"]])
+    # Its two versions are read once each, to screen the readable one; never again as context.
+    assert read.count((head, "src/pricing/rates.py")) == 1
+    verify_packet(packet, config)
 
 
 # The proposal ----------------------------------------------------------------------------------

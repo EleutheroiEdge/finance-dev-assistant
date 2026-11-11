@@ -305,8 +305,12 @@ field works in a gate policy's `model_review` object. What happens then:
   whatever its suffix or size.
 - **Some refusals still come first.** A path under a gate policy's `deny_paths`; a change to the
   policy, its profile, a fixture marker or a `.gitignore`; credential content; a listed figure; a
-  name that matches `extra_sensitive_patterns`; a symbolic link or submodule; and a range with
-  nothing left to review all refuse, whatever this setting.
+  name that matches `extra_sensitive_patterns`; and a range with nothing left to review all refuse,
+  whatever this setting.
+- **Only an ordinary file is left out.** A symbolic link or a submodule is never left out for this
+  setting's reasons: on a gate one anywhere in the range refuses, as it did before.
+- **A version that cannot be read never hides the other.** When one version of a file is too large
+  or not UTF-8, the other is still screened first, and a credential or a listed figure in it refuses.
 - **A model review goes ahead without `allow_partial_review`.** The setting is the choice to review
   without these files. `allow_partial_review` keeps its meaning for configurations that use it.
 - **Coverage is incomplete wherever it is checked:**

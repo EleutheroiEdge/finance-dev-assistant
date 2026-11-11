@@ -252,28 +252,68 @@ def omission_reason(config: Config, path: str) -> str | None:
     return None
 
 
+def require_regular(repo: Path, revisions: tuple[str, str], path: str) -> None:
+    """Refuse a symbolic link, a submodule or another special entry at either revision. No blob is read."""
+    for revision in revisions:
+        entries = git(repo, "--literal-pathspecs", "ls-tree", "-z", revision, "--", path, binary=True)
+        if entries:
+            mode, kind, _oid = entries.split(b"\t", 1)[0].decode().split()
+            if kind != "blob" or mode not in {"100644", "100755"}:
+                raise AssistantError("linked_or_special_git_object")
+
+
+def omission_for(repo: Path, revisions: tuple[str, str], path: str, config: Config, code: str) -> str | None:
+    """The reason to leave this file out for a refusal, or None when the refusal stands.
+
+    A file is left out only as an ordinary file: a link, a submodule or another special entry at
+    either revision still refuses, whatever reason the file would have been left out for.
+    """
+    reason = left_out(config, code)
+    if reason is not None:
+        require_regular(repo, revisions, path)
+    return reason
+
+
+# A version over the byte limit, or not UTF-8, cannot be read. That is known for one version at a
+# time, and it must not stop the other version from being screened.
+_UNREADABLE = frozenset({"file_limit_exceeded", "non_text_blob"})
+
+
 def read_sides(repo: Path, revisions: tuple[str, str], path: str, config: Config, screen=None) -> list[tuple]:
     """Both versions of one changed file, as (bytes, mode, text), read and screened.
 
     The one reader for plan and both preflights, so each refuses or leaves out the same file
-    for the same reason. Both entries are read first: a version over the byte limit is decided
-    from its object header, before any text is decoded. Then each version is decoded and screened
-    for credentials, and by `screen(text, path)` when the caller lists confidential figures.
+    for the same reason. Each version is read, decoded and screened for credentials, and by
+    `screen(text, path)` when the caller lists confidential figures. A version over the byte
+    limit is decided from its object header and never read.
+
+    A version that cannot be read does not hide the other one: the readable version is still
+    screened, and a credential or a listed figure in it refuses. Only then is the unreadable
+    version's own refusal raised, which a caller may turn into leaving the file out.
     """
     limit = config.file_byte_limit(path)
-    entries = [read_entry(repo, revision, path, limit, config) for revision in revisions]
-    sides = []
-    for data, mode in entries:
-        text = None
-        if data is not None:
-            try:
-                text = data.decode("utf-8")
-            except UnicodeError as exc:
-                raise AssistantError("non_text_blob") from exc
+    sides, unreadable = [], None
+    for revision in revisions:
+        try:
+            data, mode = read_entry(repo, revision, path, limit, config)
+            text = None
+            if data is not None:
+                try:
+                    text = data.decode("utf-8")
+                except UnicodeError as exc:
+                    raise AssistantError("non_text_blob") from exc
+        except AssistantError as exc:
+            if exc.code not in _UNREADABLE:
+                raise
+            unreadable = unreadable or exc
+            continue
+        if text is not None:
             check_text(text, extra_patterns=config.extra_sensitive_patterns, source_path=path)
             if screen is not None:
                 screen(text, path)
         sides.append((data, mode, text))
+    if unreadable is not None:
+        raise unreadable
     return sides
 
 
@@ -354,7 +394,9 @@ def config_token_guard(config: Config, repo: Path) -> TokenGuard | None:
     return TokenGuard.load(rules, checkout_roots(repo))
 
 
-def _related(repo: Path, head: str, files: list[dict], config: Config, room: int, admit=None, screen=None) -> dict:
+def _related(repo: Path, head: str, files: list[dict], config: Config, room: int, admit=None, screen=None,
+             left: frozenset = frozenset()) -> dict:
+    """`left` holds the changed paths that were left out: they are never searched or read as context."""
     from .related import candidates, related_block
 
     listing = git(repo, "ls-tree", "-r", "-z", "--name-only", head, binary=True)
@@ -364,7 +406,7 @@ def _related(repo: Path, head: str, files: list[dict], config: Config, room: int
             name = raw.decode("utf-8")
         except UnicodeError:
             continue
-        if name.endswith(".py") and _screened_name(config, name):
+        if name.endswith(".py") and name not in left and _screened_name(config, name):
             tracked.add(name)
     if admit is not None:  # A gate's deny and ignore rules, applied before any search or read.
         tracked &= set(admit(sorted(tracked)))
@@ -461,11 +503,14 @@ def build_packet(
             (before, before_mode, before_text), (after, after_mode, after_text) = read_sides(
                 repo, (ancestor, head_sha), path, config, screen)
         except AssistantError as exc:
-            reason = left_out(config, exc.code)
+            try:
+                reason = omission_for(repo, (ancestor, head_sha), path, config, exc.code)
+            except AssistantError as special:  # A link or submodule: never left out.
+                exc, reason = special, None
             if reason is None:
                 # Local output only (plan and watch print it); never in a packet, report or audit row.
                 exc.local_details.setdefault("path", local_name(path, config.extra_sensitive_patterns))
-                raise
+                raise exc
             # It cannot be reviewed, and the configuration leaves such files out: named, never sent.
             omitted.append({"path": path, "reason": reason})
             continue
@@ -502,7 +547,8 @@ def build_packet(
     if config.related_context == "related":
         # 16 KiB is kept for the block's own fields and the names of skipped candidates.
         room = config.max_packet_bytes - len(canonical(packet)) - 16_384
-        packet["related"] = _related(repo, head_sha, files, config, room, related_admit, screen)
+        packet["related"] = _related(repo, head_sha, files, config, room, related_admit, screen,
+                                     frozenset(row["path"] for row in omitted))
         if guard is not None:
             screen_related(packet, guard.snapshot)
     encoded = canonical(packet)
