@@ -228,6 +228,13 @@ SCRIPT = "export const settings = {\n  @pw@: process.env.DB_@PW@,\n  retries: 3,
     "@pw@: process.env.DB_@PW@",
     "Line 2:\n  @pw@: process.env.DB_@PW@,\nis fine.",
     "+  @pw@: process.env.DB_@PW@,",
+    "`@pw@: process.env.DB_@PW@` (unchanged).",
+    "`@pw@: process.env.DB_@PW@`: read once at start.",
+    "Did you mean `@pw@: process.env.DB_@PW@`?",
+    "- `@pw@: process.env.DB_@PW@`\n- `retries: 3` is new",
+    "It reads `@pw@: process.env.DB_@PW@`\nIf it is unset, startup fails.",
+    "```\nexport const settings = {\n  @pw@: process.env.DB_@PW@,\n  retries: 3,\n};\n```",
+    "@pw@: process.env.DB_@PW@\n\n- retries is new",
 ])
 def test_a_model_may_repeat_a_reference_from_the_source_it_was_sent(quote):
     check_output_document(output(quote), source("src/settings.ts", SCRIPT))
@@ -239,6 +246,26 @@ def test_a_model_may_repeat_a_reference_from_the_source_it_was_sent(quote):
     "@pw@: process.env.DB_@PW@_OTHER",                 # another value
     "@pw@: process.env.DB_@PW@ || \"@V@\"",             # the reference, then a literal on its line
     "@pw@: process.env.DB_@PW@ ?? '@V@'",
+    "@pw@: process.env.DB_@PW@\n  || \"@V@\"",          # the literal on the next line
+    "@pw@: process.env.DB_@PW@\n\n  + \"@V@\"",
+    "@pw@: process.env.DB_@PW@ ||\n  \"@V@\"",
+    "@pw@: process.env.DB_@PW@ || `@V@`",              # or in backticks
+    "@pw@: process.env.DB_@PW@\n  ?? `@V@`",
+    "@pw@: process.env.DB_@PW@ ?\n  process.env.OTHER : `@V@`",
+    "@pw@: process.env.DB_@PW@\n  : `@V@`",
+    "`@pw@: process.env.DB_@PW@` || `@V@`",            # or after the code span that held the quote
+    "@pw@: process.env.DB_@PW@` || `@V@`",             # a closing mark with no opening one
+    "@pw@: process.env.DB_@PW@(`@V@`)",
+    "@pw@: process.env.DB_@PW@ [`@V@`]",
+    "@pw@: process.env.DB_@PW@ /* note */ || `@V@`",   # or behind a comment
+    "@pw@: process.env.DB_@PW@\n/* note */ || \"@V@\"",
+    "@pw@: process.env.DB_@PW@\n// note\n  || \"@V@\"",
+    "@pw@: process.env.DB_@PW@ as string || `@V@`",    # or behind a word
+    "`@pw@: process.env.DB_@PW@` as string || `@V@`",
+    "`@pw@: process.env.DB_@PW@` ? `other` : `@V@`",
+    "`@pw@: process.env.DB_@PW@`\n|| `@V@`",
+    "@pw@: process.env.DB_@PW@ || 123456789012345",    # or as a number
+    "@pw@: process.env.DB_@PW@ /* note */ || 123456789012345",
     "@pw@: process.env.DB_@PW@ = \"@V@\"",
     "@pw@: process.env.DB_@PW@ = hunter_@W@",
     "@pw@: \"@V@\"",
@@ -249,6 +276,33 @@ def test_a_model_may_repeat_a_reference_from_the_source_it_was_sent(quote):
 def test_a_model_may_not_give_the_label_another_value(text):
     with pytest.raises(AssistantError, match="^sensitive_content$"):
         check_output_document(output(text), source("src/settings.ts", SCRIPT))
+
+
+@pytest.mark.parametrize("text", [
+    "@pw@: process.env.DB_@PW@ is read once at start.",
+    "see @pw@: process.env.DB_@PW@ (unchanged)",
+    "@pw@: process.env.DB_@PW@ })",
+])
+def test_a_quote_outside_a_code_span_must_end_its_line(text):
+    """Refused though nothing is added: what follows a bare quote on its line cannot be told from code."""
+    with pytest.raises(AssistantError, match="^sensitive_content$"):
+        check_output_document(output(text), source("src/settings.ts", SCRIPT))
+    check_output_document(output("export const settings = { @pw@: process.env.DB_@PW@ };"),
+                          source("src/settings.ts", "export const settings = { @pw@: process.env.DB_@PW@ };\n"))
+
+
+def test_a_model_may_repeat_what_follows_a_reference_on_its_source_line_and_nothing_else():
+    line = "  @pw@: process.env.DB_@PW@ || readVault(databaseName),"
+    files = source("src/settings.ts", "export const settings = {\n" + line + "\n};\n")
+    for quote in (line, line.strip().rstrip(","), "`" + line.strip().rstrip(",") + "` falls back to the vault.",
+                  "`@pw@: process.env.DB_@PW@` is read first."):
+        check_output_document(output(quote), files)
+    for text in ("  @pw@: process.env.DB_@PW@ || readVault(otherName),",
+                 "  @pw@: process.env.DB_@PW@ || readVault(databaseName) || `@V@`,",
+                 "  @pw@: process.env.DB_@PW@ || readVault(databaseName)\n    || `@V@`,",
+                 "  @pw@: process.env.DB_@PW@ || `@V@`,"):
+        with pytest.raises(AssistantError, match="^sensitive_content$"):
+            check_output_document(output(text), files)
 
 
 def test_a_structured_reply_cannot_spell_a_credential_across_two_fields():
