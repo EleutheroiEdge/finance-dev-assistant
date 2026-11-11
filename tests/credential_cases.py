@@ -44,6 +44,12 @@ TYPESCRIPT = [
     ("ts", "const @aK@ = process.env.SERVICE_@AK@\n\n// the region is not a credential\nconst region = \"eu-central-1-production\";"),
     ("ts", '  @sec@: configService.get<Map<string, string>>("auth.signing.keys"),'),
     ("ts", "  @pw@: hashed@Pw@,"),
+    # A short number in the expression is no credential.
+    ("ts", "  @pw@: process.env.DB_@PW@?.slice(0, 64),"),
+    ("ts", "  @sec@: process.env.JWT_@SEC@ ?? settingsByIndex[0],"),
+    ("ts", "  @aK@: readSettingAt(process.env.SERVICE_@AK@_INDEX, 12345678901),"),
+    ("ts", "  @aK@: process.env.SERVICE_@AK@_V2_123456789012345,"),  # digits in a name are the name
+    ("ts", "  @aT@: signAccessToken(process.env.JWT_@SEC@, { expiresIn: 1767225600000 }),"),  # a field of an argument object
     ("ts", "  @pw@: user.@pw@Hash,"),
     ("ts", "  @pw@: credentials.@pw@,"),
     ("ts", "  @aK@: options.@aK@,"),
@@ -328,6 +334,16 @@ MUST_REFUSE = [
     ("ts", "const fixture = `\ndatabase:\n  @pw@: @W@\n`;"),
     ("ts", "/*\n * @pw@: @W@\n */"),
     ("ts", "  @pw@: 123456789012,"),
+    # A number of that length anywhere in the expression is a literal too.
+    ("ts", "  @pw@: process.env.DB_@PW@ || 123456789012345,"),
+    ("ts", "  @pw@: process.env.DB_@PW@ ?? 0xDEADBEEFCAFEBABE1234,"),
+    ("ts", "  @pw@: process.env.DB_@PW@ || .123456789012345,"),
+    ("ts", "  @sec@: process.env.JWT_@SEC@ ||\n    123_456_789_012_345,"),
+    ("ts", "  @pw@: deriveFromSettings(process.env.DB_@PW@, 123456789012345),"),
+    ("go", "\t@Pw@: settingsFromEnvironment.Value + 123456789012345,"),
+    ("sql", "  @pw@ = current_database_setting || 123456789012345"),
+    ("kt", "  val @pw@ = settingsFromVault.value ?: 123456789012345"),
+    ("java", "  String @pw@ = settingsFromVault.value + 123456789012345;"),
     ("ts", "const text = `${name} uses\n  @pw@: @W@\n`;"),
     ("js", 'module.exports = { @aK@: "@V@" };'),
     ("js", 'const @sec@ = process.env.SESSION_@SEC@ || "@V@";'),
@@ -444,6 +460,9 @@ MUST_REFUSE = [
     ("ts", "export const settings = {\n  @pw@: process.env.DB_@PW@ instanceof\n    Object || \"@V@\"\n};"),   # an operator that is a word
     ("ts", "export const settings = {\n  @pw@: process.env.DB_@PW@ in\n    registry || \"@V@\"\n};"),
     ("kt", "val @pw@ = credentials.derive@Pw@()\n{ \"@V@\" }"),                                             # a lambda on the next line
+    # Type arguments that go on over a line break.
+    ("ts", 'const settings = { @pw@: derive@Pw@<keyof\n  Record<string, string>, string>("@V@") };'),
+    ("ts", 'const settings = { @pw@: derive@Pw@<string extends\n  Shape ? Left : Right>("@V@") };'),
     # A type name longer than the reader keeps of what it has read.
     ("ts", 'export const settings = { @pw@: derive@Pw@<T' + "x" * 80 + ', string>("@V@") };'),
     # A file that is not what its name says keeps the strict rules.
@@ -489,7 +508,7 @@ KNOWN_MISSES = [
     ("sql", "ALTER ROLE app WITH @PW@ '@V@';", "The label rules need a separator between label and value."),
     ("py", '@pw@ = os.environ.get("DB") or "@V@"\n', "The Python rule reads a direct literal and a getenv fallback."),
     ("yml", "      POSTGRES_@PW@: ${POSTGRES_@PW@:-@W@}", "An unquoted expansion is never read, default or not."),
-    # The next three passed no earlier version: they are what reading a file as its language costs.
+    # The rest passed no earlier version: they are what reading a file as its language costs.
     ("ts", "export const settings = {\n  @pw@: @W@\n};",
      "Inside a block of a script an unquoted value is an expression, whatever it spells."),
     ("java", "db.@pw@=@W@", "A settings line with a dotted name, saved under a code suffix, reads as code."),
@@ -504,4 +523,7 @@ KNOWN_MISSES = [
     ("ts", "if (used / total > 1 && ok) /@pw@=@W@/.test(body) && stop();",
      "A regular expression that directly follows a closing bracket is read as code when an even number of "
      "slashes stands before it on its line."),
+    ("kt", 'val settings = Settings(\n  @pw@ = settingsFromVault.value\n  orElse "@V@",\n)',
+     "Inside brackets Kotlin reads an infix call on the next line as part of the expression. The reader takes a "
+     "line that begins with a name for a new statement."),
 ]

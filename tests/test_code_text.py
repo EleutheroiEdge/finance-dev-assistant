@@ -309,6 +309,11 @@ SHORT = '"' + "x" * 11 + '"'
     ("ts", "k = @derive<(a: A) => B, C>(" + LONG + ")", True),
     ("kt", "val k = @derive<(A) -> B, C>(" + LONG + ")", True),
     ("ts", "k = @derive<A>(first, " + LONG + ")", True),
+    ("ts", "k = @derive<keyof\n  Record<A, B>, C>(" + LONG + ")", True),     # a line break inside them
+    ("ts", "k = @derive<A extends\n  B ? C : D>(" + LONG + ")", True),
+    ("ts", "k = @derive<\n  A,\n  B\n>(" + LONG + ")", True),
+    ("ts", "k = @config.value extends\n  Shape ? a : " + LONG, True),
+    ("ts", "k = @derive<A, B>(first)\nother = " + LONG, False),            # closed again: the line ends it
     # The text of an error is not a value, at any place in the call.
     ("ts", "k = @config.value ?? fail(" + LONG + ")", False),
     ("ts", "k = @config.value ?? raise(new Error(" + LONG + "))", False),
@@ -324,6 +329,23 @@ SHORT = '"' + "x" * 11 + '"'
     ("ts", "k = @createClient({ inner: { url: " + LONG + " } })", True),
     ("ts", "k = @getValue(" + TICK + "${cond ? a : " + LONG + "}" + TICK + ")", True),
     ("go", "k = @Options{URL: " + LONG + "}", True),
+    # A number is a literal wherever it stands, and digits in a name are the name.
+    ("ts", "k = @config.value || 123456789012", True),
+    ("ts", "k = @config.value || 12345678901", False),
+    ("ts", "k = @config.value ?? 0xDEADBEEF1234", True),
+    ("ts", "k = @config.value ||\n  123_456_789.012_345", True),
+    ("ts", "k = @derive(123456789012)", True),
+    ("ts", "k = @getValue(123456789012)", False),                        # excused where a string would be:
+    ("ts", "k = @sign(key, { expiresIn: 1767225600000 })", False),       # the name a lookup is given, a field of an
+    ("ts", "k = @sign(key, 1767225600000)", True),                       # object passed as an argument
+    ("ts", "k = @config.value || .123456789012345", True),               # a number may begin with a point
+    ("ts", "k = @config.value.123456789012345", False),
+    ("ts", "k = @config.value_123456789012", False),
+    ("ts", "k = @config.v1.field2345678901234", False),
+    ("ts", "k = @config.value || 1234567.5.toFixed(2)", False),
+    ("go", "k = @config.Value + 123456789012", True),
+    ("sql", "SET k = @new_value || 123456789012", True),
+    ("ts", "k = @config.value, other: 123456789012", False),             # after the end
     # SQL: a word after a complete value starts a new clause.
     ("sql", "SET k = @new_value WHERE note = 'xxxxxxxxxxxx'", False),
     ("sql", "SET k = @new_value || 'xxxxxxxxxxxx'", True),

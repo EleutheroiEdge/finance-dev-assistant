@@ -97,7 +97,8 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 - **What is still refused, and what the new reading costs.** A quoted literal is refused as
   before, and so is a reference whose expression holds one: after `||`, `??`, `?:` or `+`, as a
   later argument, as the argument of `orElse`, `default` and similar calls, or handed to a call
-  that hashes, encodes or wraps it. Only the name a lookup is given, the text of an error and a
+  that hashes, encodes or wraps it. A number of 12 or more characters in the expression is
+  refused the same way. Only the name a lookup is given, the text of an error and a
   field of an argument object are not counted, and a call is a lookup only when every word of
   its name is a lookup word. A string, a comment, a
   number, `.jsx` and `.tsx` files, a script that holds markup, and any file that does not read
@@ -110,7 +111,9 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   `password` field given `get_password()` from the source it was sent had its whole reply
   refused, in Python too. The label, separator and value are now accepted when they stand in the
   screened source exactly so and nothing after them on the line holds a quote mark or an equals
-  sign. The same label with any other value is refused as before.
+  sign. The quote must also end its expression: in prose as a code span with only plain prose
+  after it to the end of its clause, in code at the end of its line with nothing left open. The
+  same label with any other value is refused as before.
 - **In Python, a credential-named literal that is one expansion is no longer refused,** by the
   same rule as in other files.
 - **Adding these settings does not change the configuration hash.** A setting marked this way is
