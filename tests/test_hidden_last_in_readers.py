@@ -8,6 +8,7 @@ only: the credential is spelled at run time and the hidden character is built he
 from copy import deepcopy
 from dataclasses import replace
 import itertools
+import json
 
 import pytest
 
@@ -17,12 +18,15 @@ from finassist.config import Config
 from finassist.errors import AssistantError
 from finassist.evaluation import validate_suite
 from finassist.scope import build_packet
-from finassist.security import check_texts
+from finassist.security import check_texts, digest
 from finassist.triage_contract import validate_request
 from finassist.workflow import build_workflow_plan
+from finassist.workflow_packs import resolve_bundle
 from finassist.workspace import export_snapshot
 from test_evaluation import suite
 from test_triage_contract import sample_case
+
+pytest_plugins = ("test_workflow", "test_workflow_packs")
 
 HIDDEN = "total" + chr(0x200B) + " = 1\n"  # a zero-width space, built here so that this file holds none
 LABELLED = spell('@pw@ = "@V@"\n')
@@ -126,3 +130,54 @@ def test_the_methodology_documents_of_a_workflow(repository, texts, expected):
     }
     packet = build_packet(repo, base, head, config)  # The documents are not in the range: the workflow reads them.
     assert code_of(lambda: build_workflow_plan(template, packet, repo, config)) == expected
+
+
+# --- Codex P112-1: the packs of a workflow bundle, read through a helper ------
+
+TOKEN = "token " + "ghp_" + "a" * 36  # a known format, which a pack's text shows as it is written
+
+
+def _rewrite_pack(case, kind, put):
+    """Write one pack with its characters as they are, not as escapes, and pin its new digest."""
+    repo, _config, bundle, _packet = case
+    reference = next(item for item in bundle["packs"] if item["path"] == "packs/" + kind + ".json")
+    pack = json.loads((repo / reference["path"]).read_text(encoding="utf-8"))
+    put(pack["data"])
+    content = json.dumps(pack, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    (repo / reference["path"]).write_bytes(content)
+    reference["sha256"] = digest(content)
+
+
+@pytest.mark.parametrize("texts,expected", orders(HIDDEN, TOKEN), ids=[
+    "hidden then credential", "credential then hidden", "hidden then plain", "plain then hidden",
+    "plain then credential", "plain"])
+def test_the_packs_of_a_workflow_bundle(pack_case, texts, expected):
+    repo, config, bundle, _packet = pack_case
+    assert [item["path"] for item in bundle["packs"]][::2] == ["packs/workflow.json", "packs/profile.json"]
+    _rewrite_pack(pack_case, "workflow", lambda data: data.update(goal="Validate the rule. " + texts[0].strip()))
+    _rewrite_pack(pack_case, "profile",
+                  lambda data: data.update({"monetary-review": ["Check monetary units. " + texts[1].strip()]}))
+    assert code_of(lambda: resolve_bundle(bundle, repo, config)) == expected
+
+
+def test_a_hidden_character_in_a_pack_waits_for_the_other_checks_of_its_bundle(pack_case):
+    """What a bundle was refused for before this screen existed, it is still refused for."""
+    repo, config, bundle, _packet = pack_case
+    _rewrite_pack(pack_case, "workflow", lambda data: data.update(goal="Validate the rule. " + HIDDEN.strip()))
+    bundle["recipe_bindings"]["unused"] = "py-unit"
+    assert code_of(lambda: resolve_bundle(bundle, repo, config)) == "workflow_recipe_binding_unused"
+
+
+# --- Codex P112-2: a checklist's credential keeps its place ------------------
+
+@pytest.mark.parametrize("later,code", [
+    ({"Not-A-Name": ["An item."]}, "invalid_profile_name"),
+    ({"second": []}, "invalid_profile_checklist"),
+    ({"second": [1]}, "invalid_profile_checklist"),
+])
+def test_a_credential_in_a_checklist_comes_before_a_later_profile_that_is_not_valid(later, code):
+    shipped = Config().profiles
+    labelled = replace(Config(), profiles={**shipped, "general": [LABELLED.strip()], **later})
+    assert code_of(labelled.validate) == "sensitive_content"  # as before this change and before the hidden screen
+    hidden = replace(Config(), profiles={**shipped, "general": [HIDDEN.strip()], **later})
+    assert code_of(hidden.validate) == code  # the hidden character waits; the profile is refused for what it was

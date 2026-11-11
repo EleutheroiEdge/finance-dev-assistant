@@ -11,7 +11,8 @@ import jsonschema
 
 from .config import Config, config_hash
 from .errors import AssistantError
-from .security import canonical, check_text, digest, regular_path, write_private
+from .hidden_text import Waiting
+from .security import canonical, check_credentials, check_text, digest, regular_path, write_private
 from .workflow import parse_template
 
 _ID = {"type": "string", "pattern": r"^[a-z][a-z0-9-]{0,63}(?![\s\S])"}
@@ -113,7 +114,7 @@ def read_bundle(path: Path) -> dict:
     return value
 
 
-def _load_pack(reference: dict, repo: Path, config: Config) -> tuple[dict, dict]:
+def _load_pack(reference: dict, repo: Path, config: Config, waiting: Waiting) -> tuple[dict, dict]:
     path = config.check_path(reference["path"], source_only=False)
     if not path.endswith(".json"):
         raise AssistantError("workflow_pack_path_invalid")
@@ -128,7 +129,9 @@ def _load_pack(reference: dict, repo: Path, config: Config) -> tuple[dict, dict]
         text = content.decode("utf-8")
     except UnicodeError as exc:
         raise AssistantError("workflow_pack_invalid") from exc
-    check_text(text, extra_patterns=config.extra_sensitive_patterns)
+    # One pack of several: a hidden character in it waits for the checks of the whole bundle.
+    check_credentials(text, extra_patterns=config.extra_sensitive_patterns)
+    waiting.check(text)
     try:
         pack = json.loads(text, object_pairs_hook=_unique_object, parse_constant=_invalid_constant)
     except (ValueError, RecursionError) as exc:
@@ -159,8 +162,9 @@ def resolve_bundle(bundle: dict, repo: Path, config: Config) -> dict:
         raise AssistantError("workflow_pack_duplicate_path")
     profiles = deepcopy(dict(config.profiles))
     workflow, checks, policies, sources, decisions, identities = None, [], [], [], [], set()
+    unseen = Waiting()  # Released last: every refusal a bundle had before this screen keeps its code.
     for reference in bundle["packs"]:
-        pack, source = _load_pack(reference, repo, config)
+        pack, source = _load_pack(reference, repo, config, unseen)
         if pack["name"] in identities:
             raise AssistantError("workflow_pack_duplicate_name")
         identities.add(pack["name"])
@@ -252,6 +256,7 @@ def resolve_bundle(bundle: dict, repo: Path, config: Config) -> dict:
     for value in (configuration, workflow, resolution):
         if len(canonical(value)) + 1 > 2_000_000:
             raise AssistantError("workflow_resolution_limit_exceeded")
+    unseen.release()
     return {"config": configuration, "template": workflow, "resolution": resolution}
 
 

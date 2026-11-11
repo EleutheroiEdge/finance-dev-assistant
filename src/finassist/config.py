@@ -14,15 +14,16 @@ from urllib.parse import urlsplit
 
 from .errors import AssistantError
 from .config_compat import check_min_version, compatible_document, decode_config, unknown_option
+from .hidden_text import check_hidden
 from .forbidden_tokens import (DEFAULT_MIN_DIGITS, MATCHES, MAX_MIN_DIGITS, MAX_SOURCE_FILES, MAX_TOKENS,
                                MIN_DIGITS)
 from .security import (
     MAX_PLACEHOLDER_PATHS,
     PLACEHOLDER_PATTERN,
     PLACEHOLDER_STARS,
+    check_credentials,
     check_path,
     check_text,
-    check_texts,
     holds_placeholders,
     placeholder_pattern_names_something,
     pinned_image,
@@ -228,7 +229,12 @@ class Config:
                 )
             ):
                 raise AssistantError("invalid_profile_checklist")
-        check_texts(item for checklist in self.profiles.values() for item in checklist)
+            for item in checklist:
+                check_credentials(item)
+        # A hidden character in one item waits until every checklist has been read for credentials.
+        for checklist in self.profiles.values():
+            for item in checklist:
+                check_hidden(item)
         if (
             not isinstance(self.profile_files, (list, tuple))
             or len(self.profile_files) > 16

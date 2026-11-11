@@ -471,7 +471,8 @@ def check_texts(texts, *, extra_patterns: tuple[str, ...] = ()) -> None:
     """`check_text` for several texts that stand together and are not the content of a file.
 
     A credential in any of them is reported before a hidden character in another, so the
-    refusal does not depend on the order they come in.
+    refusal does not depend on the order they come in. A reader with checks of its own between
+    the texts calls `check_credentials` at each place instead and lets the other half wait.
     """
     texts = list(texts)
     for text in texts:

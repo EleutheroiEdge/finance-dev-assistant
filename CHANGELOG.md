@@ -166,10 +166,10 @@ Nothing else about what a gate accepts, authorizes or spends has changed.
   On 225 reference changes at pinned commits, 11 were blocked on the configuration route by a
   budget alone. With both skip settings that route now has no setup blocker for 185 (82%), up
   from 174, and the gate route is unchanged.
-- **A credential is reported before a hidden character in every reader of several texts.** Five
+- **A credential is reported before a hidden character in every reader of several texts.** Six
   readers screened each text in turn: the cases of an evaluation suite, the files of an export,
-  the methodology documents of a workflow, the checklists of a configuration, and the context
-  and candidates of a triage request. A hidden character in an early text was then reported
+  the methodology documents of a workflow, the packs of a workflow bundle, the checklists of a
+  configuration, and the context and candidates of a triage request. A hidden character in an early text was then reported
   before a credential in a later one, so the refusal depended on their order. Nothing got
   through either way. An export still never writes a file that holds a hidden character. A test
   now reads the source for a screen that runs on each of several texts.
