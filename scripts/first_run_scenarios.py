@@ -2,11 +2,13 @@
 
 For each repository, take the last N first-parent changes on a branch. Run `init --detect` at the
 revision before the oldest of them, as someone setting up once would, then check each later change
-with `doctor` on both routes, as drafted and with `private_paths: skip-and-report`.
+with `doctor` on both routes: as drafted, with `private_paths: skip-and-report`, and with
+`unreviewable_paths: skip-and-report` as well.
 
 Nothing is sent anywhere and no key is read: `doctor` is offline and the key variable holds a
 placeholder. Nothing is written inside a repository. Only codes, counts and timings are printed,
-under an anonymous number for each repository. Raw `doctor` output, which names files, and the
+under an anonymous number for each repository, and a content refusal is counted by its rule and
+the file's suffix. Raw `doctor` output, which names files, and the
 list of which number is which repository go to --output: a new folder, created here, that must
 not exist yet and must be outside every repository. Keep it private.
 
@@ -23,7 +25,8 @@ import argparse
 import collections
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+import re
 import statistics
 import subprocess
 import sys
@@ -33,7 +36,10 @@ PROVIDER = ["--provider", "google", "--model", "review-model", "--input-usd-per-
             "--output-usd-per-million", "5"]
 # Blockers that say the operator has not authorized a call yet. They are not setup failures.
 AUTHORIZATION = frozenset({"network_not_approved", "provider_key_missing", "provider_prices_required"})
-VARIANTS = ("config", "config+skip", "gate", "gate+skip")
+VARIANTS = ("config", "config+skip", "config+leave", "gate", "gate+skip", "gate+leave")
+SKIP = {"private_paths": "skip-and-report"}
+LEAVE = {**SKIP, "unreviewable_paths": "skip-and-report"}
+_SUFFIX = re.compile(r"\.[a-z0-9]{1,8}")
 
 
 class Incomplete(Exception):
@@ -60,6 +66,16 @@ def finassist(command: list[str], arguments: list[str], cwd: Path, environment: 
     return done, time.perf_counter() - started
 
 
+def outcome(row: dict) -> str:
+    """One path's outcome as a key: its status with the code or reason, and for a content refusal
+    the rule and the file's suffix. Never the name."""
+    key = "%s:%s" % (row.get("status"), row.get("code") or row.get("reason") or "")
+    if isinstance(row.get("rule"), str):
+        suffix = PurePosixPath(str(row.get("path"))).suffix.lower()
+        key += ":%s:%s" % (row["rule"], suffix if _SUFFIX.fullmatch(suffix) else "")
+    return key
+
+
 def doctor(command: list[str], arguments: list[str], cwd: Path, environment: dict) -> dict:
     """One range's status, blocker codes and per-path outcome counts. No path name is kept."""
     done, seconds = finassist(command, arguments, cwd, environment)
@@ -78,8 +94,7 @@ def doctor(command: list[str], arguments: list[str], cwd: Path, environment: dic
         except (ValueError, IndexError, KeyError, TypeError):
             raise Incomplete("doctor gave no report") from None
         return {"status": "refused", "blockers": [code], "paths": {}, "seconds": seconds}
-    paths = collections.Counter("%s:%s" % (row.get("status"), row.get("code") or row.get("reason") or "")
-                                for row in report.get("paths", []))
+    paths = collections.Counter(outcome(row) for row in report.get("paths", []))
     return {"status": report.get("status"), "blockers": sorted({item.get("code") for item in report.get("blockers", [])}),
             "paths": dict(paths), "seconds": seconds}
 
@@ -101,8 +116,9 @@ def scenario(command: list[str], label: str, repo: Path, branch: str, changes: i
         config, gate = proposal["config"], proposal["gate_policy_draft"]
     except (ValueError, KeyError, TypeError):
         raise Incomplete("init --detect") from None
-    documents = {"config": config, "config+skip": {**config, "private_paths": "skip-and-report"}, "gate": gate,
-                 "gate+skip": {**gate, "model_review": {**gate["model_review"], "private_paths": "skip-and-report"}}}
+    documents = {"config": config, "config+skip": {**config, **SKIP}, "config+leave": {**config, **LEAVE},
+                 "gate": gate, "gate+skip": {**gate, "model_review": {**gate["model_review"], **SKIP}},
+                 "gate+leave": {**gate, "model_review": {**gate["model_review"], **LEAVE}}}
     files = {}
     for variant, document in documents.items():
         files[variant] = output / f"{label}-{variant}.json"

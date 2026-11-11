@@ -171,7 +171,8 @@ def test_names_that_fail_screening_are_redacted_and_nothing_is_audited(gate_case
     output = capsys.readouterr().out
     report = json.loads(output)
     assert exit_code == 1 and "ghp_" not in output
-    assert {"path": "[redacted]", "status": "refused", "code": "sensitive_content"} in report["paths"]
+    assert {"path": "[redacted]", "status": "refused", "code": "sensitive_content",
+            "rule": "github_token"} in report["paths"]
     assert not audit.exists()
 
 

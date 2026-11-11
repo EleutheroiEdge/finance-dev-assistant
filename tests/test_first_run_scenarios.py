@@ -54,6 +54,8 @@ def test_the_script_reports_counts_and_leaves_the_repository_alone(repository, t
     assert gate["ready"] == 2 and skipping["ready"] == 3
     assert summary["variants"]["config"]["ready_but_for_authorization"] == 2
     assert summary["variants"]["config+skip"]["ready_but_for_authorization"] == 3
+    assert summary["variants"]["gate+leave"]["ready"] == 3
+    assert summary["variants"]["config+leave"]["ready_but_for_authorization"] == 3
     assert "ALL gate" in shown and "repositories measured: 1 | incomplete: 0" in shown
     # Only an anonymous label is printed; which repository it is stays in the private folder.
     assert "repository-1" in shown and str(repo) not in shown and "positions" not in shown and "cash.py" not in shown
@@ -147,3 +149,13 @@ def test_a_folder_inside_a_repository_is_not_taken_for_its_root(repository, tmp_
     # Git would read the repository from src/, and results/ is outside src/ yet inside the repository.
     assert _main(str(repo / "src"), "--output", str(repo / "results")) == 2 and not (repo / "results").exists()
     assert _main(str(repo / "src"), "--output", str(tmp_path / "out")) == 2 and not (tmp_path / "out").exists()
+
+
+def test_a_content_refusal_is_counted_by_its_rule_and_suffix_and_never_by_name():
+    refused = {"status": "refused", "code": "sensitive_content", "rule": "credential_label", "lines": [3]}
+    assert scenarios.outcome({**refused, "path": "src/app/Settings.TS"}) == "refused:sensitive_content:credential_label:.ts"
+    assert scenarios.outcome({**refused, "path": "[redacted]"}) == "refused:sensitive_content:credential_label:"
+    # A suffix that could itself say something is not kept.
+    assert scenarios.outcome({**refused, "path": "notes.client-name-2026"}) == "refused:sensitive_content:credential_label:"
+    assert scenarios.outcome({"path": "src/cash.py", "status": "included"}) == "included:"
+    assert scenarios.outcome({"path": "data/x.csv", "status": "withheld", "reason": "private"}) == "withheld:private"
