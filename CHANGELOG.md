@@ -47,6 +47,11 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   Nothing else about what a gate accepts, authorizes or spends has changed.
 
 ### Fixed
+- **On macOS a check could fail with `PermissionError` when its command exited as the runner stopped
+  reading its output.** macOS refuses to signal a process group that holds only a zombie, and the
+  runner raised that refusal when it came a moment before the exit was reported. The signal is now
+  tried again until the group is proved to hold only a zombie. A group with a live member still
+  raises.
 - **`init --detect` drafted a gate policy that the gate refused.** The draft listed private files
   found inside reviewed directories under `deny_paths`, and the policy check refused any policy whose
   `deny_paths` named a private path such as `.env.example`, `holdings/` or `USER.md`. Every range was

@@ -18,7 +18,8 @@ from finassist.platform_support import clean_environment, find_tool, read_utf8, 
 from finassist.runner import run_bounded, run_recipe
 from finassist.scope import build_packet
 from finassist.security import canonical, digest
-from finassist.posix_process import zombie_group_only
+from finassist import posix_process
+from finassist.posix_process import signal_group, zombie_group_only
 
 
 def test_utf8_crlf_config_and_source_hashes(repository, tmp_path):
@@ -145,3 +146,71 @@ def test_zombie_only_signal_exception_never_accepts_a_live_member(monkeypatch, s
         lambda argv, **_: subprocess.CompletedProcess(argv, 0, states, ""),
     )
     assert zombie_group_only(123) is accepted
+
+
+class _Observer:
+    """An exit that is reported only from the given poll onward."""
+
+    def __init__(self, reported_from: int):
+        self.polls, self.reported_from = 0, reported_from
+
+    def poll(self) -> bool:
+        self.polls += 1
+        return self.polls >= self.reported_from
+
+
+def _refusing_group(monkeypatch, refusals: int, zombie_from: int = 1):
+    """A group that refuses the first `refusals` signals, and is seen as only a zombie from the given probe."""
+    seen = {"signals": 0, "probes": 0}
+
+    def killpg(_pid, _sig):
+        seen["signals"] += 1
+        if seen["signals"] <= refusals:
+            raise PermissionError(1, "Operation not permitted")
+
+    def zombie(_pid):
+        seen["probes"] += 1
+        return seen["probes"] >= zombie_from
+
+    monkeypatch.setattr(posix_process.os, "killpg", killpg, raising=False)
+    monkeypatch.setattr(posix_process, "zombie_group_only", zombie)
+    return seen
+
+
+def test_a_refused_signal_is_accepted_once_the_group_is_proved_to_be_only_a_zombie(monkeypatch):
+    # The exit is reported on the third poll and `ps` shows a zombie from its second probe: the
+    # refusal a moment earlier, which used to be raised, is retried until both are true.
+    seen = _refusing_group(monkeypatch, refusals=99, zombie_from=2)
+    observer = _Observer(reported_from=3)
+    signal_group(123, 15, observer, platform="darwin")
+    assert observer.polls == 4 and seen["probes"] == 2 and seen["signals"] == 4
+
+
+def test_a_signal_that_lands_on_a_later_try_is_sent(monkeypatch):
+    seen = _refusing_group(monkeypatch, refusals=2, zombie_from=99)
+    signal_group(123, 15, _Observer(reported_from=99), platform="darwin")
+    assert seen["signals"] == 3 and seen["probes"] == 0
+
+
+def test_a_live_member_is_never_left_unsignalled_silently(monkeypatch):
+    # The leader has exited but another member lives on: the refusal stands after the settling time.
+    seen = _refusing_group(monkeypatch, refusals=10 ** 9, zombie_from=10 ** 9)
+    monkeypatch.setattr(posix_process, "SIGNAL_SETTLE_SECONDS", 0.05)
+    with pytest.raises(PermissionError):
+        signal_group(123, 15, _Observer(reported_from=1), platform="darwin")
+    assert seen["signals"] >= 2 and seen["probes"] == seen["signals"]
+
+
+def test_a_refusal_elsewhere_is_raised_at_once_and_a_missing_group_is_not_an_error(monkeypatch):
+    seen = _refusing_group(monkeypatch, refusals=99)
+    with pytest.raises(PermissionError):
+        signal_group(123, 15, _Observer(reported_from=1), platform="linux")
+    with pytest.raises(PermissionError):
+        signal_group(123, 15, None, platform="darwin")
+    assert seen["signals"] == 2 and seen["probes"] == 0
+
+    def gone(_pid, _sig):
+        raise ProcessLookupError
+
+    monkeypatch.setattr(posix_process.os, "killpg", gone, raising=False)
+    signal_group(123, 15, None, platform="linux")
