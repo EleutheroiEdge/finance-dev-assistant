@@ -20,3 +20,6 @@ because an environment variable exists.
 Keep dependencies and CI actions pinned. No new default permissions or external
 services should be introduced as an incidental refactor. Review the exact head
 and green CI before merging. Security fixes use synthetic public reproducers.
+
+Maintainers: a release is ready when every gate in
+[docs/maintainers/release-readiness.md](docs/maintainers/release-readiness.md) passes on the built wheel.
