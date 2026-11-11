@@ -249,9 +249,34 @@ def test_no_git_command_here_may_take_the_optional_lock(repository, capsys, monk
     real_run, seen = seeded.subprocess.run, set()
 
     def run(command, **options):
-        seen.add(options.get("env", {}).get("GIT_OPTIONAL_LOCKS"))
+        environment = options.get("env", {"GIT_": "inherited"})
+        seen.add(tuple(sorted((name, value) for name, value in environment.items() if name.startswith("GIT_"))))
         return real_run(command, **options)
 
     monkeypatch.setattr(seeded.subprocess, "run", run)
+    # The caller's own Git settings do not come along: not one that points elsewhere, not one that undoes ours.
+    monkeypatch.setenv("GIT_DIR", str(repo / "elsewhere"))
+    monkeypatch.setenv("GIT_NO_REPLACE_OBJECTS", "0")
     code, _shown = _run(capsys, repo)
-    assert code == 0 and seen == {"0"}
+    assert code == 0 and seen == {(("GIT_NO_REPLACE_OBJECTS", "1"), ("GIT_OPTIONAL_LOCKS", "0"))}
+
+
+def test_a_replacement_ref_does_not_change_what_a_pinned_commit_adds(repository, tmp_path, capsys):
+    """Codex P114-1: a replacement for the saved commit changed the count under the same fingerprint."""
+    repo, _base, _head = repository
+    _change(repo, {"src/cash.py": "OPENING = 48_213.57\n"})
+    tip = command(repo, "rev-parse", "HEAD")
+    tips = tmp_path / "tips.txt"
+    tips.write_text(tip + "\n", encoding="utf-8")
+    code, before = _run(capsys, repo, "--tips", str(tips))
+    assert code == 0 and "'seeded_refused': 1" in before
+    # A sibling of the pinned commit that adds two more numbers, put in its place by a replacement ref.
+    (repo / "src/fees.py").write_text("FEE = 6729102.50\nRATE = 31415.926\n", encoding="utf-8", newline="\n")
+    command(repo, "add", "-f", "src/fees.py")
+    tree = command(repo, "write-tree")
+    command(repo, "reset", "-q", "--hard", tip)
+    sibling = command(repo, "commit-tree", tree, "-p", tip + "^", "-m", "Synthetic sibling")
+    command(repo, "replace", tip, sibling)
+    code, after = _run(capsys, repo, "--tips", str(tips))
+    assert code == 0 and "'seeded_refused': 1" in after and "'seeded_refused': 3" not in after
+    assert after == before

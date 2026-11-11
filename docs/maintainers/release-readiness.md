@@ -193,9 +193,11 @@ repository: never a number, a line, a file name or a path.
   both scripts print a fingerprint of the set they read. With `--tips` they read those commits
   again. Compare two counts only when their runs print the same fingerprint, and give it with
   every number that leaves this page.
-- **Nothing is locked.** Neither script writes inside a repository, and both run every Git
-  command with `GIT_OPTIONAL_LOCKS=0`, so a measurement never holds the index lock of a
-  repository that someone is working in.
+- **Nothing is locked, and the objects are read as they are.** Neither script writes inside a
+  repository. Both run every Git command with `GIT_OPTIONAL_LOCKS=0`, so a measurement never
+  holds the index lock of a repository that someone is working in, and with
+  `GIT_NO_REPLACE_OBJECTS=1` and none of the caller's own `GIT_` settings, so a replacement ref
+  or a stray setting cannot put other changes in the place of the pinned ones.
 - **A private path is never read.** The seeded script decides by name, with the product's own
   path policy, before it diffs or opens a file, and counts what it leaves out.
 - **An incomplete run is not a measurement.** A missing repository or branch, a failed Git read,

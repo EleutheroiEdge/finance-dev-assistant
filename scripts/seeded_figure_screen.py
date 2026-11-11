@@ -45,9 +45,20 @@ _NUMBER = re.compile(r"(?<![\w.])\d[\d_,]*(?:\.\d[\d_]*)?(?![\w.])")
 _GROUPED = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?")
 _ESCAPE = re.compile(r"\\U([0-9a-fA-F]{8})|\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})")
 _COMMIT = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
-# A measurement only reads. Without this, `git status` may rewrite a repository's index and hold
-# its lock for a moment, which another Git command in that checkout would then trip over.
-READ_ONLY_GIT = {"GIT_OPTIONAL_LOCKS": "0"}
+# A measurement only reads, and reads the objects as they are. Without the first setting,
+# `git status` may rewrite a repository's index and hold its lock for a moment, which another Git
+# command in that checkout would then trip over. Without the second, a replacement ref would put
+# another commit in the place of a pinned one, and the same tips would name other changes.
+READ_ONLY_GIT = {"GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS": "1"}
+
+
+def git_environment() -> dict:
+    """The environment of every Git command of a measurement.
+
+    None of the caller's own Git settings come along: one of them could point a command at
+    another repository, another index or another object store than the one that was named.
+    """
+    return {**{name: value for name, value in os.environ.items() if not name.startswith("GIT_")}, **READ_ONLY_GIT}
 
 
 class Incomplete(Exception):
@@ -56,7 +67,7 @@ class Incomplete(Exception):
 
 def git(repo: Path, *args: str) -> bytes:
     done = subprocess.run(["git", "-C", str(repo), "--literal-pathspecs", *args], capture_output=True, check=False,
-                          env={**os.environ, **READ_ONLY_GIT})
+                          env=git_environment())
     if done.returncode:
         raise Incomplete("git " + args[0])
     return done.stdout

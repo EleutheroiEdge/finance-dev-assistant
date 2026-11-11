@@ -7,8 +7,9 @@ with `doctor` on both routes: as drafted, with `private_paths: skip-and-report`,
 `placeholder_credential_paths` on top of both.
 
 Nothing is sent anywhere and no key is read: `doctor` is offline and the key variable holds a
-placeholder. Nothing is written inside a repository, and Git's optional index lock is never
-taken in one. Only codes, counts and timings are printed,
+placeholder. Nothing is written inside a repository, Git's optional index lock is never taken
+in one, and its objects are read as they are: replacement refs and the caller's own Git settings
+are left out. Only codes, counts and timings are printed,
 under an anonymous number for each repository, and a content refusal is counted by its rule and
 the file's suffix. Raw `doctor` output, which names files, and the
 list of which number is which repository go to --output: a new folder, created here, that must
@@ -53,9 +54,20 @@ TESTS = {**LEAVE, "placeholder_credential_paths": [
     "*_test.go", "*/test_*.py", "*/conftest.py"]}
 _SUFFIX = re.compile(r"\.[a-z0-9]{1,8}")
 _COMMIT = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
-# A measurement only reads. Without this, `git status` may rewrite a repository's index and hold
-# its lock for a moment, which another Git command in that checkout would then trip over.
-READ_ONLY_GIT = {"GIT_OPTIONAL_LOCKS": "0"}
+# A measurement only reads, and reads the objects as they are. Without the first setting,
+# `git status` may rewrite a repository's index and hold its lock for a moment, which another Git
+# command in that checkout would then trip over. Without the second, a replacement ref would put
+# another commit in the place of a pinned one, and the same tips would name other changes.
+READ_ONLY_GIT = {"GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS": "1"}
+
+
+def git_environment() -> dict:
+    """The environment of every Git command of a measurement.
+
+    None of the caller's own Git settings come along: one of them could point a command at
+    another repository, another index or another object store than the one that was named.
+    """
+    return {**{name: value for name, value in os.environ.items() if not name.startswith("GIT_")}, **READ_ONLY_GIT}
 
 
 class Incomplete(Exception):
@@ -64,7 +76,7 @@ class Incomplete(Exception):
 
 def git(repo: Path, *args: str) -> str:
     done = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=False,
-                          env={**os.environ, **READ_ONLY_GIT})
+                          env=git_environment())
     if done.returncode:
         raise Incomplete("git " + args[0])
     return done.stdout.strip()
@@ -215,7 +227,7 @@ def main(argv: list[str] | None = None) -> int:
         # Git reads a repository from any folder inside it, so the folder given must be its root:
         # otherwise --output could sit inside the repository and still pass the check below.
         found = subprocess.run(["git", "-C", str(repo), "rev-parse", "--show-toplevel"], capture_output=True,
-                               text=True, check=False, env={**os.environ, **READ_ONLY_GIT})
+                               text=True, check=False, env=git_environment())
         if found.returncode == 0 and Path(found.stdout.strip()).resolve() != repo:
             parser.error("give each repository by its root folder")
     if any(output == repo or repo in output.parents for repo in repositories):
@@ -236,7 +248,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             summary[label], tip = scenario([args.python, "-m", "finassist"], label, repo,
                                            pinned[number] if pinned else args.branch, args.changes, output,
-                                           {**os.environ, **READ_ONLY_GIT})
+                                           git_environment())
             tips.append(tip)
         except Incomplete as failure:
             incomplete += 1

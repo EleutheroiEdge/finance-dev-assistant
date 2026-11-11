@@ -226,18 +226,58 @@ def test_no_git_command_of_a_measurement_may_take_the_optional_lock(repository, 
     _history(repo)
     real_run, real_finassist, seen = subprocess.run, scenarios.finassist, []
 
+    def settings(environment):
+        return tuple(sorted((name, value) for name, value in environment.items() if name.startswith("GIT_")))
+
     def run(command, **options):
         if command[0] == "git":
-            seen.append(("git", options.get("env", {}).get("GIT_OPTIONAL_LOCKS")))
+            seen.append(("git", settings(options.get("env", {"GIT_": "inherited"}))))
         return real_run(command, **options)
 
     def finassist(command, arguments, cwd, environment):
-        seen.append(("finassist", environment.get("GIT_OPTIONAL_LOCKS")))
+        seen.append(("finassist", settings(environment)))
         return real_finassist(command, arguments, cwd, environment)
 
     monkeypatch.setattr(scenarios.subprocess, "run", run)
     monkeypatch.setattr(scenarios, "finassist", finassist)
+    # The caller's own Git settings: one that would point every command at another repository, and
+    # two that would undo what a measurement sets.
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "elsewhere"))
+    monkeypatch.setenv("GIT_OPTIONAL_LOCKS", "1")
+    monkeypatch.setenv("GIT_NO_REPLACE_OBJECTS", "0")
     assert _main(str(repo), "--changes", "2", "--branch", "main", "--output", str(tmp_path / "out")) == 0
     kinds = {kind for kind, _value in seen}
     # The script's own Git reads, and every run of the product, which reads the repository with Git too.
-    assert kinds == {"git", "finassist"} and {value for _kind, value in seen} == {"0"}
+    assert kinds == {"git", "finassist"}
+    assert {value for _kind, value in seen} == {(("GIT_NO_REPLACE_OBJECTS", "1"), ("GIT_OPTIONAL_LOCKS", "0"))}
+
+
+def _sibling_with_another_private_file(repo, tip):
+    """A commit with the tip's parent and the tip's change plus one more private file. Not on any branch."""
+    (repo / "data/prices.csv").write_text("symbol,price\nSYNTHETIC,2\n", encoding="utf-8", newline="\n")
+    command(repo, "add", "-f", "data/prices.csv")
+    tree = command(repo, "write-tree")
+    command(repo, "reset", "-q", "--hard", tip)
+    return command(repo, "commit-tree", tree, "-p", tip + "^", "-m", "Synthetic sibling")
+
+
+def test_a_replacement_ref_cannot_put_other_changes_in_the_place_of_the_pinned_ones(repository, tmp_path, capsys):
+    """Codex P114-1: with a replacement for the saved commit, a run read other changes under the same fingerprint."""
+    repo, _base, _head = repository
+    _history(repo)
+    first, again = tmp_path / "first", tmp_path / "again"
+    assert _main(str(repo), "--changes", "2", "--branch", "main", "--output", str(first)) == 0
+    earlier = capsys.readouterr().out
+    tip = command(repo, "rev-parse", "main")
+    sibling = _sibling_with_another_private_file(repo, tip)
+    command(repo, "replace", tip, sibling)
+    # Git itself now shows the sibling's tree for the saved commit, unless it is told to read objects as they are.
+    # It is told so by the variable being set at all, so this control reads without it.
+    plain = {name: value for name, value in scenarios.git_environment().items() if name != "GIT_NO_REPLACE_OBJECTS"}
+    shown = subprocess.run(["git", "-C", str(repo), "rev-parse", tip + "^{tree}"], capture_output=True, text=True,
+                           check=True, env=plain).stdout.strip()
+    assert shown == command(repo, "rev-parse", sibling + "^{tree}") != scenarios.git(repo, "rev-parse", tip + "^{tree}")
+    assert _main(str(repo), "--changes", "2", "--branch", "main", "--tips", str(first / "tips.txt"),
+                 "--output", str(again)) == 0
+    assert _fingerprint(capsys.readouterr().out) == _fingerprint(earlier)
+    assert _counts(again) == _counts(first)
