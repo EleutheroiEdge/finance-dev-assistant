@@ -175,9 +175,17 @@ _BODY_BEFORE = re.compile(r"(?i)\b(?:as|do)\s*$")
 _SPACE = re.compile(r"\s*")
 _OPENING, _CLOSING = "([{", ")]}"
 _INTERPOLATION = "${"
-# An operator at the end of a line, or at the start of the next, carries an expression across it.
-_TRAILING = frozenset("|&?:+=.")
-_LEADING = frozenset("|&?:+.")
+# An expression ends at the end of a line only when the line ends with an operand (a name, a
+# number, a closing bracket, a string or a non-null mark) and the next code begins something new:
+# a name, or a closing bracket. An operator on either side carries it on, written as a sign or as
+# a word, and so does anything else, because reading on can only refuse more. An opening brace is
+# not something new: in Kotlin it can be a lambda handed to the call before it.
+_OPERAND_END = frozenset('_$)]}!"')
+_NEW_START = re.compile(r"[A-Za-z_$@#][A-Za-z0-9_$]*|[}\])]")
+_WORD_OPERATORS = frozenset({"in", "instanceof", "as", "satisfies", "is", "else"})
+_WORDS_BEFORE_OPERAND = _WORD_OPERATORS | frozenset({"typeof", "void", "delete", "new", "await", "yield", "return",
+                                                      "throw", "case", "do", "of", "not", "and", "or"})
+_LAST_WORD = re.compile(r"(?:^|[^A-Za-z0-9_$])([A-Za-z_$][A-Za-z0-9_$]*)\s*$")
 _SQL_OPERATORS = frozenset("|+-*/%=<>,(")
 _AFTER_STRING = '"'  # stands for a whole string in the record of what came before
 # A slash starts a regular expression after one of these characters or words, and at the start of
@@ -410,19 +418,25 @@ class _Reader:
 _READERS = {language: _Reader(language) for language in set(LANGUAGES.values())}
 
 
-def _in_type_arguments(before: str) -> bool:
-    """Whether the code just read stops inside type arguments, as in `name<A`.
+def _angle_depth(last: str, chunk: str, depth: int) -> int:
+    """How many type-argument brackets are open after `chunk`, given the code character before it.
 
-    `before` has its spaces dropped, so an angle bracket after a name may also be a comparison.
-    Then the answer is a wrong yes, and the expression is read further than it goes, never less.
+    One opens after a name or a dot, as in `name<A` and `Maker.<A`, and closes at `>`, but not at
+    the `>` of an arrow. Spaces are dropped from what is read, so a comparison such as `a < b`
+    opens one too. Then a comma that follows does not end the expression, and it is read further
+    than it goes, never less.
     """
-    depth = 0
-    for index, character in enumerate(before):
-        if character == "<" and index and (before[index - 1].isalnum() or before[index - 1] in "_$."):
-            depth += 1
-        elif character == ">" and depth and before[index - 1] != "=":
+    if "<" not in chunk and ">" not in chunk:
+        return depth
+    previous = last
+    for character in chunk:
+        if character == "<":
+            if previous.isalnum() or previous in ("_", "$", "."):
+                depth += 1
+        elif character == ">" and depth and previous not in ("=", "-"):
             depth -= 1
-    return depth > 0
+        previous = character
+    return depth
 
 
 @dataclass
@@ -444,6 +458,8 @@ class _Literal:
         """
         if self.inside in ("(", "["):
             named = _NAME_BEFORE.search(self.opened_after)
+            if named is not None and named.start(1) == 0 and len(self.opened_after) >= _CONTEXT:
+                named = None  # The name may be longer than what was kept of it: its end alone says nothing.
             name = named.group(1) if named else ""
             words = {word.lower() for word in _WORD.findall(name)}
             if self.inside == "(" and (words & _RAISES or name.lower() in _CHECKS):
@@ -607,8 +623,9 @@ class CodeText:
         """The strings inside the expression that starts at `start`, which must be in code.
 
         The expression ends at a comma, a semicolon or a closing bracket that it did not open, or
-        at the end of a line that no operator carries on. A comma between type arguments, as in
-        name<A, B>(...), is not an end. Raises _Unclear when no end is found within the limits.
+        at the end of a line that ends with an operand when the next code begins something new. A
+        comma between type arguments, as in name<A, B>(...), is not an end. Raises _Unclear when
+        no end is found within the limits.
         """
         text, structure = self._text, self._reader.structure
         size = len(text)
@@ -616,6 +633,8 @@ class CodeText:
         index = bisect_right(self._starts, start)
         position, before, interpolation = start, "", -1
         open_brackets: list[tuple[str, str]] = []  # each bracket the expression opened, and the code before it
+        angles = [0]  # type-argument brackets open at each level: outside every bracket, then in each one
+        line_end = ""  # the last code read, as written, until a bracket or a string follows it
         strings: list[_Literal] = []
         templates: list[_Literal] = []  # strings with ${ ... } whose last part is still to come
         while True:
@@ -624,7 +643,11 @@ class CodeText:
             found = structure.search(text, position, stop)
             end = found.start() if found else stop
             self._spend(end - position + _STEP)
-            before = (before + "".join(text[position:end].split()))[-_CONTEXT:]
+            chunk = "".join(text[position:end].split())
+            if chunk:
+                line_end = text[position:end]
+            angles[-1] = _angle_depth(before[-1:], chunk, angles[-1])
+            before = (before + chunk)[-_CONTEXT:]
             if found is None:
                 if span >= limit:  # Nothing more to read before the limit.
                     if limit < size:
@@ -649,6 +672,7 @@ class CodeText:
                         interpolation = self._ends[index] + 1  # where the brace of its ${ is
                     else:
                         before = (before + _AFTER_STRING)[-_CONTEXT:]
+                    line_end = ""
                 position = self._ends[index]
                 index += 1
                 if position >= limit:
@@ -660,15 +684,17 @@ class CodeText:
             position = found.end()
             if piece in _OPENING:
                 open_brackets.append((_INTERPOLATION if found.start() == interpolation else piece, before))
+                angles.append(0)
             elif piece in _CLOSING:
                 if not open_brackets:
                     return strings
                 open_brackets.pop()
+                angles.pop()
             elif piece in ",;":
-                if not open_brackets and not (piece == "," and _in_type_arguments(before)):
+                if not open_brackets and not (piece == "," and angles[0]):
                     return strings
             elif piece == "\n":
-                if not open_brackets and not self._continues(before, position, limit):
+                if not open_brackets and not self._continues(before, line_end, position, limit):
                     return strings
                 continue
             else:  # Space before a word, in a language where a word starts a new clause.
@@ -676,9 +702,17 @@ class CodeText:
                     return strings
                 continue
             before = (before + piece)[-_CONTEXT:]
+            line_end = ""
 
-    def _continues(self, before: str, position: int, limit: int) -> bool:
-        if before[-1:] in _TRAILING:
+    def _continues(self, before: str, line_end: str, position: int, limit: int) -> bool:
+        """Whether an expression goes on past the end of a line, to the code at `position`.
+
+        `line_end` is the code that ended the line, as written, when it was not a bracket or a string.
+        """
+        if before[-1:] not in _OPERAND_END and not before[-1:].isalnum():
+            return True
+        word = _LAST_WORD.search(line_end)
+        if word is not None and word.group(1) in _WORDS_BEFORE_OPERAND:
             return True
         while position < limit:
             self._spend(_STEP)
@@ -687,7 +721,10 @@ class CodeText:
             if span is None or self._kinds[span] != COMMENT:
                 break
             position = self._ends[span]
-        return position < limit and self._text[position] in _LEADING
+        if position >= limit:
+            return limit < len(self._text)  # past the limit the caller finds it unclear
+        new = _NEW_START.match(self._text, position)
+        return new is None or new.group() in _WORD_OPERATORS
 
     def literal_assigned(self, start: int, minimum: int) -> bool | None:
         """Whether the expression at `start` holds a string of `minimum` characters or more.

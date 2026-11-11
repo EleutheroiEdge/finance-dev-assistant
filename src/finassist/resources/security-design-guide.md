@@ -93,9 +93,12 @@ a field named `password` given `argon2.hashSync("...")` or `encoder.encode("..."
 refused, and so is an operand after `||`, `??`, `?:` or `+`, and the argument of a call
 that supplies a default (`orElse`, `getOrElse`, `unwrapOr`, `default`, `defaultValue`,
 `withDefault`, `fallback`). The expression ends at a comma, a semicolon or a closing
-bracket it did not open, or at the end of a line that no operator carries on. In SQL it
-also ends at the next keyword. A comma between type arguments, as in
-`derive<A, B>("...")`, is not an end.
+bracket it did not open. It ends at the end of a line only when the line ends with an
+operand and the next line of code begins something new: a name, or a closing bracket. Any
+operator at either place carries it on, written as a sign or as a word such as `in` or
+`instanceof`, and so does anything the reader cannot place, because reading on can only
+refuse more. In SQL it also ends at the next keyword.
+A comma between type arguments, as in `derive<A, B>("...")`, is not an end.
 
 This reading is narrow on purpose. A file, or one match in it, keeps the strict text rules
 whenever it is not clear that the words are code:
@@ -174,15 +177,16 @@ when an active policy is supplied. Approval, head, scope and recovery checks rem
 
 Review output may also repeat a reference from the screened source: the label, the
 separator and the complete value exactly as they stand there, and after them what follows
-on the same source line, such as the brackets of a call. The quote must end its
-expression, in one of two shapes:
+on the same source line, such as the brackets of a call. The quote must be a whole
+operand, so one that ends with an operator is refused, and it must end its expression, in
+one of two shapes:
 
 - **In prose, a code span:** a backtick just before the label and one just after the
   quote. No operator that could join a literal to it may follow: `||`, `??`, `&&` or `+`,
   or a `?` or `:` before another code span.
 - **In code, the end of its line:** nothing after the quote but a comma or a semicolon.
-  The next line that holds code may not begin with an operator, an opening bracket, a
-  comment or a backtick.
+  Without one, the next line that holds code must begin something new: a name that is no
+  operator, a closing bracket, a quoted key, or the end of a fenced block.
 
 Nothing after the quote on its line may hold a quote mark or an equals sign. The same
 label with any other value, or with a literal added after it in quote marks, in backticks
@@ -218,8 +222,11 @@ Known limits of reading a file as its language, each listed with its reason in
 - A comparison written with `<` after a name, before a comma, reads on past the comma, so
   a literal in the next field can refuse the line.
 - SQL comments are read as nesting, which PostgreSQL does and MySQL does not.
-- A reply that repeats a reference whose expression goes on over the next line is refused,
-  and so is one that quotes a reference outside a code span with more text on its line.
+- A reply that repeats a reference whose expression goes on over the next line is refused.
+  So is one that quotes a reference outside a code span with more text on its line, or
+  with a bullet, a number or an opening bracket at the start of the next.
+- A statement that ends its line with something other than an operand is read on into the
+  next line, so a literal there can refuse it.
 - A reference in a `.jsx` or `.tsx` file, or in a script that holds markup, is refused.
 - The name of a stored secret written as a plain YAML scalar is refused when its key ends
   in a credential word, as Helm's `existingSecret` does: a password is a plain scalar too.
