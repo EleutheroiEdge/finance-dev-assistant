@@ -17,8 +17,8 @@ Measured on the published 0.10.0 wheel, offline, with no model call.
 | Area | Measurement | Result |
 |---|---|---|
 | Figure screen | Generated cases in the notations 0.10.0 documents as read, each a listed figure the screen must refuse | 12,659 of 207,636 pass unrefused (6.1%) |
-| Figure screen | Numbers that 225 real changes add, each listed alone, in each file that adds them | 8 of 1,081 pass unrefused |
-| Figure screen | File versions refused when 1,000 random control figures are listed | 0 of 5,937 |
+| Figure screen | Numbers that 225 real changes add, each listed alone, in each file that adds them | 9 of 1,128 pass unrefused |
+| Figure screen | File versions refused when 1,000 random control figures are listed | 0 of 5,995 |
 | Figure screen | Routes to a provider that run it | the gate only; not `review`, `propose` or `evaluate --suite` |
 | First run, gate route | Changes a detected policy can review, of the 25 merged after setup, across nine repositories | 61 of 225 (27%) |
 | First run, configuration route | The same, counting only setup blockers | 105 of 225 (47%) |
@@ -31,6 +31,10 @@ The nine repositories are this one and eight private ones: four Python, two Type
 mixed. For each, `init --detect` ran at the revision before the oldest of the last 25 first-parent
 changes, and `doctor` then checked each of those changes on both routes. Nothing was sent
 anywhere.
+
+The repositories keep moving, so a later run counts later changes. The two rows from real
+changes were measured again after the script was corrected to count an added line that starts
+with `++`; the other rows are from the first run.
 
 ## Gates
 
