@@ -121,12 +121,24 @@ CREDENTIAL_KEY_PATTERN = re.compile(
 
 # Known secret formats and an identifier format; these read text, not syntax.
 FORMAT_PATTERNS = (
-    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
+    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |ENCRYPTED )?PRIVATE KEY-----"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
     re.compile(r"\bgithub_pat_[A-Za-z0-9_]{40,}\b"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"\bsk-[A-Za-z0-9_-]{24,}\b"),
     re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
+    # Each of the following has a published shape that nothing else is written in. Each was
+    # measured on the reference changes before it was added: none refused a file version.
+    re.compile(r"-----BEGIN PGP PRIVATE KEY (?:BLOCK)-----"),  # Grouped so that this line is not one itself.
+    re.compile(r"\b[sr]k_live_[0-9A-Za-z]{24,}\b"),
+    re.compile(r"\bxox[abeoprs]-[0-9A-Za-z-]{20,}\b"),
+    re.compile(r"\bxapp-[0-9]-[0-9A-Za-z-]{20,}\b"),
+    re.compile(r"\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])"),
+    re.compile(r"\bnpm_[0-9A-Za-z]{36}\b"),
+    re.compile(r"\bpypi-AgEIcHlwaS5vcmc[0-9A-Za-z_-]{50,}"),
+    re.compile(r"\bglpat-[0-9A-Za-z_-]{20,}"),
+    re.compile(r"\bSG\.[0-9A-Za-z_-]{22}\.[0-9A-Za-z_-]{43}(?![0-9A-Za-z_-])"),
+    re.compile(r"AccountKey=[0-9A-Za-z/+]{80,}={0,2}"),
 )
 # Label rules for text. In parseable Python, code is checked by the AST instead
 # and these rules read only comment and string text.
@@ -144,7 +156,9 @@ SECRET_PATTERNS = (*FORMAT_PATTERNS, *LABEL_PATTERNS)
 # The name a refusal gives its rule in local output. Patterns for one kind of thing share a name.
 _RULES = dict(zip(SECRET_PATTERNS, (
     "private_key_block", "github_token", "github_token", "aws_access_key_id", "sk_prefixed_key",
-    "nine_digit_identifier", "credential_label", "credential_label", "account_label"), strict=True))
+    "nine_digit_identifier", "private_key_block", "stripe_live_key", "slack_token", "slack_token",
+    "google_api_key", "npm_token", "pypi_token", "gitlab_token", "sendgrid_key", "azure_storage_key",
+    "credential_label", "credential_label", "account_label"), strict=True))
 _REFERENCE_PATTERNS = tuple(pattern for pattern in LABEL_PATTERNS if "value" in pattern.groupindex)
 MAX_PLACEHOLDER_PATHS = 64  # entries a configuration may list as holding placeholder credentials
 PLACEHOLDER_PATTERN = re.compile(r"[A-Za-z0-9_./*-]{1,512}")  # what such an entry may hold when it has a star

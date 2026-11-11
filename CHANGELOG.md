@@ -5,6 +5,16 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 ## Unreleased
 
 ### Security
+- **The credential screen knows ten more formats.** Each has a shape its issuer publishes: Stripe
+  live secret and restricted keys, Slack tokens, a Google API key, npm, PyPI and GitLab tokens, a
+  SendGrid key, an Azure storage account key, and an encrypted or PGP private key block. A known
+  format is refused wherever it stands: in any file, under `placeholder_credential_paths` too,
+  in a request and in what a model returns. Before, such a token was refused only where a
+  credential label stood before it. Each format was measured first: none refuses any of the
+  4,135 file versions of the reference changes that the screen accepts. A Stripe test key, a
+  publishable key and a public key block are not refused. A refusal names its rule:
+  `stripe_live_key`, `slack_token`, `google_api_key`, `npm_token`, `pypi_token`,
+  `gitlab_token`, `sendgrid_key`, `azure_storage_key` or `private_key_block`.
 - **The confidential-figure screen missed figures written beside ordinary punctuation.** In 0.10.0
   and earlier, a listed figure could pass when it sat against a single parenthesis, as in
   `(48,213.57 before)`, after a dotted prefix, between neighbouring number columns, or inside some
