@@ -73,13 +73,17 @@ A reference is still refused when its expression holds a quoted literal of 12 or
 characters that the field would receive. That is every string in the expression except
 three kinds:
 
-- **The name a lookup is given.** When the name of a call or of an indexed object has a
-  word that says it looks something up (`get`, `getenv`, `read`, `load`, `fetch`,
-  `require`, `lookup`, `resolve`, `find`, `must`, `env`, `config`, `setting`, `param`,
-  `header`, `query`, `option`, `property` and a few like them), its first string is the
-  name of the value: `config.get("auth.signing")`, `process.env["NAME"]`,
-  `requireEnv("NAME")`. A later argument is what the field gets when the lookup finds
-  nothing, and it counts.
+- **The name a lookup is given.** When the name of a call or of an indexed object is made
+  of lookup words, its first string is the name of the value:
+  `config.get("auth.signing")`, `process.env["NAME"]`, `requireEnv("NAME")`,
+  `getSecretValue("name")`. One word must say that it looks something up, or where: `get`,
+  `getenv`, `read`, `load`, `fetch`, `require`, `lookup`, `resolve`, `find`, `must`, `env`,
+  `config`, `setting`, `param`, `header`, `query`, `option`, `property` and a few like
+  them. Every other word may only say what comes back, from where, or what happens when it
+  is missing: `secret`, `password`, `key`, `token`, `value`, `string`, `or`, `throw`,
+  `vault`, `from` and the like. Any other word means the call may use what it is given, so
+  `getPasswordHash("...")` and `builder.withConfig("...")` hold values. A later argument
+  is what the field gets when the lookup finds nothing, and it counts.
 - **The text of an error.** A call whose name has `error`, `fail`, `panic`, `throw`,
   `exception` or a word like them, and `requireNonNull` and its relatives, stop the
   program, so their strings are messages.
@@ -91,7 +95,8 @@ refused, and so is an operand after `||`, `??`, `?:` or `+`, and the argument of
 that supplies a default (`orElse`, `getOrElse`, `unwrapOr`, `default`, `defaultValue`,
 `withDefault`, `fallback`). The expression ends at a comma, a semicolon or a closing
 bracket it did not open, or at the end of a line that no operator carries on. In SQL it
-also ends at the next keyword.
+also ends at the next keyword. A comma between type arguments, as in
+`derive<A, B>("...")`, is not an end.
 
 This reading is narrow on purpose. A file, or one match in it, keeps the strict text rules
 whenever it is not clear that the words are code:
@@ -103,12 +108,14 @@ whenever it is not clear that the words are code:
 - A script holds a closing or self-closing tag. The text between two tags is not quoted,
   so `.jsx` and `.tsx` files are not read this way at all.
 - In a SQL file, the words are in the rows after `COPY ... FROM stdin`, in a client command
-  such as `\connect`, or in a dollar-quoted string. A dollar-quoted body after `AS` or `DO`
-  is a function or a block, and is read as code.
+  such as `\connect`, or in a dollar-quoted string, whatever its tag (`$$`, `$body$`,
+  `$q1$`). A dollar-quoted body after `AS` or `DO` is a function or a block, and is read as
+  code.
 - The words are inside a regular expression. A slash starts one after an operator, an
   opening bracket or a word such as `return`; after a name, a number, a string or a closing
-  bracket it is a division sign. As a second check, an odd number of slashes in code before
-  the label on its line keeps the strict rules for that match.
+  bracket it is a division sign. Where one starts and does not end on its line within
+  1,000 characters, the whole file keeps the strict rules. As a second check, an odd
+  number of slashes in code before the label on its line keeps them for that match.
 - The label and a bare value are alone on their line outside every bracket. A settings
   file saved under a code suffix reads the same. Code in front of the label on its line,
   such as a keyword or the object the field belongs to, shows a program, and in SQL so
@@ -123,11 +130,14 @@ kept elsewhere and is not refused: `${NAME}`, `${{ secrets.NAME }}`, `{{ name }}
 `${NAME:-}`, holds nothing and is a reference. A dollar and a name without braces, and
 `$(...)` around anything but a name, are references only inside double quotes in a shell
 script (`.sh`, `.bash`, `.zsh`, `.ksh`), where the shell always expands them. Anywhere
-else a password can be spelled that way.
+else a password can be spelled that way. A substitution that holds `echo`, `printf` or a
+here-string prints its own words, and one that holds an expansion with a default carries
+that default: both are literals.
 
 In a YAML file, a key on the line after a credential-named key starts a mapping and is not
 a value, as in `github_token:` followed by `description:`. Inside a block scalar the same
-lines are text, and keep the strict rules.
+lines are text, and keep the strict rules, with or without a tag or an anchor before the
+`|` or `>`.
 
 Text read without a path keeps the strict rules: a file name, a setting, policy text and
 everything a model returns.
@@ -158,9 +168,21 @@ mutation. Rollback screens the original and current file with their Python paths
 when an active policy is supplied. Approval, head, scope and recovery checks remain.
 
 Review output may also repeat a reference from the screened source: the label, the
-separator and the complete value exactly as they stand there, when nothing after them on
-the line holds a quote mark or an equals sign. The same label with any other value, or
-with a literal added after it, is refused as before.
+separator and the complete value exactly as they stand there, and after them what follows
+on the same source line, such as the brackets of a call. The quote must end its
+expression, in one of two shapes:
+
+- **In prose, a code span:** a backtick just before the label and one just after the
+  quote. No operator that could join a literal to it may follow: `||`, `??`, `&&` or `+`,
+  or a `?` or `:` before another code span.
+- **In code, the end of its line:** nothing after the quote but a comma or a semicolon.
+  The next line that holds code may not begin with an operator, an opening bracket, a
+  comment or a backtick.
+
+Nothing after the quote on its line may hold a quote mark or an equals sign. The same
+label with any other value, or with a literal added after it in quote marks, in backticks
+or as a number, on the same line or the next, is refused as before. So is a quote outside
+a code span with prose after it on its line: what follows cannot be told from code.
 
 A refusal names its rule, and for a file's content the version (`base` or `head`) and up
 to 20 line numbers, in local output only: under `local` in the error that `plan` prints,
@@ -184,8 +206,15 @@ Known limits of reading a file as its language, each listed with its reason in
 
 - A string argument counts as a value unless the call's name says it looks something up
   or raises an error. So a usage text, or a name given to a lookup the words above do not
-  cover, is refused: `flags.String("name", "", "the credential used for the database")`.
-- Outside a shell script, a quoted `$NAME` without braces is refused.
+  cover, is refused: `flags.String("name", "", "the credential used for the database")`,
+  `loadTenantSecret("billing/jwt-signing-key")`.
+- Outside a shell script, a quoted `$NAME` without braces is refused. Inside one, a
+  command substitution that holds an expansion with a default is refused.
+- A comparison written with `<` after a name, before a comma, reads on past the comma, so
+  a literal in the next field can refuse the line.
+- SQL comments are read as nesting, which PostgreSQL does and MySQL does not.
+- A reply that repeats a reference whose expression goes on over the next line is refused,
+  and so is one that quotes a reference outside a code span with more text on its line.
 - A reference in a `.jsx` or `.tsx` file, or in a script that holds markup, is refused.
 - The name of a stored secret written as a plain YAML scalar is refused when its key ends
   in a credential word, as Helm's `existingSecret` does: a password is a plain scalar too.
@@ -198,9 +227,10 @@ Known limits of reading a file as its language, each listed with its reason in
   settings line with a dotted name saved under a code suffix reads as code, and so does
   a regular expression that directly follows a closing bracket when an even number of
   slashes stands before it on its line.
-- A literal passes when it is the first string of a call whose name says it looks
-  something up, when it is a field of an object passed as an argument, and in a shell
-  script when a command substitution prints it.
+- A literal passes when it is the first string of a call whose name is made of lookup
+  words, or stands in brackets after such a name; when it is a field of an object passed
+  as an argument; and in a shell script when a command substitution other than `echo`,
+  `printf` or a here-string prints it.
 
 Known limits of the Python check: values computed at runtime (concatenation,
 variables and calls other than the two fallback forms above) are not literals and

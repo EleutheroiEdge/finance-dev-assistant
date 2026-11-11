@@ -460,14 +460,15 @@ def check_output_document(
     Other secret patterns and custom patterns always inspect original output.
     """
     allowed: dict[str, set[str]] = {}
-    references: set[str] = set()
+    references: dict[str, set[str]] = {}
     for item in source_files:
         for side in ("before", "after"):
             text = item.get(side)
             if text is None:
                 continue
             check_text(text, source_path=item["path"], extra_patterns=extra_patterns)
-            references.update(_reference_quotes(text, item["path"]))
+            for quote, rests in _reference_quotes(text, item["path"]).items():
+                references.setdefault(quote, set()).update(rests)
             view = credential_screening_view(text, item["path"])
             for match in CREDENTIAL_KEY_PATTERN.finditer(text):
                 separator = text.find(":", match.start(), match.end())
@@ -573,27 +574,92 @@ class _FileSyntax:
 _TEXT_IN_PYTHON = _FileSyntax("", None)
 
 
-def _reference_quotes(text: str, path: str) -> set[str]:
+_REST_LIMIT = 200  # characters of its line kept after a reference
+
+
+def _reference_quotes(text: str, path: str) -> dict[str, set[str]]:
     """Every label match in screened source whose value is a reference, as exact text.
 
     The text has passed the screen. So an unquoted value in it is an expression its syntax
-    excused, and a quoted one that is a single expansion names a variable.
+    excused, and a quoted one that is a single expansion names a variable. With each goes what
+    follows it on its line, with and without a closing comma or semicolon: the rest of its
+    expression, such as the brackets of a call. Output may repeat that too.
     """
-    quotes = set()
+    quotes: dict[str, set[str]] = {}
     for pattern in _REFERENCE_PATTERNS:
         for match in pattern.finditer(text):
             value = match.group("value")
             if value[0] not in "\"'" or is_expansion(value[1:-1], in_shell=value[0] == '"' and is_shell(path)):
-                quotes.add(match.group())
+                line_end = text.find("\n", match.end())
+                rest = text[match.end():len(text) if line_end < 0 else line_end].rstrip()
+                rests = quotes.setdefault(match.group(), set())
+                rests.update(part for part in (rest, rest.rstrip(",;").rstrip()) if part and len(part) <= _REST_LIMIT)
     return quotes
 
 
-def _mask_references(value: str, references: set[str], diff: bool) -> str:
+# What joins a literal to a quote of a reference. In prose, after the code span that held the
+# quote: a fallback or joining operator, or a ? or : before another code span.
+_JOINS_NEXT = re.compile(r"\|\||\?\?|&&|\+|[?:][ \t]*`")
+_JOINS_LATER = re.compile(r"(?:\|\||\?\?|&&|\+)[ \t]*`")
+# In code, at the start of the line after the quote's: an operator, an opening bracket, a
+# comment that an operator may follow, or one backtick. Three backticks close a fenced block.
+_CARRIES_ON = re.compile(r"\|\||\?\?|&&|[?:+(\[=\\]|\.[A-Za-z_$]|/\*|`(?!``)")
+_COMMENT_LINE = re.compile(r"//|#|--")
+
+
+def _ends_there(value: str, text: str, start: int, end: int, rests: set[str], diff: bool) -> bool:
+    """Whether the expression that a permitted quote repeats is over where the quote ends.
+
+    It may first go on exactly as it does in the source: `rests` holds what follows this
+    reference on its line there. `text` is `value` with the other permitted quotes blanked.
+    """
+    return any(_is_over(text, start, end + len(rest), diff)
+               for rest in ("", *rests) if value.startswith(rest, end))
+
+
+def _is_over(text: str, start: int, end: int, diff: bool) -> bool:
+    """Whether nothing from `end` on can give the label that starts at `start` another value.
+
+    A quote is over in two shapes. In prose it is a code span: a backtick just before the label
+    and one just after the quote, with no joining operator after it. In code it ends its line,
+    or a comma or a semicolon does, and the next line of code does not carry it on. Anything
+    else after the quote could hold a literal, in quote marks, in backticks or as a number.
+    """
+    line_end = text.find("\n", end)
+    line_end = len(text) if line_end < 0 else line_end
+    rest = text[end:line_end]
+    if any(mark in rest for mark in "\"'="):
+        return False
+    tail = rest.strip(" \t\r")
+    in_prose = tail.startswith("`")
+    if in_prose:
+        if text[start - 1:start] != "`":
+            return False
+        tail = tail[1:].lstrip(" \t")
+        if tail:
+            return _JOINS_NEXT.match(tail) is None and _JOINS_LATER.search(tail) is None
+    elif tail:
+        return tail in (",", ";")
+    # The quote ends its line. What begins the next line that holds anything?
+    position = line_end + 1
+    while position < len(text):
+        stop = text.find("\n", position)
+        stop = len(text) if stop < 0 else stop
+        line = text[position:stop]
+        if diff and line[:1] in ("+", "-", " "):
+            line = line[1:]  # the mark of a patch line
+        line = line.strip(" \t\r")
+        if line and (in_prose or _COMMENT_LINE.match(line) is None):
+            return (_JOINS_NEXT if in_prose else _CARRIES_ON).match(line) is None
+        position = stop + 1
+    return True
+
+
+def _mask_references(value: str, references: dict[str, set[str]], diff: bool) -> str:
     """Blank each exact quote of a screened reference in model output.
 
-    Apart from other such quotes, nothing after the quote on its line may hold a quote mark or an
-    equals sign: either could give the label a value that the source did not. A quote that fails
-    this stays as it is, and the label rules then refuse it.
+    A quote is permitted only when its expression ends where it does: see `_ends_there`. A quote
+    that fails this stays as it is, and the label rules then refuse it.
     """
     if not references:
         return value
@@ -605,25 +671,20 @@ def _mask_references(value: str, references: set[str], diff: bool) -> str:
             if diff and (start == 0 or value[start - 1] == "\n") and quote.startswith("-"):
                 quote, start = quote[1:], start + 1
             if quote in references:
-                quotes.append((start, match.end()))
+                quotes.append((start, match.end(), references[quote]))
     if not quotes:
         return value
 
     def blanked(spans) -> str:
         chars = list(value)
-        for start, end in spans:
+        for start, end, _rests in spans:
             for index in range(start, end):
                 if chars[index] not in "\r\n":
                     chars[index] = " "
         return "".join(chars)
 
     without = blanked(quotes)
-    permitted = []
-    for start, end in quotes:
-        line_end = without.find("\n", end)
-        rest = without[end:len(without) if line_end < 0 else line_end]
-        if not any(mark in rest for mark in "\"'="):
-            permitted.append((start, end))
+    permitted = [quote for quote in quotes if _ends_there(value, without, quote[0], quote[1], quote[2], diff)]
     return without if len(permitted) == len(quotes) else blanked(permitted)
 
 

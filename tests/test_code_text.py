@@ -97,8 +97,6 @@ def test_sql_strings_span_lines_and_double_their_quotes():
     ('a = b[0] / c; e = "s";', ['"s"']),
     ('a = "s" / 2; e = "t" / 3;', ['"s"', '"t"']),
     ('a = myreturn / 2; e = "s" / 3;', ['"s"']),
-    # A slash with no partner on its line divides after all.
-    ('a = b +\n  / c; e = "s";', ['"s"']),
     # An escaped slash before a bracket is part of a regular expression, not a tag.
     ('tidy = s.replace(/<br\\s*\\/>/g, "x");', ["/<br\\s*\\/>/g", '"x"']),
     # Neither is a bracket inside one, or one that is the whole of it.
@@ -108,6 +106,17 @@ def test_sql_strings_span_lines_and_double_their_quotes():
 ])
 def test_a_regular_expression_in_a_script_is_text(text, expected):
     assert [piece for _kind, piece in read(text, "ts")] == expected
+
+
+def test_where_a_regular_expression_must_start_and_has_no_end_in_reach_the_file_is_unclear():
+    long = "x" * 1100
+    for text in ('a = b +\n  / c; e = "s";',                  # no partner on its line
+                 "const matcher = /" + long + "/;",            # a partner past the reach
+                 "const matcher = /" + long + " label/;",
+                 "f(/[unfinished class/);"):
+        assert code_text(text, "x.ts") is None, text[:40]
+    assert read("const matcher = /" + "x" * 900 + "/;", "ts") == [(STRING, "/" + "x" * 900 + "/")]
+    assert code_text("a = b / " + long + " / c;", "x.ts") is not None  # two division signs, however far apart
 
 
 def test_a_tag_is_seen_even_where_its_slash_looks_like_a_regular_expression():
@@ -126,6 +135,10 @@ def test_data_in_a_sql_file_is_text():
     assert read("SELECT $$it's text$$, $tag$more $$ text$tag$;", "sql") == [(STRING, "$$it's text$$"), (STRING, "$tag$more $$ text$tag$")]
     assert code_text("COPY t FROM stdin;\n1\tunfinished\n", "x.sql") is None
     assert code_text("SELECT $$unfinished", "x.sql") is None
+    # A tag is spelled like a name: digits after the first character, and letters of any script.
+    tags = "SELECT $q1$it's text$q1$, $tag_2$more$tag_2$, $" + chr(0xE9) + "t" + chr(0xE9) + "$text$" + chr(0xE9) + "t" + chr(0xE9) + "$;"
+    assert [piece[:5] for _kind, piece in read(tags, "sql")] == ["$q1$i", "$tag_", "$" + chr(0xE9) + "t" + chr(0xE9) + "$"]
+    assert read("SELECT a FROM t WHERE b = $1 AND c = $2;", "sql") == []  # parameters are not tags
 
 
 def test_a_dollar_quoted_body_after_as_or_do_is_code():
@@ -247,6 +260,23 @@ SHORT = '"' + "x" * 11 + '"'
     ("ts", "k = @schema.default(" + LONG + ")", True),
     ("ts", "k = @getValue(a).getOrElse(" + LONG + ")", True),
     ("ts", "k = @getValue(a).unwrap_or(" + LONG + ")", True),
+    # A lookup is told by its name, and every word of the name has to be a lookup word.
+    ("ts", "k = @getSecretValue(" + LONG + ")", False),
+    ("ts", "k = @vault.readSecret(" + LONG + ")", False),
+    ("sql", "SELECT @current_setting(" + LONG.replace('"', "'") + ")", False),
+    ("ts", "k = @getPasswordHash(" + LONG + ")", True),
+    ("ts", "k = @Builder.withConfig(" + LONG + ").build()", True),
+    ("ts", "k = @loadSeedFixture(" + LONG + ")", True),
+    ("go", "k = @get_value_digest(" + LONG + ")", True),
+    # Type arguments stand between a name and its bracket, and a comma inside them is not an end.
+    ("ts", "k = @derive<A, B>(" + LONG + ")", True),
+    ("kt", "val k = @derive<A, B>(" + LONG + ")", True),
+    ("java", "String k = @Maker.<A, B>derive(" + LONG + ");", True),
+    ("ts", "k = @config.get<Map<string, string>>(" + LONG + ")", False),
+    ("ts", "k = @config.get<() => string>(" + LONG + ")", False),
+    ("go", "k = @settings.Get[string](" + LONG + ")", False),
+    ("go", "k = @handlers[0](" + LONG + ")", True),
+    ("ts", "k = @count < limit ? a : b, other: " + LONG, True),   # a comparison is read on, never short
     # The text of an error is not a value, at any place in the call.
     ("ts", "k = @config.value ?? fail(" + LONG + ")", False),
     ("ts", "k = @config.value ?? raise(new Error(" + LONG + "))", False),
@@ -335,6 +365,12 @@ def test_one_expansion(value):
     assert is_expansion(value) and is_expansion(value, in_shell=True)
 
 
+@pytest.mark.parametrize("value", ["$(echo word)", "$(printf %s word)", "$(/bin/echo -n word)", "$(cat <<<word)",
+                                   "$(cat ${FILE:-/run/word})", "$(true && printf word)"])
+def test_a_command_that_prints_its_own_words_is_not_an_expansion(value):
+    assert not is_expansion(value, in_shell=True) and not is_expansion(value)
+
+
 @pytest.mark.parametrize("value", ["$NAME", "$name", "$Name_2", "$(cat file)", "$(vault kv get -field=value kv/x)"])
 def test_a_dollar_without_braces_is_an_expansion_only_in_a_shell_scripts_double_quotes(value):
     assert is_expansion(value, in_shell=True) and not is_expansion(value)
@@ -382,11 +418,20 @@ def test_lines_inside_a_yaml_block_scalar_are_text():
     assert nested_yaml_key(text, "a.yml", text.index("label:", first) + 5, second, second + 11)
 
 
+def test_a_block_scalar_behind_a_tag_or_an_anchor_is_found():
+    for opener in ("script: !!str |", "script: &setup |", "script: !custom &both >-", "- !!str |", "- &item |2"):
+        text = opener + "\n    line one\n    label:\n      word:\nafter: 1\n"
+        starts, ends = yaml_block_scalars(text)
+        assert (starts, ends) == ([len(opener) + 1], [text.index("after:")]), opener
+    assert yaml_block_scalars("script: a & b |\n  x\n") == ([], [])  # an ampersand in a value is not an anchor
+
+
 def test_a_block_comment_can_hold_another_where_the_language_says_so():
     text = "a /* one /* two */ three */ b 'x'"
     assert read(text, "sql") == [(COMMENT, "/* one /* two */ three */"), (STRING, "'x'")]
     assert read(text.replace("'", '"'), "kt") == [(COMMENT, "/* one /* two */ three */"), (STRING, '"x"')]
-    assert read(text.replace("'", '"'), "ts") == [(COMMENT, "/* one /* two */"), (STRING, '"x"')]
+    assert read("a /* one /* two */ b 'x'".replace("'", '"'), "ts") == [(COMMENT, "/* one /* two */"), (STRING, '"x"')]
+    assert code_text(text, "x.ts") is None  # There the comment ends at the first mark, and what is left is not code.
     assert code_text("a /* one /* two */ b", "x.sql") is None and code_text("a /* one /* two */ b", "x.kt") is None
 
 

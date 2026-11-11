@@ -37,6 +37,8 @@ TYPESCRIPT = [
     ("ts", "  @sec@: import.meta.env.VITE_CLIENT_@SEC@,"),
     ("ts", '  @aK@: config.get<string>("STRIPE_@AK@"),'),
     ("ts", '  @sec@: configService.getOrThrow<string>("JWT_@SEC@"),'),
+    ("ts", 'export const @aK@ = configService.get<() => string>("service.api.key.name");'),
+    ("ts", '  @sec@: configService.get<Map<string, string>>("auth.signing.keys"),'),
     ("ts", "  @pw@: hashed@Pw@,"),
     ("ts", "  @pw@: user.@pw@Hash,"),
     ("ts", "  @pw@: credentials.@pw@,"),
@@ -410,6 +412,23 @@ MUST_REFUSE = [
     ("java", "@pw@: @W@"),
     ("sql", "@pw@ = @W@"),
     ("sql", "SELECT 1;\n@pw@ = @W@"),
+    # Found by the reviews of this change. Each passed at some head of it.
+    ("sql", "SELECT $q1$@pw@=@W@$q1$;"),                                   # a dollar tag with a digit
+    ("sql", "SELECT $tag_2$ @pw@ = @W@ $tag_2$;"),
+    ("ts", 'export const @pw@ = derive@Pw@<Pbkdf2Sha256, Hex>("@V@");'),   # a comma inside type arguments
+    ("kt", 'val @pw@ = derive@Pw@<Pbkdf2Sha256, Hex>("@V@")'),
+    ("ts", '  @pw@: get@Pw@Hash("@V@"),'),                                 # a lookup word in a name that computes
+    ("go", '\t@Pw@: get@Pw@Hash("@V@"),'),
+    ("sql", "UPDATE users SET @pw@ = get_@pw@_hash('@V@');"),
+    ("ts", '  @aK@: SignerBuilder.withConfig("@V@").build().signingKey,'),
+    ("ts", '  @sec@: loadSeedFixture("@V@"),'),
+    ("sh", '@PW@="$(printf %s @V@)"'),                                     # a command that prints its own words
+    ("sh", '@PW@="$(echo ${DB_@PW@:-@W@})"'),
+    ("sh", '@PW@="$(cat <<<@V@)"'),
+    ("yml", "script: !!str |\n  echo start\n  @pw@:\n    @W@:"),            # a block scalar behind a tag or an anchor
+    ("yml", "script: &setup |\n  echo start\n  @pw@:\n    @W@:"),
+    ("ts", "const matcher = /" + "x" * 1100 + " @pw@=@W@/;"),              # a regular expression with no end in reach
+    ("ts", "if (ready) /" + "x" * 1100 + " @pw@=@W@/.test(body) && stop();"),
     # A file that is not what its name says keeps the strict rules.
     ("ts", "it's not code\n@pw@: @W@"),
     ("sql", "a 'string' with a \\' backslash\n@pw@ = @W@"),
@@ -435,6 +454,14 @@ KNOWN_FALSE_REFUSALS = [
      "A script that holds markup is read as text, all of it."),
     ("ts", "const ratio = used / total, @pw@ = credentials.database@Pw@;",
      "One slash before the label on its line could open a regular expression, so the line is read as text."),
+    ("ts", '  @sec@: loadTenant@Sec@("billing/jwt-signing-key"),',
+     "A lookup whose name holds a word outside the lookup words: its string counts as a value."),
+    ("ts", '  @pw@: attemptsSoFarToday < limit ? env@Pw@ : vault@Pw@, hint: "read the vault token first",',
+     "An angle bracket after a name may open type arguments, so the comma after it does not end the expression."),
+    ("sql", "/* cleanup /* phase 2 */ ;\nUPDATE users SET @pw@ = new_@pw@_hash WHERE id = 1;\n-- phase 3 */\nSELECT 1;",
+     "SQL comments are read as nesting, which PostgreSQL does and MySQL does not."),
+    ("sh", '@PW@="$(cat ${@SEC@_FILE:-/run/secrets/database})"',
+     "A command substitution that holds an expansion with a default is read as holding the literal."),
 ]
 
 KNOWN_MISSES = [
@@ -449,12 +476,14 @@ KNOWN_MISSES = [
     ("ts", "export const settings = {\n  @pw@: @W@\n};",
      "Inside a block of a script an unquoted value is an expression, whatever it spells."),
     ("java", "db.@pw@=@W@", "A settings line with a dotted name, saved under a code suffix, reads as code."),
-    ("ts", '  @pw@: loadFixture("@V@"),',
-     "The first argument of a call whose name says it looks something up is read as the name of a value."),
+    ("ts", '  @pw@: getSecretValue("@V@"),',
+     "The first string of a call whose name is made of lookup words is read as the name of a value."),
+    ("ts", 'export const @pw@ = configuration["@V@"];',
+     "The same for an index: a string in brackets after a lookup name is read as a key."),
     ("ts", '  @pw@: hashWith({ plain: "@V@", rounds: 12 }),',
      "A field of an object passed as an argument is read as another field's value."),
-    ("sh", '@PW@="$(printf %s @V@)"',
-     "In a shell script a command substitution is a reference, whatever the command prints."),
+    ("sh", '@PW@="$(yes @V@ | head -n 1)"',
+     "In a shell script a command substitution is a reference, unless it holds echo, printf or a here-string."),
     ("ts", "if (used / total > 1 && ok) /@pw@=@W@/.test(body) && stop();",
      "A regular expression that directly follows a closing bracket is read as code when an even number of "
      "slashes stands before it on its line."),

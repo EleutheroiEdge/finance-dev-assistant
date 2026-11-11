@@ -34,7 +34,11 @@ _EXPANSION = re.compile(
 )
 # Inside double quotes in a shell script a dollar always starts an expansion. Anywhere else a
 # dollar and a word, or a dollar and brackets around anything, is also how a password can be spelled.
-_SHELL_EXPANSION = re.compile(r"\$[A-Za-z_][A-Za-z0-9_]*|\$\([^()\n]*\)")
+# A command that prints its own words (echo, printf, a here-string), and one that holds an
+# expansion with a default written into it, gives the literal itself and is not matched.
+_SHELL_EXPANSION = re.compile(
+    r"\$[A-Za-z_][A-Za-z0-9_]*"
+    r"|\$\((?![^()\n]*(?:\b(?:echo|printf)\b|<<<|\$\{[A-Za-z_][A-Za-z0-9_]*:?[-=+][^}\n]))[^()\n]*\)")
 SHELL_SUFFIXES = frozenset({".sh", ".bash", ".zsh", ".ksh"})
 
 
@@ -43,7 +47,9 @@ YAML_SUFFIXES = frozenset({".yml", ".yaml"})
 
 
 # The indicator stands where a value would: after a key's colon, after a list dash, or first on its line.
-_BLOCK_SCALAR = re.compile(r"(?:^ *|[:-] +)[|>][+-]?[1-9]?[+-]?[ \t]*(?:#.*)?$")
+# A tag or an anchor may stand before it, as in "key: !!str |" and "key: &name |".
+_BLOCK_SCALAR = re.compile(r"(?:^ *|[:-] +)(?:[!&]\S*[ \t]+)*[|>][+-]?[1-9]?[+-]?[ \t]*(?:#.*)?$")
+_NO_KEY = re.compile(r"(?:[!&]\S*[ \t]+)*[|>]")
 _NODE_START = re.compile(r" *(?:- +)*")
 
 
@@ -71,7 +77,7 @@ def yaml_block_scalars(text: str) -> tuple[list[int], list[int]]:
             base = None
         if _BLOCK_SCALAR.search(body) and not body.lstrip().startswith("#"):
             base, opened = _NODE_START.match(body).end(), position + len(line)
-            if body[base:base + 1] in ("|", ">"):  # no key: the list item, or the document, is the scalar
+            if _NO_KEY.match(body, base):  # no key: the list item, or the document, is the scalar
                 base = body.rfind("-", 0, base)
         position += len(line)
     if base is not None:
@@ -113,7 +119,7 @@ def is_expansion(value: str, *, in_shell: bool = False) -> bool:
     An expansion names a value that is kept somewhere else. One with a default written into it,
     such as ${NAME:-word} or ${NAME-word}, is not matched; an empty default holds nothing and is.
     `in_shell` is for a value in double quotes in a shell script, where $name and $(command) are
-    expansions too.
+    expansions too, unless the command only prints what it is given.
     """
     value = value.strip()
     return _EXPANSION.fullmatch(value) is not None or (in_shell and _SHELL_EXPANSION.fullmatch(value) is not None)
@@ -164,7 +170,7 @@ _COMMENT_MARK = re.compile(r"/\*|\*/")
 # \connect, and a dollar-quoted string. A dollar-quoted body after AS or DO is code.
 _COPY_ROWS = r"(?i:\bfrom\s+stdin\b[^;\n]*;)"
 _CLIENT_COMMAND = r"(?m:^[ \t]*\\)"
-_DOLLAR_TAG = r"\$[A-Za-z_]*\$"
+_DOLLAR_TAG = r"\$(?:[^\W\d]\w*)?\$"  # a tag is spelled like a name: letters of any script, digits after the first
 _BODY_BEFORE = re.compile(r"(?i)\b(?:as|do)\s*$")
 _SPACE = re.compile(r"\s*")
 _OPENING, _CLOSING = "([{", ")]}"
@@ -180,6 +186,7 @@ _AFTER_STRING = '"'  # stands for a whole string in the record of what came befo
 _BEFORE_REGEX = frozenset("(,=:[!&|?{};+-*%>~^}")
 # Characters one regular expression may span. Without a bound, every slash before an unfinished
 # class would be read to the end of its line, and a long line of them would take quadratic time.
+# Where one must start and no end is in reach, the file is unclear: what follows may be its text.
 _REGEX_REACH = 1000
 _WORDS_BEFORE_REGEX = frozenset({"return", "typeof", "case", "in", "of", "delete", "void", "throw", "new", "do", "else",
                                  "yield", "await", "instanceof"})
@@ -193,17 +200,29 @@ _SQL_WORD = re.compile(
     r"(?i)\b(?:select|insert|update|delete|set|where|values|and|or|on|using|when|then|else|if|return|returning|declare"
     r"|begin|check|default|from|join|with|create|alter|grant|merge|call|perform|execute|into)\b")
 _CONTEXT = 80  # code characters kept in front of a string or a bracket, spaces dropped
-# The name a bracket follows: of the function called, or of what is indexed. A type argument and
-# an optional-call mark may stand between the name and the bracket.
-_NAME_BEFORE = re.compile(r"([A-Za-z_$][A-Za-z0-9_$]*)(?:<[^<>()]*>)?(?:\?\.|!)?$")
+# The name a bracket follows: of the function called, or of what is indexed. Type arguments and
+# an optional-call mark may stand between the name and the bracket. Type arguments are written in
+# angle brackets, with a function type or one more level inside, or in square ones as in Go.
+_NAME_BEFORE = re.compile(
+    r"([A-Za-z_$][A-Za-z0-9_$]*)(?:<(?:[^<>]|=>|<[^<>]*>)*>|\[[^\[\]()\"]*\])?(?:\?\.|!)?$")
 _WORD = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+")
-# A name with one of these words looks a value up, so the string it is first given is the name of
-# the value: getenv("NAME"), config.get("a.b"), headers["x-key"], requireEnv("NAME").
+# A name made of these words looks a value up, so the string it is first given is the name of the
+# value: getenv("NAME"), config.get("a.b"), headers["x-key"], requireEnv("NAME"). One of them must
+# say that it looks something up, or where.
 _LOOKS_UP = frozenset({
     "get", "getenv", "getenvb", "read", "load", "fetch", "require", "required", "requires", "lookup", "resolve", "find",
     "must", "env", "environ", "environment", "param", "params", "parameter", "input", "header", "headers", "query",
     "setting", "settings", "config", "configuration", "option", "options", "flag", "property", "prop", "props",
     "variable", "var", "vars", "args"})
+# The others may only say what kind of thing comes back, from where, and what happens when it is not
+# there. Any other word, such as hash, with or build, means the call may use what it is given.
+_LOOKUP_WORDS = _LOOKS_UP | frozenset({
+    "or", "throw", "null", "none", "nil", "undefined", "value", "values", "string", "str", "text", "int", "integer",
+    "number", "bool", "boolean", "bytes", "secret", "secrets", "password", "passwd", "key", "keys", "token", "tokens",
+    "credential", "credentials", "api", "auth", "access", "client", "signing", "private", "public", "master", "current",
+    "from", "by", "name", "named", "raw", "strict", "optional", "sync", "async", "vault", "store", "manager", "keychain",
+    "keyring", "os", "sys", "system", "process", "runtime", "app", "application", "user", "service", "account", "db",
+    "database", "item", "entry", "field", "attribute", "attr", "aws", "gcp", "azure", "ssm", "docker", "dotenv"})
 # A call with one of these words stops the program, so its strings are the text of an error.
 _RAISES = frozenset({"error", "errorf", "exception", "fail", "failed", "failure", "panic", "die", "abort", "throw", "raise",
                      "invariant", "assert", "missing", "todo", "unreachable", "fatal", "fatalf"})
@@ -345,8 +364,8 @@ class _Reader:
         """Where the regular expression that starts with the slash at `start` ends, or None for a division sign.
 
         What stands before the slash decides, as it does for the language itself. A regular
-        expression ends on its line and within _REGEX_REACH characters; a slash with no partner
-        there is a division sign after all.
+        expression ends on its line and within _REGEX_REACH characters. Where one must start and
+        no end is found there, the file is unclear.
         """
         index, last = start - 1, len(spans) - 1
         while index >= 0:
@@ -365,7 +384,9 @@ class _Reader:
             if text[word + 1:index + 1] not in _WORDS_BEFORE_REGEX:
                 return None
         found = _REGEX_REST.match(text, start + 1, min(len(text), start + 1 + _REGEX_REACH))
-        return found.end() if found else None
+        if found is None:
+            raise _Unclear
+        return found.end()
 
     def _block(self, text: str, start: int, body: int, mark: str, spans: list, depths: list[int], *,
                resumed: bool) -> int:
@@ -389,6 +410,21 @@ class _Reader:
 _READERS = {language: _Reader(language) for language in set(LANGUAGES.values())}
 
 
+def _in_type_arguments(before: str) -> bool:
+    """Whether the code just read stops inside type arguments, as in `name<A`.
+
+    `before` has its spaces dropped, so an angle bracket after a name may also be a comparison.
+    Then the answer is a wrong yes, and the expression is read further than it goes, never less.
+    """
+    depth = 0
+    for index, character in enumerate(before):
+        if character == "<" and index and (before[index - 1].isalnum() or before[index - 1] in "_$."):
+            depth += 1
+        elif character == ">" and depth and before[index - 1] != "=":
+            depth -= 1
+    return depth > 0
+
+
 @dataclass
 class _Literal:
     """One string inside an expression, with what the code around it says about its role."""
@@ -404,7 +440,7 @@ class _Literal:
         It is not when it is the text of an error; the name a lookup is given, as its first
         argument or as a key; or a field of an object passed as an argument. Anything else is: an
         operand, a later argument, and the argument of a call that hashes, encodes, wraps or
-        supplies a default.
+        supplies a default. A lookup is told by its name: every word of it is a lookup word.
         """
         if self.inside in ("(", "["):
             named = _NAME_BEFORE.search(self.opened_after)
@@ -413,7 +449,8 @@ class _Literal:
             if self.inside == "(" and (words & _RAISES or name.lower() in _CHECKS):
                 return False
             first = self.before[-1:] == self.inside
-            return not (first and words & _LOOKS_UP and name.lower() not in _GIVES_DEFAULT)
+            looks_up = bool(words & _LOOKS_UP) and words <= _LOOKUP_WORDS and name.lower() not in _GIVES_DEFAULT
+            return not (first and looks_up)
         if self.inside == "{" and self.before[-1:] == ":" and self.opened_after[-1:] in ("(", ","):
             return False
         return True
@@ -432,6 +469,7 @@ class CodeText:
         self._parts = [span[4] for span in spans]
         self._work = 0
         self._brackets: tuple[list[int], list[int]] | None = None  # where each bracket is, and the depth after it
+        self._slashes: tuple[int, int, int] | None = None  # the last slash count: its line, how far, how many
 
     def spans(self) -> list[tuple[int, int, str]]:
         """Every string and comment as (start, end, kind), in order."""
@@ -534,19 +572,23 @@ class CodeText:
         """True when an odd number of slashes stands in code just before `position` on its line.
 
         In a language with regular expression literals that can mean `position` is inside one,
-        where the words are text. Only as far back as one can reach is counted. A lone division
-        sign gives the same answer, and so does running out of the work limit. `position` must
-        be in code.
+        where the words are text. The whole line before it is counted, and a later question about
+        the same line counts on from the last, so a long line is read once. A lone division sign
+        gives the same answer, and so does running out of the work limit. `position` must be in
+        code.
         """
         if not self._reader.language.regex_literals:
             return False
         text = self._text
-        cursor = max(text.rfind("\n", 0, position) + 1, position - _REGEX_REACH)
+        line = text.rfind("\n", 0, position) + 1
+        if self._slashes is not None and self._slashes[0] == line and self._slashes[1] <= position:
+            _line, cursor, count = self._slashes
+        else:
+            cursor, count = line, 0
         index = bisect_right(self._starts, cursor) - 1
         if index >= 0 and self._ends[index] > cursor:
             cursor = self._ends[index]  # The line begins inside a string or a comment.
         index += 1
-        count = 0
         try:
             while cursor < position:
                 stop = min(position, self._starts[index]) if index < len(self._starts) else position
@@ -558,14 +600,15 @@ class CodeText:
                 index += 1
         except _Unclear:
             return True
+        self._slashes = (line, position, count)
         return count % 2 == 1
 
     def _strings(self, start: int) -> list[_Literal]:
         """The strings inside the expression that starts at `start`, which must be in code.
 
         The expression ends at a comma, a semicolon or a closing bracket that it did not open, or
-        at the end of a line that no operator carries on. Raises _Unclear when no end is found
-        within the limits.
+        at the end of a line that no operator carries on. A comma between type arguments, as in
+        name<A, B>(...), is not an end. Raises _Unclear when no end is found within the limits.
         """
         text, structure = self._text, self._reader.structure
         size = len(text)
@@ -622,7 +665,7 @@ class CodeText:
                     return strings
                 open_brackets.pop()
             elif piece in ",;":
-                if not open_brackets:
+                if not open_brackets and not (piece == "," and _in_type_arguments(before)):
                     return strings
             elif piece == "\n":
                 if not open_brackets and not self._continues(before, position, limit):
