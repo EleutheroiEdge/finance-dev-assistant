@@ -13,7 +13,7 @@ from .config import Config
 from .platform_support import find_tool, clean_environment
 from .errors import AssistantError, local_details
 from .forbidden_tokens import TokenGuard, screen_related, screen_source, screen_text
-from .security import PUBLIC_ASSETS, canonical, check_private_name, check_text, digest, local_name
+from .security import PUBLIC_ASSETS, canonical, check_name, check_private_name, check_text, digest, local_name
 
 
 def git_environment() -> dict[str, str]:
@@ -358,7 +358,7 @@ def _screened_name(config: Config, path: str) -> bool:
     try:
         config.check_path(path, metadata_only=True)
         check_private_name(path)
-        check_text(path, extra_patterns=config.extra_sensitive_patterns)
+        check_name(path, extra_patterns=config.extra_sensitive_patterns)
     except AssistantError:
         return False
     return True
@@ -482,7 +482,7 @@ def build_packet(
         status, path = tokens[pos : pos + 2]
         if skipping and (path in withhold or _private_name(config, path)):
             # A name matching a configured sensitive pattern refuses: it is never withheld or shown.
-            check_text(path, extra_patterns=config.extra_sensitive_patterns)
+            check_name(path, extra_patterns=config.extra_sensitive_patterns)
             # Withheld before anything is read: no blob, size or hash, and no name in the packet.
             withheld += 1
             if withheld_names is not None:
@@ -490,7 +490,7 @@ def build_packet(
             continue
         try:
             config.check_path(path, source_only=False, metadata_only=True)
-            check_text(path, extra_patterns=config.extra_sensitive_patterns)
+            check_name(path, extra_patterns=config.extra_sensitive_patterns)
         except AssistantError as exc:
             refused.append((exc, path))
             continue
@@ -644,7 +644,7 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
     if packet["profile"] != config.profile:
         raise AssistantError("packet_profile_mismatch")
     for name in changed:
-        check_text(name, extra_patterns=config.extra_sensitive_patterns)
+        check_name(name, extra_patterns=config.extra_sensitive_patterns)
     accounted = []
     for item in packet["omitted"]:
         if (

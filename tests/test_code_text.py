@@ -417,7 +417,7 @@ def test_random_text_is_read_or_left_unclear_and_never_raises(seed):
             try:
                 check_text(text, source_path=path)
             except AssistantError as refusal:
-                assert refusal.code in {"sensitive_content", "binary_input"}
+                assert refusal.code in {"sensitive_content", "binary_input", "hidden_characters"}
 
 
 def test_reading_with_a_path_never_accepts_what_a_quoted_literal_or_a_number_holds():

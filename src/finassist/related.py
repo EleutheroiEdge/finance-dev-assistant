@@ -15,7 +15,7 @@ import re
 from .config import Config
 from .errors import AssistantError
 from .python_source import SOURCE_ERRORS
-from .security import canonical, check_text, digest
+from .security import canonical, check_name, check_text, digest
 
 RULE_VERSION = 1
 # Fixed ranking tiers, in order. No graph ranking: the same commit gives the same block.
@@ -451,6 +451,6 @@ def verify_related(block, changed: list[str], config: Config, private) -> None:
             refuse()
         if private(name):
             refuse()
-        check_text(item["path"], extra_patterns=extras)
+        check_name(item["path"], extra_patterns=extras)
         if item["symbol"] is not None:
             check_text(item["symbol"], extra_patterns=extras)

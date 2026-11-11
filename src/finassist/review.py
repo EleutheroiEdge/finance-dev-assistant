@@ -16,6 +16,7 @@ import jsonschema
 from .config import Config, config_hash
 from .errors import AssistantError, network_not_approved, prices_required
 from .forbidden_tokens import screen_review_output, token_file_audit
+from .hidden_text import check_hidden
 from .ledger import Ledger
 from .providers import invoke, request_identity, request_shape
 from .scope import WITHHELD_REASON, triage, verify_packet, review_omissions
@@ -123,6 +124,8 @@ def call_model(
         # A configuration that lists figures sends nothing without the screen built from that list.
         raise AssistantError("forbidden_token_guard_required")
     check_context_document(packet, extra_patterns=config.extra_sensitive_patterns)
+    # The instructions come from a profile or a policy. A model may not be told what a person cannot read.
+    check_hidden(system)
     if approved_packet_hash != packet["packet_hash"]:
         raise AssistantError("packet_approval_required")
     if not config.allow_network or not network_approved:

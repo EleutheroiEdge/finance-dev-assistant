@@ -10,6 +10,7 @@ candidate code only in an appropriately isolated, patched environment.
 | Asset or boundary | Guards and intended protection | Evidence in this repository |
 | --- | --- | --- |
 | Secrets and private source | Path/type/content screening of both committed file versions; explicit network and outgoing request-hash approval; keys read only from named environment variables | `tests/test_security_scope.py`, `tests/test_hardening.py`, `tests/test_providers_review.py` |
+| What a reviewer sees and what a model reads | Characters that are not shown or that reorder a line are refused in both file versions, in every field of a request, in instructions and in model output; one function makes every provider request | `tests/test_hidden_text.py`, `tests/test_every_route_is_screened.py` |
 | Private paths and filesystem | Relative path policy, immutable Git reads, symlink/reparse/Git-mode checks, private state files and snapshot exclusions | `tests/test_review_defaults.py`, `tests/test_review_platforms.py`, `tests/test_platform_support.py` |
 | Protected files and branches | Configured allowed/protected paths, clean branch checks, exact patch hash, snapshots and guarded rollback | `tests/test_patching_runner.py`, `tests/test_review_defaults.py`, `tests/test_review_regressions.py` |
 | Spend | Explicit provider/model/rate assumptions, concurrent SQLite reservations, daily/monthly admission and unknown calls retained until reconciliation | `tests/test_finance_ledger.py`, `tests/test_hardening.py`, `tests/test_dashboard.py` |

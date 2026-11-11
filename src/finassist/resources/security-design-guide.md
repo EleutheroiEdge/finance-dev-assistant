@@ -7,6 +7,7 @@ finledgerpoli screens outgoing source, constrains execution and binds approvals 
 | Area | Protection |
 | --- | --- |
 | Sensitive content | Screen both committed source versions for credential assignments, quoted JSON/dict keys, YAML/scalar values and configured sensitive patterns; apply the same patterns to reports and evidence. |
+| Hidden text | Refuse characters that are not shown or that reorder a line, in both source versions, in every field of a request, in instructions and in model output. |
 | Source identity | Read immutable Git blobs without checkout filters, hooks, fsmonitor or ambient Git overrides; bind base/head, source hashes and executable modes. |
 | Coverage | Account for public binary assets as omissions without reading bytes; reject private paths even outside the allowlist. Require complete coverage unless partial model review is explicitly selected; readiness always requires complete coverage. |
 | Generated files | Bind configured exclusions to outgoing requests and snapshots; retain publication screening, source rebuild comparisons and startup asset integrity checks. |
@@ -207,6 +208,51 @@ pass, and a credential written as a type annotation is not inspected.
 
 Quote literal credentials. Filename and syntax are not proof of privacy. This
 supplements inspection, not a confidentiality proof.
+
+Text that a reviewer cannot see is refused with `hidden_characters`. A person reads what
+is displayed and a model reads every character, so hidden text lets a change say one thing
+to its reviewer and another to the model. The screen reads both versions of every changed
+file, every other field of a request, the instructions a profile or a policy supplies, and
+what a model returns. It refuses, wherever they stand:
+
+- **Bidirectional controls** (U+202A to U+202E and U+2066 to U+2069), which make an editor
+  show a line in another order than it is stored. Rule `bidirectional_control`.
+- **Tag characters** (U+E0000 to U+E007F), which spell a sentence that nothing displays.
+  Rule `tag_character`.
+- **Invisible characters:** the zero width space, the word joiner and the invisible
+  operators, the soft hyphen, the Hangul fillers that some languages accept as a name, the
+  supplementary variation selectors, and every other character Unicode marks as shown as
+  nothing. Rule `invisible_character`. A byte order mark anywhere but the start of a file
+  is one too, under the rule `byte_order_mark`.
+- **Control characters** other than tab, line feed, form feed and carriage return,
+  including the escape that begins a terminal sequence. Rule `control_character`.
+
+Three kinds that ordinary text needs pass, each only where that text puts it:
+
+| Character | Passes | Refused, with its rule |
+|---|---|---|
+| Variation selector (U+FE00 to U+FE0F) | After a character outside plain ASCII, as in an emoji, and after a digit, `#` or `*` in a keycap | After a letter of plain ASCII, after a space, at the start of a line or after another selector: `misplaced_selector` |
+| Zero width joiner and non-joiner | After a character outside plain ASCII or its selector, as in joined emoji and in Persian or Indic words | Inside or beside a word of plain ASCII, or after another joiner: `misplaced_joiner` |
+| Direction mark (U+200E, U+200F, U+061C) | On a line that holds right-to-left text | On any other line: `misplaced_direction_mark` |
+
+A file may begin with a byte order mark. Line and paragraph separators, no-break and other
+wide spaces, and format characters that print are not refused: each takes up room or shows
+a glyph.
+
+The list is fixed data in `src/finassist/hidden_text.py`, so the answer does not depend on
+the Python version. This refusal is never turned into leaving the file out:
+`unreviewable_paths` and `private_paths` do not apply to it, and a version of a file that
+cannot be read does not stop the other version from being screened. Local output names the
+rule, the version and up to 20 line numbers, and never the character. A change that
+removes a hidden character is refused too, because the version it replaces still holds
+one, exactly as a change that removes a credential is.
+
+A test that needs such a character can spell it as an escape, such as `\u200b` in a string.
+The file then holds no hidden character, and a reader of the test can see what it feeds in.
+
+Known limits: a word with letters outside plain ASCII can still differ by a selector or a
+joiner that nothing shows, and letters of two scripts can look the same. Characters that
+look alike are outside this screen.
 
 Confidential numeric screening in the policy-approved model gate and history
 compares listed magnitudes in source, allowed fixtures, profiles and provider

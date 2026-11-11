@@ -17,6 +17,7 @@ import unicodedata
 from .code_text import (code_text, in_block_scalar, is_expansion, is_shell, is_yaml, looks_like_nested_key,
                         yaml_block_scalars)
 from .errors import AssistantError
+from .hidden_text import check_hidden, check_hidden_document, hidden
 from .platform_support import canonical_system_path
 from .path_alias_data import ASCII_CONFUSABLES, DEFAULT_IGNORABLE_RANGES
 from .python_annotations import credential_screening_view
@@ -187,7 +188,7 @@ def check_path(
     fixture_roots: tuple[str, ...] = (),
 ) -> str:
     name = safe_relative(value)
-    check_text(name)
+    check_credentials(name)
     parts = PurePosixPath(name).parts
     fixture = is_text_fixture(name, fixture_roots)
     if fixture:
@@ -221,6 +222,9 @@ def check_path(
         not in {"LICENSE", "Dockerfile", "Makefile", ".gitignore", ".dockerignore", ".gitattributes"}
     ):
         raise AssistantError("unsupported_file_type")
+    if hidden(name) is not None:
+        # The component rules above ask this interpreter's Unicode tables. The fixed list may know more.
+        raise AssistantError("unsafe_path")
     return name
 
 
@@ -372,11 +376,38 @@ def local_name(name, extra_patterns: tuple[str, ...] = ()) -> str:
 
 
 def check_text(text: str, *, extra_patterns: tuple[str, ...] = (), source_path: str | None = None) -> None:
-    """Refuse credentials and listed patterns in text.
+    """Refuse credentials, listed patterns and hidden characters in text.
 
     File content read with its path is also asked what its own syntax says: a credential-named
     field given an expression in code, or one variable expansion in quotes, names a value kept
     elsewhere and is not refused. Anything read without a path keeps the strict text rules.
+
+    Hidden characters are refused in every text. They are looked for last, so that text which
+    holds a credential is reported as that. Text read with its path is the content of a file,
+    which may begin with a byte order mark.
+    """
+    check_credentials(text, extra_patterns=extra_patterns, source_path=source_path)
+    check_hidden(text, file=source_path is not None)
+
+
+def check_name(name: str, *, extra_patterns: tuple[str, ...] = ()) -> None:
+    """Screen a path or another name for credentials and listed patterns.
+
+    A character in a name that is not shown makes the path unsafe, which is what the path rules
+    have always called it. So a name is never refused as hidden text, on any route.
+    """
+    check_credentials(name, extra_patterns=extra_patterns)
+    if hidden(name) is not None:
+        raise AssistantError("unsafe_path")
+
+
+def check_credentials(text: str, *, extra_patterns: tuple[str, ...] = (), source_path: str | None = None) -> None:
+    """The first half of `check_text`. Call `check_text` instead.
+
+    A name, a gate profile and a fixture marker have a format of their own, and each was refused
+    for an unseen character before the hidden-character screen existed, with its own code. Their
+    readers call this, then their own validation, then the hidden-character screen, so that those
+    codes stay as they were. A test lists every caller.
     """
     if is_python_path(source_path) and "\0" not in text:
         screen = python_screen(text)
@@ -407,6 +438,10 @@ def check_context_document(document: dict, *, extra_patterns: tuple[str, ...] = 
     if any(pattern.search(intact) for pattern in FORMAT_PATTERNS):
         raise AssistantError("sensitive_content")
     _screen_extra(intact, extra_patterns)
+    # The serialized packet spells every character outside ASCII as an escape, so the rules above
+    # cannot see a hidden one. Each record was read as a file; this reads every other string,
+    # and some of those are lines of files.
+    check_hidden_document(envelope, file_lines=True)
 
 
 def check_output_document(
@@ -498,6 +533,8 @@ def check_output_document(
     # the permitted quotes blanked.
     _screen_text(canonical(document).decode(), canonical(view).decode(), extra_patterns,
                  label_text=canonical(masked).decode())
+    # What a model returns is shown to people and handed to other tools. It may not hold what they cannot see.
+    check_hidden_document(document)
 
 
 class _FileSyntax:

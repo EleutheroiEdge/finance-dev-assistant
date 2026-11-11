@@ -31,8 +31,8 @@ from .providers import request_payload
 from .review import review_schema, spend_estimate
 from .error_hints import error_fields
 from .scope import WITHHELD_REASON, git, omission_for, read_entry, read_sides, require_regular, resolve
-from .security import (TEXT_FIXTURE_SUFFIXES, canonical, local_name, check_fixture_private, check_path,
-                       check_text, digest, refusal_location, regular_path)
+from .security import (TEXT_FIXTURE_SUFFIXES, canonical, local_name, check_fixture_private, check_name,
+                       check_path, check_text, digest, refusal_location, regular_path)
 
 HINTS = {
     "invalid_revision": "Pass a commit that exists in this repository.",
@@ -44,6 +44,7 @@ HINTS = {
     "gate_policy_invalid": "Fix the named field. Allowed values are shown; the current value is never echoed.",
     "gate_model_opt_in_required": "Use schema_version 2 with a model_review object.",
     "sensitive_content": "Remove credential-like text. A policy may name a key variable but never hold a key.",
+    "hidden_characters": "Remove the character that is not shown, on the lines listed. It is never left out or skipped.",
     "gate_policy_path_invalid": "Use literal path prefixes; wildcards are not supported.",
     "fixture_root_invalid": "Use literal fixture prefixes; wildcards are not supported.",
     "fixture_root_contains_data": "A fixture root cannot sit under a private data directory.",
@@ -530,7 +531,7 @@ class _Preflight:
             if outcome != "review":
                 # The gate sets this path aside unread, so it is not a blocker, unless the name
                 # matches a configured pattern: then it refuses, as the gate does.
-                check_text(path, extra_patterns=config.extra_sensitive_patterns)
+                check_name(path, extra_patterns=config.extra_sensitive_patterns)
                 if outcome == "withheld":
                     return {**row, "status": "withheld", "reason": WITHHELD_REASON}
                 require_regular(repo, revisions, path)  # Only an ordinary file is left out, as in the gate.

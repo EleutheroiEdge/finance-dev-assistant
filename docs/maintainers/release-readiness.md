@@ -49,7 +49,7 @@ measurement is not passed.
 | A2. Figures in real changes | Every number of five or more significant digits that a reference change adds to a reviewable text file of up to 400,000 bytes, listed alone, is refused in each file that adds it: 0 misses | `scripts/seeded_figure_screen.py`, exit status 0 |
 | A3. No false alarms on real code | With 1,000 random control figures, 0 file versions of the reference changes are refused. A control found in a file by an independent check is a collision: the run is inconclusive and is repeated with another seed | the same script |
 | A4. Same result as an adopter's own guard | With the same figure sources, every payload the adopter's guard refuses is refused here: 0 escapes in 10,000 generated payloads | differential test, once digit matching lands |
-| A5. One screen, every route | Every path to `providers.invoke` passes the credential, private-path, figure and hidden-character screens. A request without them is refused, not sent | route table test |
+| A5. One screen, every route | Every path to `providers.invoke` passes the credential, private-path, figure and hidden-character screens. A request without them is refused, not sent | `pytest tests/test_every_route_is_screened.py tests/test_hidden_text.py` |
 | A6. Output is screened | Free text a model returns is screened on every route before it is shown or saved | route table test |
 | A7. Injection | Across at least 60 adversarial packets, 0 changed verdicts and 0 echoes of screened data | needs live calls; see D |
 
