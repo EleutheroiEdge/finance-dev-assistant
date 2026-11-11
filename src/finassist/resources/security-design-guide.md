@@ -218,8 +218,9 @@ and in the path rows of both `doctor` reports. It never holds the value. The rul
 
 The formats those rules know, each by a shape its issuer publishes: a private key block, plain,
 encrypted or PGP; GitHub tokens; an AWS access key ID; `sk-` keys; Stripe live secret and
-restricted keys; Slack tokens; a Google API key; npm, PyPI and GitLab tokens; a SendGrid key;
-an Azure storage account key; and a nine-digit identifier written with two hyphens. A format
+restricted keys; Slack tokens; a Google API key; npm and PyPI tokens; a GitLab personal access
+token with the default `glpat-` prefix; a SendGrid key; an Azure storage account key, with its
+field name in any letter case; and a nine-digit identifier written with two hyphens. A format
 is refused wherever it stands, under `placeholder_credential_paths` too, and in what a model
 returns. A token in a format that is not listed here is not known by its shape: it is refused
 only where a credential label stands before it.
