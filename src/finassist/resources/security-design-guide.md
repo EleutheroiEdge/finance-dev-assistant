@@ -291,7 +291,11 @@ or a request runs first, on every version and every file, so a refusal that exis
 this screen is reported as it always was: a credential in one file is reported before a
 hidden character in another, and `hidden_characters` is reported only when nothing else
 refuses. `doctor` lists each file with its own outcome. Before a provider is called, it
-is the last check before the cost of the request is worked out. Local output names the
+is the last check before the cost of the request is worked out. It is the last check of
+what comes back too: a reply that also holds a listed figure, or a credential in its
+patch, is refused for that, and so is a proposal that reaches outside its scope. The
+same order holds when an approved patch is applied and when one is rolled back, where it
+is the last check before a file is written. Local output names the
 rule, the version and up to 20 line numbers, and never the character. A change that
 removes a hidden character is refused too, because the version it replaces still holds
 one, exactly as a change that removes a credential is.

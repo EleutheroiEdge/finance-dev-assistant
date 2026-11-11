@@ -14,6 +14,7 @@ import tempfile
 from .config import Config
 from .platform_support import executable_modes_supported
 from .errors import AssistantError
+from .hidden_text import Waiting
 from .scope import git, git_command, git_environment, resolve
 from .security import canonical, check_output_document, check_text, digest, regular_path, write_private
 
@@ -107,10 +108,16 @@ def _parse_patch_paths(patch: str, config: Config) -> list[str]:
     return paths
 
 
-def patch_paths(patch: str, config: Config, *, source_files: list[dict] | None = None) -> list[str]:
+def patch_paths(patch: str, config: Config, *, source_files: list[dict] | None = None,
+                waiting: Waiting | None = None) -> list[str]:
+    """The paths a patch touches, after it and what it leaves have been screened.
+
+    With `waiting`, a refusal for a hidden character is left on that list, for a caller that has
+    checks to come and releases it last.
+    """
     paths = _parse_patch_paths(patch, config)
     if source_files is None:
-        check_text(patch, extra_patterns=config.extra_sensitive_patterns)
+        check_text(patch, extra_patterns=config.extra_sensitive_patterns, waiting=waiting)
         return paths
     source = {item["path"]: item["after"] for item in source_files}
     if not set(paths) <= set(source):
@@ -124,7 +131,7 @@ def patch_paths(patch: str, config: Config, *, source_files: list[dict] | None =
         for name in paths:
             before = source[name]
             if before is not None:
-                check_text(before, source_path=name, extra_patterns=config.extra_sensitive_patterns)
+                check_text(before, source_path=name, extra_patterns=config.extra_sensitive_patterns, waiting=waiting)
                 target = root / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(before.encode("utf-8"))
@@ -145,7 +152,8 @@ def patch_paths(patch: str, config: Config, *, source_files: list[dict] | None =
             except UnicodeError as exc:
                 raise AssistantError("binary_input") from exc
             images.append({"path": name, "before": source[name], "after": after})
-        check_output_document({"patch": patch}, images, extra_patterns=config.extra_sensitive_patterns, diff=True)
+        check_output_document({"patch": patch}, images, extra_patterns=config.extra_sensitive_patterns, diff=True,
+                              waiting=waiting)
     return paths
 
 
@@ -229,13 +237,14 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
         backup[name] = base64.b64encode(target.read_bytes()).decode() if target.exists() else None
         modes[name] = target.stat().st_mode & 0o777 if target.exists() else None
     source_files = []
+    unseen = Waiting()  # A hidden character is refused after every other check, and before anything is written.
     for name in paths:
         try:
             before = base64.b64decode(backup[name]).decode("utf-8") if backup[name] is not None else None
         except UnicodeError as exc:
             raise AssistantError("binary_input") from exc
         if before is not None:
-            check_text(before, source_path=name, extra_patterns=config.extra_sensitive_patterns)
+            check_text(before, source_path=name, extra_patterns=config.extra_sensitive_patterns, waiting=unseen)
             # Patches describe committed blobs; the worktree can use CRLF under
             # Git's newline policy. Keep backup bytes exact for actual rollback.
             try:
@@ -243,9 +252,9 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
             except UnicodeError as exc:
                 raise AssistantError("binary_input") from exc
         source_files.append({"path": name, "after": before})
-    patch_paths(artifact["patch"], config, source_files=source_files)
+    patch_paths(artifact["patch"], config, source_files=source_files, waiting=unseen)
     check_output_document({"summary": artifact["summary"]}, source_files,
-                          extra_patterns=config.extra_sensitive_patterns)
+                          extra_patterns=config.extra_sensitive_patterns, waiting=unseen)
     # Git parses the entire patch before any mutation; --check is not an execution hook.
     command = git_command(repo, "apply", "--whitespace=error")
     command[1:1] = ["-c", "core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol"]
@@ -260,6 +269,7 @@ def apply_patch_artifact(repo: Path, artifact: dict, approved_hash: str, config:
         )
     except subprocess.SubprocessError as exc:
         raise AssistantError("patch_does_not_apply") from exc
+    unseen.release()
     backup_path = repo / ".finassist" / "patches" / (approved_hash + ".json")
     backup_data = canonical(
         {
@@ -325,6 +335,7 @@ def rollback_patch(repo: Path, patch_hash: str, config: Config | None = None) ->
     if not isinstance(selected_policy, dict) or set(selected_policy) - {"denied_parts", "text_suffixes"}:
         raise AssistantError("patch_backup_integrity_failed")
     policy = Config(allow_paths=(), protected_paths=(), **selected_policy).validate()
+    unseen = Waiting()  # A hidden character is refused after every other check, and before anything is restored.
     if config is not None:
         config.validate()
         for name in saved["before"]:
@@ -335,17 +346,19 @@ def rollback_patch(repo: Path, patch_hash: str, config: Config | None = None) ->
                 if encoded is not None:
                     check_text(
                         base64.b64decode(encoded, validate=True).decode("utf-8"),
-                        extra_patterns=config.extra_sensitive_patterns, source_path=name,
+                        extra_patterns=config.extra_sensitive_patterns, source_path=name, waiting=unseen,
                     )
             target = regular_path(repo / name)
             if target.is_file():
-                check_text(read_utf8(target), extra_patterns=config.extra_sensitive_patterns, source_path=name)
+                check_text(read_utf8(target), extra_patterns=config.extra_sensitive_patterns, source_path=name,
+                           waiting=unseen)
     for name, expected in receipt["after"].items():
         target = regular_path(repo / policy.check_path(name))
         actual = digest(target.read_bytes()) if target.exists() else None
         mode = target.stat().st_mode & 0o777 if target.exists() else None
         if actual != expected or mode != receipt["after_modes"][name]:
             raise AssistantError("rollback_would_overwrite_later_work")
+    unseen.release()
     for name, before in saved["before"].items():
         target = regular_path(repo / policy.check_path(name))
         if before is None:

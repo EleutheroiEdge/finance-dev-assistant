@@ -376,7 +376,7 @@ def local_name(name, extra_patterns: tuple[str, ...] = ()) -> str:
 
 
 def check_text(text: str, *, extra_patterns: tuple[str, ...] = (), source_path: str | None = None,
-               starts_file: bool = True) -> None:
+               starts_file: bool = True, waiting: Waiting | None = None) -> None:
     """Refuse credentials, listed patterns and hidden characters in text.
 
     File content read with its path is also asked what its own syntax says: a credential-named
@@ -390,10 +390,14 @@ def check_text(text: str, *, extra_patterns: tuple[str, ...] = (), source_path: 
 
     A reader of several texts calls `check_credentials` on each and gives each to a `Waiting`
     list instead, so that a credential in any of them is reported before a hidden character in
-    another.
+    another. A caller that has other checks to come passes its list as `waiting`: the refusal
+    for a hidden character is then left there, for the caller to release last.
     """
     check_credentials(text, extra_patterns=extra_patterns, source_path=source_path)
-    check_hidden(text, file=source_path is not None and starts_file)
+    if waiting is None:
+        check_hidden(text, file=source_path is not None and starts_file)
+    else:
+        waiting.check(text, file=source_path is not None and starts_file)
 
 
 def check_name(name: str, *, extra_patterns: tuple[str, ...] = ()) -> None:
@@ -465,7 +469,8 @@ def check_context_document(document: dict, *, extra_patterns: tuple[str, ...] = 
 
 
 def check_output_document(
-    document: dict, source_files: list[dict], *, extra_patterns: tuple[str, ...] = (), diff: bool = False
+    document: dict, source_files: list[dict], *, extra_patterns: tuple[str, ...] = (), diff: bool = False,
+    waiting: Waiting | None = None
 ) -> None:
     """Permit only exact credential-label quotes from screened source.
 
@@ -556,8 +561,13 @@ def check_output_document(
     # the permitted quotes blanked.
     _screen_text(canonical(document).decode(), canonical(view).decode(), extra_patterns,
                  label_text=canonical(masked).decode())
-    # What a model returns is shown to people and handed to other tools. It may not hold what they cannot see.
-    check_hidden_document(document)
+    # What a model returns is shown to people and handed to other tools. It may not hold what they
+    # cannot see. A caller with checks to come, such as the figure screen or the patch of a
+    # proposal, passes a list, and the refusal waits there until those have had their say.
+    if waiting is None:
+        check_hidden_document(document)
+    else:
+        waiting.check_document(document)
 
 
 class _FileSyntax:

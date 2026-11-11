@@ -16,6 +16,7 @@ import pytest
 
 from finassist.config import Config
 from finassist.errors import AssistantError
+from finassist.patching import apply_patch_artifact, rollback_patch
 from finassist.proposal import propose
 from finassist.review import review_packet
 from finassist.scope import build_packet, config_token_guard
@@ -240,6 +241,103 @@ def test_every_reader_that_runs_the_first_half_of_the_screen_runs_the_second():
         assert reader in callers(call), reader
     # A list that waits is released by whoever made it: the builder of a packet, its verifier, the
     # reader of a file, the screen of a request, the function that calls a provider, an offline review.
+    # And for what comes back: each route that reads a reply, and the two that write a patch's files.
     assert callers("release") == {("scope.py", "build_packet"), ("scope.py", "verify_packet"), ("scope.py", "read_sides"),
                                   ("security.py", "check_context_document"), ("related.py", "verify_related"),
-                                  ("review.py", "call_model"), ("review.py", "review_packet")}
+                                  ("review.py", "call_model"), ("review.py", "review_packet"),
+                                  ("model_gate.py", "_evaluate_model_gate"), ("proposal.py", "propose"),
+                                  ("patching.py", "apply_patch_artifact"), ("patching.py", "rollback_patch")}
+
+
+# --- What comes back ---------------------------------------------------------
+
+PATCH = ("diff --git a/src/cash.py b/src/cash.py\n--- a/src/cash.py\n+++ b/src/cash.py\n@@ -1,2 +1,3 @@\n"
+         " def balance(opening, deposits):\n     return opening - deposits\n+%s")
+
+
+def answered(route, repository, tmp_path, monkeypatch, name, **reply):
+    """The code a route refuses one synthetic reply with, or None, and the number of requests made."""
+    monkeypatch.setenv("OPENAI_API_KEY", "fictional")
+    repo, base, head = repository
+    config = model_config(**LISTED)
+    packet = build_packet(repo, base, head, config)
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        body = {**response(packet), **reply} if route == "review" else {"head": head, **reply}
+        return httpx.Response(200, json=envelope(json.dumps(body)))
+
+    try:
+        ROUTES[route](packet, config, tmp_path / (name + ".db"), approved_packet_hash=packet["packet_hash"],
+                      network_approved=True, transport=httpx.MockTransport(handler),
+                      token_guard=config_token_guard(config, repo))
+    except AssistantError as refusal:
+        return refusal.code, len(calls)
+    return None, len(calls)
+
+
+def test_a_review_with_a_hidden_character_and_a_listed_figure_is_refused_for_the_figure(repository, tmp_path, monkeypatch):
+    """Codex H2 on output: the figure screen reads a reply after the credential screen, and before this one."""
+    for name, summary, code in (("figure", "The limit is " + FIGURE + ".", "forbidden_token_present"),
+                                ("both", "The li" + ZERO_WIDTH_SPACE + "mit is " + FIGURE + ".", "forbidden_token_present"),
+                                ("hidden", "The li" + ZERO_WIDTH_SPACE + "mit is unchanged.", "hidden_characters"),
+                                ("plain", "The limit is unchanged.", None)):
+        assert answered("review", repository, tmp_path, monkeypatch, name, summary=summary) == (code, 1), name
+
+
+def test_a_proposal_with_a_hidden_character_and_a_credential_in_its_patch_is_refused_for_the_credential(
+        repository, tmp_path, monkeypatch):
+    hidden_summary, plain_patch = "Adds a li" + ZERO_WIDTH_SPACE + "mit.", PATCH % "LIMIT = 3\n"
+    for name, summary, patch, code in (
+            ("credential", "Adds a login.", PATCH % CREDENTIAL, "sensitive_content"),
+            ("both", hidden_summary, PATCH % CREDENTIAL, "sensitive_content"),
+            ("hidden", hidden_summary, plain_patch, "hidden_characters"),
+            ("in the patch", "Adds a limit.", PATCH % ("LIMIT = 3  # li" + ZERO_WIDTH_SPACE + "mit\n"), "hidden_characters"),
+            ("outside", hidden_summary, plain_patch.replace("src/cash.py", "src/other.py"), "proposal_outside_review_scope"),
+            ("plain", "Adds a limit.", plain_patch, None)):
+        assert answered("propose", repository, tmp_path, monkeypatch, name, summary=summary, patch=patch) == (code, 1), name
+
+
+def test_applying_a_patch_refuses_a_hidden_character_last_and_writes_nothing(repository):
+    repo, _base, head = repository
+    hidden_summary, plain_patch = "Adds a li" + ZERO_WIDTH_SPACE + "mit.", PATCH % "LIMIT = 3\n"
+    stale_patch = plain_patch.replace("return opening - deposits", "return opening * deposits")
+    for code, summary, patch in (("sensitive_content", hidden_summary, PATCH % CREDENTIAL),
+                                 ("patch_does_not_apply", hidden_summary, stale_patch),
+                                 ("hidden_characters", hidden_summary, plain_patch),
+                                 ("hidden_characters", "Adds a limit.", PATCH % ("LIMIT = 3  # li" + ZERO_WIDTH_SPACE + "mit\n"))):
+        artifact = {"head": head, "patch": patch, "summary": summary}
+        with pytest.raises(AssistantError, match="^" + code + "$"):
+            apply_patch_artifact(repo, artifact, digest(canonical(artifact)), Config())
+        assert "LIMIT" not in (repo / "src/cash.py").read_text(encoding="utf-8")
+        assert not list((repo / ".finassist").glob("patches/*.json"))  # no backup: nothing was about to be written
+
+
+def test_rolling_back_reports_later_work_before_a_hidden_character_in_it(repository):
+    repo, _base, head = repository
+    artifact = {"head": head, "patch": PATCH % "LIMIT = 3\n", "summary": "Adds a limit."}
+    approved = digest(canonical(artifact))
+    apply_patch_artifact(repo, artifact, approved, Config())
+    path = repo / "src/cash.py"
+    later = path.read_text(encoding="utf-8") + "# to" + ZERO_WIDTH_SPACE + "tal\n"
+    path.write_text(later, encoding="utf-8", newline="\n")
+    with pytest.raises(AssistantError, match="^rollback_would_overwrite_later_work$"):
+        rollback_patch(repo, approved, Config())
+    assert path.read_text(encoding="utf-8") == later
+
+
+def test_a_gate_reply_with_a_hidden_character_and_a_listed_figure_is_blocked_for_the_figure(gate_case):
+    change_policy(gate_case, forbidden_token_hashes=list(LISTED["forbidden_token_hashes"]))
+
+    def answer(summary):
+        def handler(sent):
+            return envelope(json.dumps({"head": sent["head"], "summary": summary, "findings": [],
+                                        "reviewed_paths": [file["path"] for file in sent["files"]]}))
+        return handler
+
+    for summary, reason in (("The limit is " + FIGURE + ".", "forbidden_token_present"),
+                            ("The li" + ZERO_WIDTH_SPACE + "mit is " + FIGURE + ".", "forbidden_token_present"),
+                            ("The li" + ZERO_WIDTH_SPACE + "mit is unchanged.", "hidden_characters")):
+        report, calls = run(gate_case, answer(summary))
+        assert report["verdict"] == "BLOCKED" and report["reasons"] == [reason] and len(calls) == 1, summary

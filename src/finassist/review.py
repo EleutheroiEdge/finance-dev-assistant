@@ -62,7 +62,8 @@ def review_schema() -> dict:
 
 
 def validate_review(
-    result: dict, packet: dict, *, extra_patterns: tuple[str, ...] = (), config: Config | None = None
+    result: dict, packet: dict, *, extra_patterns: tuple[str, ...] = (), config: Config | None = None,
+    waiting: Waiting | None = None
 ) -> None:
     verify_packet(packet, config)
     try:
@@ -100,7 +101,7 @@ def validate_review(
                 or evidence["line"] > max(1, len(file[evidence["side"]].splitlines()))
             ):
                 raise AssistantError("finding_evidence_invalid")
-    check_output_document(result, packet["files"], extra_patterns=extra_patterns)
+    check_output_document(result, packet["files"], extra_patterns=extra_patterns, waiting=waiting)
 
 
 def call_model(
@@ -287,9 +288,11 @@ def review_packet(
         data = json.loads(result.text)
     except ValueError as exc:
         raise AssistantError("review_json_invalid") from exc
-    validate_review(data, packet, extra_patterns=config.extra_sensitive_patterns, config=config)
+    unseen = Waiting()  # A hidden character in a reply is refused after its other checks, as one in a request is.
+    validate_review(data, packet, extra_patterns=config.extra_sensitive_patterns, config=config, waiting=unseen)
     if token_guard is not None:
         screen_review_output(data, token_guard.snapshot)
+    unseen.release()
     report = {
         "status": "partial-review"
         if review_omissions(packet)
