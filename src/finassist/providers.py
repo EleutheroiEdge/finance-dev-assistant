@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 import json
+import math
 import os
+import re
 import time
 from urllib.parse import quote
 
@@ -20,6 +23,70 @@ class ModelResult:
     text: str
     input_tokens: int | None = None
     output_tokens: int | None = None
+
+
+def _not_json(_name: str):
+    raise ValueError("NaN and Infinity are not JSON")
+
+
+_ZERO = re.compile(r"-?0*(?:\.0*)?(?:[eE][+-]?[0-9]+)?")  # every digit before the exponent is a zero
+
+
+def _number(text: str) -> int | float:
+    """A number written with a point or an exponent.
+
+    One whose digits say it is an integer is that integer, exactly: 2.0 and 2e0 are 2. That is
+    asked of the digits as written, never of the binary value they round to, so
+    2.0000000000000001 is not 2. A number which only rounding would make an integer is refused,
+    and so is one too small to hold: what it says cannot be kept. Zero is zero whatever exponent
+    it is written with.
+    """
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError("a number too large to hold")
+    if _ZERO.fullmatch(text):
+        return 0
+    try:
+        exact = Decimal(text)
+        whole = exact == exact.to_integral_value()
+    except ArithmeticError as exc:
+        # An exponent past what the exact reading takes. The value is not zero and its float is
+        # finite, so it is a number too small to hold.
+        raise ValueError("a number too small to hold") from exc
+    if whole:
+        return int(exact)  # At most 309 digits: the value is finite and is not zero.
+    if value.is_integer():
+        raise ValueError("a number that only rounding would make an integer")
+    return value
+
+
+def _members(pairs: list) -> dict:
+    members = dict(pairs)
+    if len(members) != len(pairs):
+        raise ValueError("a key is given twice")
+    return members
+
+
+def reply_json(text: str | bytes):
+    """What a provider or a model sent, read as JSON and nothing wider.
+
+    Python's reader also takes NaN and Infinity, turns a number too large to hold into
+    infinity, and gives up on deep nesting with an error of its own kind. The canonical form
+    that every screen and record uses can carry none of those values. They are refused here
+    as text that is not JSON, so each route answers with the refusal it has for that.
+
+    Two things JSON leaves open are settled here as well. A key given twice in one object
+    says two things, and choosing between them is not ours to do: it is refused. A number
+    such as 2.0 is the integer it equals, which is how the schemas for a reply read it, so
+    a line number written that way is a line number. A number that is not an integer as
+    written never becomes one: see `_number`.
+    """
+    try:
+        return json.loads(text, parse_constant=_not_json, parse_float=_number, object_pairs_hook=_members)
+    except RecursionError as exc:
+        raise ValueError("nested too deeply") from exc
+    except ArithmeticError as exc:  # No number may leave this reader as an error of its own kind.
+        raise ValueError("a number that cannot be read") from exc
 
 
 def _usage(value) -> int | None:
@@ -215,7 +282,7 @@ def invoke(
                     if length > 2_000_000:
                         raise AssistantError("provider_response_limit")
                     chunks.append(block)
-        data = json.loads(b"".join(chunks))
+        data = reply_json(b"".join(chunks))
         result = parse_response(config.provider, data)
         if result.output_tokens is not None and result.output_tokens > config.max_output_tokens:
             raise AssistantError("provider_usage_exceeds_limit")
