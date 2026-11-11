@@ -77,23 +77,22 @@ def _escaped_character(match: re.Match) -> str:
         return match.group()
 
 
-_REFERENCE = re.compile(r"&#(?:[xX]([0-9a-fA-F]+)|([0-9]+));?")
-_NO_CHARACTER = chr(0xFFFD)
+_REFERENCE = re.compile(r"&#(?:([xX])([0-9a-fA-F]+)|([0-9]+))")
 
 
-def _referenced_character(match: re.Match) -> str:
-    """The character a numeric reference names, or the replacement character when it names none.
+def _short_reference(match: re.Match) -> str:
+    """The same numeric reference, short enough for html.unescape to convert.
 
-    Read here, not by html.unescape: that converts the digits with int(), which refuses a number
-    of more than 4,300 digits. Leading zeros are dropped first, and a number with more digits
-    than any code point has names none.
+    html.unescape converts the digits with int(), which refuses a number of more than 4,300
+    digits. Leading zeros never change the number, and one with more digits than any code point
+    has is written as a number just past the last one. What a reference means is left to HTML:
+    which ones name a character, which are dropped and which become the replacement character.
     """
-    digits, base = (match.group(1), 16) if match.group(1) else (match.group(2), 10)
-    digits = digits.lstrip("0") or "0"
+    marker = match.group(1) or ""
+    digits = (match.group(2) if marker else match.group(3)).lstrip("0") or "0"
     if len(digits) > 7:
-        return _NO_CHARACTER
-    number = int(digits, base)
-    return chr(number) if number <= 0x10FFFF and not 0xD800 <= number <= 0xDFFF else _NO_CHARACTER
+        digits = "110000" if marker else "1114112"
+    return "&#" + marker + digits
 
 
 def digit_lines(text: str) -> list[str]:
@@ -104,7 +103,7 @@ def digit_lines(text: str) -> list[str]:
     text cannot be spelled out, the measurement is incomplete: it is never taken to hold no control.
     """
     try:
-        spelled = html.unescape(_REFERENCE.sub(_referenced_character, _ESCAPE.sub(_escaped_character, text)))
+        spelled = html.unescape(_REFERENCE.sub(_short_reference, _ESCAPE.sub(_escaped_character, text)))
     except (ValueError, OverflowError):
         raise Incomplete("a file could not be decoded for the collision check") from None
     return ["".join(str(unicodedata.decimal(character)) for character in line if character.isdecimal())

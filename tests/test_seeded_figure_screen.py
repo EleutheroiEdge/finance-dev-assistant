@@ -139,6 +139,10 @@ ESCAPED_SPACE = chr(92) + "u00a0"  # A no-break space as source text writes it.
     lambda figure: "&#" + "9" * 5000 + "; " + figure + " &#x" + "F" * 5000,
     lambda figure: "".join("&#" + "0" * 5000 + str(ord(c)) + ";" if c.isdigit() else c for c in figure),
     lambda figure: "".join("&#x" + "0" * 5000 + format(ord(c), "x") + ";" if c.isdigit() else c for c in figure),
+    # A reference HTML drops, inside the figure: plain, zero-padded past the conversion limit, and hexadecimal.
+    lambda figure: figure[:3] + "&#11;" + figure[3:],
+    lambda figure: figure[:3] + "&#" + "0" * 5000 + "11;" + figure[3:],
+    lambda figure: figure[:3] + "&#x1C;" + figure[3:],
 ])
 def test_a_control_figure_in_any_spelling_is_a_collision(repository, capsys, monkeypatch, respell):
     repo, _base, _head = repository
@@ -181,6 +185,8 @@ def test_a_reference_too_long_to_convert_is_read_not_raised():
     assert "123" in seeded.digit_lines("&#" + "0" * 5000 + "49;&#x" + "0" * 5000 + "32; 3")
     # A surrogate, and a number past the last code point, name no character.
     assert "7" in seeded.digit_lines("&#xD800;&#1114112;&#55296; 7")
+    # HTML drops some control references: the digits on each side then meet, on one line.
+    assert "1234" in seeded.digit_lines("12&#11;34") and "1234" in seeded.digit_lines("12&#x1E;34")
 
 
 def test_a_file_that_cannot_be_decoded_makes_the_measurement_incomplete(repository, capsys, monkeypatch):
