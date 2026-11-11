@@ -253,8 +253,10 @@ def budgets_for_the_packet_limit(proposed: Config) -> dict:
     By this route's own arithmetic: it reserves the packet, the instructions and a fixed allowance
     as input units, and every permitted output token. A draft that raises `max_packet_bytes` to
     fit the largest recent change and keeps a smaller budget would refuse that change for its
-    cost. Only a budget that is too small is named, and none is lowered. With no provider, model
-    or prices there is nothing to work out, and nothing is invented.
+    cost. Each of the three budgets is asked on its own whether that request fits it: a run
+    budget that is enough does not excuse a day or a month that is not. Only a budget that is
+    too small is named, and none is lowered. With no provider, model or prices there is nothing
+    to work out, and nothing is invented.
     """
     prices = (proposed.input_usd_per_million, proposed.output_usd_per_million)
     if (proposed.provider == "offline" or not proposed.model
@@ -262,12 +264,17 @@ def budgets_for_the_packet_limit(proposed: Config) -> dict:
         return {}
     units = proposed.max_packet_bytes + _PACKET_HASH_BYTES + len(proposed.instructions().encode()) + ENVELOPE_ALLOWANCE
     run = reserved_usd(units, proposed.max_output_tokens, *prices).quantize(Decimal("0.01"), rounding=ROUND_CEILING)
-    if run <= Decimal(str(proposed.max_run_usd)):
-        return {}
-    budgets = {"max_run_usd": float(run)}
-    daily = max(Decimal(str(proposed.daily_budget_usd)), 3 * run)  # as the gate policy draft does
-    if daily > Decimal(str(proposed.daily_budget_usd)):
+    stated_run, stated_day, stated_month = (Decimal(str(value)) for value in (
+        proposed.max_run_usd, proposed.daily_budget_usd, proposed.monthly_budget_usd))
+    budgets = {}
+    if run > stated_run:
+        budgets["max_run_usd"] = float(run)
+    # A day that has to change is given three requests, as the gate policy draft gives it.
+    changed = run > stated_run or run > stated_day
+    daily = max(stated_day, 3 * run) if changed else stated_day
+    if daily > stated_day:
         budgets["daily_budget_usd"] = float(daily)
-    if daily > Decimal(str(proposed.monthly_budget_usd)):
+    # A month holds the day that is proposed beside it. Beside a day that stays, it holds one request.
+    if (daily if changed else run) > stated_month:
         budgets["monthly_budget_usd"] = float(daily)
     return budgets

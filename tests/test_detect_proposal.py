@@ -249,6 +249,56 @@ def test_a_month_cannot_hold_less_than_a_day_of_the_drafted_budget(tmp_path, cap
     assert config["monthly_budget_usd"] == config["daily_budget_usd"] > 100
 
 
+@pytest.mark.parametrize("stated,raised,refused", [
+    ({"max_run_usd": 50, "daily_budget_usd": 0.01}, {"daily_budget_usd"}, {"daily_budget_exceeded"}),
+    ({"max_run_usd": 50, "daily_budget_usd": 60, "monthly_budget_usd": 0.01}, {"monthly_budget_usd"},
+     {"monthly_budget_exceeded"}),
+    ({"max_run_usd": 50, "daily_budget_usd": 0.01, "monthly_budget_usd": 0.01},
+     {"daily_budget_usd", "monthly_budget_usd"}, {"daily_budget_exceeded", "monthly_budget_exceeded"}),
+])
+def test_a_day_or_a_month_too_small_for_one_request_is_raised_on_its_own(tmp_path, capsys, monkeypatch, stated, raised,
+                                                                        refused):
+    """Codex P109-1: a run budget that is enough does not excuse the other two."""
+    monkeypatch.setenv("REVIEW_PROVIDER_KEY", "fictional-provider-value")
+    repo, base, head = _near_the_limit(tmp_path)
+    pricey = [*PROVIDER[:-4], "--input-usd-per-million", "100", "--output-usd-per-million", "2"]
+    given, path = tmp_path / "stated.json", tmp_path / "finassist.json"
+    given.write_text(json.dumps(stated), encoding="utf-8")
+    proposal = _proposal(capsys, ["--config", str(given), "init", "--detect", "--repo", str(repo), *pricey,
+                                  "--write", "--output", str(path)])
+    config = proposal["config"]
+    names = {"max_run_usd", "daily_budget_usd", "monthly_budget_usd"}
+    assert names & set(config) == raised  # The run budget of 50 was enough and stays as stated.
+    amounts = {name: config[name] for name in raised}
+    assert {"code": "budget_raised_for_packet_limit", **amounts} in proposal["warnings"]
+    bare = reserved_usd(config["max_packet_bytes"] + ENVELOPE_ALLOWANCE, 4096, 100, 2)
+    if "daily_budget_usd" in raised:  # three requests at the limit, as when the run budget is raised
+        assert 3 * bare < Decimal(str(config["daily_budget_usd"])) < 3 * (bare + Decimal("1.00"))
+    if "monthly_budget_usd" in raised:  # the day beside it: the proposed one, or the stated 60
+        assert config["monthly_budget_usd"] == config.get("daily_budget_usd", 60.0)
+    for name in raised:
+        assert {"value": config[name], "rule": "one_packet_at_the_limit", "document": "config"} in proposal["evidence"][name]
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["max_run_usd"] == 50 and all(saved[name] == config[name] for name in raised)
+    # The saved draft pays for the change it made room for. With the budgets as they were stated, it does not.
+    report = _doctor(capsys, path, repo, base, head)
+    assert not BUDGETS & {blocker["code"] for blocker in report["blockers"]}
+    path.write_text(json.dumps({**saved, **stated}), encoding="utf-8")
+    report = _doctor(capsys, path, repo, base, head)
+    assert BUDGETS & {blocker["code"] for blocker in report["blockers"]} == refused
+
+
+def test_a_month_that_holds_one_request_stays_beside_a_larger_day(tmp_path, capsys):
+    repo, _base, _head = _near_the_limit(tmp_path)
+    pricey = [*PROVIDER[:-4], "--input-usd-per-million", "100", "--output-usd-per-million", "2"]
+    stated = tmp_path / "stated.json"
+    # One request reserves about 12.6: the month holds it, though it is smaller than the day.
+    stated.write_text(json.dumps({"max_run_usd": 50, "daily_budget_usd": 60, "monthly_budget_usd": 20}), encoding="utf-8")
+    proposal = _proposal(capsys, ["--config", str(stated), "init", "--detect", "--repo", str(repo), *pricey])
+    assert not {"max_run_usd", "daily_budget_usd", "monthly_budget_usd"} & set(proposal["config"])
+    assert "budget_raised_for_packet_limit" not in {entry["code"] for entry in proposal["warnings"]}
+
+
 def test_a_draft_the_gate_schema_refuses_is_reported_and_the_proposal_still_prints(tmp_path, capsys):
     crowded = {**LAYOUT, **{f"NOTE_{number:03d}.md": "A note.\n" for number in range(130)}}
     proposal = _proposal(capsys, ["init", "--detect", "--repo", str(_repo(tmp_path, crowded)), *PROVIDER])
