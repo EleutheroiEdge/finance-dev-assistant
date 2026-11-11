@@ -55,6 +55,31 @@ DENIED_SUFFIXES = {
     ".p12",
     ".pfx",
 }
+# Where tools keep a signed-in session, a registry password or a private key, by the names they
+# use in a home directory. A repository that tracks one holds a credential whatever its text
+# looks like, so the name alone makes the file private. An entry is a run of path components
+# and matches anywhere in a path, in any case. No setting admits one. The list covers common
+# tools, never every tool: docs/configuration.md repeats it, and a test keeps the two the same.
+CREDENTIAL_STORES = (
+    # Directories: everything under them.
+    (".bluemix",), (".doppler",), (".gnupg",), (".kaggle",), (".kube",), (".ngrok2",), (".oci",),
+    (".password-store",), (".pki",), (".snowsql",), (".terraform.d",),
+    (".config", "configstore"), (".config", "doctl"), (".config", "gcloud"), (".config", "gh"),
+    (".config", "github-copilot"), (".config", "glab-cli"), (".config", "hcloud"),
+    (".config", "helm", "registry"), (".config", "netlify"), (".config", "ngrok"), (".config", "op"),
+    (".config", "rclone"), (".config", "sops"), (".config", "stripe"), (".local", "share", "keyrings"),
+    (".subversion", "auth"), (".wrangler", "config"),
+    # One file inside a directory that may hold ordinary settings too.
+    (".cargo", "credentials"), (".cargo", "credentials.toml"), (".config", "git", "credentials"),
+    (".config", "hub"), (".config", "linode-cli"), (".config", "pypoetry", "auth.toml"),
+    (".docker", "config.json"), (".expo", "state.json"),
+    (".fly", "config.yml"), (".gem", "credentials"), (".gradle", "gradle.properties"),
+    (".m2", "settings-security.xml"), (".m2", "settings.xml"),
+    # Files, wherever they sit.
+    (".boto",), (".databrickscfg",), (".dockercfg",), (".git-credentials",), (".htpasswd",), (".mylogin.cnf",),
+    (".netrc",), (".pgpass",), (".pypirc",), (".s3cfg",), (".terraformrc",), (".vault-token",), ("_netrc",),
+    ("id_dsa",), ("id_ecdsa",), ("id_ed25519",), ("id_rsa",), ("pgpass.conf",),
+)
 TEXT_SUFFIXES = {
     ".py",
     ".md",
@@ -158,18 +183,23 @@ def check_path(
     fixture = is_text_fixture(name, fixture_roots)
     if fixture:
         check_fixture_private(name)
-    if _matches_reserved(parts[-1], {"auth.json", "user.md", "memory.md", "session.md"}):
+    last = _component_aliases(parts[-1])
+    if _reserved_match(last, {"auth.json", "user.md", "memory.md", "session.md"}):
         raise AssistantError("private_profile_path")
     denied = set(DENIED_PARTS if denied_parts is None else denied_parts)
     if fixture:
         denied = set(denied) | DENIED_PARTS
     suffixes = TEXT_SUFFIXES if text_suffixes is None else text_suffixes
-    if any(
-        _matches_reserved(p, denied | {".git", ".finassist"})
-        or any(alias.startswith(prefix) for alias in _component_aliases(p)
-               for prefix in _component_aliases(".env"))
-        for p in parts
-    ):
+    reserved = frozenset(denied | {".git", ".finassist"})
+    environment = _reserved_aliases(frozenset({".env"}))
+    aliases = []  # Each component's spellings, worked out once and checked in path order.
+    for index, part in enumerate(parts):
+        names = last if index == len(parts) - 1 else _component_aliases(part)
+        if _reserved_match(names, reserved) or any(
+                alias.startswith(prefix) for alias in names for prefix in environment):
+            raise AssistantError("private_path")
+        aliases.append(names)
+    if _in_credential_store(aliases):
         raise AssistantError("private_path")
     suffix = PurePosixPath(name).suffix.lower()
     if suffix in DENIED_SUFFIXES and not fixture and not (metadata_only and suffix in PUBLIC_ASSETS):
@@ -228,8 +258,48 @@ def _reserved_aliases(reserved: frozenset[str]) -> frozenset[str]:
     return frozenset(alias for value in reserved for alias in _component_aliases(value))
 
 
+@lru_cache(maxsize=128)
+def _hidden_aliases(reserved: frozenset[str]) -> frozenset[str]:
+    return _reserved_aliases(frozenset(name.lstrip(".") for name in reserved))
+
+
+def _reserved_match(aliases: set[str], reserved) -> bool:
+    """Whether a component, given by its spellings, is one of the reserved names.
+
+    A hidden spelling is the same name: `.secrets` is `secrets`, however many dots lead it.
+    """
+    names = frozenset(reserved)
+    if aliases & _reserved_aliases(names):
+        return True
+    hidden = _hidden_aliases(names)
+    return any(alias.startswith(".") and alias.lstrip(".") in hidden for alias in aliases)
+
+
 def _matches_reserved(part: str, reserved) -> bool:
-    return bool(_component_aliases(part) & _reserved_aliases(frozenset(reserved)))
+    return _reserved_match(_component_aliases(part), reserved)
+
+
+@lru_cache(maxsize=1)
+def _credential_stores() -> dict[str, tuple[tuple[frozenset[str], ...], ...]]:
+    """Each store by every alias of its first component, with the aliases of the components after it."""
+    index: dict[str, list] = {}
+    for store in CREDENTIAL_STORES:
+        rest = tuple(frozenset(_component_aliases(name)) for name in store[1:])
+        for alias in _component_aliases(store[0]):
+            index.setdefault(alias, []).append(rest)
+    return {alias: tuple(rests) for alias, rests in index.items()}
+
+
+def _in_credential_store(aliases: list[set[str]]) -> bool:
+    """Whether a run of components, each given by its spellings, is a credential store."""
+    stores = _credential_stores()
+    for start, names in enumerate(aliases):
+        for alias in names:
+            for rest in stores.get(alias, ()):
+                if len(rest) < len(aliases) - start and all(
+                        aliases[start + 1 + offset] & wanted for offset, wanted in enumerate(rest)):
+                    return True
+    return False
 
 
 def check_fixture_private(path: str) -> None:
@@ -246,8 +316,8 @@ def _check_model_private(path: str) -> None:
     if len(path) > 512 or any(_matches_reserved(part, _PRIVATE) for part in PurePosixPath(path).parts):
         raise AssistantError("gate_private_path")
     names = _component_aliases(PurePosixPath(path).name)
-    if _matches_reserved(PurePosixPath(path).name, {"client.json", "clients.json", "household.json", "households.json",
-                "credentials.json", "credential.json", "secrets.json"}) or any(
+    if _reserved_match(names, {"client.json", "clients.json", "household.json", "households.json",
+                               "credentials.json", "credential.json", "secrets.json"}) or any(
         re.search(r"(?:household|client)[_-]?(?:config|settings|profile)", name) for name in names
     ):
         raise AssistantError("gate_private_path")
