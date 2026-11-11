@@ -41,6 +41,12 @@ MAX_FIGURE_DIGITS = 260
 _MAX_INTEGER_BITS = 870  # 2**870 > 10**261
 
 
+# What Python's tokenizer and parser raise for text that is not Python. Every caller that reads
+# candidate text catches all of them: SystemError is here because CPython 3.12's tokenizer raises
+# it, not SyntaxError, for a NUL character after an unterminated string.
+SOURCE_ERRORS = (tokenize.TokenError, SyntaxError, ValueError, RecursionError, MemoryError, SystemError)
+
+
 def is_python_path(path: str | None) -> bool:
     return path is not None and PurePosixPath(path).suffix.lower() in PYTHON_SUFFIXES
 
@@ -53,7 +59,7 @@ def python_tokens(text: str) -> list[tokenize.TokenInfo] | None:
     """Return the complete token stream, or None when Python cannot tokenize the text."""
     try:
         tokens = list(tokenize.generate_tokens(io.StringIO(_normalized(text)).readline))
-    except (tokenize.TokenError, SyntaxError, ValueError, RecursionError, MemoryError):
+    except SOURCE_ERRORS:
         return None
     # Older tokenizers report an unterminated string or a stray character as an
     # error token and carry on. A partial stream must never pass as complete.
@@ -68,7 +74,7 @@ def python_tree(text: str) -> ast.AST | None:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             return ast.parse(_normalized(text))
-    except (SyntaxError, ValueError, RecursionError, MemoryError):
+    except SOURCE_ERRORS:
         return None
 
 

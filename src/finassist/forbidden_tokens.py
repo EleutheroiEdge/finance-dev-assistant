@@ -17,7 +17,7 @@ import tokenize
 import unicodedata
 
 from .errors import AssistantError
-from .python_source import (MAX_FIGURE_DIGITS, fstring_constant_texts, hidden_fstring_fields, is_python_path,
+from .python_source import (MAX_FIGURE_DIGITS, SOURCE_ERRORS, fstring_constant_texts, hidden_fstring_fields, is_python_path,
                             number_text, python_tokens, python_tree, string_constant_values,
                             strings_read_differently)
 from .security import regular_path
@@ -490,6 +490,25 @@ def _readings(text: str, digit_limit: int = 0):
 _ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})|\\U([0-9a-fA-F]{8})|\\x([0-9a-fA-F]{2})")
 
 
+# A numeric character reference, as html.unescape reads one: `&#49;` or `&#x31;`, the semicolon optional.
+_NUMERIC_REFERENCE = re.compile(r"&#(?:([xX])([0-9a-fA-F]+)|([0-9]+))")
+
+
+def _bounded_reference(match: re.Match) -> str:
+    """The same reference with a number html.unescape can always convert.
+
+    html.unescape turns the digits into an integer, and Python refuses to convert more than
+    4,300 of them. Leading zeros never change the number, and one with more digits than the
+    last code point has is past it whatever they are: it is written as the first number past
+    it, which html.unescape reads as the replacement character, as it would the original.
+    """
+    marker, digits = (match.group(1), match.group(2)) if match.group(1) else ("", match.group(3))
+    digits = digits.lstrip("0") or "0"
+    if len(digits) > (6 if marker else 7):  # 0x10FFFF and 1114111 are the last code point.
+        digits = "110000" if marker else "1114112"
+    return "&#" + marker + digits
+
+
 def _spelled_out(text: str) -> str | None:
     """The text with character escapes and HTML entities replaced by what they spell, or None if it has none.
 
@@ -502,10 +521,12 @@ def _spelled_out(text: str) -> str | None:
     def character(match: re.Match) -> str:
         try:
             return chr(int(match.group(1) or match.group(2) or match.group(3), 16))
-        except ValueError:  # Past the last code point: not a character.
+        except (ValueError, OverflowError):
+            # Past the last code point: not a character. Before Python 3.13, chr() raises
+            # OverflowError, not ValueError, for a number of 2**31 or more.
             return match.group()
 
-    decoded = html.unescape(_ESCAPE.sub(character, text))
+    decoded = html.unescape(_NUMERIC_REFERENCE.sub(_bounded_reference, _ESCAPE.sub(character, text)))
     return None if decoded == text else decoded
 
 
@@ -607,7 +628,7 @@ def _line_numbers(line: str) -> list[str | None]:
     try:
         for token in tokenize.generate_tokens(io.StringIO(line + "\n").readline):
             tokens.append(token)
-    except (tokenize.TokenError, IndentationError, SyntaxError):
+    except SOURCE_ERRORS:
         pass
     found = [number_text(token.string) for token in tokens if token.type == tokenize.NUMBER]
     if hidden_fstring_fields(tokens):
