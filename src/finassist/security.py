@@ -563,11 +563,16 @@ def _reference_quotes(text: str, path: str) -> dict[str, set[str]]:
 # What joins a literal to a quote of a reference. In prose, after the code span that held the
 # quote: a fallback or joining operator, or a ? or : before another code span.
 _JOINS_NEXT = re.compile(r"\|\||\?\?|&&|\+|[?:][ \t]*`")
-_JOINS_LATER = re.compile(r"(?:\|\||\?\?|&&|\+)[ \t]*`")
-# In code, at the start of the line after the quote's: an operator, an opening bracket, a
-# comment that an operator may follow, or one backtick. Three backticks close a fenced block.
-_CARRIES_ON = re.compile(r"\|\||\?\?|&&|[?:+(\[=\\]|\.[A-Za-z_$]|/\*|`(?!``)")
+_JOINS_LATER = re.compile(r"(?:\|\||\?\?|&&|\+)[ \t]*(?:`|[0-9]{12})")
+# A quote that ends with one of these is a whole operand. One that ends with an operator is not
+# over, whatever follows it.
+_QUOTE_END = re.compile(r"[A-Za-z0-9_$)\]}\"'!,;]")
+# In code, the line after a quote that ends its line has to begin something new: a name that is no
+# operator, a closing bracket, a quoted key, or the end of a fenced block. Anything else may carry
+# the expression on, whatever the operator.
+_BEGINS_NEW = re.compile(r"```|[)\]}\"']|(?!(?:in|instanceof|as|satisfies|is|or|and|not)\b)[A-Za-z_$@]")
 _COMMENT_LINE = re.compile(r"//|#|--")
+_PATCH_NOTE = "\\ No newline at end of file"
 
 
 def _ends_there(value: str, text: str, start: int, end: int, rests: set[str], diff: bool) -> bool:
@@ -576,7 +581,7 @@ def _ends_there(value: str, text: str, start: int, end: int, rests: set[str], di
     It may first go on exactly as it does in the source: `rests` holds what follows this
     reference on its line there. `text` is `value` with the other permitted quotes blanked.
     """
-    return any(_is_over(text, start, end + len(rest), diff)
+    return any(_QUOTE_END.fullmatch(value[end + len(rest) - 1:end + len(rest)]) and _is_over(text, start, end + len(rest), diff)
                for rest in ("", *rests) if value.startswith(rest, end))
 
 
@@ -585,7 +590,7 @@ def _is_over(text: str, start: int, end: int, diff: bool) -> bool:
 
     A quote is over in two shapes. In prose it is a code span: a backtick just before the label
     and one just after the quote, with no joining operator after it. In code it ends its line,
-    or a comma or a semicolon does, and the next line of code does not carry it on. Anything
+    or a comma or a semicolon does, and the next line of code begins something new. Anything
     else after the quote could hold a literal, in quote marks, in backticks or as a number.
     """
     line_end = text.find("\n", end)
@@ -612,8 +617,10 @@ def _is_over(text: str, start: int, end: int, diff: bool) -> bool:
         if diff and line[:1] in ("+", "-", " "):
             line = line[1:]  # the mark of a patch line
         line = line.strip(" \t\r")
-        if line and (in_prose or _COMMENT_LINE.match(line) is None):
-            return (_JOINS_NEXT if in_prose else _CARRIES_ON).match(line) is None
+        if in_prose and line:
+            return _JOINS_NEXT.match(line) is None
+        if line and _COMMENT_LINE.match(line) is None and not (diff and line == _PATCH_NOTE):
+            return _BEGINS_NEW.match(line) is not None
         position = stop + 1
     return True
 

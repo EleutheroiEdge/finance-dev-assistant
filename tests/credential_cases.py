@@ -38,6 +38,10 @@ TYPESCRIPT = [
     ("ts", '  @aK@: config.get<string>("STRIPE_@AK@"),'),
     ("ts", '  @sec@: configService.getOrThrow<string>("JWT_@SEC@"),'),
     ("ts", 'export const @aK@ = configService.get<() => string>("service.api.key.name");'),
+    # A statement that ends its line without a semicolon ends there, and the next one is not read into it.
+    ("ts", "const @aK@ = process.env.SERVICE_@AK@\nconst region = \"eu-central-1-production\";"),
+    ("ts", "const @aK@ = process.env.SERVICE_@AK@!\nconst region = \"eu-central-1-production\";"),
+    ("ts", "const @aK@ = process.env.SERVICE_@AK@\n\n// the region is not a credential\nconst region = \"eu-central-1-production\";"),
     ("ts", '  @sec@: configService.get<Map<string, string>>("auth.signing.keys"),'),
     ("ts", "  @pw@: hashed@Pw@,"),
     ("ts", "  @pw@: user.@pw@Hash,"),
@@ -123,6 +127,7 @@ TYPESCRIPT = [
 ]
 
 GO = [
+    ("go", "\t@pw@ = credentials.Database@Pw@\n\tregion = \"eu-central-1-production\""),
     ("go", '\t\t@Pw@: os.Getenv("DB_@PW@"),'),
     ("go", '\tcfg.@Pw@ = os.Getenv("DATABASE_@PW@")'),
     ("go", '\t\t@Ak@: viper.GetString("service.@ak@"),'),
@@ -429,6 +434,18 @@ MUST_REFUSE = [
     ("yml", "script: &setup |\n  echo start\n  @pw@:\n    @W@:"),
     ("ts", "const matcher = /" + "x" * 1100 + " @pw@=@W@/;"),              # a regular expression with no end in reach
     ("ts", "if (ready) /" + "x" * 1100 + " @pw@=@W@/.test(body) && stop();"),
+    # An operator the reader had no list entry for, at the start of the next line or the end of this one.
+    ("js", "export const settings = {\n  @pw@: process.env.DB_@PW@\n    - 0 || \"@V@\"\n};"),
+    ("ts", "export const settings = {\n  @pw@: process.env.DB_@PW@\n    | 0 || \"@V@\"\n};"),
+    ("ts", "export const settings = {\n  @pw@: process.env.DB_@PW@ *\n    1 || \"@V@\"\n};"),
+    ("ts", "export const settings = {\n  @pw@: process.env.DB_@PW@\n    in registry || \"@V@\"\n};"),
+    ("ts", "export const settings = {\n  @pw@: process.env.DB_@PW@\n    (\"@V@\")\n};"),
+    ("kt", "val @pw@ = credentials.database@Pw@\n    ?: \"@V@\""),
+    ("ts", "export const settings = {\n  @pw@: process.env.DB_@PW@ instanceof\n    Object || \"@V@\"\n};"),   # an operator that is a word
+    ("ts", "export const settings = {\n  @pw@: process.env.DB_@PW@ in\n    registry || \"@V@\"\n};"),
+    ("kt", "val @pw@ = credentials.derive@Pw@()\n{ \"@V@\" }"),                                             # a lambda on the next line
+    # A type name longer than the reader keeps of what it has read.
+    ("ts", 'export const settings = { @pw@: derive@Pw@<T' + "x" * 80 + ', string>("@V@") };'),
     # A file that is not what its name says keeps the strict rules.
     ("ts", "it's not code\n@pw@: @W@"),
     ("sql", "a 'string' with a \\' backslash\n@pw@ = @W@"),

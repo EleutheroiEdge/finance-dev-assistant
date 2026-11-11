@@ -234,7 +234,6 @@ SCRIPT = "export const settings = {\n  @pw@: process.env.DB_@PW@,\n  retries: 3,
     "- `@pw@: process.env.DB_@PW@`\n- `retries: 3` is new",
     "It reads `@pw@: process.env.DB_@PW@`\nIf it is unset, startup fails.",
     "```\nexport const settings = {\n  @pw@: process.env.DB_@PW@,\n  retries: 3,\n};\n```",
-    "@pw@: process.env.DB_@PW@\n\n- retries is new",
 ])
 def test_a_model_may_repeat_a_reference_from_the_source_it_was_sent(quote):
     check_output_document(output(quote), source("src/settings.ts", SCRIPT))
@@ -266,6 +265,12 @@ def test_a_model_may_repeat_a_reference_from_the_source_it_was_sent(quote):
     "`@pw@: process.env.DB_@PW@`\n|| `@V@`",
     "@pw@: process.env.DB_@PW@ || 123456789012345",    # or as a number
     "@pw@: process.env.DB_@PW@ /* note */ || 123456789012345",
+    # A whole program: the next line begins with an operator that is in no list.
+    "export const settings = {\n  @pw@: process.env.DB_@PW@\n    | 0 || \"@V@\"\n};",
+    "export const settings = {\n  @pw@: process.env.DB_@PW@\n    & 0 || \"@V@\"\n};",
+    "export const settings = {\n  @pw@: process.env.DB_@PW@\n    - 0 || \"@V@\"\n};",
+    "@pw@: process.env.DB_@PW@\n  in registry || \"@V@\"",
+    "@pw@: process.env.DB_@PW@\n  123456789012345",
     "@pw@: process.env.DB_@PW@ = \"@V@\"",
     "@pw@: process.env.DB_@PW@ = hunter_@W@",
     "@pw@: \"@V@\"",
@@ -282,6 +287,8 @@ def test_a_model_may_not_give_the_label_another_value(text):
     "@pw@: process.env.DB_@PW@ is read once at start.",
     "see @pw@: process.env.DB_@PW@ (unchanged)",
     "@pw@: process.env.DB_@PW@ })",
+    "@pw@: process.env.DB_@PW@\n\n- retries is new",   # a bullet could be a minus sign
+    "@pw@: process.env.DB_@PW@\n* retries is new",
 ])
 def test_a_quote_outside_a_code_span_must_end_its_line(text):
     """Refused though nothing is added: what follows a bare quote on its line cannot be told from code."""
@@ -289,6 +296,30 @@ def test_a_quote_outside_a_code_span_must_end_its_line(text):
         check_output_document(output(text), source("src/settings.ts", SCRIPT))
     check_output_document(output("export const settings = { @pw@: process.env.DB_@PW@ };"),
                           source("src/settings.ts", "export const settings = { @pw@: process.env.DB_@PW@ };\n"))
+
+
+def test_a_quote_that_ends_with_an_operator_is_not_over():
+    carried = "export const settings = {\n  @pw@: process.env.DB_@PW@+\n    suffixValue,\n};\n"
+    files = source("src/settings.ts", carried)
+    for text in ("@pw@: process.env.DB_@PW@+\n\"@V@\"", "  @pw@: process.env.DB_@PW@+\n    `@V@`,",
+                 "`@pw@: process.env.DB_@PW@+` `@V@`", "  @pw@: process.env.DB_@PW@+\n    suffixValue,"):
+        with pytest.raises(AssistantError, match="^sensitive_content$"):
+            check_output_document(output(text), files)
+    with pytest.raises(AssistantError, match="^sensitive_content$"):  # a number after the code span that held the quote
+        check_output_document(output("`@pw@: process.env.DB_@PW@` | 0 || 123456789012345"), source("src/settings.ts", SCRIPT))
+
+
+def test_a_line_of_code_may_end_with_the_quote_when_the_next_line_begins_something_new():
+    last = "export const settings = {\n  retries: 3,\n  @pw@: process.env.DB_@PW@\n};\n"
+    for text in ("```ts\n" + last + "```", "  @pw@: process.env.DB_@PW@\n};", "@pw@: process.env.DB_@PW@\nretries: 3",
+                 "@pw@: process.env.DB_@PW@\n// read once\n}", "@pw@: process.env.DB_@PW@\n\"retries\": 3",
+                 "@pw@: process.env.DB_@PW@"):
+        check_output_document(output(text), source("src/settings.ts", last))
+    python = "@pw@ = settings.DATABASE_@PW@\nif not @pw@:\n    raise SystemExit(2)\n"
+    check_output_document(output("```python\n" + python + "```"), source("src/app.py", python))
+    patch = {"patch": spell("--- a/src/settings.ts\n+++ b/src/settings.ts\n@@ -1,4 +1,4 @@\n export const settings = {\n"
+                            "-  retries: 3,\n+  retries: 5,\n   @pw@: process.env.DB_@PW@\n };\n")}
+    check_output_document(patch, source("src/settings.ts", last), diff=True)
 
 
 def test_a_model_may_repeat_what_follows_a_reference_on_its_source_line_and_nothing_else():
