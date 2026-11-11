@@ -11,6 +11,7 @@ import pytest
 
 from finassist.config import Config
 from finassist.errors import AssistantError
+from finassist.ledger import Ledger
 import finassist.model_gate as gate_module
 from finassist.proposal import propose
 from finassist.providers import invoke, reply_json
@@ -127,6 +128,24 @@ def test_a_gate_that_cannot_identify_a_finding_blocks_and_still_reports(gate_cas
     report, calls = run(gate_case)  # run() checks the report against its schema and its hash
     assert report["verdict"] == "BLOCKED" and report["reasons"] == ["finding_identity_invalid"]
     assert report["findings"] == [] and len(calls) == 1
+
+
+def test_a_token_count_written_with_a_point_is_a_count(repository, tmp_path, monkeypatch):
+    """On main the count was not taken for one, and the reservation stayed open."""
+    monkeypatch.setenv("OPENAI_API_KEY", "fictional")
+    repo, base, head = repository
+    packet = build_packet(repo, base, head, Config())
+    body = json.dumps(envelope(json.dumps(response(packet)))).replace('"input_tokens": 100', '"input_tokens": 100.0')
+    assert "100.0" in body
+    transport = httpx.MockTransport(lambda _request: httpx.Response(
+        200, content=body.encode(), headers={"content-type": "application/json"}))
+    report = review_packet(packet, model_config(), tmp_path / "audit.db", network_approved=True,
+                           approved_packet_hash=packet["packet_hash"], transport=transport)
+    assert report["status"] == "findings"
+    with Ledger(tmp_path / "audit.db") as ledger:
+        usage = next(row["payload"] for row in ledger.events() if row["payload"]["event"] == "model_usage")
+        assert (usage["input_tokens"], type(usage["input_tokens"]), usage["output_tokens"]) == (100, int, 100)
+        assert ledger.open_reservations() == []
 
 
 ENVELOPES = {**NOT_JSON, "usage_that_is_no_number": json.dumps(envelope("{}")).replace("100", "NaN", 1)}
