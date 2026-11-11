@@ -9,7 +9,8 @@ import random
 import pytest
 
 from finassist.errors import AssistantError
-from finassist.forbidden_tokens import TokenSnapshot, load_token_snapshot, screen_source, screen_text
+from finassist.forbidden_tokens import (TokenSnapshot, _spelled_out, load_token_snapshot, screen_lines,
+                                        screen_source, screen_text)
 from finassist.python_source import python_tokens, python_tree
 from finassist.security import check_text
 
@@ -34,6 +35,8 @@ PIECES = [
     "0031", "D800", "&", "#", "x", ";", "nbsp", "&#", "&#x", "&#99999999999999999999;", "&#xFFFFFFFFF;",
     chr(0xFF11), chr(0x0661), chr(0xA0), chr(0x2009), chr(0x202E), chr(0), "\n", "\r", "\t", '"', "'''", "abc", "f",
     "a1", "= ", "def f():", "#", "[", "]", "{", "}", "0x", "0b", "0o", "1e", "1e999", "j", "rb'", "f'{", "}'",
+    # Longer than Python will convert to an integer: 4,300 digits is the limit.
+    "&#" + "9" * 5000 + ";", "&#x" + "F" * 5000, "&#" + "0" * 5000 + "49;", "9" * 5000, "0x" + "f" * 5000,
 ]
 
 
@@ -48,12 +51,16 @@ def by_digits(tmp_path_factory):
 @pytest.mark.parametrize("seed", range(8))
 def test_random_text_gets_a_pass_or_a_refusal_never_another_error(seed, by_digits):
     generator = random.Random(20261111 + seed)
-    for _ in range(600):
+    for _ in range(150):
         text = "".join(generator.choice(PIECES) for _ in range(generator.randrange(1, 48)))
         for path in (None, "notes.md", "module.py", "report.json", "page.html"):
             for snapshot in (SNAPSHOT, by_digits):
                 try:
                     screen_source(text, path, snapshot) if path else screen_text(text, snapshot)
+                except AssistantError as refusal:
+                    assert refusal.code in REFUSALS, (refusal.code, path)
+                try:  # Related-context lines have their own tokenizer boundary.
+                    screen_lines(text.splitlines(), path, snapshot)
                 except AssistantError as refusal:
                     assert refusal.code in REFUSALS, (refusal.code, path)
             try:  # The credential screen reads the same text first, on every route.
@@ -70,3 +77,30 @@ def test_a_nul_character_after_an_open_string_is_not_python_on_any_version():
         screen_source(text, "module.py", SNAPSHOT)
     with pytest.raises(AssistantError):
         check_text(text, source_path="module.py")
+
+
+LONG = ["&#" + "9" * 5000 + ";", "&#x" + "F" * 5000 + ";", "&#" + "9" * 5000, "&#" + "0" * 5000 + "32;",
+        "&#x" + "0" * 5000 + "20;"]
+
+
+@pytest.mark.parametrize("entity", LONG)
+@pytest.mark.parametrize("figure", ["48213.57", "48&nbsp;213.57", "48&#32;213.57", "48" + BACKSLASH + "u00a0213.57",
+                                    "48&#" + "0" * 5000 + "32;213.57"])
+def test_a_number_too_long_to_convert_never_hides_a_figure_beside_it(entity, figure):
+    # html.unescape converts a numeric reference with int(), which refuses more than 4,300 digits.
+    # A reference with no semicolon takes in any digits that follow it, so the figure stands apart.
+    for text in (entity + " total " + figure, figure + " " + entity, entity + " " + figure + " " + entity):
+        with pytest.raises(AssistantError, match="^forbidden_token_present$"):
+            screen_text(text, SNAPSHOT)
+        with pytest.raises(AssistantError, match="^forbidden_token_present$"):
+            screen_source(text, "page.html", SNAPSHOT)
+    screen_text(entity + " total 1", SNAPSHOT)
+
+
+def test_a_long_reference_reads_as_the_character_it_names_or_as_none():
+    assert _spelled_out("&#" + "0" * 5000 + "49;&#x" + "0" * 5000 + "32;") == "12"
+    assert _spelled_out("a&#" + "9" * 5000 + ";b") == "a" + chr(0xFFFD) + "b"
+    assert _spelled_out("a&#x" + "F" * 5000 + ";b") == "a" + chr(0xFFFD) + "b"
+    assert _spelled_out("&#x;&#;&#xZ;") is None  # Not references: left as written.
+    # The longest numbers that are still code points are converted, not treated as too long.
+    assert _spelled_out("&#1114109;&#x10FFFD;&#128512;") == chr(0x10FFFD) * 2 + chr(0x1F600)

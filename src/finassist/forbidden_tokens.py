@@ -490,6 +490,25 @@ def _readings(text: str, digit_limit: int = 0):
 _ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})|\\U([0-9a-fA-F]{8})|\\x([0-9a-fA-F]{2})")
 
 
+# A numeric character reference, as html.unescape reads one: `&#49;` or `&#x31;`, the semicolon optional.
+_NUMERIC_REFERENCE = re.compile(r"&#(?:([xX])([0-9a-fA-F]+)|([0-9]+))")
+
+
+def _bounded_reference(match: re.Match) -> str:
+    """The same reference with a number html.unescape can always convert.
+
+    html.unescape turns the digits into an integer, and Python refuses to convert more than
+    4,300 of them. Leading zeros never change the number, and one with more digits than the
+    last code point has is past it whatever they are: it is written as the first number past
+    it, which html.unescape reads as the replacement character, as it would the original.
+    """
+    marker, digits = (match.group(1), match.group(2)) if match.group(1) else ("", match.group(3))
+    digits = digits.lstrip("0") or "0"
+    if len(digits) > (6 if marker else 7):  # 0x10FFFF and 1114111 are the last code point.
+        digits = "110000" if marker else "1114112"
+    return "&#" + marker + digits
+
+
 def _spelled_out(text: str) -> str | None:
     """The text with character escapes and HTML entities replaced by what they spell, or None if it has none.
 
@@ -507,7 +526,7 @@ def _spelled_out(text: str) -> str | None:
             # OverflowError, not ValueError, for a number of 2**31 or more.
             return match.group()
 
-    decoded = html.unescape(_ESCAPE.sub(character, text))
+    decoded = html.unescape(_NUMERIC_REFERENCE.sub(_bounded_reference, _ESCAPE.sub(character, text)))
     return None if decoded == text else decoded
 
 
