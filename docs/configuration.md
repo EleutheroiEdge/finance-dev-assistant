@@ -285,9 +285,16 @@ when the configuration names a list:
   worktrees, with one figure per line.
 - **`forbidden_token_hashes`:** up to 1,024 SHA256 hashes of canonical figures. A hash of a
   short number can be guessed, so keep the hashes private too.
+- **`forbidden_token_sources`:** up to 16 delimited files, such as custody exports, whose
+  numeric cells are all listed. Each is an absolute path, or one starting with `~`, outside the
+  repository.
+- **`forbidden_token_match`:** `value` (the default) refuses the same value in any notation.
+  `digits` also refuses the same significant digits at any scale and a two-place rounding, for
+  figures of at least `forbidden_token_min_digits` significant digits (5 unless set).
 
 With neither set, which is the default, no figure screen runs, and `doctor --base --head` says
-so under `figure_screen`. With a list set:
+so under `figure_screen`, with the match rule and the number of figures and digit forms listed.
+With a list set:
 
 - **`plan`** screens the instructions, both versions of every changed file and any related
   context. It names the file that holds a figure in its local output only, and never prints

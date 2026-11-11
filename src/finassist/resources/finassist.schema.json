@@ -168,6 +168,34 @@
       "type": "array",
       "uniqueItems": true
     },
+    "forbidden_token_match": {
+      "default": "value",
+      "enum": [
+        "value",
+        "digits"
+      ],
+      "title": "Forbidden token match",
+      "type": "string"
+    },
+    "forbidden_token_min_digits": {
+      "default": 5,
+      "maximum": 18,
+      "minimum": 4,
+      "title": "Forbidden token min digits",
+      "type": "integer"
+    },
+    "forbidden_token_sources": {
+      "default": [],
+      "items": {
+        "maxLength": 4096,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Forbidden token sources",
+      "type": "array",
+      "uniqueItems": true
+    },
     "generated_paths": {
       "default": [
         "src/finassist/resources/dashboard/"

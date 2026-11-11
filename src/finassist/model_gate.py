@@ -13,7 +13,7 @@ from .ci_policy import read_document, revision
 from .errors import AssistantError
 from .finding_identity import finding_identifier
 
-from .forbidden_tokens import TokenGuard, load_token_snapshot, screen_review_output
+from .forbidden_tokens import LIST_RULES, TokenGuard, screen_review_output
 from .github_context import pull_request_context, verify_origin
 from .ledger import Ledger
 from .model_policy import load_model_policy
@@ -97,13 +97,13 @@ def refused_model_report(code: str) -> dict:
 
 def prepare_token_guard(policy, source_repo: Path | None = None) -> TokenGuard | None:
     rules = policy.document["model_review"]
-    if not any(name in rules for name in ("forbidden_token_file", "forbidden_token_hashes")):
+    if not any(name in rules for name in LIST_RULES):
         return None
     # A linked checkout is part of the same repository, even when its path is outside the
     # current checkout and common Git directory.
     roots = tuple(root for repo in dict.fromkeys((source_repo, policy.repo)) if repo is not None
                   for root in checkout_roots(repo))
-    return TokenGuard(dict(rules), roots, load_token_snapshot(rules, roots))
+    return TokenGuard.load(rules, roots)
 
 
 def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_repo: Path | None = None) -> dict:

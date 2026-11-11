@@ -614,6 +614,45 @@ readings are left out, because they would refuse unrelated numbers:
 Not read as figures: spelled-out amounts, a figure broken up by other text, percent-encoding
 and other encodings, and, outside `.py` files, hexadecimal.
 
+### Figure sources and digit matching
+
+Two optional settings build the list from files you already hold, and match more than the
+exact value:
+
+- **`forbidden_token_sources`** names up to 16 delimited text files, such as custody exports:
+  comma, semicolon, tab or bar separated, at most 8 MB each. Each is an absolute path, or one
+  starting with `~`, outside every checkout of the repository.
+  - Every cell that holds exactly one number becomes a listed figure, whatever its notation,
+    sign, currency sign or code, brackets or percent sign.
+  - A cell is not a figure when it has fewer significant digits than
+    `forbidden_token_min_digits` (5 unless set, from 4 to 18), when it is a date, or when it
+    holds other text.
+  - A source with no figure is refused with `forbidden_token_source_invalid`. It is never
+    treated as an empty list.
+- **`forbidden_token_match`** is `value` unless set: a listed figure refuses the same value in
+  any notation. With `digits` it also refuses:
+  - the same significant digits at any scale: listed `48213.57` refuses `4821357`, `48.21357`
+    and `0.4821357`;
+  - a two-place rounding, in either direction: listed `48213.5712` refuses `48,213.57`, and
+    listed `905.13` refuses `905.125`.
+
+  Digit matching applies to `forbidden_token_file` entries and to sources. An entry in
+  `forbidden_token_hashes` is always matched by value.
+
+Digit matching leaves two things out, so that it does not refuse ordinary code:
+
+- a figure with fewer than `forbidden_token_min_digits` significant digits;
+- a run of digits inside a hexadecimal word of seven or more characters that holds a letter
+  other than `e`, such as a commit id.
+
+It still refuses more unrelated numbers than value matching does. A list of 1,000 figures
+with five significant digits matches about one five-digit number in a hundred by chance.
+Raise `forbidden_token_min_digits` when a large list refuses code that holds none of its figures.
+
+Both settings work the same way in a configuration and in a gate policy. `doctor` opens a
+policy's sources only with `--policy-sha256`, as it does the token file, and the budget ledger
+records how many sources and figures were screened, never a path, a digest or a figure.
+
 Every file is screened as text, because what leaves the machine is text: the tuple
 `(6,729,102.50)` in Python code still reads as the figure. In `.py`/`.pyi` files, each
 numeric literal, including one inside an f-string field, is also read with Python's own
