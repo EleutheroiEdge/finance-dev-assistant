@@ -44,7 +44,8 @@ class _ConfigPreflight:
                        "config_hash": config_hash(config)},
             "blockers": [], "warnings": [], "paths": [], "coverage_complete": None, "packet": None,
             # Whether a list of confidential figures is configured, and how many entries it holds.
-            "figure_screen": {"configured": False, "listed": 0},
+            "figure_screen": {"configured": False, "listed": 0, "match": config.forbidden_token_match,
+                              "digit_forms": 0},
             "request": None, "provider": None, "network_used": False, "key_value_read": False,
             "ledger_opened": False, "next_step": None,
         }
@@ -92,7 +93,9 @@ class _ConfigPreflight:
         except AssistantError as exc:  # The list can't be read; the other blockers are still listed.
             self.block(exc.code)
         if self.guard is not None:
-            self.report["figure_screen"]["listed"] = len(self.guard.snapshot.hashes)
+            snapshot = self.guard.snapshot
+            self.report["figure_screen"].update(listed=snapshot.listed, match=config.forbidden_token_match,
+                                                digit_forms=len(snapshot.digit_hashes))
         rows = self._paths(repo, base, head)
         packet = None
         if rows and not self._grouped and not self.report["blockers"]:
