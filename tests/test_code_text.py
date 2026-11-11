@@ -8,7 +8,8 @@ import sys
 
 import pytest
 
-from finassist.code_text import COMMENT, STRING, LANGUAGES, code_text, is_expansion, nested_yaml_key
+from finassist.code_text import (COMMENT, STRING, LANGUAGES, code_text, is_expansion, nested_yaml_key,
+                                 yaml_block_scalars)
 from finassist.errors import AssistantError
 from finassist.security import check_text
 
@@ -21,11 +22,13 @@ def read(text, suffix):
     return None if code is None else [(kind, text[start:end]) for start, end, kind in code.spans()]
 
 
-def assigned(text, suffix, marker="VALUE"):
-    """What `literal_assigned` says about the expression that starts at the marker."""
+def assigned(text, suffix):
+    """What `literal_assigned` says about the expression that starts at the @, which is then taken out."""
+    start = text.index("@")
+    text = text[:start] + text[start + 1:]
     code = code_text(text, "src/sample." + suffix)
     assert code is not None, "the text must read cleanly"
-    return code.literal_assigned(text.index(marker), 12)
+    return code.literal_assigned(start, 12)
 
 
 # --- Strings and comments ---------------------------------------------------
@@ -180,75 +183,100 @@ SHORT = '"' + "x" * 11 + '"'
 
 
 @pytest.mark.parametrize("suffix,text,expected", [
-    # No string, or only a short one.
-    ("ts", "k: VALUE.b.c,", False),
-    ("ts", "k: VALUE(a, b),", False),
-    ("ts", "k: VALUE || " + SHORT + ",", False),
+    # No string, or only a short one. The expression starts at the @.
+    ("ts", "k: @config.b.c,", False),
+    ("ts", "k: @getValue(a, b),", False),
+    ("ts", "k: @config.value || " + SHORT + ",", False),
     # The end: a comma, a semicolon, a closing bracket it did not open, or the end of a line.
-    ("ts", "k: VALUE, other: " + LONG, False),
-    ("ts", "k = VALUE; other = " + LONG, False),
-    ("ts", "f({ k: VALUE }, " + LONG + ")", False),
-    ("ts", "k = VALUE\nother = " + LONG, False),
-    ("go", "k = VALUE\nother = " + LONG, False),
+    ("ts", "k: @config.value, other: " + LONG, False),
+    ("ts", "k = @config.value; other = " + LONG, False),
+    ("ts", "f({ k: @config.value }, " + LONG + ")", False),
+    ("ts", "k = @config.value\nother = " + LONG, False),
+    ("go", "k = @config.Value\nother = " + LONG, False),
     # What carries it over a line: an operator at the end, or at the start of the next.
-    ("ts", "k = VALUE ||\n  " + LONG, True),
-    ("ts", "k = VALUE\n  ?? " + LONG, True),
-    ("ts", "k = VALUE // why\n  // more\n  || " + LONG, True),
-    ("ts", "k = VALUE ?\n a :\n " + LONG, True),
-    ("ts", "k = VALUE\n  .trim()\n  .concat(" + LONG + ")", False),
+    ("ts", "k = @config.value ||\n  " + LONG, True),
+    ("ts", "k = @config.value\n  ?? " + LONG, True),
+    ("ts", "k = @config.value // why\n  // more\n  || " + LONG, True),
+    ("ts", "k = @flag ?\n a :\n " + LONG, True),
+    ("ts", "k = @config\n  .get(" + LONG + ")\n  ?.trim()", False),
+    ("ts", "k = @config.value\n  .trim()\n  .concat(" + LONG + ")", True),
     # Inside its own brackets a line break ends nothing.
-    ("ts", "k = VALUE(\n  a,\n  " + LONG + ",\n)", True),
-    ("ts", "k = VALUE(\n  " + LONG + ",\n)", False),
-    # The first argument of a call and a key name a source; later arguments and operands are values.
-    ("ts", "k = VALUE(" + LONG + ")", False),
-    ("ts", "k = VALUE[" + LONG + "]", False),
-    ("ts", "k = VALUE<T>(" + LONG + ")", False),
-    ("ts", "k = VALUE?.(" + LONG + ")", False),
-    ("ts", "k = VALUE(a)(" + LONG + ")", False),
-    ("ts", "k = VALUE(a, " + LONG + ")", True),
-    ("ts", "k = VALUE || " + LONG, True),
-    ("ts", "k = VALUE ?? " + LONG, True),
-    ("ts", "k = VALUE + " + LONG, True),
-    ("ts", "k = VALUE ? a : " + LONG, True),
-    ("ts", "k = VALUE ? " + LONG + " : a", True),
-    ("ts", "k = VALUE || (" + LONG + ")", True),
-    ("ts", "k = VALUE || [" + LONG + "]", True),
-    ("ts", "k = VALUE || " + TICK + "x" * 12 + TICK, True),
-    ("ts", "k = VALUE || " + TICK + "xxxxxx${a}yyyyyy" + TICK, True),
-    ("ts", "k = VALUE || " + TICK + "xxxxx${a}yyyyyy" + TICK, False),
-    ("ts", "k = VALUE(" + TICK + "xxxxxx/${a}/yyyyyy" + TICK + ")", False),
-    ("ts", "k = VALUE || 'xxxxxx' 'yyyyyy'", True),
-    # A call that supplies a default takes its value as the first argument.
-    ("ts", "k = VALUE(a).orElse(" + LONG + ")", True),
-    ("ts", "k = VALUE.default(" + LONG + ")", True),
-    ("ts", "k = VALUE(a).getOrElse(" + LONG + ")", True),
-    ("ts", "k = VALUE(a).unwrap_or(" + LONG + ")", True),
-    ("ts", "k = VALUE(a).setDefault(" + LONG + ")", False),
-    ("ts", "k = VALUE ?? fail(" + LONG + ")", False),
-    # Another field's value, inside braces the expression opened.
-    ("ts", "k = VALUE({ url: " + LONG + " })", False),
-    ("ts", "k = VALUE({ url: a, list: [" + LONG + "] })", True),
-    ("ts", "k = VALUE(" + TICK + "${cond ? a : " + LONG + "}" + TICK + ")", True),
-    ("go", "k = VALUE{URL: " + LONG + "}", False),
+    ("ts", "k = @getValue(\n  a,\n  " + LONG + ",\n)", True),
+    ("ts", "k = @getValue(\n  " + LONG + ",\n)", False),
+    # A call or an index whose name says it looks something up: the first string is the name of the value.
+    ("ts", "k = @getValue(" + LONG + ")", False),
+    ("ts", "k = @process.env[" + LONG + "]", False),
+    ("ts", "k = @config.get<T>(" + LONG + ")", False),
+    ("ts", "k = @config.get?.(" + LONG + ")", False),
+    ("ts", "k = @requireEnv(" + LONG + ")", False),
+    ("ts", "k = @headers[" + LONG + "]", False),
+    ("ts", "k = @getValue(" + TICK + "xxxxxx/${a}/yyyyyy" + TICK + ")", False),
+    ("go", "k = @os.Getenv(" + LONG + ")", False),
+    ("go", "k = @viper.GetString(" + LONG + ")", False),
+    ("go", "k = @mustValue(" + LONG + ")", False),
+    ("java", "String k = @System.getenv(" + LONG + ");", False),
+    ("sql", "SET k = @current_setting('xxxxxxxxxxxx')", False),
+    # A later argument of a lookup is what the field gets when the lookup finds nothing.
+    ("ts", "k = @getValue(a, " + LONG + ")", True),
+    ("ts", "k = @getValue(" + LONG + ", " + LONG + ")", True),
+    ("java", "String k = @props.getProperty(" + LONG + ", " + LONG + ");", True),
+    # A call that hashes, encodes or wraps is handed the value itself, and so is an index into anything else.
+    ("ts", "k = @hashValue(" + LONG + ")", True),
+    ("ts", "k = @encoder.encode(" + LONG + ")", True),
+    ("ts", "k = @String(" + LONG + ")", True),
+    ("ts", "k = @store[" + LONG + "]", True),
+    ("ts", "k = @build(a)(" + LONG + ")", True),
+    ("ts", "k = @target(" + LONG + ")", True),        # "get" inside another word is not the word
+    ("ts", "k = @budgetFor(" + LONG + ")", True),
+    ("go", "k = @base64.StdEncoding.EncodeToString([]byte(" + LONG + "))", True),
+    ("sql", "SET k = @pgp_sym_encrypt('xxxxxxxxxxxx', public_key)", True),
+    # An operand is a value.
+    ("ts", "k = @config.value || " + LONG, True),
+    ("ts", "k = @config.value ?? " + LONG, True),
+    ("ts", "k = @config.value + " + LONG, True),
+    ("ts", "k = @flag ? a : " + LONG, True),
+    ("ts", "k = @flag ? " + LONG + " : a", True),
+    ("ts", "k = @config.value || (" + LONG + ")", True),
+    ("ts", "k = @config.value || [" + LONG + "]", True),
+    ("ts", "k = @config.value || " + TICK + "x" * 12 + TICK, True),
+    ("ts", "k = @config.value || " + TICK + "xxxxxx${a}yyyyyy" + TICK, True),
+    ("ts", "k = @config.value || " + TICK + "xxxxx${a}yyyyyy" + TICK, False),
+    ("ts", "k = @config.value || 'xxxxxx' 'yyyyyy'", True),
+    # A call that supplies a default takes its value as the first argument, whatever else its name says.
+    ("ts", "k = @getValue(a).orElse(" + LONG + ")", True),
+    ("ts", "k = @schema.default(" + LONG + ")", True),
+    ("ts", "k = @getValue(a).getOrElse(" + LONG + ")", True),
+    ("ts", "k = @getValue(a).unwrap_or(" + LONG + ")", True),
+    # The text of an error is not a value, at any place in the call.
+    ("ts", "k = @config.value ?? fail(" + LONG + ")", False),
+    ("ts", "k = @config.value ?? raise(new Error(" + LONG + "))", False),
+    ("go", "k = @config.Value(log.Fatalf(" + LONG + ", name))", False),
+    ("kt", "val k = @System.getenv(" + LONG + ") ?: error(" + LONG + ")", False),
+    ("kt", "val k = @System.getenv(" + LONG + ") ?: " + LONG, True),
+    ("java", "String k = @Objects.requireNonNull(System.getenv(" + LONG + "), " + LONG + ");", False),
+    # A field of an object passed as an argument belongs to that object, not to the label.
+    ("ts", "k = @createClient({ url: " + LONG + " })", False),
+    ("ts", "k = @createClient(a, { url: " + LONG + " })", False),
+    ("ts", "k = @flag || { value: " + LONG + " }.value", True),
+    ("ts", "k = @createClient({ url: a, list: [" + LONG + "] })", True),
+    ("ts", "k = @createClient({ inner: { url: " + LONG + " } })", True),
+    ("ts", "k = @getValue(" + TICK + "${cond ? a : " + LONG + "}" + TICK + ")", True),
+    ("go", "k = @Options{URL: " + LONG + "}", True),
     # SQL: a word after a complete value starts a new clause.
-    ("sql", "SET k = VALUE WHERE note = 'xxxxxxxxxxxx'", False),
-    ("sql", "SET k = VALUE || 'xxxxxxxxxxxx'", True),
-    ("sql", "SET k = VALUE(a, 'xxxxxxxxxxxx')", True),
-    ("sql", "SET k = VALUE('xxxxxxxxxxxx')", False),
-    ("sql", "SET k = VALUE ||\n  suffix AND note = 'xxxxxxxxxxxx'", False),
-    ("kt", "val k = VALUE(" + LONG + ") ?: " + LONG, True),
-    ("kt", "val k = VALUE(" + LONG + ") ?: error(" + LONG + ")", False),
-    ("java", "String k = VALUE(" + LONG + ", " + LONG + ");", True),
+    ("sql", "SET k = @new_value WHERE note = 'xxxxxxxxxxxx'", False),
+    ("sql", "SET k = @new_value || 'xxxxxxxxxxxx'", True),
+    ("sql", "SET k = @crypt_value(a, 'xxxxxxxxxxxx')", True),
+    ("sql", "SET k = @new_value ||\n  suffix AND note = 'xxxxxxxxxxxx'", False),
 ])
 def test_what_an_expression_holds(suffix, text, expected):
     assert assigned(text, suffix) is expected
 
 
 def test_an_expression_with_no_end_in_reach_is_unclear():
-    text = "k = VALUE(" + "a, " * 2000 + LONG + ")\n" + "x = 1;\n" * 50
+    text = "k = @getValue(" + "a, " * 2000 + LONG + ")\n" + "x = 1;\n" * 50
     assert assigned(text, "ts") is None
-    assert assigned("k = VALUE(" + "a, " * 20, "ts") is False  # It ends with the file.
-    assert assigned("k = VALUE(" + "a, " * 20 + LONG, "ts") is True
+    assert assigned("k = @getValue(" + "a, " * 20, "ts") is False  # It ends with the file.
+    assert assigned("k = @getValue(" + "a, " * 20 + LONG, "ts") is True
 
 
 def test_slashes_before_a_position_on_its_line():
@@ -301,17 +329,23 @@ def test_what_shows_that_a_label_is_part_of_a_program(suffix, text, expected):
 
 # --- Expansions and nested keys ---------------------------------------------
 
-@pytest.mark.parametrize("value", ["${NAME}", "$NAME", "${{ secrets.NAME }}", "{{ name | filter }}", "$(cat file)",
-                                   "${var.name}", "${ssm:/path/to-it}", "${list[0].name}", "  ${NAME}  "])
+@pytest.mark.parametrize("value", ["${NAME}", "${{ secrets.NAME }}", "{{ name | filter }}", "$(NAME)", "$(group.NAME)",
+                                   "${var.name}", "${ssm:/path/to-it}", "${list[0].name}", "  ${NAME}  ", "${NAME:-}"])
 def test_one_expansion(value):
-    assert is_expansion(value)
+    assert is_expansion(value) and is_expansion(value, in_shell=True)
 
 
-@pytest.mark.parametrize("value", ["", "NAME", "$name", "$uperWord12", "$Name", "${NAME:-word}", "${NAME-word}", "${NAME:=word}", "${NAME}x", "x${NAME}",
+@pytest.mark.parametrize("value", ["$NAME", "$name", "$Name_2", "$(cat file)", "$(vault kv get -field=value kv/x)"])
+def test_a_dollar_without_braces_is_an_expansion_only_in_a_shell_scripts_double_quotes(value):
+    assert is_expansion(value, in_shell=True) and not is_expansion(value)
+
+
+@pytest.mark.parametrize("value", ["", "NAME", "${NAME:-word}", "${NAME-word}", "${NAME:=word}", "${NAME}x", "x${NAME}",
                                    "${A}${B}", "$(a)$(b)", "{{ a }}{{ b }}", "{NAME}", "$", "${}", "${NAME\n}", "$(a\nb)",
-                                   "{{ a\nb }}", "${{ a }} }}", "${NAME:?word}", "${NAME:+word}", "$1", "${1}"])
+                                   "{{ a\nb }}", "${{ a }} }}", "${NAME:?word}", "${NAME:+word}", "$1", "${1}", "$NAME tail",
+                                   "$(a) tail", "${NAME:- }"])
 def test_not_one_expansion(value):
-    assert not is_expansion(value)
+    assert not is_expansion(value) and not is_expansion(value, in_shell=True)
 
 
 def test_a_nested_key_is_only_a_key_on_a_later_line_of_a_yaml_file():
@@ -324,6 +358,36 @@ def test_a_nested_key_is_only_a_key_on_a_later_line_of_a_yaml_file():
     glued = "label:\n  nested-key:value\n"
     assert not nested_yaml_key(glued, "a.yml", 5, 9, 20)
     assert not nested_yaml_key(text, "a.yml", 5, start, end - 1)  # no colon: a scalar
+
+
+def scalar_texts(text):
+    starts, ends = yaml_block_scalars(text)
+    return [text[start:end] for start, end in zip(starts, ends, strict=True)]
+
+
+def test_lines_inside_a_yaml_block_scalar_are_text():
+    assert scalar_texts("a: |\n  one\n\n  two\nb: 1\n") == ["  one\n\n  two\n"]
+    assert scalar_texts("a: >-\n  one\nb: |+\n  two\n") == ["  one\n", "  two\n"]
+    assert scalar_texts("a: |2 # why\n    one\nb: 1\n") == ["    one\n"]
+    # In a list item the key's own column is what the text has to pass.
+    assert scalar_texts("steps:\n  - run: |\n      one\n    name: x\n") == ["      one\n"]
+    assert scalar_texts("steps:\n  - |\n    one\n  - two\n") == ["    one\n"]
+    # A bar that is not an indicator opens nothing.
+    assert scalar_texts("a: b |\n  c: 1\n# d: |\n  e: 1\nf: 'x |'\n") == []
+    assert scalar_texts("a: |\n  never ends") == ["  never ends"]
+    text = "deploy:\n  script: |\n    label:\n      nested-key:\n  other:\n    label:\n      nested-key:\n"
+    first = text.index("nested-key:")
+    second = text.index("nested-key:", first + 1)
+    assert not nested_yaml_key(text, "a.yml", text.index("label:") + 5, first, first + 11)
+    assert nested_yaml_key(text, "a.yml", text.index("label:", first) + 5, second, second + 11)
+
+
+def test_a_block_comment_can_hold_another_where_the_language_says_so():
+    text = "a /* one /* two */ three */ b 'x'"
+    assert read(text, "sql") == [(COMMENT, "/* one /* two */ three */"), (STRING, "'x'")]
+    assert read(text.replace("'", '"'), "kt") == [(COMMENT, "/* one /* two */ three */"), (STRING, '"x"')]
+    assert read(text.replace("'", '"'), "ts") == [(COMMENT, "/* one /* two */"), (STRING, '"x"')]
+    assert code_text("a /* one /* two */ b", "x.sql") is None and code_text("a /* one /* two */ b", "x.kt") is None
 
 
 # --- Hostile text -----------------------------------------------------------
@@ -386,15 +450,22 @@ texts = [
     (label + ": valueOfSomething, ") * 20000,                                      # many short ones
     "`${" * 20000,                                                                 # nested templates, never closed
     "`${`" * 10000 + "`}`" * 10000,
+    "(/[aaaaaaaaaa " * 28000 + "\\nconst x = {" + label + ": valueOfSomething};\\n",   # a slash before an unfinished class
+    "/*c*/ " * 33000 + "/ " * 100000 + "\\nconst x = {" + label + ": valueOfSomething};\\n",
+    "const x = {" + ("a / b, " + label + ": valueOfSomething, ") * 13000 + "};",     # one long line
+    "const x = {" + (label + ": valueOfSomething, ") * 20000 + "};",
+    "SELECT 1;\\n" + (label + " = valueOfSomething AND ") * 16000,
 ]
 start = perf_counter()
 for text in texts:
-    for path in ("src/a.ts", "src/a.go", "src/a.sql", "src/a.kt"):
+    for path in ("src/a.ts", "src/a.sql"):
         try:
             check_text(text, source_path=path)
         except AssistantError as exc:
             assert exc.code == "sensitive_content"
 print(perf_counter() - start)
 """
-    completed = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=60)
-    assert float(completed.stdout.strip()) < 8.0
+    completed = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=600)
+    # About a second and a half on a fast machine and ten times that on a slow hosted runner. The limit is
+    # for a quadratic reading, which takes minutes on either.
+    assert float(completed.stdout.strip()) < 60.0

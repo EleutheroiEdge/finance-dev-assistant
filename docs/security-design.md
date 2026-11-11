@@ -69,20 +69,36 @@ string or a comment are text and keep the strict rules, and a number is a litera
 everywhere.
 
 A reference is still refused when its expression holds a quoted literal of 12 or more
-characters that the field would receive: one after an operator (`||`, `??`, `?:`, `+`), a
-second or later argument of a call, or the argument of a call that supplies a default
-(`orElse`, `getOrElse`, `unwrapOr`, `default`, `defaultValue`, `withDefault`, `fallback`).
-The first argument of any other call and a key in brackets name where the value comes
-from and do not count, and neither does the value of another field inside braces. The
-expression ends at a comma, a semicolon or a closing bracket it did not open, or at the
-end of a line that no operator carries on. In SQL it also ends at the next keyword.
+characters that the field would receive. That is every string in the expression except
+three kinds:
+
+- **The name a lookup is given.** When the name of a call or of an indexed object has a
+  word that says it looks something up (`get`, `getenv`, `read`, `load`, `fetch`,
+  `require`, `lookup`, `resolve`, `find`, `must`, `env`, `config`, `setting`, `param`,
+  `header`, `query`, `option`, `property` and a few like them), its first string is the
+  name of the value: `config.get("auth.signing")`, `process.env["NAME"]`,
+  `requireEnv("NAME")`. A later argument is what the field gets when the lookup finds
+  nothing, and it counts.
+- **The text of an error.** A call whose name has `error`, `fail`, `panic`, `throw`,
+  `exception` or a word like them, and `requireNonNull` and its relatives, stop the
+  program, so their strings are messages.
+- **A field of an object passed as an argument,** as in `createClient({ url: "..." })`.
+
+So a literal handed to a call that hashes, encodes or wraps it is still the literal:
+a field named `password` given `argon2.hashSync("...")` or `encoder.encode("...")` is
+refused, and so is an operand after `||`, `??`, `?:` or `+`, and the argument of a call
+that supplies a default (`orElse`, `getOrElse`, `unwrapOr`, `default`, `defaultValue`,
+`withDefault`, `fallback`). The expression ends at a comma, a semicolon or a closing
+bracket it did not open, or at the end of a line that no operator carries on. In SQL it
+also ends at the next keyword.
 
 This reading is narrow on purpose. A file, or one match in it, keeps the strict text rules
 whenever it is not clear that the words are code:
 
 - The file does not read cleanly: a string or a comment is never closed, a quoted string
   runs past the end of its line, or a SQL file holds a backslash before a quote, which
-  dialects read differently.
+  dialects read differently. In SQL and Kotlin a block comment can hold another one, and
+  is read to the end of the outer one.
 - A script holds a closing or self-closing tag. The text between two tags is not quoted,
   so `.jsx` and `.tsx` files are not read this way at all.
 - In a SQL file, the words are in the rows after `COPY ... FROM stdin`, in a client command
@@ -100,12 +116,17 @@ whenever it is not clear that the words are code:
   screen allows one file.
 
 In any file read with its path, a quoted value that is exactly one expansion names a value
-kept elsewhere and is not refused: `${NAME}`, `$NAME` in upper case, `${{ secrets.NAME }}`,
-`{{ name }}`, `$(command)` and `${provider:path}`. An expansion with a default written
-into it, such as `${NAME:-word}`, and an expansion with anything beside it are literals,
-and so is a dollar before a name with a lower-case letter, which a password can also be.
+kept elsewhere and is not refused: `${NAME}`, `${{ secrets.NAME }}`, `{{ name }}`,
+`$(NAME)` and `${provider:path}`. An expansion with a default written into it, such as
+`${NAME:-word}`, and an expansion with anything beside it are literals; an empty default,
+`${NAME:-}`, holds nothing and is a reference. A dollar and a name without braces, and
+`$(...)` around anything but a name, are references only inside double quotes in a shell
+script (`.sh`, `.bash`, `.zsh`, `.ksh`), where the shell always expands them. Anywhere
+else a password can be spelled that way.
+
 In a YAML file, a key on the line after a credential-named key starts a mapping and is not
-a value, as in `github_token:` followed by `description:`.
+a value, as in `github_token:` followed by `description:`. Inside a block scalar the same
+lines are text, and keep the strict rules.
 
 Text read without a path keeps the strict rules: a file name, a setting, policy text and
 everything a model returns.
@@ -166,8 +187,10 @@ Known limits of the text rules, which are no longer extended:
 Known limits of reading a file as its language, each listed with its reason in
 `tests/credential_cases.py` and tested as it behaves today:
 
-- A later string argument of a call is read as a default, so a usage text there is
-  refused, as in `flags.String("name", "", "the credential used for the database")`.
+- A string argument counts as a value unless the call's name says it looks something up
+  or raises an error. So a usage text, or a name given to a lookup the words above do not
+  cover, is refused: `flags.String("name", "", "the credential used for the database")`.
+- Outside a shell script, a quoted `$NAME` without braces is refused.
 - A reference in a `.jsx` or `.tsx` file, or in a script that holds markup, is refused.
 - The name of a stored secret written as a plain YAML scalar is refused when its key ends
   in a credential word, as Helm's `existingSecret` does: a password is a plain scalar too.
@@ -180,6 +203,9 @@ Known limits of reading a file as its language, each listed with its reason in
   settings line with a dotted name saved under a code suffix reads as code, and so does
   a regular expression that directly follows a closing bracket when an even number of
   slashes stands before it on its line.
+- A literal passes when it is the first string of a call whose name says it looks
+  something up, when it is a field of an object passed as an argument, and in a shell
+  script when a command substitution prints it.
 
 Known limits of the Python check: values computed at runtime (concatenation,
 variables and calls other than the two fallback forms above) are not literals and

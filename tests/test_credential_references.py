@@ -132,7 +132,7 @@ def test_an_unquoted_value_is_a_literal_where_strings_need_no_quotes_or_the_lang
 
 
 @pytest.mark.parametrize("value", [
-    "${DB_@PW@}", "$DB_@PW@", "${{ secrets.DB_@PW@ }}", "{{ db_@pw@_value }}", "$(cat /run/secrets/db)",
+    "${DB_@PW@}", "${{ secrets.DB_@PW@ }}", "{{ db_@pw@_value }}", "$(DATABASE_@PW@)", "${DB_@PW@:-}",
     "${var.database_@pw@}", "${ssm:/service/database}", "  ${DB_@PW@}  ", "${values[0].credential}",
 ])
 def test_one_expansion_in_quotes_is_a_reference_in_any_file(value):
@@ -140,6 +140,17 @@ def test_one_expansion_in_quotes_is_a_reference_in_any_file(value):
         passes(suffix, '@pw@: "%s"' % value)
     passes("py", '@pw@ = "%s"\n' % value)
     passes("py", '"""\n@pw@: "%s"\n"""\n' % value)
+
+
+@pytest.mark.parametrize("value", ["$DB_@PW@", "$db_@pw@_value", "$(cat /run/secrets/db)", "$TRINGCHEESE99",
+                                   "$(pa55w0rd!XX)"])
+def test_a_dollar_without_braces_is_a_reference_only_in_a_shell_scripts_double_quotes(value):
+    for suffix in ("sh", "bash", "zsh", "ksh"):
+        passes(suffix, '@PW@="%s"' % value)
+        refuses(suffix, "@PW@='%s'" % value)  # In single quotes the shell keeps the text as it is.
+    for suffix in ("yml", "json", "ts", "txt"):
+        refuses(suffix, '@pw@: "%s"' % value)  # Elsewhere a password can be spelled so.
+    refuses("py", '@pw@ = "%s"\n' % value)
 
 
 @pytest.mark.parametrize("value", [
