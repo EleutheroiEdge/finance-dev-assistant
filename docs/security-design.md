@@ -182,12 +182,14 @@ does. And it must end its expression, in one of two shapes:
   ends at the first comma or semicolon outside the brackets opened on the way, at the
   first closing bracket that nothing opened, or with the reply. Plain prose holds nothing
   that can begin a string, a comment or type arguments, and no long number: no quote
-  mark, backtick, slash, backslash, hash sign, double dash or `<`, and no number of 12 or
-  more characters. So no literal can follow the quote, whatever sign or word stands
+  mark, backtick, slash, backslash, hash sign, double dash or `<`, no dollar tag such as
+  `$$` that opens a string in SQL, and no number of 12 or more characters, counted with
+  the point it may begin with. So no literal can follow the quote, whatever sign or word stands
   before it, and nothing can hide where the clause ends. Two things with a backtick are
   plain: a code span of fewer than 12 characters with no escape, quote mark, dollar or
-  brace in it, and a span that holds another permitted quote. A clause with no end
-  within 4,000 characters is refused.
+  brace in it, and a span that holds another permitted quote. Short spans with only
+  space between them count together, as strings that stand side by side do in source. A
+  clause with no end within 4,000 characters is refused.
 - **In code, the end of its line:** nothing after the quote but a comma or a semicolon.
   Without one, the next line that holds code must begin something new: a name that is no
   operator, a closing bracket, a quoted key, or the end of a fenced block. A word that

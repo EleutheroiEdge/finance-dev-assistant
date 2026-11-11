@@ -267,9 +267,12 @@ SCRIPT = "export const settings = {\n  @pw@: process.env.DB_@PW@,\n  retries: 3,
     "`@pw@: process.env.DB_@PW@` is unchanged. Nothing else moves. The loader still runs first.",
     "`@pw@: process.env.DB_@PW@` || fallbackName is how the old code read it.",
     "`@pw@: process.env.DB_@PW@` + 12345678901 is still a short number.",
+    "`@pw@: process.env.DB_@PW@` || .1234567890 is one too.",
+    "`@pw@: process.env.DB_@PW@` costs $5 to $10 a month and $name stays.",
     # A code span too short to be a credential is plain, as short strings are in source.
     "`@pw@: process.env.DB_@PW@` is set before `retries` and `mode`.",
     "`@pw@: process.env.DB_@PW@` as string || `Zq7Lm2` + `Xp9Rt4Vw8`",
+    "`@pw@: process.env.DB_@PW@` is set before `retries` `mode`.",
     "```\nexport const settings = {\n  @pw@: process.env.DB_@PW@,\n  retries: 3,\n};\n```",
 ])
 def test_a_model_may_repeat_a_reference_from_the_source_it_was_sent(quote):
@@ -352,6 +355,18 @@ def test_a_model_may_repeat_a_reference_from_the_source_it_was_sent(quote):
     "`@pw@: process.env.DB_@PW@` as string -- note,\n|| '@V@'",
     "`@pw@: process.env.DB_@PW@` as string # note,\n|| \"@V@\"",
     "`@pw@: process.env.DB_@PW@` as string || /,/.source + `@V@`",
+    # Codex at f569288: a string of SQL in dollar tags holds no quote mark, and a point is part of a number.
+    "`@pw@: process.env.DB_@PW@` || $$@V@$$",
+    "`@pw@: process.env.DB_@PW@` || $tag$@V@$tag$",
+    "`@pw@: process.env.DB_@PW@` || $q1$@V@$q1$",
+    "`@pw@: process.env.DB_@PW@` as string $$ , $$ || `@V@`",
+    "`@pw@: process.env.DB_@PW@` || .12345678901",
+    "`@pw@: process.env.DB_@PW@` || 123456789012",
+    # Short spans side by side are one string, as strings that stand side by side are in source.
+    "`@pw@: process.env.DB_@PW@` || `Zq7Lm2Xp9R` `t4Vw8`",
+    "`@pw@: process.env.DB_@PW@` || `Zq7Lm2Xp9R`\n`t4Vw8`",
+    "`@pw@: process.env.DB_@PW@` || `Zq7Lm2``Xp9Rt4Vw8`",
+    "`@pw@: process.env.DB_@PW@` || `Zq7L` `m2Xp` `9Rt4` `Vw8`",
     # Finding 3: an escape, a dollar or a brace makes a short span something else.
     "`@pw@: process.env.DB_@PW@` as string ||\n\"aa\\\" || \\\"bbbbbbbb\"",
     "`@pw@: process.env.DB_@PW@` as string || `aa\\` || \\`bbbbbbbb`",
@@ -471,6 +486,42 @@ def test_a_clause_after_a_code_span_that_has_no_end_in_reach_is_refused():
                  "`@pw@: process.env.DB_@PW@` is read " + "( " * 500 + "the end"):   # too many parts
         with pytest.raises(AssistantError, match="^sensitive_content$"):
             check_output_document(output(text), files)
+
+
+@pytest.mark.parametrize("literal,refused", [
+    ("$$@V@$$", True), ("$tag$@V@$tag$", True), ("'@V@'", True),
+    (".12345678901", True), (".1234567890", False), ("123456789012", True), ("12345678901", False),
+])
+def test_a_literal_after_a_quote_is_refused_in_a_reply_exactly_where_it_is_refused_in_source(literal, refused):
+    """Codex at f569288, in SQL: the dollar-quoted forms, and both sides of the length a number needs."""
+    written = "SELECT @pw@ = settings_@pw@;\n"
+    files = source("src/settings.sql", written)
+    check_text(spell(written), source_path="src/settings.sql")
+    as_source = "SELECT @pw@ = settings_@pw@ || " + literal + ";\n"
+    as_reply = output("`@pw@ = settings_@pw@` || " + literal)
+    if refused:
+        with pytest.raises(AssistantError, match="^sensitive_content$"):
+            check_text(spell(as_source), source_path="src/settings.sql")
+        with pytest.raises(AssistantError, match="^sensitive_content$"):
+            check_output_document(as_reply, files)
+    else:
+        check_text(spell(as_source), source_path="src/settings.sql")
+        check_output_document(as_reply, files)
+
+
+def test_short_strings_side_by_side_are_refused_in_source_and_in_a_reply_alike():
+    block = "export const settings = {\n  @pw@: process.env.DB_@PW@%s,\n};\n"
+    files = source("src/settings.ts", block % "")
+    for after, refused in ((' || "Zq7Lm2Xp9R" "t4Vw8"', True), (' || "Zq7Lm2" + "Xp9Rt4Vw8"', False)):
+        reply = output("`@pw@: process.env.DB_@PW@`" + after.replace('"', "`"))
+        if refused:
+            with pytest.raises(AssistantError, match="^sensitive_content$"):
+                check_text(spell(block % after), source_path="src/settings.ts")
+            with pytest.raises(AssistantError, match="^sensitive_content$"):
+                check_output_document(reply, files)
+        else:
+            check_text(spell(block % after), source_path="src/settings.ts")
+            check_output_document(reply, files)
 
 
 def test_a_word_that_carries_an_expression_on_in_source_does_so_in_a_reply():
@@ -640,6 +691,32 @@ def test_a_gate_reviews_a_script_that_reads_its_credentials_from_the_environment
     report, calls = run(gate_case, handler)
     assert report["verdict"] == "PASS" and len(calls) == 1
     assert spell(SCRIPT) in received
+
+
+@pytest.mark.parametrize("summary", [
+    "`@pw@: process.env.DB_@PW@` as string /* ; */ || `@V@`",   # Codex at 6ecc1f6: punctuation inside a comment
+    "`@pw@: process.env.DB_@PW@` as string /* , */ || `@V@`",
+    "`@pw@: process.env.DB_@PW@` as string /* ) */ || `@V@`",
+    "`@pw@: process.env.DB_@PW@` as string // ;\n|| `@V@`",
+    "`@pw@: process.env.DB_@PW@` as string | `@V@`",            # a sign no list named
+    "`@pw@: process.env.DB_@PW@` || $$@V@$$",                   # Codex at f569288: a string in dollar tags
+    "`@pw@: process.env.DB_@PW@` || $tag$@V@$tag$",
+    "`@pw@: process.env.DB_@PW@` || .12345678901",              # and a number of 12 characters with its point
+    "`@pw@: process.env.DB_@PW@`\n | 0 || `@V@`",               # Codex at b2d2de6
+    "`@pw@: process.env.DB_@PW@` || `@V@`",
+])
+def test_a_gate_blocks_a_reply_that_joins_a_literal_to_a_quoted_reference(gate_case, summary):
+    """Through the whole route, with the one request made. The literal was in no file the model was sent."""
+    candidate(gate_case, spell(SCRIPT), name="src/settings.ts")
+
+    def handler(packet):
+        assert spell("@V@") not in json.dumps(packet)
+        return envelope(json.dumps({"head": packet["head"], "summary": spell(summary),
+                                    "reviewed_paths": [file["path"] for file in packet["files"]], "findings": []}))
+
+    report, calls = run(gate_case, handler)
+    assert report["verdict"] == "BLOCKED" and report["reasons"] == ["sensitive_content"] and len(calls) == 1
+    assert spell("@V@") not in json.dumps(report)
 
 
 def test_a_gate_still_stops_a_script_with_a_literal_before_any_request(gate_case):

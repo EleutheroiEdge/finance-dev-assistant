@@ -569,10 +569,14 @@ def _reference_quotes(text: str, path: str) -> dict[str, set[str]]:
 # follow the quote, whatever sign or word stands before it, and nothing can hide where the clause
 # ends. Two things are plain though they hold a backtick: a code span too short to be a credential,
 # with no escape, quote mark, dollar or brace in it, and a span that holds another quote.
+# A string begins with a quote mark or a backtick, or in SQL with a dollar tag, spelled as the reader
+# of source spells it. A number is counted with the point it may begin with, as it is in source.
 _CLAUSE = re.compile(
     r"(?P<plain>`[^`\\\"'${}\n]{0," + str(MIN_SECRET_LENGTH - 1) + r"}`)"
     r"|(?P<end>[,;])|(?P<open>[(\[{])|(?P<close>[)\]}])"
-    r"|(?P<refused>[\"'`/\\#<]|--|(?<![A-Za-z0-9_$.])\.?[0-9][0-9A-Za-z_.]{" + str(MIN_SECRET_LENGTH - 1) + r",})")
+    r"|(?P<refused>[\"'`/\\#<]|--|\$(?:[^\W\d]\w*)?\$"
+    r"|(?<![A-Za-z0-9_$.])(?:\.[0-9][0-9A-Za-z_.]{" + str(MIN_SECRET_LENGTH - 2) + r",}"
+    r"|[0-9][0-9A-Za-z_.]{" + str(MIN_SECRET_LENGTH - 1) + r",}))")
 _CLAUSE_REACH = 4000  # characters read after a span for the end of its clause
 _CLAUSE_PARTS = 400  # and the brackets and short spans read in them
 _PATCH_MARK = re.compile(r"(?<=\n)[+\- ]")  # the mark that begins each further line of a patch
@@ -654,15 +658,22 @@ def _plain_to_the_end_of_its_clause(reply: _Reply, position: int) -> bool:
     bracket that nothing opened, and with the reply. Brackets can be counted because nothing that
     could hold one as text is let through: see `_CLAUSE`. A code span that holds another quote of
     a reference is stepped over: if that quote is not permitted either, the label rules refuse
-    it. No end in reach is unclear, and unclear is refused.
+    it. Short code spans with only space between them are one string, as strings that stand side
+    by side are in source, and count together. No end in reach is unclear, and unclear is refused.
     """
     prose, depth = reply.prose, 0
     limit = min(len(prose), position + _CLAUSE_REACH)
+    together, last = 0, -1  # the length of the short spans that stand side by side, and where the last one ended
     for _part in range(_CLAUSE_PARTS):
         part = _CLAUSE.search(prose, position, limit)
         if part is None:
             return limit == len(prose)  # The reply ends here, and nothing was joined to the quote.
         kind, position = part.lastgroup, part.end()
+        if kind == "plain":
+            beside = last >= 0 and not prose[last:part.start()].strip()
+            together, last = (together if beside else 0) + len(part.group()) - 2, part.end()
+            if together >= MIN_SECRET_LENGTH:
+                return False
         if kind == "end" and not depth:
             return True
         if kind == "open":
