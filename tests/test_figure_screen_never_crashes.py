@@ -11,6 +11,7 @@ import pytest
 from finassist.errors import AssistantError
 from finassist.forbidden_tokens import (TokenSnapshot, _spelled_out, load_token_snapshot, screen_lines,
                                         screen_source, screen_text)
+from finassist.hidden_text import check_hidden, check_hidden_document
 from finassist.python_source import python_tokens, python_tree
 from finassist.security import check_text
 
@@ -37,6 +38,9 @@ PIECES = [
     "a1", "= ", "def f():", "#", "[", "]", "{", "}", "0x", "0b", "0o", "1e", "1e999", "j", "rb'", "f'{", "}'",
     # Longer than Python will convert to an integer: 4,300 digits is the limit.
     "&#" + "9" * 5000 + ";", "&#x" + "F" * 5000, "&#" + "0" * 5000 + "49;", "9" * 5000, "0x" + "f" * 5000,
+    # What the hidden-character screen reads: each kind it refuses, each it allows in its place, and what they stand beside.
+    chr(0x200B), chr(0xFEFF), chr(0xE0041), chr(0x1B), chr(0x85), chr(0x3164), chr(0xFE0F), chr(0x200D), chr(0x200C),
+    chr(0x200F), chr(0x061C), chr(0x05D0), chr(0x2764), chr(0x20E3), chr(0x1F468), chr(0xD800), chr(0x10FFFF),
 ]
 
 
@@ -67,6 +71,15 @@ def test_random_text_gets_a_pass_or_a_refusal_never_another_error(seed, by_digit
                 check_text(text, source_path=path)
             except AssistantError:
                 pass
+            for file in (False, True):
+                try:  # And the hidden-character screen reads it last, as a file and as any other text.
+                    check_hidden(text, file=file)
+                except AssistantError as refusal:
+                    assert refusal.code == "hidden_characters" and set(refusal.local_details) <= {"rule", "lines", "more_lines"}
+        try:
+            check_hidden_document({text: [text, {"nested": (text, 1, None)}]})
+        except AssistantError as refusal:
+            assert refusal.code == "hidden_characters" and not refusal.local_details
 
 
 def test_a_nul_character_after_an_open_string_is_not_python_on_any_version():

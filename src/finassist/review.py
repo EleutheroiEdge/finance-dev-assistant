@@ -16,10 +16,11 @@ import jsonschema
 from .config import Config, config_hash
 from .errors import AssistantError, network_not_approved, prices_required
 from .forbidden_tokens import screen_review_output, token_file_audit
+from .hidden_text import Waiting
 from .ledger import Ledger
 from .providers import invoke, request_identity, request_shape
 from .scope import WITHHELD_REASON, triage, verify_packet, review_omissions
-from .security import canonical, check_context_document, check_output_document, check_text, digest
+from .security import canonical, check_context_document, check_credentials, check_output_document, digest
 
 
 @dataclass(frozen=True)
@@ -61,7 +62,8 @@ def review_schema() -> dict:
 
 
 def validate_review(
-    result: dict, packet: dict, *, extra_patterns: tuple[str, ...] = (), config: Config | None = None
+    result: dict, packet: dict, *, extra_patterns: tuple[str, ...] = (), config: Config | None = None,
+    waiting: Waiting | None = None
 ) -> None:
     verify_packet(packet, config)
     try:
@@ -99,7 +101,7 @@ def validate_review(
                 or evidence["line"] > max(1, len(file[evidence["side"]].splitlines()))
             ):
                 raise AssistantError("finding_evidence_invalid")
-    check_output_document(result, packet["files"], extra_patterns=extra_patterns)
+    check_output_document(result, packet["files"], extra_patterns=extra_patterns, waiting=waiting)
 
 
 def call_model(
@@ -115,14 +117,15 @@ def call_model(
     policy_approval: PolicyRequestApproval | None = None,
     token_guard=None,
 ):
-    verify_packet(packet, config)
+    waiting = Waiting()  # Hidden characters are refused after every other check, and before any spend is reserved.
+    verify_packet(packet, config, waiting=waiting)
     config.validate()
     listed = config.forbidden_token_rules
     if listed and (token_guard is None
                    or any(token_guard.rules.get(name) != value for name, value in listed.items())):
         # A configuration that lists figures sends nothing without the screen built from that list.
         raise AssistantError("forbidden_token_guard_required")
-    check_context_document(packet, extra_patterns=config.extra_sensitive_patterns)
+    check_context_document(packet, extra_patterns=config.extra_sensitive_patterns, waiting=waiting)
     if approved_packet_hash != packet["packet_hash"]:
         raise AssistantError("packet_approval_required")
     if not config.allow_network or not network_approved:
@@ -139,7 +142,7 @@ def call_model(
                 size, limit = len(file[side].encode()), config.file_byte_limit(file["path"])
                 if size > limit:
                     raise AssistantError("file_limit_exceeded", {"limit": limit, "bytes": size})
-                check_text(file[side], extra_patterns=config.extra_sensitive_patterns, source_path=file["path"])
+                check_credentials(file[side], extra_patterns=config.extra_sensitive_patterns, source_path=file["path"])
     if not packet["changed_paths"] and packet.get("withheld"):
         raise AssistantError("review_scope_entirely_withheld")
     if not packet["changed_paths"]:
@@ -168,6 +171,10 @@ def call_model(
                                "output_usd_per_million": config.output_usd_per_million})
     if not config.allow_network or not network_approved:
         raise network_not_approved(config.allow_network, network_approved)
+    # The instructions come from a profile or a policy. A model may not be told what a person cannot
+    # read, nor sent it: this is the last check before the request's cost is worked out.
+    waiting.check(system)
+    waiting.release()
     input_bound, estimate = spend_estimate(packet, system, request_body, config,
                                            policy_bound=policy_approval is not None)
     price_in, price_out = (
@@ -244,15 +251,17 @@ def review_packet(
     transport=None,
     token_guard=None,
 ) -> dict:
-    verify_packet(packet, config)
+    waiting = Waiting()
+    verify_packet(packet, config, waiting=waiting)
     config.validate()
-    check_context_document(packet, extra_patterns=config.extra_sensitive_patterns)
+    check_context_document(packet, extra_patterns=config.extra_sensitive_patterns, waiting=waiting)
     triaged = triage(packet, config)
     if not packet["changed_paths"] and packet.get("withheld"):
         raise AssistantError("review_scope_entirely_withheld")
     if not packet["changed_paths"]:
         raise AssistantError("empty_review_scope")
     if config.provider == "offline":
+        waiting.release()  # With a provider, the function that calls it releases its own list, last.
         return {
             "status": "offline-analysis",
             "packet_hash": packet["packet_hash"],
@@ -279,9 +288,11 @@ def review_packet(
         data = json.loads(result.text)
     except ValueError as exc:
         raise AssistantError("review_json_invalid") from exc
-    validate_review(data, packet, extra_patterns=config.extra_sensitive_patterns, config=config)
+    unseen = Waiting()  # A hidden character in a reply is refused after its other checks, as one in a request is.
+    validate_review(data, packet, extra_patterns=config.extra_sensitive_patterns, config=config, waiting=unseen)
     if token_guard is not None:
         screen_review_output(data, token_guard.snapshot)
+    unseen.release()
     report = {
         "status": "partial-review"
         if review_omissions(packet)
