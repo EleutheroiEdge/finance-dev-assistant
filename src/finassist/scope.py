@@ -13,7 +13,9 @@ from .config import Config
 from .platform_support import find_tool, clean_environment
 from .errors import AssistantError, local_details
 from .forbidden_tokens import TokenGuard, screen_related, screen_source, screen_text
-from .security import PUBLIC_ASSETS, canonical, check_private_name, check_text, digest, local_name
+from .hidden_text import Waiting
+from .security import (PUBLIC_ASSETS, canonical, check_credentials, check_name, check_private_name, check_text,
+                       digest, local_name)
 
 
 def git_environment() -> dict[str, str]:
@@ -279,7 +281,8 @@ def omission_for(repo: Path, revisions: tuple[str, str], path: str, config: Conf
 _UNREADABLE = frozenset({"file_limit_exceeded", "non_text_blob"})
 
 
-def read_sides(repo: Path, revisions: tuple[str, str], path: str, config: Config, screen=None) -> list[tuple]:
+def read_sides(repo: Path, revisions: tuple[str, str], path: str, config: Config, screen=None, *,
+               waiting: Waiting | None = None) -> list[tuple]:
     """Both versions of one changed file, as (bytes, mode, text), read and screened.
 
     The one reader for plan and both preflights, so each refuses or leaves out the same file
@@ -290,9 +293,14 @@ def read_sides(repo: Path, revisions: tuple[str, str], path: str, config: Config
     A version that cannot be read does not hide the other one: the readable version is still
     screened, and a credential or a listed figure in it refuses. Only then is the unreadable
     version's own refusal raised, which a caller may turn into leaving the file out.
+
+    The hidden-character screen reads both versions after every other screen has read both. With
+    `waiting`, its refusal is left there, for a caller that reads more files and releases it when
+    its other checks have passed. It is never turned into leaving the file out.
     """
     limit = config.file_byte_limit(path)
     sides, unreadable = [], None
+    readable = []
     for version, revision in zip(("base", "head"), revisions, strict=True):
         try:
             data, mode = read_entry(repo, revision, path, limit, config)
@@ -309,13 +317,20 @@ def read_sides(repo: Path, revisions: tuple[str, str], path: str, config: Config
             continue
         if text is not None:
             try:
-                check_text(text, extra_patterns=config.extra_sensitive_patterns, source_path=path, placeholders=config.placeholder_credential_paths)
+                check_credentials(text, extra_patterns=config.extra_sensitive_patterns, source_path=path,
+                                  placeholders=config.placeholder_credential_paths)
             except AssistantError as exc:
                 exc.local_details.setdefault("version", version)  # The lines are counted in this version.
                 raise
             if screen is not None:
                 screen(text, path)
+            readable.append((version, text))
         sides.append((data, mode, text))
+    held = waiting if waiting is not None else Waiting()
+    for version, text in readable:
+        held.check(text, file=True, version=version)
+    if waiting is None:
+        held.release()
     if unreadable is not None:
         raise unreadable
     return sides
@@ -358,7 +373,7 @@ def _screened_name(config: Config, path: str) -> bool:
     try:
         config.check_path(path, metadata_only=True)
         check_private_name(path)
-        check_text(path, extra_patterns=config.extra_sensitive_patterns)
+        check_name(path, extra_patterns=config.extra_sensitive_patterns)
     except AssistantError:
         return False
     return True
@@ -482,7 +497,7 @@ def build_packet(
         status, path = tokens[pos : pos + 2]
         if skipping and (path in withhold or _private_name(config, path)):
             # A name matching a configured sensitive pattern refuses: it is never withheld or shown.
-            check_text(path, extra_patterns=config.extra_sensitive_patterns)
+            check_name(path, extra_patterns=config.extra_sensitive_patterns)
             # Withheld before anything is read: no blob, size or hash, and no name in the packet.
             withheld += 1
             if withheld_names is not None:
@@ -490,22 +505,24 @@ def build_packet(
             continue
         try:
             config.check_path(path, source_only=False, metadata_only=True)
-            check_text(path, extra_patterns=config.extra_sensitive_patterns)
+            check_name(path, extra_patterns=config.extra_sensitive_patterns)
         except AssistantError as exc:
             refused.append((exc, path))
             continue
         selected.append((status, path))
     if refused:
         raise _refused_names(refused, config)
+    waiting = Waiting()  # Hidden characters are refused when every other check of the range has passed.
     for status, path in selected:
         changed.append(path)
         reason = omission_reason(config, path)
         if reason is not None:
             omitted.append({"path": path, "reason": reason})
             continue
+        held = waiting.first
         try:
             (before, before_mode, before_text), (after, after_mode, after_text) = read_sides(
-                repo, (ancestor, head_sha), path, config, screen)
+                repo, (ancestor, head_sha), path, config, screen, waiting=waiting)
         except AssistantError as exc:
             try:
                 reason = omission_for(repo, (ancestor, head_sha), path, config, exc.code)
@@ -518,6 +535,9 @@ def build_packet(
             # It cannot be reviewed, and the configuration leaves such files out: named, never sent.
             omitted.append({"path": path, "reason": reason})
             continue
+        finally:
+            if waiting.first is not held:  # Local output only, like the path of any other refusal.
+                waiting.first.local_details.setdefault("path", local_name(path, config.extra_sensitive_patterns))
         files.append(
             asdict(
                 ContextFile(
@@ -558,6 +578,7 @@ def build_packet(
     encoded = canonical(packet)
     if len(encoded) > config.max_packet_bytes:
         raise AssistantError("packet_limit_exceeded", {"limit": config.max_packet_bytes, "bytes": len(encoded)})
+    waiting.release()
     return {**packet, "packet_hash": digest(encoded)}
 
 
@@ -578,9 +599,10 @@ def plan_packet(repo: Path, base: str, head: str, config: Config, config_path: P
     return packet, summary
 
 
-def verify_packet(packet: dict, config: Config | None = None) -> None:
+def verify_packet(packet: dict, config: Config | None = None, *, waiting: Waiting | None = None) -> None:
     active_config = config is not None
     config = (config or Config()).validate()
+    held = waiting if waiting is not None else Waiting()  # Hidden characters wait for every other check below.
     keys = {
         "schema_version",
         "base",
@@ -631,7 +653,7 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
             raise AssistantError("packet_related_not_allowed")
         from .related import verify_related
 
-        verify_related(packet["related"], changed, config, lambda path: not _screened_name(config, path))
+        verify_related(packet["related"], changed, config, lambda path: not _screened_name(config, path), held)
     elif active_config and config.related_context == "related":
         raise AssistantError("packet_related_missing")
     if packet["generated_paths"] != list(config.generated_paths):
@@ -643,8 +665,8 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
         raise AssistantError("packet_allow_paths_mismatch")
     if packet["profile"] != config.profile:
         raise AssistantError("packet_profile_mismatch")
-    for name in changed:
-        check_text(name, extra_patterns=config.extra_sensitive_patterns)
+    for name in changed:  # Every name here also meets the path rules below, which refuse an unseen character.
+        check_credentials(name, extra_patterns=config.extra_sensitive_patterns)
     accounted = []
     for item in packet["omitted"]:
         if (
@@ -693,8 +715,15 @@ def verify_packet(packet: dict, config: Config | None = None) -> None:
                 size, limit = len(data.encode()), config.file_byte_limit(file["path"])
                 if size > limit:
                     raise AssistantError("file_limit_exceeded", {"limit": limit, "bytes": size})
-                check_text(data, extra_patterns=config.extra_sensitive_patterns, source_path=file["path"],
-                           placeholders=config.placeholder_credential_paths)
+                check_credentials(data, extra_patterns=config.extra_sensitive_patterns, source_path=file["path"],
+                                  placeholders=config.placeholder_credential_paths)
+    # The hidden-character screen reads every file after every other check of the packet has passed.
+    for file in packet["files"]:
+        for side in ("before", "after"):
+            if file[side] is not None:
+                held.check(file[side], file=True)
+    if waiting is None:
+        held.release()
 
 
 def triage(packet: dict, config: Config | None = None) -> dict:

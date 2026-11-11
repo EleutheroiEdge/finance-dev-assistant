@@ -14,6 +14,7 @@ from .errors import AssistantError
 from .finding_identity import finding_identifier
 
 from .forbidden_tokens import LIST_RULES, TokenGuard, screen_review_output
+from .hidden_text import Waiting
 from .github_context import pull_request_context, verify_origin
 from .ledger import Ledger
 from .model_policy import load_model_policy
@@ -299,9 +300,11 @@ def _evaluate_model_gate(repo: Path, base: str, head: str, policy_loader, state_
             raise AssistantError("review_json_invalid") from exc
         if key and _contains_key(data, key):
             raise AssistantError("gate_provider_echoed_key")
-        validate_review(data, packet, config=config)
+        unseen = Waiting()  # A hidden character in a reply is refused after its other checks.
+        validate_review(data, packet, config=config, waiting=unseen)
         if token_guard is not None:
             screen_review_output(data, token_guard.snapshot)
+        unseen.release()
         report["findings"] = [{"severity": finding["severity"], "file": finding["path"],
                                "line": finding["line"], "claim": finding["claim"],
                                "evidence_status": "source-reference-validated-not-reproduced"}

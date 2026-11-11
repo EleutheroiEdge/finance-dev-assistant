@@ -20,6 +20,7 @@ import unicodedata
 from .code_text import (code_text, in_block_scalar, is_expansion, is_shell, is_yaml, looks_like_nested_key,
                         yaml_block_scalars)
 from .errors import AssistantError
+from .hidden_text import Waiting, check_hidden, check_hidden_document, hidden
 from .platform_support import canonical_system_path
 from .path_alias_data import ASCII_CONFUSABLES, DEFAULT_IGNORABLE_RANGES
 from .python_annotations import credential_screening_view
@@ -195,7 +196,7 @@ def check_path(
     fixture_roots: tuple[str, ...] = (),
 ) -> str:
     name = safe_relative(value)
-    check_text(name)
+    check_credentials(name)
     parts = PurePosixPath(name).parts
     fixture = is_text_fixture(name, fixture_roots)
     if fixture:
@@ -229,6 +230,9 @@ def check_path(
         not in {"LICENSE", "Dockerfile", "Makefile", ".gitignore", ".dockerignore", ".gitattributes"}
     ):
         raise AssistantError("unsupported_file_type")
+    if hidden(name) is not None:
+        # The component rules above ask this interpreter's Unicode tables. The fixed list may know more.
+        raise AssistantError("unsafe_path")
     return name
 
 
@@ -403,8 +407,9 @@ def holds_placeholders(path: str | None, entries) -> bool:
 
 
 def check_text(text: str, *, extra_patterns: tuple[str, ...] = (), source_path: str | None = None,
+               starts_file: bool = True, waiting: Waiting | None = None,
                placeholders: tuple[str, ...] = ()) -> None:
-    """Refuse credentials and listed patterns in text.
+    """Refuse credentials, listed patterns and hidden characters in text.
 
     File content read with its path is also asked what its own syntax says: a credential-named
     field given an expression in code, or one variable expansion in quotes, names a value kept
@@ -412,7 +417,46 @@ def check_text(text: str, *, extra_patterns: tuple[str, ...] = (), source_path: 
 
     Under a path listed in `placeholders` the credential label rules are not applied: the
     operator has said that the credential-named values there are made up. Known formats, account
-    numbers and the project's own patterns are refused there as everywhere.
+    numbers, the project's own patterns and hidden characters are refused there as everywhere.
+
+    Hidden characters are refused in every text. They are looked for last, so that text which
+    holds a credential is reported as that. Text read with its path is the content of a file,
+    which may begin with a byte order mark. `starts_file` is False for a piece of a file that
+    does not hold its first character.
+
+    A reader of several texts calls `check_credentials` on each and gives each to a `Waiting`
+    list instead, so that a credential in any of them is reported before a hidden character in
+    another. A caller that has other checks to come passes its list as `waiting`: the refusal
+    for a hidden character is then left there, for the caller to release last.
+    """
+    check_credentials(text, extra_patterns=extra_patterns, source_path=source_path, placeholders=placeholders)
+    if waiting is None:
+        check_hidden(text, file=source_path is not None and starts_file)
+    else:
+        waiting.check(text, file=source_path is not None and starts_file)
+
+
+def check_name(name: str, *, extra_patterns: tuple[str, ...] = ()) -> None:
+    """Screen a path or another name for credentials and listed patterns.
+
+    A character in a name that is not shown makes the path unsafe, which is what the path rules
+    have always called it. So a name is never refused as hidden text, on any route.
+    """
+    check_credentials(name, extra_patterns=extra_patterns)
+    if hidden(name) is not None:
+        raise AssistantError("unsafe_path")
+
+
+def check_credentials(text: str, *, extra_patterns: tuple[str, ...] = (), source_path: str | None = None,
+                      placeholders: tuple[str, ...] = ()) -> None:
+    """The first half of `check_text`. Call `check_text` for one text that stands alone.
+
+    Two kinds of reader call this instead, and then the hidden-character screen themselves, so
+    that no refusal which existed before that screen changes its code. A name, a gate profile and
+    a fixture marker have a format of their own, and their readers run its validation in
+    between. A reader of several texts, such as the two versions of a file or the files of a
+    request, runs this on all of them before the hidden-character screen reads any. A test lists
+    every caller. Under a path listed in `placeholders` the credential label rules are not applied.
     """
     labels = not holds_placeholders(source_path, placeholders)
     if is_python_path(source_path) and "\0" not in text:
@@ -426,13 +470,18 @@ def check_text(text: str, *, extra_patterns: tuple[str, ...] = (), source_path: 
 
 
 def check_context_document(document: dict, *, extra_patterns: tuple[str, ...] = (), records_key="files",
-                           placeholders: tuple[str, ...] = ()) -> None:
-    """Screen each record with its path, then the remaining typed envelope."""
+                           placeholders: tuple[str, ...] = (), waiting: Waiting | None = None) -> None:
+    """Screen each record with its path, then the remaining typed envelope.
+
+    The hidden-character screen reads all of it last. With `waiting`, its refusal is left there
+    for the caller to release after its own checks.
+    """
     envelope = deepcopy(document)
     for item in envelope[records_key]:
         for side in ("before", "after"):
             if item[side] is not None:
-                check_text(item[side], extra_patterns=extra_patterns, source_path=item["path"], placeholders=placeholders)
+                check_credentials(item[side], extra_patterns=extra_patterns, source_path=item["path"],
+                                  placeholders=placeholders)
                 # Already screened with its path; a JSON copy must not undo
                 # the Python-aware decision with text rules.
                 item[side] = ""
@@ -445,11 +494,23 @@ def check_context_document(document: dict, *, extra_patterns: tuple[str, ...] = 
     if any(pattern.search(intact) for pattern in FORMAT_PATTERNS):
         raise AssistantError("sensitive_content")
     _screen_extra(intact, extra_patterns)
+    # The serialized packet spells every character outside ASCII as an escape, so the rules above
+    # cannot see a hidden one. Each record is the content of a file; no other string is, so none
+    # of those may begin with a byte order mark.
+    held = waiting if waiting is not None else Waiting()
+    for item in document[records_key]:
+        for side in ("before", "after"):
+            if item[side] is not None:
+                held.check(item[side], file=True)
+    held.check_document(envelope)
+    if waiting is None:
+        held.release()
 
 
 def check_output_document(
     document: dict, source_files: list[dict], *, extra_patterns: tuple[str, ...] = (), diff: bool = False,
-    placeholders: tuple[str, ...] = (), supplied: tuple[str, ...] = ("before", "after")
+    placeholders: tuple[str, ...] = (), supplied: tuple[str, ...] = ("before", "after"),
+    waiting: Waiting | None = None
 ) -> None:
     """Permit only exact credential-label quotes from screened source.
 
@@ -476,7 +537,9 @@ def check_output_document(
             text = item.get(side)
             if text is None:
                 continue
-            check_text(text, source_path=item["path"], extra_patterns=extra_patterns, placeholders=placeholders)
+            # The source was screened in full on its way into the request. Here it is read for what
+            # a reply may quote, and the reply is what the hidden-character screen reads, last.
+            check_credentials(text, source_path=item["path"], extra_patterns=extra_patterns, placeholders=placeholders)
             listed = holds_placeholders(item["path"], placeholders)
             # What the model's own patch wrote into a listed file was never read by a label rule,
             # so it lends nothing to repeat: neither a placeholder nor a reference.
@@ -548,6 +611,13 @@ def check_output_document(
     # the permitted quotes blanked.
     _screen_text(canonical(document).decode(), canonical(view).decode(), extra_patterns,
                  label_text=canonical(masked).decode())
+    # What a model returns is shown to people and handed to other tools. It may not hold what they
+    # cannot see. A caller with checks to come, such as the figure screen or the patch of a
+    # proposal, passes a list, and the refusal waits there until those have had their say.
+    if waiting is None:
+        check_hidden_document(document)
+    else:
+        waiting.check_document(document)
 
 
 class _FileSyntax:

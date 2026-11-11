@@ -31,8 +31,9 @@ from .providers import request_payload
 from .review import review_schema, spend_estimate
 from .error_hints import error_fields
 from .scope import WITHHELD_REASON, git, omission_for, read_entry, read_sides, require_regular, resolve
-from .security import (TEXT_FIXTURE_SUFFIXES, canonical, local_name, check_fixture_private, check_path,
-                       check_text, digest, refusal_location, regular_path)
+from .hidden_text import Waiting
+from .security import (TEXT_FIXTURE_SUFFIXES, canonical, local_name, check_fixture_private, check_name,
+                       check_path, check_text, digest, refusal_location, regular_path)
 
 HINTS = {
     "invalid_revision": "Pass a commit that exists in this repository.",
@@ -44,6 +45,7 @@ HINTS = {
     "gate_policy_invalid": "Fix the named field. Allowed values are shown; the current value is never echoed.",
     "gate_model_opt_in_required": "Use schema_version 2 with a model_review object.",
     "sensitive_content": "Remove credential-like text. A policy may name a key variable but never hold a key.",
+    "hidden_characters": "Remove the character that is not shown, on the lines listed. It is never left out or skipped.",
     "gate_policy_path_invalid": "Use literal path prefixes; wildcards are not supported.",
     "fixture_root_invalid": "Use literal fixture prefixes; wildcards are not supported.",
     "fixture_root_contains_data": "A fixture root cannot sit under a private data directory.",
@@ -529,13 +531,14 @@ class _Preflight:
                   ignored: set[str], stopped: str | None) -> dict:
         ancestor, head = revisions
         row = {"path": _shown(path, config.extra_sensitive_patterns)}
+        waiting = Waiting()  # A hidden character is this path's outcome only when nothing else refuses it.
         try:
             # Name-only rules first, by the gate's own function: they read nothing.
             outcome, reason = name_outcome(path, config, model["deny_paths"])
             if outcome != "review":
                 # The gate sets this path aside unread, so it is not a blocker, unless the name
                 # matches a configured pattern: then it refuses, as the gate does.
-                check_text(path, extra_patterns=config.extra_sensitive_patterns)
+                check_name(path, extra_patterns=config.extra_sensitive_patterns)
                 if outcome == "withheld":
                     return {**row, "status": "withheld", "reason": WITHHELD_REASON}
                 require_regular(repo, revisions, path)  # Only an ordinary file is left out, as in the gate.
@@ -547,7 +550,8 @@ class _Preflight:
             # The gate's own reader and figure screen, one version at a time, so a version that
             # cannot be read never hides a figure or a credential in the other one.
             screen = None if guard is None else (lambda text, name: screen_source(text, name, guard.snapshot))
-            before, after = (text for _data, _mode, text in read_sides(repo, revisions, path, config, screen))
+            before, after = (text for _data, _mode, text
+                             in read_sides(repo, revisions, path, config, screen, waiting=waiting))
             if guard is not None:
                 screen_packet({"files": [{"path": path, "before": before, "after": after}]}, "", guard.snapshot)
         except AssistantError as exc:
@@ -557,13 +561,19 @@ class _Preflight:
                     reason = omission_for(repo, revisions, path, config, exc.code)
                 except AssistantError as special:  # A link or submodule: never left out.
                     exc = special
-            if reason is not None:
-                return {**row, "status": "omitted", "reason": reason}  # A version too large, or not UTF-8 text.
-            refused = {**row, "status": "refused", "code": exc.code, **exc.public_details, **refusal_location(exc)}
-            if exc.code == "private_or_binary_path":
-                refused["hint"] = _format_hint(path)
-            return refused
-        return {**row, "status": "included", **({"credential_labels": "not_screened"} if config.placeholder(path) else {})}
+            if reason is None:
+                refused = {**row, "status": "refused", "code": exc.code, **exc.public_details, **refusal_location(exc)}
+                if exc.code == "private_or_binary_path":
+                    refused["hint"] = _format_hint(path)
+                return refused
+            outcome = {**row, "status": "omitted", "reason": reason}  # A version too large, or not UTF-8 text.
+        else:
+            outcome = {**row, "status": "included",
+                       **({"credential_labels": "not_screened"} if config.placeholder(path) else {})}
+        if waiting.first is None:
+            return outcome
+        # Never left out, and never sent.
+        return {**row, "status": "refused", "code": "hidden_characters", **refusal_location(waiting.first)}
 
     def _gate_source(self, repo: Path, base: str, head: str, policy: ModelGatePolicy) -> None:
         """Run the gate's own loader and source builder, then size the key-free request body."""

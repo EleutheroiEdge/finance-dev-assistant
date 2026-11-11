@@ -8,6 +8,7 @@ import jsonschema
 from .config import Config
 from .errors import AssistantError
 from .forbidden_tokens import screen_text
+from .hidden_text import Waiting
 from .patching import patch_paths
 from .ledger import Ledger
 from .review import call_model
@@ -62,11 +63,14 @@ def propose(
             screen_text(artifact[name], token_guard.snapshot)
     if artifact["head"] != packet["head"]:
         raise AssistantError("proposal_head_mismatch")
+    unseen = Waiting()  # A hidden character in the summary is refused after the patch has been checked.
     check_output_document({"summary": artifact["summary"]}, packet["files"],
-                          extra_patterns=config.extra_sensitive_patterns, placeholders=config.placeholder_credential_paths)
-    paths = patch_paths(artifact["patch"], config, source_files=packet["files"])
+                          extra_patterns=config.extra_sensitive_patterns, waiting=unseen,
+                          placeholders=config.placeholder_credential_paths)
+    paths = patch_paths(artifact["patch"], config, source_files=packet["files"], waiting=unseen)
     if not set(paths) <= {file["path"] for file in packet["files"]}:
         raise AssistantError("proposal_outside_review_scope")
+    unseen.release()
     proposal = {
         "artifact": artifact,
         "approval_hash": digest(canonical(artifact)),

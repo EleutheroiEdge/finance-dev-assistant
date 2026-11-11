@@ -28,6 +28,18 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   they sit: `.netrc`, `.pypirc`, `.git-credentials`, `.docker/config.json`, `.kube/`, `.gnupg/`,
   `.config/gcloud/`, `.config/gh/` and the others listed in `docs/configuration.md`. The content
   screen does not recognise every one of them, such as the encoded login in a Docker `auths` entry.
+- **Text a reviewer cannot see is refused on every route.** Nothing screened file content, a request
+  or a model's reply for hidden characters, so a change could show its reviewer one thing and send a
+  model another: a bidirectional override that reorders a line, a sentence in tag characters that
+  nothing displays, a zero-width character inside a name. These are now refused with
+  `hidden_characters` in both versions of every changed file, in every other field of a request, in
+  the instructions a profile or a policy supplies, and in what a model returns. Emoji selectors,
+  joiners and direction marks pass where ordinary text puts them, and are refused anywhere else,
+  such as inside a word of plain ASCII. The refusal is never turned into leaving the file out, and
+  `doctor` names the rule, the version and the lines. Nothing that was refused before changes its
+  code: a hidden character in a file name is still `unsafe_path`. On the 225 reference changes,
+  one of them holds a refused character and the emoji in 24 keep passing. It was blocked for its
+  size already, so the first-run numbers above do not move. See `docs/security-design.md`.
 
 ### Added
 - **`placeholder_credential_paths`: review test files that hold made-up logins.** A fixture with a

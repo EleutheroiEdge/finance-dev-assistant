@@ -280,3 +280,48 @@ def test_a_gate_with_the_setting_still_stops_a_known_format_in_a_fixture(gate_ca
     candidate(gate_case, "token = '" + TOKEN + "'\n", name="tests/test_login.py")
     report, calls = run(gate_case)
     assert report["verdict"] == "BLOCKED" and not calls
+
+
+# --- With the hidden-character screen ---------------------------------------
+
+HIDDEN = chr(0x200B)  # a zero-width space, built here so that this file holds none
+
+
+def test_a_hidden_character_is_refused_under_a_listed_path_as_everywhere():
+    text = spell('@pw@ = "@V@"\n') + "x = 1" + HIDDEN + "\n"
+    with pytest.raises(AssistantError, match="^hidden_characters$"):
+        check_text(text, source_path="tests/test_login.py", placeholders=TESTS)
+    with pytest.raises(AssistantError, match="^sensitive_content$"):  # elsewhere the credential is reported first
+        check_text(text, source_path="src/login.py", placeholders=TESTS)
+    files = [{"path": "tests/test_login.py", "before": None, "after": FIXTURE},
+             {"path": "src/login.py", "before": None, "after": "x = 1" + HIDDEN + "\n"}]
+    with pytest.raises(AssistantError, match="^hidden_characters$"):
+        check_context_document({"files": files}, placeholders=TESTS)
+    with pytest.raises(AssistantError, match="^sensitive_content$"):  # without the setting, the fixture comes first
+        check_context_document({"files": files})
+
+
+def test_a_reply_that_repeats_a_placeholder_is_still_read_for_hidden_characters():
+    files = [{"path": "tests/test_login.py", "before": None, "after": FIXTURE}]
+    repeated = {"claim": spell("The fixture sets `@pw@ = \"@V@\"` once.")}
+    with pytest.raises(AssistantError, match="^hidden_characters$"):
+        check_output_document({"summary": "x" + HIDDEN, "findings": [repeated]}, files, placeholders=TESTS)
+    with pytest.raises(AssistantError, match="^sensitive_content$"):  # a value the source does not hold comes first
+        check_output_document({"summary": "x" + HIDDEN, "findings": [{"claim": spell('@pw@ = "@V@x"')}]}, files,
+                              placeholders=TESTS)
+
+
+def test_a_listed_file_with_a_hidden_character_is_refused_in_the_preview(repository, tmp_path, capsys):
+    repo, base, _head = repository
+    (repo / "tests").mkdir(exist_ok=True)
+    (repo / "tests/test_login.py").write_text(FIXTURE + "x = 1" + HIDDEN + "\n", encoding="utf-8", newline="\n")
+    command(repo, "add", "tests/test_login.py")
+    command(repo, "commit", "-q", "-m", "Synthetic fixture")
+    head = command(repo, "rev-parse", "HEAD")
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"schema_version": 1, "placeholder_credential_paths": ["tests/"]}), encoding="utf-8")
+    main(["--config", str(config), "doctor", "--repo", str(repo), "--base", base, "--head", head])
+    report = json.loads(capsys.readouterr().out)
+    row = next(row for row in report["paths"] if row["path"] == "tests/test_login.py")
+    assert row["status"] == "refused" and row["code"] == "hidden_characters" and "credential_labels" not in row
+    assert not [warning for warning in report["warnings"] if warning["code"] == "credential_labels_not_screened"]
