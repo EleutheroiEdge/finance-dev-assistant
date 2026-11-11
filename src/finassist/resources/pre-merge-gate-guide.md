@@ -439,6 +439,18 @@ left out instead of refusing the run. The default, `refuse`, keeps the run block
 
 See [leaving out files that cannot be reviewed](configuration.md#leaving-out-files-that-cannot-be-reviewed).
 
+## Placeholder credentials in test files
+
+A policy can list test files whose credential-named values are made up, in
+`"placeholder_credential_paths"` under `model_review`: directory prefixes ending in `/`,
+exact paths, or patterns with `*`. The credential label rule is then not applied to those
+files, so a fixture with a made-up login no longer blocks the run. Known formats, account
+numbers, listed figures and `extra_sensitive_patterns` still refuse there, and the files
+are sent as they are. The preflight lists each such file with
+`credential_labels: not_screened` and warns with `credential_labels_not_screened`.
+
+See [placeholder credentials in test files](configuration.md#placeholder-credentials-in-test-files).
+
 ## Example policies
 
 Two complete version-2 policies with synthetic values show common shapes. Both are in

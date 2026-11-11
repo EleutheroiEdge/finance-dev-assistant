@@ -56,6 +56,8 @@ def test_the_script_reports_counts_and_leaves_the_repository_alone(repository, t
     assert summary["variants"]["config+skip"]["ready_but_for_authorization"] == 3
     assert summary["variants"]["gate+leave"]["ready"] == 3
     assert summary["variants"]["config+leave"]["ready_but_for_authorization"] == 3
+    assert summary["variants"]["gate+tests"]["ready"] == 3
+    assert summary["variants"]["config+tests"]["ready_but_for_authorization"] == 3
     assert "ALL gate" in shown and "repositories measured: 1 | incomplete: 0" in shown
     # Only an anonymous label is printed; which repository it is stays in the private folder.
     assert "repository-1" in shown and str(repo) not in shown and "positions" not in shown and "cash.py" not in shown

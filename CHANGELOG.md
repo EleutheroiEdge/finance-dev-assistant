@@ -42,6 +42,18 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   size already, so the first-run numbers above do not move. See `docs/security-design.md`.
 
 ### Added
+- **`placeholder_credential_paths`: review test files that hold made-up logins.** A fixture with a
+  field named `password` and a value that was never real refused the whole range, because the
+  screen cannot tell it from a real one. List such files in the configuration, or in a gate
+  policy's `model_review`: a directory prefix ending in `/`, an exact path, or a pattern with `*`
+  that names more than a kind of file, so `*.test.ts` is accepted and `*.py` is refused.
+  The credential label rule is then not applied to them, and they are sent as they are. Known
+  token formats, account numbers, listed figures and `extra_sensitive_patterns` are refused there
+  as everywhere. The list is empty by default, an empty list leaves the configuration hash as it
+  was, and `doctor` names each file the setting covered and warns with
+  `credential_labels_not_screened`. On 225 reference changes at pinned commits, with test paths
+  listed on top of both skip settings, a gate is ready for 195 (87%) and the configuration route
+  for 185 (82%).
 - **A credential refusal says which rule and which lines.** Both `doctor` reports, and the error
   `plan` prints, now name the rule (`credential_label`, `github_token` and so on), the version of
   the file (`base` or `head`) and up to 20 line numbers. This is local output only, and it never

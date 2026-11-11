@@ -317,7 +317,8 @@ def read_sides(repo: Path, revisions: tuple[str, str], path: str, config: Config
             continue
         if text is not None:
             try:
-                check_credentials(text, extra_patterns=config.extra_sensitive_patterns, source_path=path)
+                check_credentials(text, extra_patterns=config.extra_sensitive_patterns, source_path=path,
+                                  placeholders=config.placeholder_credential_paths)
             except AssistantError as exc:
                 exc.local_details.setdefault("version", version)  # The lines are counted in this version.
                 raise
@@ -437,7 +438,7 @@ def _related(repo: Path, head: str, files: list[dict], config: Config, room: int
             text = data.decode("utf-8")
         except UnicodeError as exc:
             raise AssistantError("non_text_blob") from exc
-        check_text(text, extra_patterns=config.extra_sensitive_patterns, source_path=path)
+        check_text(text, extra_patterns=config.extra_sensitive_patterns, source_path=path, placeholders=config.placeholder_credential_paths)
         if screen is not None:  # Forbidden figures: the whole file, as for a changed file.
             screen(text, path)
         return text
@@ -714,7 +715,8 @@ def verify_packet(packet: dict, config: Config | None = None, *, waiting: Waitin
                 size, limit = len(data.encode()), config.file_byte_limit(file["path"])
                 if size > limit:
                     raise AssistantError("file_limit_exceeded", {"limit": limit, "bytes": size})
-                check_credentials(data, extra_patterns=config.extra_sensitive_patterns, source_path=file["path"])
+                check_credentials(data, extra_patterns=config.extra_sensitive_patterns, source_path=file["path"],
+                                  placeholders=config.placeholder_credential_paths)
     # The hidden-character screen reads every file after every other check of the packet has passed.
     for file in packet["files"]:
         for side in ("before", "after"):
