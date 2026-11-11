@@ -5,11 +5,15 @@ revision before the oldest of them, as someone setting up once would, then check
 with `doctor` on both routes, as drafted and with `private_paths: skip-and-report`.
 
 Nothing is sent anywhere and no key is read: `doctor` is offline and the key variable holds a
-placeholder. Nothing is written inside a repository. Only codes, counts and timings are printed;
-raw `doctor` output, which names files, goes to --output. Keep that folder private and outside
-every repository.
+placeholder. Nothing is written inside a repository. Only codes, counts and timings are printed,
+under an anonymous number for each repository. Raw `doctor` output, which names files, and the
+list of which number is which repository go to --output: a new folder, created here, that must
+not exist yet and must be outside every repository. Keep it private.
 
-    python scripts/first_run_scenarios.py --changes 25 --output /private/folder REPO [REPO ...]
+    python scripts/first_run_scenarios.py --changes 25 --output /private/new-folder REPO [REPO ...]
+
+Exit status: 0 when every repository was measured in full; 2 when a repository, a branch, a Git
+read or `init --detect` failed, so the totals are not a whole measurement.
 """
 
 from __future__ import annotations
@@ -31,8 +35,22 @@ AUTHORIZATION = frozenset({"network_not_approved", "provider_key_missing", "prov
 VARIANTS = ("config", "config+skip", "gate", "gate+skip")
 
 
+class Incomplete(Exception):
+    """A step failed, so this repository's counts are not a whole measurement."""
+
+
 def git(repo: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout.strip()
+    done = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=False)
+    if done.returncode:
+        raise Incomplete("git " + args[0])
+    return done.stdout.strip()
+
+
+def write_new(path: Path, text: str) -> None:
+    """Create a file that must not exist, without following a link: nothing outside --output is written."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    with os.fdopen(os.open(path, flags, 0o600), "w", encoding="utf-8") as handle:
+        handle.write(text)
 
 
 def finassist(command: list[str], arguments: list[str], cwd: Path, environment: dict) -> tuple[subprocess.CompletedProcess, float]:
@@ -54,37 +72,33 @@ def doctor(command: list[str], arguments: list[str], cwd: Path, environment: dic
             "paths": dict(paths), "seconds": seconds}
 
 
-def scenario(command: list[str], repo: Path, branch: str, changes: int, output: Path, environment: dict) -> dict | None:
-    name = repo.name
+def scenario(command: list[str], label: str, repo: Path, branch: str, changes: int, output: Path, environment: dict) -> dict:
     before = git(repo, "status", "--porcelain")
-    commits = git(repo, "rev-list", "--first-parent", "-n", str(changes), branch).split()
+    tip = git(repo, "rev-parse", "--verify", "--quiet", branch + "^{commit}")
     ranges = []
-    for commit in reversed(commits):
+    for commit in reversed(git(repo, "rev-list", "--first-parent", "-n", str(changes), tip).split()):
         parents = git(repo, "rev-list", "--parents", "-n", "1", commit).split()[1:]
         if parents:
             ranges.append((parents[0], commit))
     if not ranges:
-        print(f"== {name}: no changes on {branch}")
-        return None
-    setup = ranges[0][0]
-    done, seconds = finassist(command, ["init", "--detect", "--repo", str(repo), "--revision", setup, *PROVIDER],
+        raise Incomplete("no changes")
+    done, seconds = finassist(command, ["init", "--detect", "--repo", str(repo), "--revision", ranges[0][0], *PROVIDER],
                               output, environment)
     try:
         proposal = json.loads(done.stdout)
-    except ValueError:
-        print(f"== {name}: init --detect failed at the setup revision (exit {done.returncode})")
-        return {"detect": "failed"}
-    config, gate = proposal["config"], proposal["gate_policy_draft"]
+        config, gate = proposal["config"], proposal["gate_policy_draft"]
+    except (ValueError, KeyError, TypeError):
+        raise Incomplete("init --detect") from None
     documents = {"config": config, "config+skip": {**config, "private_paths": "skip-and-report"}, "gate": gate,
                  "gate+skip": {**gate, "model_review": {**gate["model_review"], "private_paths": "skip-and-report"}}}
     files = {}
     for variant, document in documents.items():
-        files[variant] = output / f"{name}-{variant}.json"
-        files[variant].write_text(json.dumps(document, indent=1), encoding="utf-8")
+        files[variant] = output / f"{label}-{variant}.json"
+        write_new(files[variant], json.dumps(document, indent=1))
     key = gate["model_review"].get("api_key_env") or "GEMINI_API_KEY"
     environment = {**environment, key: "placeholder-not-a-key"}
     warnings = sorted(item.get("code") for item in proposal.get("warnings", []))
-    print(f"== {name}: {len(ranges)} changes after setup | detect {seconds:.1f}s | profile {config.get('profile')} "
+    print(f"== {label}: {len(ranges)} changes after setup | detect {seconds:.1f}s | profile {config.get('profile')} "
           f"| warnings {warnings}", flush=True)
     rows = {variant: [] for variant in VARIANTS}
     for base, head in ranges:
@@ -92,7 +106,7 @@ def scenario(command: list[str], repo: Path, branch: str, changes: int, output: 
             route = ["--config", str(path), "doctor"] if variant.startswith("config") else ["doctor", "--policy-file", str(path)]
             rows[variant].append(doctor(command, [*route, "--repo", str(repo), "--base", base, "--head", head],
                                         output, environment))
-    (output / f"{name}-rows.json").write_text(json.dumps(rows), encoding="utf-8")
+    write_new(output / f"{label}-rows.json", json.dumps(rows))
     result = {"changes": len(ranges), "profile": config.get("profile"), "warnings": warnings, "variants": {}}
     for variant in VARIANTS:
         ready = sum(row["status"] == "ready" for row in rows[variant])
@@ -111,7 +125,7 @@ def scenario(command: list[str], repo: Path, branch: str, changes: int, output: 
         print(f"   {'':12} paths {dict(list(refused.items())[:8])} | median {statistics.median(seconds):.1f}s "
               f"max {max(seconds):.1f}s", flush=True)
     if git(repo, "status", "--porcelain") != before:
-        print(f"   WARNING: the working tree of {name} changed during the run")
+        raise Incomplete("working tree changed during the run")
     return result
 
 
@@ -120,30 +134,45 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("repositories", nargs="+", type=Path)
     parser.add_argument("--changes", type=int, default=25, help="First-parent changes to check in each repository")
     parser.add_argument("--branch", default="origin/main", help="Branch whose history is used (default: origin/main)")
-    parser.add_argument("--output", type=Path, required=True, help="Private folder outside every repository")
+    parser.add_argument("--output", type=Path, required=True,
+                        help="New private folder for raw output; it must not exist and must be outside every repository")
     parser.add_argument("--python", default=sys.executable,
                         help="Interpreter that has the finassist under test installed (default: this one)")
     args = parser.parse_args(argv)
+    if args.changes < 1:
+        parser.error("--changes must be at least 1")
     output = args.output.resolve()
     repositories = [path.resolve() for path in args.repositories]
+    if len(set(repositories)) != len(repositories):
+        parser.error("a repository is listed twice")
     if any(output == repo or repo in output.parents for repo in repositories):
         parser.error("--output must be outside every repository")
-    output.mkdir(mode=0o700, parents=True, exist_ok=True)
-    summary = {}
-    for repo in repositories:
-        result = scenario([args.python, "-m", "finassist"], repo, args.branch, args.changes, output, dict(os.environ))
-        if result is not None:
-            summary[repo.name] = result
-    (output / "summary.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
-    drafted = [name for name, item in summary.items() if "variants" in item]
-    total = sum(summary[name]["changes"] for name in drafted)
+    try:
+        output.mkdir(mode=0o700)  # A new folder of our own: nothing already in it can redirect a write.
+    except FileExistsError:
+        parser.error("--output must not exist yet")
+    labels = {f"repository-{number}": repo for number, repo in enumerate(repositories, 1)}
+    write_new(output / "repositories.json", json.dumps({label: str(repo) for label, repo in labels.items()}, indent=1))
+    summary, incomplete = {}, 0
+    for label, repo in labels.items():
+        try:
+            summary[label] = scenario([args.python, "-m", "finassist"], label, repo, args.branch, args.changes, output,
+                                      dict(os.environ))
+        except Incomplete as failure:
+            incomplete += 1
+            summary[label] = {"incomplete": str(failure)}
+            print(f"== {label}: INCOMPLETE ({failure})", flush=True)
+    write_new(output / "summary.json", json.dumps(summary, indent=1))
+    measured = [label for label, item in summary.items() if "variants" in item]
+    total = sum(summary[label]["changes"] for label in measured)
     for variant in VARIANTS:
-        ready = sum(summary[name]["variants"][variant]["ready"] for name in drafted)
-        set_up = sum(summary[name]["variants"][variant]["ready_but_for_authorization"] for name in drafted)
+        ready = sum(summary[label]["variants"][variant]["ready"] for label in measured)
+        set_up = sum(summary[label]["variants"][variant]["ready_but_for_authorization"] for label in measured)
         if total:
             print(f"ALL {variant:12} ready {ready}/{total} ({100 * ready / total:.0f}%) "
                   f"| set up {set_up}/{total} ({100 * set_up / total:.0f}%)")
-    return 0
+    print(f"repositories measured: {len(measured)} | incomplete: {incomplete}")
+    return 2 if incomplete else 0
 
 
 if __name__ == "__main__":

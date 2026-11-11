@@ -5,8 +5,10 @@ release. It exists because 0.8.0, 0.9.0 and 0.10.0 each shipped with defects tha
 adopter found within a day. Each time the cause was the same: claims were checked against
 synthetic look-alikes, not against real repositories and the published wheel.
 
-The rule from now on: **a release is ready when every gate below passes on the built wheel, and
-each number in the release notes comes from a command in this page.**
+The rule from now on: **a release is ready when every gate below passes on the candidate wheel,
+and each number in the release notes comes from a command in this page.** The candidate is the
+exact wheel the release workflow built, before anyone approves its publication. After publication
+the same bytes are checked once more (gate C2).
 
 ## Where 0.10.0 stands
 
@@ -15,8 +17,8 @@ Measured on the published 0.10.0 wheel, offline, with no model call.
 | Area | Measurement | Result |
 |---|---|---|
 | Figure screen | Generated cases in the notations 0.10.0 documents as read, each a listed figure the screen must refuse | 12,659 of 207,636 pass unrefused (6.1%) |
-| Figure screen | Numbers that 225 real changes add, each listed alone, that the screen must refuse | 7 of 907 pass unrefused |
-| Figure screen | File versions refused when 1,000 random figures that are in no file are listed | 0 of 5,950 |
+| Figure screen | Numbers that 225 real changes add, each listed alone, in each file that adds them | 8 of 1,081 pass unrefused |
+| Figure screen | File versions refused when 1,000 random control figures are listed | 0 of 5,937 |
 | Figure screen | Routes to a provider that run it | the gate only; not `review`, `propose` or `evaluate --suite` |
 | First run, gate route | Changes a detected policy can review, of the 25 merged after setup, across nine repositories | 61 of 225 (27%) |
 | First run, configuration route | The same, counting only setup blockers | 105 of 225 (47%) |
@@ -40,8 +42,8 @@ measurement is not passed.
 | Gate | Threshold | How it is measured |
 |---|---|---|
 | A1. Figure notations | 0 misses and 0 false alarms on the generated matrix (about 290,000 refusals, 7,000 near misses) | `pytest tests/test_figure_matrix.py` |
-| A2. Figures in real changes | Every number of five or more significant digits that a reference change adds, listed alone, is refused: 0 misses | `scripts/seeded_figure_screen.py` |
-| A3. No false alarms on real code | With 1,000 random figures that are in no file, 0 file versions of the reference changes are refused | the same script |
+| A2. Figures in real changes | Every number of five or more significant digits that a reference change adds to a reviewable text file of up to 400,000 bytes, listed alone, is refused in each file that adds it: 0 misses | `scripts/seeded_figure_screen.py`, exit status 0 |
+| A3. No false alarms on real code | With 1,000 random control figures, 0 file versions of the reference changes are refused. A control found in a file by an independent check is a collision: the run is inconclusive and is repeated with another seed | the same script |
 | A4. Same result as an adopter's own guard | With the same figure sources, every payload the adopter's guard refuses is refused here: 0 escapes in 10,000 generated payloads | differential test, once digit matching lands |
 | A5. One screen, every route | Every path to `providers.invoke` passes the credential, private-path, figure and hidden-character screens. A request without them is refused, not sent | route table test |
 | A6. Output is screened | Free text a model returns is screened on every route before it is shown or saved | route table test |
@@ -63,9 +65,10 @@ measurement is not passed.
 
 | Gate | Threshold | How it is measured |
 |---|---|---|
-| C1. Published wheel | Every gate above is rerun on the wheel installed from the index by hash, not on the source tree | release checklist |
-| C2. An adopter's ranges | Before any message to an adopter, their real ranges are rerun on the published wheel, and every claim in the message maps to a line of that output | release checklist |
-| C3. Second reader | An independent reviewer reruns C2 before the message is sent | release checklist |
+| C1. Candidate wheel, before publication | Every gate in A, B and E is run on the exact wheel the release workflow built, installed into a fresh environment, not on the source tree. The owner approves publication only after that | release checklist |
+| C2. Published wheel, after publication | The wheel installed from the index by hash has the candidate's digest, and A1, A2, A3 and B1 to B3 give the candidate's numbers | release checklist |
+| C3. An adopter's ranges | Before any message to an adopter, their real ranges are rerun on the published wheel, and every claim in the message maps to a line of that output | release checklist |
+| C4. Second reader | An independent reviewer reruns C3 before the message is sent | release checklist |
 
 ### D. Review accuracy
 
@@ -115,12 +118,20 @@ python -m pytest tests/test_figure_matrix.py
 # A2 and A3: each REPO is a local checkout; nothing is written and nothing is sent
 python scripts/seeded_figure_screen.py --changes 25 REPO [REPO ...]
 
-# B1 to B4 and B6
-python scripts/first_run_scenarios.py --changes 25 --output /private/folder REPO [REPO ...]
+# B1 to B4 and B6: --output is a new folder, created by the script
+python scripts/first_run_scenarios.py --changes 25 --output /private/new-folder REPO [REPO ...]
 ```
 
-Both scripts print codes, counts and timings only: never a number, a line or a file name. Raw
-`doctor` output, which names files, stays in the output folder you choose; keep that folder
-private and outside every repository. To measure a published wheel, install it by hash into a
-fresh environment and run the scripts with that environment's interpreter (`--python` for the
-scenario script).
+Both scripts print codes, counts and timings only, under an anonymous number for each
+repository: never a number, a line, a file name or a path.
+
+- **A private path is never read.** The seeded script decides by name, with the product's own
+  path policy, before it diffs or opens a file, and counts what it leaves out.
+- **An incomplete run is not a measurement.** A missing repository or branch, a failed Git read
+  or a failed `init --detect` gives exit status 2, and the totals say how many repositories
+  were measured.
+- **Raw output stays private.** `doctor` output, which names files, and the list of which number
+  is which repository go to the output folder. The script creates that folder; it must not
+  exist yet and must be outside every repository.
+- **To measure a wheel,** install it by hash into a fresh environment and run the scripts with
+  that environment's interpreter (`--python` for the scenario script).

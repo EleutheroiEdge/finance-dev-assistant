@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from conftest import command
+from conftest import command, synthetic_symlink
 
 ROOT = Path(__file__).parents[1]
 SPEC = importlib.util.spec_from_file_location("first_run_scenarios", ROOT / "scripts/first_run_scenarios.py")
@@ -33,26 +33,65 @@ def _history(repo: Path) -> None:
         command(repo, "commit", "-q", "-m", f"Synthetic change {index}")
 
 
+def _main(*arguments) -> int:
+    try:
+        return scenarios.main([*arguments, "--python", sys.executable])
+    except SystemExit as stopped:
+        return stopped.code
+
+
 def test_the_script_reports_counts_and_leaves_the_repository_alone(repository, tmp_path, capsys):
     repo, _base, _head = repository
     _history(repo)
     before = command(repo, "status", "--porcelain")
     output = tmp_path / "private-output"
-    assert scenarios.main([str(repo), "--changes", "3", "--branch", "main", "--output", str(output),
-                           "--python", sys.executable]) == 0
+    assert _main(str(repo), "--changes", "3", "--branch", "main", "--output", str(output)) == 0
     shown = capsys.readouterr().out
-    summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))[repo.name]
+    summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))["repository-1"]
     assert summary["changes"] == 3 and set(summary["variants"]) == set(scenarios.VARIANTS)
     gate, skipping = summary["variants"]["gate"], summary["variants"]["gate+skip"]
     assert gate["ready"] == 2 and skipping["ready"] == 3
     assert summary["variants"]["config"]["ready_but_for_authorization"] == 2
     assert summary["variants"]["config+skip"]["ready_but_for_authorization"] == 3
-    assert "ALL gate" in shown and "positions" not in shown and "cash.py" not in shown
+    assert "ALL gate" in shown and "repositories measured: 1 | incomplete: 0" in shown
+    # Only an anonymous label is printed; which repository it is stays in the private folder.
+    assert "repository-1" in shown and str(repo) not in shown and "positions" not in shown and "cash.py" not in shown
+    assert json.loads((output / "repositories.json").read_text(encoding="utf-8")) == {"repository-1": str(repo.resolve())}
     assert command(repo, "status", "--porcelain") == before
 
 
-def test_the_output_folder_must_be_outside_every_repository(repository):
+def test_two_repositories_with_one_name_are_both_measured(repository, tmp_path, capsys):
     repo, _base, _head = repository
-    with pytest.raises(SystemExit) as stopped:
-        scenarios.main([str(repo), "--output", str(repo / "results")])
-    assert stopped.value.code == 2 and not (repo / "results").exists()
+    _history(repo)
+    twin = tmp_path / "elsewhere" / repo.name
+    twin.parent.mkdir()
+    command(tmp_path, "clone", "-q", str(repo), str(twin))
+    output = tmp_path / "private-output"
+    assert _main(str(repo), str(twin), "--changes", "2", "--branch", "main", "--output", str(output)) == 0
+    summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+    assert set(summary) == {"repository-1", "repository-2"} and all(item["changes"] == 2 for item in summary.values())
+
+
+def test_the_output_folder_must_be_new_and_outside_every_repository(repository, tmp_path):
+    repo, _base, _head = repository
+    assert _main(str(repo), "--output", str(repo / "results")) == 2 and not (repo / "results").exists()
+    existing = tmp_path / "existing"
+    existing.mkdir()
+    # A folder that already exists could hold a link that redirects a write into a repository.
+    synthetic_symlink(existing / "repository-1-config.json", repo / "src/cash.py")
+    kept = (repo / "src/cash.py").read_bytes()
+    assert _main(str(repo), "--output", str(existing)) == 2
+    assert (repo / "src/cash.py").read_bytes() == kept
+    assert _main(str(repo), str(repo), "--output", str(tmp_path / "twice")) == 2
+    assert _main(str(repo), "--changes", "0", "--output", str(tmp_path / "none")) == 2
+
+
+@pytest.mark.parametrize("branch", ["no-such-branch"])
+def test_an_incomplete_measurement_never_exits_zero(repository, tmp_path, capsys, branch):
+    repo, _base, _head = repository
+    output = tmp_path / "private-output"
+    assert _main(str(repo), str(tmp_path / "private-name"), "--branch", branch, "--output", str(output)) == 2
+    shown = capsys.readouterr().out
+    assert shown.count("INCOMPLETE") == 2 and "repositories measured: 0 | incomplete: 2" in shown
+    assert "private-name" not in shown and str(repo) not in shown
+    assert set(json.loads((output / "summary.json").read_text(encoding="utf-8"))) == {"repository-1", "repository-2"}
