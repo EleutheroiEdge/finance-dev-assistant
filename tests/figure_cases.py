@@ -76,6 +76,7 @@ def notations(figure: str) -> dict[str, str]:
     mantissa = digits[0] + ("." + digits[1:] if len(digits) > 1 else "")
     forms["exponent"] = f"{mantissa}e{exponent}"
     forms["exponent, capital and signed"] = f"{mantissa}E{exponent:+d}"
+    forms["exponent, zero padded"] = f"{mantissa}e{exponent:+05d}"
     forms["whole mantissa, negative exponent"] = f"{digits}e-{len(fraction)}" if fraction else f"{digits}0e-1"
     forms["Arabic-Indic digits"] = _digits(figure, "\u0660")
     forms["fullwidth digits"] = _digits(figure, "\uff10")
