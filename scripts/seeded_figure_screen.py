@@ -14,6 +14,10 @@ Run it with the interpreter that has the finassist under test installed:
 
     python scripts/seeded_figure_screen.py --changes 25 REPO [REPO ...]
 
+With --tips, each history is read from the commit that file names for the repository, not from
+--branch. Give the tips.txt that scripts/first_run_scenarios.py wrote, with the repositories in
+the same order, to measure the same changes: both scripts then print the same fingerprint.
+
 Exit status: 0 complete with no miss and no false alarm; 1 a miss or a false alarm; 2 incomplete
 (a repository, branch or Git read failed, a history holds fewer changes than asked for, or a
 collision made a control unusable).
@@ -39,6 +43,7 @@ MAX_FILE_BYTES = 400_000
 _NUMBER = re.compile(r"(?<![\w.])\d[\d_,]*(?:\.\d[\d_]*)?(?![\w.])")
 _GROUPED = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?")
 _ESCAPE = re.compile(r"\\U([0-9a-fA-F]{8})|\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})")
+_COMMIT = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 
 
 class Incomplete(Exception):
@@ -50,6 +55,20 @@ def git(repo: Path, *args: str) -> bytes:
     if done.returncode:
         raise Incomplete("git " + args[0])
     return done.stdout
+
+
+def read_tips(path: Path, count: int) -> list[str] | None:
+    """The commits an earlier run wrote, one for each repository in order. None when the file is not that."""
+    try:
+        tips = path.read_text(encoding="utf-8").split()
+    except (OSError, UnicodeError):
+        return None
+    return tips if len(tips) == count and all(_COMMIT.fullmatch(tip) for tip in tips) else None
+
+
+def fingerprint(tips: list[str], changes: int) -> str:
+    """Names a set of changes without naming a commit: the same tips, order and count give the same one."""
+    return hashlib.sha256(("%d\n%s\n" % (changes, "\n".join(tips))).encode()).hexdigest()[:16]
 
 
 def listing(values) -> TokenSnapshot:
@@ -164,9 +183,8 @@ def added_numbers(repo: Path, base: str, head: str, path: str) -> set[str]:
     return found
 
 
-def seeded(repo: Path, branch: str, changes: int, decoys: TokenSnapshot, decoy_digits: frozenset[str]) -> collections.Counter:
+def seeded(repo: Path, tip: str, changes: int, decoys: TokenSnapshot, decoy_digits: frozenset[str]) -> collections.Counter:
     row = collections.Counter()
-    tip = git(repo, "rev-parse", "--verify", "--quiet", branch + "^{commit}").decode().strip()
     commits = git(repo, "rev-list", "--first-parent", "-n", str(changes), tip).decode().split()
     for commit in commits:
         parents = git(repo, "rev-list", "--parents", "-n", "1", commit).decode().split()[1:]
@@ -212,16 +230,27 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("repositories", nargs="+", type=Path)
     parser.add_argument("--changes", type=int, default=25, help="First-parent changes to use in each repository")
     parser.add_argument("--branch", default="origin/main")
+    parser.add_argument("--tips", type=Path,
+                        help="tips.txt written by scripts/first_run_scenarios.py: read each history from the commit it "
+                             "names for that repository, in the order given, not from --branch")
     parser.add_argument("--seed", type=int, default=20261110, help="Seed for the 1,000 control figures")
     args = parser.parse_args(argv)
     if args.changes < 1:
         parser.error("--changes must be at least 1")
+    pinned = None
+    if args.tips is not None:
+        pinned = read_tips(args.tips, len(args.repositories))
+        if pinned is None:
+            parser.error("--tips must hold one full commit for each repository, in the order given")
     figures = control_figures(args.seed)
     decoys, decoy_digits = listing(figures), frozenset(figure.replace(".", "") for figure in figures)
-    total, incomplete = collections.Counter(), 0
+    total, tips, incomplete = collections.Counter(), [], 0
     for number, repo in enumerate(args.repositories, 1):
         try:
-            row = seeded(repo.resolve(), args.branch, args.changes, decoys, decoy_digits)
+            revision = pinned[number - 1] if pinned else args.branch
+            tip = git(repo.resolve(), "rev-parse", "--verify", "--quiet", revision + "^{commit}").decode().strip()
+            row = seeded(repo.resolve(), tip, args.changes, decoys, decoy_digits)
+            tips.append(tip)
         except Incomplete as failure:
             incomplete += 1
             print(f"== repository {number}: INCOMPLETE ({failure})", flush=True)
@@ -229,6 +258,8 @@ def main(argv: list[str] | None = None) -> int:
         total.update(row)
         print(f"== repository {number}: {dict(sorted(row.items()))}", flush=True)
     print(f"ALL {dict(sorted(total.items()))} | repositories incomplete: {incomplete}")
+    if not incomplete:
+        print(f"reference set: {fingerprint(tips, args.changes)} ({len(tips)} repositories, {args.changes} changes each)")
     if incomplete or total["control_collisions"]:
         return 2
     return 1 if total["seeded_missed"] or total["false_alarms"] else 0

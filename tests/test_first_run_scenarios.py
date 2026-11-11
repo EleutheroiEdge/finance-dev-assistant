@@ -3,6 +3,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -161,3 +162,60 @@ def test_a_content_refusal_is_counted_by_its_rule_and_suffix_and_never_by_name()
     assert scenarios.outcome({**refused, "path": "notes.client-name-2026"}) == "refused:sensitive_content:credential_label:"
     assert scenarios.outcome({"path": "src/cash.py", "status": "included"}) == "included:"
     assert scenarios.outcome({"path": "data/x.csv", "status": "withheld", "reason": "private"}) == "withheld:private"
+
+
+# --- The same changes on a later day ----------------------------------------
+
+def _fingerprint(shown: str) -> str:
+    return re.search(r"^reference set: ([0-9a-f]{16}) \(1 repositories, \d+ changes each\)$", shown, re.M).group(1)
+
+
+def _counts(folder: Path) -> dict:
+    variants = json.loads((folder / "summary.json").read_text(encoding="utf-8"))["repository-1"]["variants"]
+    return {name: {key: item[key] for key in ("ready", "blockers", "paths")} for name, item in variants.items()}
+
+
+def test_a_later_run_reads_the_same_changes_from_the_tips_of_an_earlier_one(repository, tmp_path, capsys):
+    repo, _base, _head = repository
+    _history(repo)
+    first, moved, again = tmp_path / "first", tmp_path / "moved", tmp_path / "again"
+    assert _main(str(repo), "--changes", "2", "--branch", "main", "--output", str(first)) == 0
+    earlier = capsys.readouterr().out
+    tip = command(repo, "rev-parse", "main")
+    # The commit is written to the private folder and never printed.
+    assert (first / "tips.txt").read_text(encoding="utf-8") == tip + "\n" and tip not in earlier and tip[:7] not in earlier
+    # The repository moves on. Its last two changes are now other changes: the newest is a private file alone.
+    (repo / "data/prices.csv").write_text("symbol,price\nSYNTHETIC,2\n", encoding="utf-8", newline="\n")
+    command(repo, "add", "-f", "data/prices.csv")
+    command(repo, "commit", "-q", "-m", "Synthetic change after the measurement")
+    assert _main(str(repo), "--changes", "2", "--branch", "main", "--output", str(moved)) == 0
+    later = capsys.readouterr().out
+    assert _main(str(repo), "--changes", "2", "--branch", "main", "--tips", str(first / "tips.txt"),
+                 "--output", str(again)) == 0
+    repeated = capsys.readouterr().out
+    assert _fingerprint(repeated) == _fingerprint(earlier) != _fingerprint(later)
+    assert _counts(again) == _counts(first) != _counts(moved)
+    assert (again / "tips.txt").read_text(encoding="utf-8") == tip + "\n"
+    # The count of changes is part of what is named.
+    assert _main(str(repo), "--changes", "3", "--tips", str(first / "tips.txt"), "--output", str(tmp_path / "three")) == 0
+    assert _fingerprint(capsys.readouterr().out) != _fingerprint(earlier)
+
+
+@pytest.mark.parametrize("content", ["", "main\n", "0" * 39 + "\n", "0" * 40 + "\n" + "1" * 40 + "\n", "A" * 40 + "\n"])
+def test_tips_must_hold_one_full_commit_for_each_repository(repository, tmp_path, content):
+    repo, _base, _head = repository
+    tips = tmp_path / "tips.txt"
+    tips.write_text(content, encoding="utf-8")
+    output = tmp_path / "out"
+    assert _main(str(repo), "--tips", str(tips), "--output", str(output)) == 2 and not output.exists()
+    assert _main(str(repo), "--tips", str(tmp_path / "missing.txt"), "--output", str(output)) == 2 and not output.exists()
+
+
+def test_a_tip_a_repository_does_not_hold_is_incomplete_and_pins_nothing(repository, tmp_path, capsys):
+    repo, _base, _head = repository
+    tips = tmp_path / "tips.txt"
+    tips.write_text("0" * 40 + "\n", encoding="utf-8")
+    output = tmp_path / "out"
+    assert _main(str(repo), "--tips", str(tips), "--output", str(output)) == 2
+    shown = capsys.readouterr().out
+    assert "INCOMPLETE" in shown and "reference set:" not in shown and not (output / "tips.txt").exists()

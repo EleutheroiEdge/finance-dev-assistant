@@ -15,6 +15,11 @@ not exist yet and must be outside every repository. Keep it private.
 
     python scripts/first_run_scenarios.py --changes 25 --output /private/new-folder REPO [REPO ...]
 
+The repositories keep moving, so the last N changes are different changes on a later day. Each
+whole run writes the commit it read each history from to tips.txt in --output, and prints a
+fingerprint of them. Give that file as --tips to read the same changes again. Two counts are
+compared only when their runs print the same fingerprint.
+
 Exit status: 0 when every repository was measured in full; 2 when a repository, a branch, a Git
 read, `init --detect` or a `doctor` run failed, or a history holds fewer changes than asked for,
 so the totals are not a whole measurement. A range `doctor` refuses is a measurement, not a failure.
@@ -24,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -45,6 +51,7 @@ TESTS = {**LEAVE, "placeholder_credential_paths": [
     "tests/", "test/", "e2e/", "*/tests/*", "*/test/*", "*/__tests__/*", "*/fixtures/*", "*.test.*", "*.spec.*",
     "*_test.go", "*/test_*.py", "*/conftest.py"]}
 _SUFFIX = re.compile(r"\.[a-z0-9]{1,8}")
+_COMMIT = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 
 
 class Incomplete(Exception):
@@ -56,6 +63,20 @@ def git(repo: Path, *args: str) -> str:
     if done.returncode:
         raise Incomplete("git " + args[0])
     return done.stdout.strip()
+
+
+def read_tips(path: Path, count: int) -> list[str] | None:
+    """The commits an earlier run wrote, one for each repository in order. None when the file is not that."""
+    try:
+        tips = path.read_text(encoding="utf-8").split()
+    except (OSError, UnicodeError):
+        return None
+    return tips if len(tips) == count and all(_COMMIT.fullmatch(tip) for tip in tips) else None
+
+
+def fingerprint(tips: list[str], changes: int) -> str:
+    """Names a set of changes without naming a commit: the same tips, order and count give the same one."""
+    return hashlib.sha256(("%d\n%s\n" % (changes, "\n".join(tips))).encode()).hexdigest()[:16]
 
 
 def write_new(path: Path, text: str) -> None:
@@ -104,9 +125,11 @@ def doctor(command: list[str], arguments: list[str], cwd: Path, environment: dic
             "paths": dict(paths), "seconds": seconds}
 
 
-def scenario(command: list[str], label: str, repo: Path, branch: str, changes: int, output: Path, environment: dict) -> dict:
+def scenario(command: list[str], label: str, repo: Path, revision: str, changes: int, output: Path,
+             environment: dict) -> tuple[dict, str]:
+    """One repository's counts, and the commit its history was read from."""
     before = git(repo, "status", "--porcelain")
-    tip = git(repo, "rev-parse", "--verify", "--quiet", branch + "^{commit}")
+    tip = git(repo, "rev-parse", "--verify", "--quiet", revision + "^{commit}")
     ranges = []
     for commit in reversed(git(repo, "rev-list", "--first-parent", "-n", str(changes), tip).split()):
         parents = git(repo, "rev-list", "--parents", "-n", "1", commit).split()[1:]
@@ -161,7 +184,7 @@ def scenario(command: list[str], label: str, repo: Path, branch: str, changes: i
               f"max {max(seconds):.1f}s", flush=True)
     if git(repo, "status", "--porcelain") != before:
         raise Incomplete("working tree changed during the run")
-    return result
+    return result, tip
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -171,6 +194,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--branch", default="origin/main", help="Branch whose history is used (default: origin/main)")
     parser.add_argument("--output", type=Path, required=True,
                         help="New private folder for raw output; it must not exist and must be outside every repository")
+    parser.add_argument("--tips", type=Path,
+                        help="tips.txt from an earlier run's --output: read each history from the commit it names for "
+                             "that repository, not from --branch, so that the same changes are measured again")
     parser.add_argument("--python", default=sys.executable,
                         help="Interpreter that has the finassist under test installed (default: this one)")
     args = parser.parse_args(argv)
@@ -189,22 +215,31 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("give each repository by its root folder")
     if any(output == repo or repo in output.parents for repo in repositories):
         parser.error("--output must be outside every repository")
+    pinned = None
+    if args.tips is not None:
+        pinned = read_tips(args.tips, len(repositories))
+        if pinned is None:
+            parser.error("--tips must hold one full commit for each repository, in the order given")
     try:
         output.mkdir(mode=0o700)  # A new folder of our own: nothing already in it can redirect a write.
     except FileExistsError:
         parser.error("--output must not exist yet")
     labels = {f"repository-{number}": repo for number, repo in enumerate(repositories, 1)}
     write_new(output / "repositories.json", json.dumps({label: str(repo) for label, repo in labels.items()}, indent=1))
-    summary, incomplete = {}, 0
-    for label, repo in labels.items():
+    summary, tips, incomplete = {}, [], 0
+    for number, (label, repo) in enumerate(labels.items()):
         try:
-            summary[label] = scenario([args.python, "-m", "finassist"], label, repo, args.branch, args.changes, output,
-                                      dict(os.environ))
+            summary[label], tip = scenario([args.python, "-m", "finassist"], label, repo,
+                                           pinned[number] if pinned else args.branch, args.changes, output,
+                                           dict(os.environ))
+            tips.append(tip)
         except Incomplete as failure:
             incomplete += 1
             summary[label] = {"incomplete": str(failure)}
             print(f"== {label}: INCOMPLETE ({failure})", flush=True)
     write_new(output / "summary.json", json.dumps(summary, indent=1))
+    if not incomplete:  # Of a whole run only: a shorter list would pin fewer repositories than it claims.
+        write_new(output / "tips.txt", "".join(tip + "\n" for tip in tips))
     measured = [label for label, item in summary.items() if "variants" in item]
     total = sum(summary[label]["changes"] for label in measured)
     for variant in VARIANTS:
@@ -214,6 +249,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ALL {variant:12} ready {ready}/{total} ({100 * ready / total:.0f}%) "
                   f"| set up {set_up}/{total} ({100 * set_up / total:.0f}%)")
     print(f"repositories measured: {len(measured)} | incomplete: {incomplete}")
+    if not incomplete:
+        print(f"reference set: {fingerprint(tips, args.changes)} ({len(tips)} repositories, {args.changes} changes each)")
     return 2 if incomplete else 0
 
 

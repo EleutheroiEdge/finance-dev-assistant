@@ -202,3 +202,42 @@ def test_a_file_that_cannot_be_decoded_makes_the_measurement_incomplete(reposito
     # Not a collision that was proved, and never a false alarm or a clean run.
     assert code == 2 and "INCOMPLETE (a file could not be decoded for the collision check)" in shown
     assert "false_alarms" not in shown and "repositories incomplete: 1" in shown
+
+
+def test_the_tips_of_a_scenario_run_name_the_same_changes_here(repository, tmp_path, capsys):
+    repo, _base, _head = repository
+    _change(repo, {"src/cash.py": "OPENING = 48_213.57\n"})
+    tip = command(repo, "rev-parse", "HEAD")
+    tips = tmp_path / "tips.txt"
+    tips.write_text(tip + "\n", encoding="utf-8")
+    _change(repo, {"src/fees.py": "FEE = 6729102.50\nRATE = 31415.926\n"})  # the repository moves on
+    code, moved = _run(capsys, repo)
+    assert code == 0 and "'seeded_refused': 2" in moved
+    code, pinned = _run(capsys, repo, "--tips", str(tips))
+    assert code == 0 and "'seeded_refused': 1" in pinned and tip not in pinned
+    # The other script names this set of changes the same way.
+    expected = "reference set: %s (1 repositories, 1 changes each)" % seeded.fingerprint([tip], 1)
+    assert expected in pinned and expected not in moved and "reference set: " in moved
+    spec = importlib.util.spec_from_file_location("first_run_scenarios", ROOT / "scripts/first_run_scenarios.py")
+    scenarios = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(scenarios)
+    assert scenarios.fingerprint([tip], 1) == seeded.fingerprint([tip], 1)
+    assert scenarios.read_tips(tips, 1) == seeded.read_tips(tips, 1) == [tip]
+
+
+@pytest.mark.parametrize("content", ["", "HEAD\n", "0" * 39 + "\n", "0" * 40 + "\n" + "1" * 40 + "\n"])
+def test_tips_that_are_not_one_full_commit_for_each_repository_are_refused(repository, tmp_path, capsys, content):
+    repo, _base, _head = repository
+    tips = tmp_path / "tips.txt"
+    tips.write_text(content, encoding="utf-8")
+    with pytest.raises(SystemExit) as stopped:
+        _run(capsys, repo, "--tips", str(tips))
+    assert stopped.value.code == 2
+
+
+def test_a_tip_the_repository_does_not_hold_is_incomplete(repository, tmp_path, capsys):
+    repo, _base, _head = repository
+    tips = tmp_path / "tips.txt"
+    tips.write_text("0" * 40 + "\n", encoding="utf-8")
+    code, shown = _run(capsys, repo, "--tips", str(tips))
+    assert code == 2 and "INCOMPLETE" in shown and "reference set:" not in shown
