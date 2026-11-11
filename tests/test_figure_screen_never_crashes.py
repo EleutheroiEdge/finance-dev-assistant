@@ -9,7 +9,7 @@ import random
 import pytest
 
 from finassist.errors import AssistantError
-from finassist.forbidden_tokens import TokenSnapshot, screen_source, screen_text
+from finassist.forbidden_tokens import TokenSnapshot, load_token_snapshot, screen_source, screen_text
 from finassist.python_source import python_tokens, python_tree
 from finassist.security import check_text
 
@@ -37,16 +37,25 @@ PIECES = [
 ]
 
 
+@pytest.fixture(scope="module")
+def by_digits(tmp_path_factory):
+    """The same figure listed from a source file and matched by its digits."""
+    source = tmp_path_factory.mktemp("figures") / "figures.csv"
+    source.write_text("value\n48213.57\n", encoding="utf-8", newline="\n")
+    return load_token_snapshot({"forbidden_token_sources": [str(source)], "forbidden_token_match": "digits"}, ())
+
+
 @pytest.mark.parametrize("seed", range(8))
-def test_random_text_gets_a_pass_or_a_refusal_never_another_error(seed):
+def test_random_text_gets_a_pass_or_a_refusal_never_another_error(seed, by_digits):
     generator = random.Random(20261111 + seed)
     for _ in range(600):
         text = "".join(generator.choice(PIECES) for _ in range(generator.randrange(1, 48)))
         for path in (None, "notes.md", "module.py", "report.json", "page.html"):
-            try:
-                screen_source(text, path, SNAPSHOT) if path else screen_text(text, SNAPSHOT)
-            except AssistantError as refusal:
-                assert refusal.code in REFUSALS, (refusal.code, path)
+            for snapshot in (SNAPSHOT, by_digits):
+                try:
+                    screen_source(text, path, snapshot) if path else screen_text(text, snapshot)
+                except AssistantError as refusal:
+                    assert refusal.code in REFUSALS, (refusal.code, path)
             try:  # The credential screen reads the same text first, on every route.
                 check_text(text, source_path=path)
             except AssistantError:
