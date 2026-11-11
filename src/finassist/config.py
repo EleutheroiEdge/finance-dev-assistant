@@ -19,9 +19,11 @@ from .forbidden_tokens import (DEFAULT_MIN_DIGITS, MATCHES, MAX_MIN_DIGITS, MAX_
 from .security import (
     MAX_PLACEHOLDER_PATHS,
     PLACEHOLDER_PATTERN,
+    PLACEHOLDER_STARS,
     check_path,
     check_text,
     holds_placeholders,
+    placeholder_pattern_names_something,
     pinned_image,
     regular_path,
     write_private,
@@ -330,13 +332,13 @@ class Config:
         if len(entries) > MAX_PLACEHOLDER_PATHS or len(set(entries)) != len(entries):
             raise AssistantError("invalid_placeholder_credential_paths")
         for entry in entries:
-            if any(character in entry for character in "?[]"):
-                raise AssistantError("invalid_placeholder_credential_paths")  # Only a star is a pattern character.
+            # Only a star is a pattern character, and no path has an empty part, so "tests//" would match nothing.
+            if any(character in entry for character in "?[]") or "//" in entry:
+                raise AssistantError("invalid_placeholder_credential_paths")
             if "*" in entry:
-                # A pattern needs three characters that are not stars, so it cannot match every file.
-                if PLACEHOLDER_PATTERN.fullmatch(entry) is None or len(entry.replace("*", "")) < 3:
+                if PLACEHOLDER_PATTERN.fullmatch(entry) is None or not placeholder_pattern_names_something(entry):
                     raise AssistantError("invalid_placeholder_credential_paths")
-                continue
+                entry = PLACEHOLDER_STARS.sub("x", entry)  # a path the pattern fits, for the checks every entry gets
             try:
                 self.check_path(entry.rstrip("/"), source_only=False)
             except AssistantError as exc:

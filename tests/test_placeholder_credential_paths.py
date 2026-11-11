@@ -13,6 +13,7 @@ from credential_cases import spell
 from finassist.cli import main
 from finassist.config import Config, config_hash, load_config
 from finassist.errors import AssistantError
+from finassist.patching import patch_paths
 from finassist.security import check_context_document, check_output_document, check_text, holds_placeholders
 from test_forbidden_token_gate import candidate
 from test_model_gate import change_policy, run
@@ -112,6 +113,9 @@ def test_the_default_is_empty_and_leaves_the_configuration_hash_as_it_was():
 @pytest.mark.parametrize("entries", [
     ["tests/", "tests/"],                # twice
     ["*"], ["**"], ["*/*"], ["*.p"],     # a pattern that could match every file, or nearly
+    ["*.py"], ["**/*.py"], ["*/*.yaml"], ["*.*"], ["a*.ts"],  # or every file of a language
+    ["tests//"], ["*/fixtures/"], ["*//fixtures/*"],      # an entry that fits no path
+    ["*/.git/*"], ["*/../tests/*"], ["/*tests/"],         # a pattern gets the checks an exact entry gets
     ["tests/?.py"], ["tests/[ab].py"],   # only a star is a pattern
     ["tests/* .py"], ["tests/" + chr(0x202E) + "*"],  # characters a pattern may not hold
     ["../tests/"], ["/tests/"], [""], [".git/"],
@@ -120,6 +124,37 @@ def test_the_default_is_empty_and_leaves_the_configuration_hash_as_it_was():
 def test_an_entry_that_is_not_a_safe_prefix_path_or_pattern_is_refused(entries):
     with pytest.raises(AssistantError, match="^invalid_placeholder_credential_paths$"):
         load_config(content=json.dumps({"placeholder_credential_paths": entries}).encode())
+
+
+@pytest.mark.parametrize("entry", ["tests/", "test/", "e2e/", "*/tests/*", "*/test/*", "*/__tests__/*", "*/fixtures/*",
+                                   "*.test.*", "*.spec.*", "*_test.go", "*/test_*.py", "*/conftest.py", "*test*"])
+def test_the_patterns_a_test_tree_needs_are_accepted(entry):
+    assert load_config(content=json.dumps({"placeholder_credential_paths": [entry]}).encode()).placeholder_credential_paths == (entry,)
+
+
+def test_a_private_path_is_refused_as_a_pattern_as_it_is_as_an_exact_entry():
+    for entry in (".git/config", "*/.git/config"):
+        with pytest.raises(AssistantError, match="^invalid_placeholder_credential_paths$"):
+            load_config(content=json.dumps({"placeholder_credential_paths": [entry]}).encode())
+
+
+def test_the_name_of_a_related_definition_is_never_placeholder_text():
+    from finassist.related import verify_related
+
+    def block(symbol, line):
+        return {"rule_version": 1, "budget_bytes": 24_000, "skipped": [], "skipped_count": 0, "snippets": [{
+            "path": "tests/helper.py", "symbol": symbol, "relation": "caller",
+            "reference": {"path": "src/app.py", "symbol": "main"}, "lines": [[1, line]], "sha256": "0" * 64}]}
+
+    config = replace(Config(), related_context="related", placeholder_credential_paths=TESTS).validate()
+    strict = replace(Config(), related_context="related").validate()
+    private = lambda path: False  # noqa: E731
+    verify_related(block("helper", spell('@pw@ = "@V@"')), ["src/app.py"], config, private)  # a line of the file
+    with pytest.raises(AssistantError, match="^sensitive_content$"):
+        verify_related(block("helper", spell('@pw@ = "@V@"')), ["src/app.py"], strict, private)
+    for settings in (config, strict):
+        with pytest.raises(AssistantError, match="^sensitive_content$"):
+            verify_related(block(spell('@pw@ = "@V@"'), "def helper():"), ["src/app.py"], settings, private)
 
 
 def test_the_setting_is_a_list_of_strings():
@@ -152,6 +187,44 @@ def test_a_model_may_repeat_a_placeholder_exactly_and_nothing_else_under_its_lab
 
 
 # --- Both routes ------------------------------------------------------------
+
+def one_file_patch(path, body, lines=1):
+    return "diff --git a/%s b/%s\n--- a/%s\n+++ b/%s\n@@ -1,%d +1,%d @@\n%s" % (path, path, path, path, lines, lines, spell(body))
+
+
+def test_a_proposed_patch_cannot_bring_a_new_labelled_value_into_a_listed_file():
+    """Codex P107-1: the patch's own post-image is screened as source and lends no quote there."""
+    config = replace(Config(), placeholder_credential_paths=TESTS).validate()
+    script, settings = "tests/test_login.py", "tests/fixtures/users.yml"
+    supplied = [{"path": script, "before": "x = 1\n", "after": "x = 2\n"}]
+    for added in ('@pw@ = "@V@"', "@pw@ = settings.TEST_DATABASE_@PW@"):  # a literal, and a reference too
+        with pytest.raises(AssistantError, match="^sensitive_content$"):
+            patch_paths(one_file_patch(script, "-x = 2\n+" + added + "\n"), config, source_files=supplied)
+    with pytest.raises(AssistantError, match="^sensitive_content$"):  # an unquoted value in a settings file
+        patch_paths(one_file_patch(settings, "-retries: 2\n+@pw@: @W@\n"), config,
+                    source_files=[{"path": settings, "before": None, "after": "retries: 2\n"}])
+    # Outside the list nothing changes: there the post-image has passed the label rules, so a reference in it may stand.
+    elsewhere = [{"path": "src/settings.py", "before": None, "after": "x = 2\n"}]
+    assert patch_paths(one_file_patch("src/settings.py", "-x = 2\n+@pw@ = settings.DATABASE_@PW@\n"), config,
+                       source_files=elsewhere) == ["src/settings.py"]
+    with pytest.raises(AssistantError, match="^sensitive_content$"):
+        patch_paths(one_file_patch("src/settings.py", '-x = 2\n+@pw@ = "@V@"\n'), config, source_files=elsewhere)
+
+
+def test_a_proposed_patch_may_keep_or_move_a_placeholder_that_the_supplied_file_holds():
+    config = replace(Config(), placeholder_credential_paths=TESTS).validate()
+    path = "tests/test_login.py"
+    supplied = [{"path": path, "before": None, "after": spell('@pw@ = "@V@"\nx = 2\n')}]
+    kept = one_file_patch(path, ' @pw@ = "@V@"\n-x = 2\n+x = 3\n', lines=2)
+    moved = one_file_patch(path, '-@pw@ = "@V@"\n x = 2\n+@pw@ = "@V@"\n', lines=2)
+    changed = one_file_patch(path, '-@pw@ = "@V@"\n+@pw@ = "@V@x"\n x = 2\n', lines=2)
+    assert patch_paths(kept, config, source_files=supplied) == [path]
+    assert patch_paths(moved, config, source_files=supplied) == [path]
+    with pytest.raises(AssistantError, match="^sensitive_content$"):
+        patch_paths(changed, config, source_files=supplied)
+    with pytest.raises(AssistantError, match="^sensitive_content$"):  # and without the setting the file itself is refused
+        patch_paths(kept, Config(), source_files=supplied)
+
 
 def test_plan_refuses_a_fixture_and_reviews_it_with_the_setting(repository, tmp_path, capsys):
     repo, base, _head = repository

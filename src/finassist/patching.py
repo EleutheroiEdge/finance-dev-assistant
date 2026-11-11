@@ -145,8 +145,9 @@ def patch_paths(patch: str, config: Config, *, source_files: list[dict] | None =
             except UnicodeError as exc:
                 raise AssistantError("binary_input") from exc
             images.append({"path": name, "before": source[name], "after": after})
+        # "before" is the file as it was supplied, and "after" is what this patch leaves.
         check_output_document({"patch": patch}, images, extra_patterns=config.extra_sensitive_patterns, diff=True,
-                              placeholders=config.placeholder_credential_paths)
+                              placeholders=config.placeholder_credential_paths, supplied=("before",))
     return paths
 
 

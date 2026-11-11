@@ -148,7 +148,8 @@ Under a path the operator lists in `placeholder_credential_paths`, the credentia
 rules are not applied. That is the operator's statement that the credential-named values
 there are made up, and the files are sent as they are. The format rules, the account
 rules and the project's own patterns are applied there as everywhere, and a model may
-repeat a labelled value from such a file only exactly.
+repeat a labelled value from such a file only exactly, as it stands in the file it was
+sent. What its own patch writes into a listed file lends it nothing to repeat.
 
 Credential key screening requires a credential word in the label: secret,
 private, signing, encryption, access, client, master, auth or api, optionally

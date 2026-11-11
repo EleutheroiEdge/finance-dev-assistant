@@ -33,7 +33,8 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 - **`placeholder_credential_paths`: review test files that hold made-up logins.** A fixture with a
   field named `password` and a value that was never real refused the whole range, because the
   screen cannot tell it from a real one. List such files in the configuration, or in a gate
-  policy's `model_review`: a directory prefix ending in `/`, an exact path, or a pattern with `*`.
+  policy's `model_review`: a directory prefix ending in `/`, an exact path, or a pattern with `*`
+  that names more than a kind of file, so `*.test.ts` is accepted and `*.py` is refused.
   The credential label rule is then not applied to them, and they are sent as they are. Known
   token formats, account numbers, listed figures and `extra_sensitive_patterns` are refused there
   as everywhere. The list is empty by default, an empty list leaves the configuration hash as it

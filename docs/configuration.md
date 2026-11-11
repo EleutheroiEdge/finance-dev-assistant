@@ -351,15 +351,32 @@ What happens then:
 - **The files are sent to the provider as they are.** That is the decision this setting
   records: you are saying that no value under these paths is real. Check before you list a
   path, and keep the list narrow. A real credential pasted into a listed file is sent.
-- **A model may repeat such a value** exactly as it stands in the file, and nothing else
-  under its label.
+- **A model may repeat such a value** exactly as it stands in the file it was sent, and
+  nothing else under its label. A proposed patch may keep or move it. It may not bring a
+  new credential-named value into a listed file, a reference included: what the patch
+  itself writes there has been read by no label rule.
 - **`doctor` says which files this covered.** Each is listed as `included` with
   `credential_labels: not_screened`, and the report warns with
   `credential_labels_not_screened` and the count.
 
-An entry may not hold `?` or brackets, a pattern needs at least three characters besides
-`*`, and at most 64 entries are read. Like the other settings added since 0.10.0, an empty
-list leaves the configuration hash as it was.
+What an entry may be:
+
+- No `?`, no brackets and no empty part such as `tests//`, which would match nothing.
+- Not a private path, as a pattern too: `*/.env` is refused like `.env`.
+- A pattern names three letters or digits besides its file suffix, and ends in a name or a
+  star. So `*.py` and `*/*.yaml` are refused, because they would list every file of a
+  language, and `*.test.ts`, `*_test.go` and `*/fixtures/*` are not.
+- At most 64 entries.
+
+A star also matches inside a name: `*test*` covers `src/latest.py` too. Bound the word with
+a slash, a dot or an underscore, and read the list `doctor` prints.
+
+The setting covers file content read for review. Two things keep the strict rules under a
+listed path: the name of a definition in related context, and a methodology document that
+a workflow binds.
+
+Like the other settings added since 0.10.0, an empty list leaves the configuration hash as
+it was.
 
 ## Confidential figures
 

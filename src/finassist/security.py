@@ -147,6 +147,9 @@ _REFERENCE_PATTERNS = tuple(pattern for pattern in LABEL_PATTERNS if "value" in 
 MIN_SECRET_LENGTH = 12  # the shortest value a label rule reads as a credential
 MAX_PLACEHOLDER_PATHS = 64  # entries a configuration may list as holding placeholder credentials
 PLACEHOLDER_PATTERN = re.compile(r"[A-Za-z0-9_./*-]{1,512}")  # what such an entry may hold when it has a star
+PLACEHOLDER_STARS = re.compile(r"\*+")
+_FILE_SUFFIX = re.compile(r"\.[A-Za-z0-9*]+\Z")
+_NAMED = re.compile(r"[A-Za-z0-9]")
 _NAMED_LINES = 20  # line numbers a refusal names in local output
 
 
@@ -374,6 +377,17 @@ def local_name(name, extra_patterns: tuple[str, ...] = ()) -> str:
     return name
 
 
+def placeholder_pattern_names_something(pattern: str) -> bool:
+    """Whether a pattern is narrower than a kind of file.
+
+    It has to name three letters or digits besides its file suffix, and to end in a name or a
+    star. So "*.py" and "*/*.yaml" are refused, which would list every file of a language, and
+    "*.test.ts", "*_test.go" and "*/fixtures/*" are not. A pattern that ends in a slash fits no
+    path.
+    """
+    return not pattern.endswith("/") and len(_NAMED.findall(_FILE_SUFFIX.sub("", pattern))) >= 3
+
+
 def holds_placeholders(path: str | None, entries) -> bool:
     """True when the configuration says the credential-named values in this file are placeholders.
 
@@ -433,7 +447,7 @@ def check_context_document(document: dict, *, extra_patterns: tuple[str, ...] = 
 
 def check_output_document(
     document: dict, source_files: list[dict], *, extra_patterns: tuple[str, ...] = (), diff: bool = False,
-    placeholders: tuple[str, ...] = ()
+    placeholders: tuple[str, ...] = (), supplied: tuple[str, ...] = ("before", "after")
 ) -> None:
     """Permit only exact credential-label quotes from screened source.
 
@@ -443,6 +457,10 @@ def check_output_document(
     after it on its line that could give the label another value. From a file
     under `placeholders`, where the label rules are not applied, every label
     match is such a quote, a quoted placeholder included.
+
+    `supplied` names the sides that the model was sent. The other side is what
+    its own patch leaves: that is screened as source, and in a file under
+    `placeholders` it lends no quote, because no label rule has read it.
 
     A match includes its label, separator and complete candidate value; a word
     merely present elsewhere in source confers no output exception. Paths and
@@ -457,9 +475,12 @@ def check_output_document(
             if text is None:
                 continue
             check_text(text, source_path=item["path"], extra_patterns=extra_patterns, placeholders=placeholders)
-            quotes = _reference_quotes(text, item["path"], every=holds_placeholders(item["path"], placeholders))
-            for quote, rests in quotes.items():
-                references.setdefault(quote, set()).update(rests)
+            listed = holds_placeholders(item["path"], placeholders)
+            # What the model's own patch wrote into a listed file was never read by a label rule,
+            # so it lends nothing to repeat: neither a placeholder nor a reference.
+            if side in supplied or not listed:
+                for quote, rests in _reference_quotes(text, item["path"], every=listed).items():
+                    references.setdefault(quote, set()).update(rests)
             view = credential_screening_view(text, item["path"])
             for match in CREDENTIAL_KEY_PATTERN.finditer(text):
                 separator = text.find(":", match.start(), match.end())
