@@ -22,6 +22,7 @@ from .security import (
     PLACEHOLDER_STARS,
     check_path,
     check_text,
+    check_texts,
     holds_placeholders,
     placeholder_pattern_names_something,
     pinned_image,
@@ -227,8 +228,7 @@ class Config:
                 )
             ):
                 raise AssistantError("invalid_profile_checklist")
-            for item in checklist:
-                check_text(item)
+        check_texts(item for checklist in self.profiles.values() for item in checklist)
         if (
             not isinstance(self.profile_files, (list, tuple))
             or len(self.profile_files) > 16

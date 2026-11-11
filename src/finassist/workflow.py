@@ -9,8 +9,9 @@ import jsonschema
 
 from .config import Config, config_hash
 from .errors import AssistantError
+from .hidden_text import Waiting
 from .scope import read_entry, resolve, review_omissions, verify_packet
-from .security import canonical, check_text, digest
+from .security import canonical, check_credentials, check_text, digest
 
 
 def _object(properties: dict) -> dict:
@@ -182,6 +183,7 @@ def _methodology_bindings(
     template: WorkflowTemplate, repo: Path, head: str, config: Config
 ) -> tuple[MethodologyBinding, ...]:
     bindings = []
+    unseen = Waiting()  # A hidden character in one document waits for the credential screen of every document.
     for path in template.methodology:
         content, mode = read_entry(repo, head, path, config.file_byte_limit(path), config)
         if content is None:
@@ -190,10 +192,12 @@ def _methodology_bindings(
             text = content.decode("utf-8")
         except UnicodeError as exc:
             raise AssistantError("workflow_methodology_not_text") from exc
-        check_text(text, extra_patterns=config.extra_sensitive_patterns)
+        check_credentials(text, extra_patterns=config.extra_sensitive_patterns)
+        unseen.check(text)
         if not text.strip():
             raise AssistantError("workflow_methodology_empty")
         bindings.append(MethodologyBinding(path, digest(content), mode))
+    unseen.release()
     return tuple(bindings)
 
 
