@@ -30,6 +30,11 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   screen does not recognise every one of them, such as the encoded login in a Docker `auths` entry.
 
 ### Added
+- **A credential refusal says which rule and which lines.** Both `doctor` reports, and the error
+  `plan` prints, now name the rule (`credential_label`, `github_token` and so on), the version of
+  the file (`base` or `head`) and up to 20 line numbers. This is local output only, and it never
+  holds the value. `scripts/first_run_scenarios.py` counts content refusals by rule and file
+  suffix, and measures `unreviewable_paths: skip-and-report` as a third variant on each route.
 - **Confidential figures on the configuration route.** `forbidden_token_file` and
   `forbidden_token_hashes` are now configuration settings too, with the gate's rules:
   - `plan` screens the instructions, every changed file and related context, and names the file
@@ -69,6 +74,30 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   `unreviewable_paths_left_out`.
 
 ### Changed
+- **A gate accepts what it refused before: a credential-named field that is given a reference.**
+  In TypeScript and JavaScript (`.ts`, `.mts`, `.cts`, `.js`, `.mjs`, `.cjs`), Go, Java, Kotlin
+  and SQL files the credential screen now finds the strings and comments first. A string literal
+  needs quotes in these languages, so an unquoted value in code is an expression: a field named
+  `password` that is given `process.env.DB_PASSWORD`, a member, a call or a column is no longer
+  refused. In any file read with its path, a quoted value that is exactly one expansion, such as
+  `${NAME}` or `${{ secrets.NAME }}`, is a reference too, and in YAML a key under a
+  credential-named key is not its value. On the 225 reference changes with both skip settings, a gate is now ready for 181 (80%), up from 175, and the configuration route for 175 (78%), up from 168. Changes that a gate blocks for credential content fall from 35 to 27, and no file is newly refused.
+- **What is still refused, and what the new reading costs.** A quoted literal is refused as
+  before, and so is a reference that falls back to one: after `||`, `??`, `?:` or `+`, as a later
+  argument, or as the argument of `orElse`, `default` and similar calls. A string, a comment, a
+  number, `.jsx` and `.tsx` files, a script that holds markup, and any file that does not read
+  cleanly as its language keep the strict rules, and so does everything read without a path: a
+  name, a setting, and what a model returns. The cost is stated in `docs/security-design.md` and
+  tested in `tests/credential_cases.py`: inside a block of a script an unquoted value passes
+  whatever it spells, and a settings line with a dotted name passes when it is saved under a
+  code suffix. Neither passed before.
+- **Review output may repeat such a reference exactly.** A model that quoted a line such as a
+  `password` field given `get_password()` from the source it was sent had its whole reply
+  refused, in Python too. The label, separator and value are now accepted when they stand in the
+  screened source exactly so and nothing after them on the line holds a quote mark or an equals
+  sign. The same label with any other value is refused as before.
+- **In Python, a credential-named literal that is one expansion is no longer refused,** by the
+  same rule as in other files.
 - **Adding these settings does not change the configuration hash.** A setting marked this way is
   left out of the hash while it has its default, so saved check records, workflow plans and
   readiness evidence from 0.10.0 still count after the upgrade.
