@@ -135,6 +135,9 @@ Nothing else about what a gate accepts, authorizes or spends has changed.
   `monthly_budget_usd` where they would be too small, appear in the proposal only when the budget
   you have is not enough, with a `budget_raised_for_packet_limit` warning that states the amounts.
   A budget is never lowered, and without a provider, a model and both prices nothing is proposed.
+  On 225 reference changes at pinned commits, 11 were blocked on the configuration route by a
+  budget alone. With both skip settings that route now has no setup blocker for 185 (82%), up
+  from 174, and the gate route is unchanged.
 - **A gate range that changed only withheld files was refused with the wrong code.** It reported
   `gate_ignore_check_unavailable`; it now reports `review_scope_entirely_withheld`.
 - **On macOS a check could fail with `PermissionError` when its command exited as the runner stopped
