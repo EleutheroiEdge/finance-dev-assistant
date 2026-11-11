@@ -46,6 +46,22 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
     passes when `73026` is listed, in every surrounding; 0.10.0 refused it in some.
   Nothing else about what a gate accepts, authorizes or spends has changed.
 
+### Fixed
+- **`init --detect` drafted a gate policy that the gate refused.** The draft listed private files
+  found inside reviewed directories under `deny_paths`, and the policy check refused any policy whose
+  `deny_paths` named a private path such as `.env.example`, `holdings/` or `USER.md`. Every range was
+  then blocked with `private_path` or `private_profile_path` before a file was read. On nine real
+  repositories this blocked all 25 changes checked in four of them. Now:
+  - a `deny_paths` entry may name a private path. It reads and sends nothing, so only its form is
+    checked: a literal relative path with no wildcard. `allow_paths` entries still meet the path policy;
+  - the draft's `deny_paths` is empty. Private files are refused or withheld by name already, and a
+    deny entry would refuse the range even under `skip-and-report`. The proposal counts them under
+    `private_paths` and warns with the new `private_paths_inside_scope`, beside
+    `private_paths_outside_scope`.
+
+  For a gate: a policy that names a private path under `deny_paths` now loads; it was refused whole.
+  A file under such an entry still refuses the run with `gate_denied_path`.
+
 ## 0.10.0 - 2026-11-10
 
 ### Changed

@@ -459,14 +459,15 @@ def test_no_blob_the_path_policy_refuses_is_read_or_sized(tmp_path, capsys, monk
     monkeypatch.setattr(detect_module, "git", spy)
     proposal = _proposal(capsys, ["init", "--detect", "--repo", str(repo)])
     assert "src/app.py" in reads and not set(reads) & set(private)
-    deny = set(proposal["gate_policy_draft"]["model_review"]["deny_paths"])
-    assert {"src/.env.py", "src/private/", "src/client.json"} <= deny
-    assert any(entry.startswith("src/secrets") for entry in deny)
+    # The name rules refuse or withhold these already, so no deny entry is drafted for them.
+    assert proposal["gate_policy_draft"]["model_review"]["deny_paths"] == []
+    assert proposal["private_paths"]["count"] == len(private)
+    assert {"code": "private_paths_inside_scope", "count": len(private)} in proposal["warnings"]
 
 
 @pytest.mark.parametrize("private, warned", [
     ("data/synthetic_positions.csv", True),  # Outside the proposed scope: a range changing it is refused.
-    ("src/data/synthetic_positions.csv", False),  # Inside it: a deny proposal covers it instead.
+    ("src/data/synthetic_positions.csv", False),  # Inside it: private_paths_inside_scope warns instead.
 ])
 def test_private_files_outside_the_proposed_scope_are_warned_about(tmp_path, capsys, private, warned):
     repo = _repo(tmp_path, {"src/app.py": "X = 1\n", private: "symbol,quantity\nSYNTHETIC,1\n"})

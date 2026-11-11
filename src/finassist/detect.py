@@ -26,7 +26,7 @@ from .errors import AssistantError, prices_required
 from .model_policy import check_draft, missing_fields
 from .review import ENVELOPE_ALLOWANCE, reserved_usd
 from .scope import git, git_command, git_environment, resolve
-from .security import (_PRIVATE, DENIED_PARTS, TEXT_SUFFIXES, _check_model_private, canonical, check_path,
+from .security import (DENIED_PARTS, TEXT_SUFFIXES, _check_model_private, canonical, check_path,
                        check_text, local_name)
 
 PURPOSES = {"quant": "quant-review", "accounting": "finance-saas", "research": "investment-research",
@@ -296,8 +296,7 @@ class _Detector:
     def data(self, allow: list[str]) -> dict:
         private = sorted(path for path in self.files if self.private(path))
         fixtures = {}
-        deny = set()
-        outside = 0
+        inside = outside = 0
         for path in private:
             parts = PurePosixPath(path).parts
             suffix = PurePosixPath(path).suffix.lower()
@@ -307,27 +306,21 @@ class _Detector:
                 root = "/".join(parts[:-1]) + "/"
                 fixtures.setdefault(root, path)
             elif _allowed(path, allow):
-                # Inside a reviewed prefix, deny the private directory, or the file itself when no
-                # directory is private (such as src/.env.py or src/client.json), so the policy says so.
-                for depth, part in enumerate(lowered):
-                    if part in DENIED_PARTS or part in _PRIVATE or part.rstrip(". ") in DENIED_PARTS | _PRIVATE \
-                            or part.startswith(".env"):
-                        deny.add("/".join(parts[:depth + 1]) + "/")
-                        break
-                else:
-                    if PurePosixPath(path).suffix.lower() not in PRIVATE_SUFFIXES:
-                        deny.add(path)
+                inside += 1
             else:
                 outside += 1
         for root, example in sorted(fixtures.items()):
             self.note("fixture_roots", root, "csv_or_tsv_under_tests", example)
-        for prefix in sorted(deny):
-            self.note("deny_paths", prefix, "private_or_data_files")
         if fixtures:
             self.warn("fixture_roots_must_be_synthetic", count=len(fixtures))
-        if outside:  # A gate refuses any range that changes one of these.
+        # A gate refuses any range that changes a private file, by its name. No deny_paths entry is
+        # drafted for one: the name rule already covers it, and an entry would refuse the range
+        # even under skip-and-report, which otherwise withholds the file and reviews the rest.
+        if inside:
+            self.warn("private_paths_inside_scope", count=inside)
+        if outside:
             self.warn("private_paths_outside_scope", count=outside)
-        return {"private": private, "fixture_roots": sorted(fixtures), "deny_paths": sorted(deny)}
+        return {"private": private, "fixture_roots": sorted(fixtures), "deny_paths": []}
 
     def file_limit(self, allow: list[str], generated: list[str]) -> int:
         """Fit the largest reviewed source file. Other large text files are reported, not fitted."""

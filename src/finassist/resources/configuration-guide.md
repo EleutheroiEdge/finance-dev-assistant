@@ -86,7 +86,10 @@ finassist init --detect --purpose quant --write --output finassist.json
     `--model`, `--api-key-env` and both prices. `max_run_usd` then covers one request at the proposed
     limit. Without them `gate_policy_missing` lists those fields, and nothing is invented for them;
   - `fixture_roots` for CSV or TSV files under a tests directory, which must be synthetic;
-  - `deny_paths` for private directories inside a reviewed prefix, or for the file itself when no directory is private, such as `src/.env.py`. This uses the shared path policy and the gate's private names (data, private, client and similar).
+  - an empty `deny_paths`. Private files are refused or withheld by name already (the shared path policy and the
+    gate's private names: data, private, client and similar), so none is listed. The proposal counts them under
+    `private_paths` and warns with `private_paths_inside_scope` or `private_paths_outside_scope`. Add your own
+    entries for paths that must always refuse; an entry may name a private path.
 
   Packet and request limits are measured, not estimated:
   - a changed file travels with its earlier version;
