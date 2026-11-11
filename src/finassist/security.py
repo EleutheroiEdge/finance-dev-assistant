@@ -14,7 +14,8 @@ import stat
 import sys
 import unicodedata
 
-from .code_text import code_text, is_expansion, nested_yaml_key
+from .code_text import (code_text, in_block_scalar, is_expansion, is_shell, is_yaml, looks_like_nested_key,
+                        yaml_block_scalars)
 from .errors import AssistantError
 from .platform_support import canonical_system_path
 from .path_alias_data import ASCII_CONFUSABLES, DEFAULT_IGNORABLE_RANGES
@@ -431,7 +432,7 @@ def check_output_document(
             if text is None:
                 continue
             check_text(text, source_path=item["path"], extra_patterns=extra_patterns)
-            references.update(_reference_quotes(text))
+            references.update(_reference_quotes(text, item["path"]))
             view = credential_screening_view(text, item["path"])
             for match in CREDENTIAL_KEY_PATTERN.finditer(text):
                 separator = text.find(":", match.start(), match.end())
@@ -506,16 +507,21 @@ class _FileSyntax:
 
     def __init__(self, text: str, path: str | None):
         self._text, self._path, self._code = text, path, self._UNREAD
+        self._scalars = None  # the block scalars of a YAML file, read when first needed
 
     def excuses(self, match: re.Match) -> bool:
         """True when the matched value names a value kept elsewhere instead of holding one."""
         value = match.group("value")
         if value[0] in "\"'":
-            return is_expansion(value[1:-1])
+            return is_expansion(value[1:-1], in_shell=value[0] == '"' and is_shell(self._path))
         if value[0].isdigit():
             return False  # A number is a literal in every language.
-        if nested_yaml_key(self._text, self._path, match.start("sep"), match.start("value"), match.end("value")):
-            return True
+        if is_yaml(self._path):
+            if not looks_like_nested_key(self._text, match.start("sep"), match.start("value"), match.end("value")):
+                return False
+            if self._scalars is None:
+                self._scalars = yaml_block_scalars(self._text)
+            return not in_block_scalar(self._scalars, match.start("sep"))
         if self._code is self._UNREAD:
             self._code = code_text(self._text, self._path)
         code = self._code
@@ -530,7 +536,7 @@ class _FileSyntax:
 _TEXT_IN_PYTHON = _FileSyntax("", None)
 
 
-def _reference_quotes(text: str) -> set[str]:
+def _reference_quotes(text: str, path: str) -> set[str]:
     """Every label match in screened source whose value is a reference, as exact text.
 
     The text has passed the screen. So an unquoted value in it is an expression its syntax
@@ -540,7 +546,7 @@ def _reference_quotes(text: str) -> set[str]:
     for pattern in _REFERENCE_PATTERNS:
         for match in pattern.finditer(text):
             value = match.group("value")
-            if value[0] not in "\"'" or is_expansion(value[1:-1]):
+            if value[0] not in "\"'" or is_expansion(value[1:-1], in_shell=value[0] == '"' and is_shell(path)):
                 quotes.add(match.group())
     return quotes
 

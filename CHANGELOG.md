@@ -83,8 +83,10 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   `${NAME}` or `${{ secrets.NAME }}`, is a reference too, and in YAML a key under a
   credential-named key is not its value. On the 225 reference changes with both skip settings, a gate is now ready for 181 (80%), up from 175, and the configuration route for 175 (78%), up from 168. Changes that a gate blocks for credential content fall from 35 to 27, and no file is newly refused.
 - **What is still refused, and what the new reading costs.** A quoted literal is refused as
-  before, and so is a reference that falls back to one: after `||`, `??`, `?:` or `+`, as a later
-  argument, or as the argument of `orElse`, `default` and similar calls. A string, a comment, a
+  before, and so is a reference whose expression holds one: after `||`, `??`, `?:` or `+`, as a
+  later argument, as the argument of `orElse`, `default` and similar calls, or handed to a call
+  that hashes, encodes or wraps it. Only the name a lookup is given, the text of an error and a
+  field of an argument object are not counted. A string, a comment, a
   number, `.jsx` and `.tsx` files, a script that holds markup, and any file that does not read
   cleanly as its language keep the strict rules, and so does everything read without a path: a
   name, a setting, and what a model returns. The cost is stated in `docs/security-design.md` and
