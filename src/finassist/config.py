@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 
 from .errors import AssistantError
 from .config_compat import check_min_version, compatible_document, decode_config, unknown_option
+from .forbidden_tokens import MAX_TOKENS
 from .security import (
     check_path,
     check_text,
@@ -21,6 +22,7 @@ from .security import (
     regular_path,
     write_private,
     canonical,
+    digest,
     DENIED_PARTS,
     TEXT_SUFFIXES,
 )
@@ -98,6 +100,13 @@ class Config:
     )
     protected_branches: tuple[str, ...] = ("main", "master", "trunk", "production", "release", "release/*")
     extra_sensitive_patterns: tuple[str, ...] = ()
+    # Confidential figures that must never be sent: a private file with one figure per line,
+    # SHA256 hashes of canonical figures, or both. Both empty (the default): no figure screen.
+    forbidden_token_file: str = field(default="", metadata={"identity": "when-set", "json_schema": {"maxLength": 4096}})
+    forbidden_token_hashes: tuple[str, ...] = field(default=(), metadata={
+        "identity": "when-set",
+        "json_schema": {"maxItems": MAX_TOKENS, "uniqueItems": True,
+                        "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}})
     max_file_bytes: int = field(default=48_000, metadata={"json_schema": {"minimum": 1, "maximum": 2_000_000}})
     max_packet_bytes: int = field(default=120_000, metadata={"json_schema": {"minimum": 1, "maximum": MAX_PACKET_BYTES}})
     max_output_tokens: int = field(default=4096, metadata={"json_schema": {"minimum": 1, "maximum": 2_000_000}})
@@ -262,11 +271,18 @@ class Config:
             "allowed_hosts",
             "required_recipes",
             "blocking_severities",
+            "forbidden_token_hashes",
         ):
             if not isinstance(getattr(self, key), (tuple, list)) or any(
                 not isinstance(x, str) for x in getattr(self, key)
             ):
                 raise AssistantError("invalid_list")
+        if not isinstance(self.forbidden_token_file, str) or len(self.forbidden_token_file) > 4096:
+            raise AssistantError("forbidden_token_file_invalid")
+        hashes = self.forbidden_token_hashes
+        if (len(hashes) > MAX_TOKENS or len(set(hashes)) != len(hashes)
+                or any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in hashes)):
+            raise AssistantError("forbidden_token_hashes_invalid")
         if len(self.generated_paths) > 128 or len(set(self.generated_paths)) != len(self.generated_paths):
             raise AssistantError("invalid_generated_paths")
         for prefix in self.generated_paths:
@@ -335,6 +351,16 @@ class Config:
     @property
     def key_name(self) -> str:
         return self.api_key_env or DEFAULT_KEYS.get(self.provider, "")
+
+    @property
+    def forbidden_token_rules(self) -> dict:
+        """The figure-screen settings as a gate policy states them; empty when none is set."""
+        rules = {}
+        if self.forbidden_token_file:
+            rules["forbidden_token_file"] = self.forbidden_token_file
+        if self.forbidden_token_hashes:
+            rules["forbidden_token_hashes"] = list(self.forbidden_token_hashes)
+        return rules
 
     def allows(self, path: str) -> bool:
         return any(path.startswith(p) if p.endswith("/") else path == p for p in self.allow_paths)
@@ -408,6 +434,7 @@ def load_config(path: Path | None = None, *, content: bytes | None = None,
             "denied_parts",
             "text_suffixes",
             "profile_files",
+            "forbidden_token_hashes",
         ):
             if key in raw and isinstance(raw[key], list):
                 raw[key] = tuple(raw[key])
@@ -480,6 +507,24 @@ def config_document(config: Config) -> dict:
     if config.profile_files:
         document["profiles"] = deepcopy(config.profiles.inline)
     return document
+
+
+def config_identity(config: Config) -> dict:
+    """The settings that identify a configuration in hashes and saved records.
+
+    A setting marked `when-set` is left out while it has its default. So a release that adds
+    such a setting does not change the hash of a configuration that does not use it, and
+    records saved before the upgrade still count.
+    """
+    document = asdict(config)
+    for item in fields(config):
+        if item.metadata.get("identity") == "when-set" and getattr(config, item.name) == item.default:
+            del document[item.name]
+    return document
+
+
+def config_hash(config: Config) -> str:
+    return digest(canonical(config_identity(config)))
 
 
 def save_config(path: Path, config: Config) -> None:

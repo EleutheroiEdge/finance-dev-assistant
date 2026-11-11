@@ -5,7 +5,6 @@ from __future__ import annotations
 from .platform_support import read_utf8
 
 import argparse
-from dataclasses import asdict
 from decimal import InvalidOperation
 import json
 from pathlib import Path
@@ -16,7 +15,7 @@ import time
 
 from . import installed_version
 from .auditing import command_audit
-from .config import PACKET_FILE_BYTES, Config, load_config
+from .config import Config, config_hash, load_config, PACKET_FILE_BYTES
 from .demo import run_demo
 from .health import doctor_report
 from .errors import AssistantError, error_record
@@ -34,7 +33,7 @@ from .render import report_html
 from .readiness import verify_gate
 from .review import review_packet
 from .runner import run_recipe
-from .scope import build_packet, git, plan_packet, resolve, triage
+from .scope import build_packet, config_token_guard, git, plan_packet, resolve, triage
 from .security import canonical, check_text, digest, regular_path, write_private
 from .workspace import export_snapshot
 from .workflow import build_workflow_plan, preflight_workflow, verify_workflow_gate
@@ -152,6 +151,9 @@ def parser() -> argparse.ArgumentParser:
             command, help="Call the configured model only after exact packet approval"
         )
         request.add_argument("--packet", required=True)
+        request.add_argument("--repo", type=Path, default=Path.cwd(),
+                             help="Repository checkout; used only when the configuration lists confidential "
+                                  "figures, whose list must sit outside it (default: current directory)")
         request.add_argument("--approve-packet")
         request.add_argument("--allow-network", action="store_true")
         request.add_argument("--state-dir", type=Path, default=Path(".finassist"))
@@ -398,7 +400,7 @@ def execute(args, config: Config | None = None) -> int:
                 "status": result["status"], "reasons": result["blocking_reasons"],
             }
         with Ledger(audit_directory(args) / "audit.sqlite") as ledger:
-            ledger.append({**event, "head": result["head"], "config_hash": digest(canonical(asdict(config)))})
+            ledger.append({**event, "head": result["head"], "config_hash": config_hash(config)})
         _emit(result, args.output)
         if args.output:
             _emit({"output": args.output, "plan_hash": result.get("plan_hash"),
@@ -425,6 +427,7 @@ def execute(args, config: Config | None = None) -> int:
             audit_directory(args) / "audit.sqlite",
             network_approved=args.allow_network,
             approved_packet_hash=args.approve_packet,
+            token_guard=config_token_guard(config, args.repo),
         )
         if args.command == "review" and config.provider == "offline":
             with Ledger(audit_directory(args) / "audit.sqlite") as ledger:
@@ -462,7 +465,7 @@ def execute(args, config: Config | None = None) -> int:
             result["receipt"].update(
                 head=manifest["head"],
                 snapshot_hash=digest(canonical(manifest)),
-                config_hash=digest(canonical(asdict(config))),
+                config_hash=config_hash(config),
             )
             with Ledger(audit_directory(args) / "audit.sqlite") as ledger:
                 ledger.append(

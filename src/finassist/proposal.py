@@ -7,6 +7,7 @@ import jsonschema
 
 from .config import Config
 from .errors import AssistantError
+from .forbidden_tokens import screen_text
 from .patching import patch_paths
 from .ledger import Ledger
 from .review import call_model
@@ -32,6 +33,7 @@ def propose(
     network_approved: bool,
     approved_packet_hash: str,
     transport=None,
+    token_guard=None,
 ) -> dict:
     system = config.instructions() + (
         "\nPropose the smallest corrective unified Git patch for concrete defects. "
@@ -48,12 +50,16 @@ def propose(
         network_approved=network_approved,
         approved_packet_hash=approved_packet_hash,
         transport=transport,
+        token_guard=token_guard,
     )
     try:
         artifact = json.loads(result.text)
         jsonschema.validate(artifact, SCHEMA)
     except (ValueError, jsonschema.ValidationError) as exc:
         raise AssistantError("proposal_schema_invalid") from exc
+    if token_guard is not None:
+        for name in ("summary", "patch"):
+            screen_text(artifact[name], token_guard.snapshot)
     if artifact["head"] != packet["head"]:
         raise AssistantError("proposal_head_mismatch")
     check_output_document({"summary": artifact["summary"]}, packet["files"],

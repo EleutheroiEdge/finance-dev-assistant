@@ -551,6 +551,10 @@ cannot be mixed with report/adjudication mode. Supplying `--adjudications` with
 
 ## Confidential numeric tokens (policy-approved model gate)
 
+`plan`, `review` and `propose` run the same screen when the configuration sets
+`forbidden_token_file` or `forbidden_token_hashes`; see "Confidential figures" in the
+configuration guide. This section describes the gate, and the matching rules both share.
+
 The optional base-policy `model_review.forbidden_token_file` names an absolute,
 operator-controlled file outside both the source and policy repositories and
 Git administrative directories. The strict UTF-8 file contains one numeric
@@ -569,22 +573,46 @@ Hashes of low-entropy numbers can be guessed; they are not encryption.
 For example, the synthetic `6729102.50`, `$6,729,102.500` and `6_729_102.50` normalize to
 `6729102.5`, whose SHA256 is
 `5717d161608c9711d081c00901d8091210e5c7f00a77f0493cb873a8ba0f82b7`.
-Normalization uses decimal strings without floating-point rounding. It accepts
-Unicode decimal digits; an optional `$`, `€`, `£` or `¥` prefix; signs or
-accounting parentheses; dot decimals; groups of three digits using one consistent
-separator (comma, ASCII space, NBSP or narrow NBSP); underscores between any two
-digits, including `6729_102.50`, `67_29_102.50` and `6_7_2_9_1_0_2.50`; and decimal
-exponents up to absolute value 128. Inter-digit underscores are removed before
-validating the remaining number, including fractional and exponent digits. At most 128 digits are accepted. Leading integer zeros and
-trailing fractional zeros are removed; integer trailing zeros are preserved.
-Normalization preserves signs except for zero, but screening compares magnitude:
-a listed figure refuses regardless of sign, accounting parentheses or function-call
-parentheses. A plain digit-bounded pass also screens punctuation and CSV neighbours.
-It fails closed on short figures: listed `234` also refuses `1,234`; `0`, `1` and
-`12` can refuse ordinary constants. A longer uninterrupted digit sequence such as
-`91234567.89` does not match listed `1234567.89`. In text, decimal commas, spelled-out
-amounts, hexadecimal, malformed/mixed grouping and alternative encodings are not supported
-numeric forms.
+A list entry is normalized as a decimal string, without floating-point rounding. An entry
+may use Unicode decimal digits; an optional `$`, `€`, `£` or `¥` prefix; a sign or
+accounting parentheses; a dot decimal; groups of three digits with one consistent
+separator (comma, ASCII space, NBSP or narrow NBSP); underscores between any two digits,
+including `6729_102.50`, `67_29_102.50` and `6_7_2_9_1_0_2.50`; and a decimal exponent up
+to absolute value 128. At most 128 digits are accepted. Leading integer zeros and trailing
+fractional zeros are removed; integer trailing zeros are preserved.
+
+In screened text, the screen reads runs of digits and the single characters between them,
+and compares every number they can form with the list:
+
+- **A whole part** is one run of digits, runs joined by underscores, or groups of three
+  joined by one separator: a comma, a point, an apostrophe, or a space (ASCII, no-break,
+  narrow no-break, thin or figure space).
+- **A fraction** follows a point or a decimal comma, so `6.729.102,50` and `6 729 102,50`
+  are read as `6729102.5`. A leading point is read too, as in `.5`.
+- **An exponent** may follow, as in `6.7291025e6`.
+- **Digits and marks** may be ASCII, fullwidth or Arabic.
+- **Character escapes** (`\u00a0`, `\x36`) and HTML character references (`&nbsp;`,
+  `&#54;`) are read as the characters they spell.
+
+Signs, currency signs and codes, percent signs, brackets, quotes and letters beside a
+number never hide it, and only magnitude is compared: a listed figure refuses whatever
+its sign. Zero padding of any length never hides a value.
+
+The screen over-reads on purpose, because a row of digits and separators can be read in
+more than one way. Every start and every role of a separator is tried: listed `234` also
+refuses `1,234` and `7,234,9`, and `0`, `1` and `12` can refuse ordinary constants. Three
+readings are left out, because they would refuse unrelated numbers:
+
+- **A point between digits is a decimal point first.** Listed `73026` does not refuse
+  `73026.04` or `1.73026`. Digits after a point are read as a number of their own only
+  when they carry their own fraction or groups: `1.48,213.57` holds `48213.57`.
+- **A longer uninterrupted run of digits is another number.** `91234567.89` does not
+  match listed `1234567.89`.
+- **Inside a row of more than nine three-digit groups,** a figure is matched when it
+  starts the row or has at most nine groups (27 digits).
+
+Not read as figures: spelled-out amounts, a figure broken up by other text, percent-encoding
+and other encodings, and, outside `.py` files, hexadecimal.
 
 Every file is screened as text, because what leaves the machine is text: the tuple
 `(6,729,102.50)` in Python code still reads as the figure. In `.py`/`.pyi` files, each
@@ -592,12 +620,15 @@ numeric literal, including one inside an f-string field, is also read with Pytho
 tokenizer and parser and its exact value compared with the deny list. So forms the
 text screen does not parse are refused too, such as underscores in any position and
 integers in any base (for example a hexadecimal literal of a listed whole number).
+A string or bytes literal is also screened by its value when that can differ from its source
+text: a spelling escape such as `\N{DIGIT SIX}` or `\066`, a line continuation, or adjacent
+literals, which Python joins.
 Leading and trailing zeros never change a value, in text or in code, and values as
 long as any policy entry can expand to (up to 256 digits) are compared. While screening
 is enabled, a `.py` file that Python cannot tokenize is refused with
-`forbidden_token_python_unreadable` instead of being screened another way. On Python
-before 3.12, a file that tokenizes but does not parse is refused the same way when it
-has f-string fields, because only the parser can read numbers inside them there.
+`forbidden_token_python_unreadable` instead of being screened another way. A file that
+tokenizes but does not parse is refused the same way when it has such a string, or, on
+Python before 3.12, f-string fields, because only the parser can read them.
 
 This is a bounded backstop, not a proof that arbitrary source cannot encode a
 confidential figure. The primary control is keeping client figures out of reviewed

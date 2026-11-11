@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from pathlib import Path
 import tempfile
 import uuid
 
-from .config import Config
+from .config import Config, config_hash
 from .errors import AssistantError, OperationOutcomeUnknown
 from .runner import run_recipe
 from .security import canonical, digest, pinned_image, write_private
@@ -62,7 +61,7 @@ def _validate_result(document: dict, state: dict, plan: dict, step_id: str, conf
     if (
         any(receipt.get(key) != value for key, value in expected.items())
         or snapshot.get("head") != state["head"] or digest(canonical(snapshot)) != expected["snapshot_hash"]
-        or digest(canonical(asdict(config))) != plan["config_hash"]
+        or config_hash(config) != plan["config_hash"]
         or len(canonical(document)) + 1 > MAX_WORKFLOW_ARTIFACT_BYTES
     ):
         raise AssistantError("workflow_result_invalid")
@@ -162,7 +161,7 @@ def execute_run(store: WorkflowStore, identifier: str, repo: Path, config: Confi
         config.validate()
         if approved_plan != plan["plan_hash"]:
             raise AssistantError("workflow_plan_approval_required")
-        if digest(canonical(asdict(config))) != plan["config_hash"]:
+        if config_hash(config) != plan["config_hash"]:
             report = inspect_run(store, identifier)
             report.update(status="blocked", blocking_reasons=sorted(
                 {*report["blocking_reasons"], "workflow_configuration_changed"}))

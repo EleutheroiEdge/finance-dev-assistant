@@ -188,7 +188,7 @@ def test_untokenizable_python_is_refused_only_while_screening():
 
 @pytest.mark.parametrize("name,source,refused", [
     ("data.csv", "id,amount\n7,6729102.50\n", True),
-    ("notes.md", "Total: 6.729.102,50\n", False),                # documented gap: decimal commas
+    ("notes.md", "Total: 6.729.102,50\n", True),                 # point groups and a decimal comma
     ("notes.md", "six million seven hundred twenty-nine thousand one hundred two\n", False),
 ])
 def test_non_python_figures_use_the_text_screen(name, source, refused):

@@ -1,4 +1,4 @@
-from dataclasses import asdict, replace
+from dataclasses import replace
 import json
 from pathlib import Path
 import subprocess
@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from conftest import command
-from finassist.config import Config, load_config, save_config
+from finassist.config import Config, load_config, save_config, config_hash
 from finassist.errors import AssistantError
 from finassist.evaluation import evaluate
 from finassist.github_audit import inspect_github
@@ -94,13 +94,13 @@ def test_profile_files_are_relative_data_and_content_bound(tmp_path, monkeypatch
     config = load_config(path)
     assert "Inspect synthetic invariant Ω." in config.instructions()
     assert "cannot execute tools" in config.instructions()
-    before = digest(canonical(asdict(config)))
+    before = config_hash(config)
     save_config(tmp_path / "saved.json", config)
     source.write_text(
         json.dumps({"custom": ["Inspect a changed invariant."]}), encoding="utf-8", newline="\n"
     )
     loaded = load_config(tmp_path / "saved.json")
-    assert digest(canonical(asdict(loaded))) != before
+    assert config_hash(loaded) != before
     assert "changed invariant" in loaded.instructions()
 
 
@@ -136,7 +136,7 @@ def test_model_uses_loaded_custom_checklist(repository, tmp_path, monkeypatch):
         approved_packet_hash=packet["packet_hash"],
         transport=httpx.MockTransport(reply),
     )
-    assert result["config_hash"] == digest(canonical(asdict(config)))
+    assert result["config_hash"] == config_hash(config)
 
 
 def test_enterprise_metadata_goes_only_to_configured_host(monkeypatch):

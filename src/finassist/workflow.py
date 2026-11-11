@@ -7,7 +7,7 @@ from pathlib import Path
 
 import jsonschema
 
-from .config import Config
+from .config import Config, config_hash
 from .errors import AssistantError
 from .scope import read_entry, resolve, review_omissions, verify_packet
 from .security import canonical, check_text, digest
@@ -205,7 +205,7 @@ def build_workflow_plan(template: dict, packet: dict, repo: Path, config: Config
     parsed = parse_template(template, config)
     return WorkflowPlan(
         1, parsed, digest(canonical(template)), packet["base"], packet["head"], packet["packet_hash"],
-        digest(canonical(asdict(config))),
+        config_hash(config),
         _methodology_bindings(parsed, repo, packet["head"], config), _recipe_bindings(parsed, config),
     ).document()
 
@@ -234,7 +234,7 @@ def preflight_workflow(plan: dict, packet: dict, repo: Path, config: Config) -> 
     head = resolve(repo, "HEAD")
     if head != plan["head"]:
         blockers.add("workflow_head_changed")
-    if digest(canonical(asdict(config))) != plan["config_hash"]:
+    if config_hash(config) != plan["config_hash"]:
         blockers.add("workflow_configuration_changed")
     else:
         verify_packet(packet, config)
@@ -279,7 +279,7 @@ def verify_workflow_gate(
     if preflight["status"] == "blocked":
         return {
             **preflight, "head": head, "workflow_plan_hash": plan["plan_hash"],
-            "policy_hash": digest(canonical(asdict(config))),
+            "policy_hash": config_hash(config),
         }
     report = verify_gate(
         packet, review, checks, config, head, state,

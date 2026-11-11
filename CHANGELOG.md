@@ -2,6 +2,50 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Security
+- **The confidential-figure screen missed figures written beside ordinary punctuation.** In 0.10.0
+  and earlier, a listed figure could pass when it sat against a single parenthesis, as in
+  `(48,213.57 before)`, after a dotted prefix, between neighbouring number columns, or inside some
+  exponent forms. A generated test (each figure in every notation, sign and surrounding) found
+  12,659 of 207,636 cases passing, 6.1%, in the notations 0.10.0 documented as read. The screen is
+  rebuilt on one reader of digit runs, and the test, now 291,357 cases, finds none.
+  - It also reads decimal commas (`6.729.102,50`), apostrophe, thin-space and figure-space groups,
+    fullwidth and Arabic digits and marks, a leading point, character escapes and HTML character
+    references.
+  - In `.py` files a string or bytes value that differs from its source text is screened too: a
+    spelling escape, a line continuation, or adjacent literals.
+  - If you rely on the screen, upgrade. A packet that 0.10.0 passed can be refused now, with
+    `forbidden_token_present`.
+- **`plan`, `review` and `propose` had no figure screen.** Only the gate did, so a range that
+  `doctor` called ready could carry listed figures on the configuration route. See Added.
+
+### Added
+- **Confidential figures on the configuration route.** `forbidden_token_file` and
+  `forbidden_token_hashes` are now configuration settings too, with the gate's rules:
+  - `plan` screens the instructions, every changed file and related context, and names the file
+    that holds a figure in local output only;
+  - `review` and `propose` load the list again, screen the packet again before sending and
+    screen what the model returns. They take `--repo` for the check that the list sits outside
+    the repository;
+  - `doctor --base --head` lists each file that holds a figure, and reports `figure_screen`
+    (`configured`, `listed`) so a ready report says whether any figure screen ran;
+  - a request prepared without the screen is refused with `forbidden_token_guard_required`.
+
+### Changed
+- **Adding these settings does not change the configuration hash.** A setting marked this way is
+  left out of the hash while it has its default, so saved check records, workflow plans and
+  readiness evidence from 0.10.0 still count after the upgrade.
+- **A gate can refuse what it passed before, when the policy lists figures:**
+  - the notations above are now read as the listed figure;
+  - a `.py` file that tokenizes but does not parse is refused with
+    `forbidden_token_python_unreadable` when a string in it has a spelling escape, a line
+    continuation or an adjacent literal;
+  - a listed whole number no longer refuses a decimal that merely starts with it. `73026.04`
+    passes when `73026` is listed, in every surrounding; 0.10.0 refused it in some.
+  Nothing else about what a gate accepts, authorizes or spends has changed.
+
 ## 0.10.0 - 2026-11-10
 
 ### Changed

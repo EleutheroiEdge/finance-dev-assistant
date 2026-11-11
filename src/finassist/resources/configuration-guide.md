@@ -245,6 +245,33 @@ works in a gate policy's `model_review` object. What happens then:
 reviewed file that mentions a private file is outside this guarantee; it is screened like any other
 source.
 
+## Confidential figures
+
+`plan`, `review`, `propose` and `doctor` refuse a range that holds a listed confidential figure
+when the configuration names a list:
+
+- **`forbidden_token_file`:** an absolute path to a private file outside the repository and its
+  worktrees, with one figure per line.
+- **`forbidden_token_hashes`:** up to 1,024 SHA256 hashes of canonical figures. A hash of a
+  short number can be guessed, so keep the hashes private too.
+
+With neither set, which is the default, no figure screen runs, and `doctor --base --head` says
+so under `figure_screen`. With a list set:
+
+- **`plan`** screens the instructions, both versions of every changed file and any related
+  context. It names the file that holds a figure in its local output only, and never prints
+  the figure.
+- **`review` and `propose`** load the list again and screen the packet again before anything
+  is sent, then screen what the model returns. Pass `--repo` when you run them from outside
+  the repository: the list must not sit inside it.
+- **`doctor --base --head`** lists each file that holds a figure with the code
+  `forbidden_token_present`, and reports how many entries the list holds.
+
+A request prepared without the screen is refused with `forbidden_token_guard_required`, so a
+configured list can never be skipped. The matching rules are the gate's; see "Confidential
+numeric tokens" in the pre-merge gate guide. While both settings are empty they leave the
+configuration hash unchanged, so adding them does not make saved check records stale.
+
 ## Custom profiles
 
 `profile_files` contains UTF-8 JSON objects mapping profile names to checklist

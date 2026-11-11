@@ -5,6 +5,7 @@ This module does not load policy, authorize a request or dispatch a provider.
 
 from dataclasses import dataclass, field
 import hashlib
+import html
 import io
 import os
 from pathlib import Path
@@ -15,7 +16,8 @@ import unicodedata
 
 from .errors import AssistantError
 from .python_source import (MAX_FIGURE_DIGITS, fstring_constant_texts, hidden_fstring_fields, is_python_path,
-                            number_text, python_tokens, python_tree)
+                            number_text, python_tokens, python_tree, string_constant_values,
+                            strings_read_differently)
 from .security import regular_path
 
 _CURRENCIES = "$€£¥"
@@ -60,11 +62,17 @@ def normalize_numeric_token(value: str, *, max_digits: int = 128) -> str:
     match = _DECIMAL.fullmatch(value)
     if match is None:
         raise AssistantError("forbidden_token_invalid")
-    integer = match["integer"].replace(",", "")
-    fraction = match["fraction"] or ""
-    exponent = int(match["exponent"] or "0")
-    if len(integer) + len(fraction) > max_digits or abs(exponent) > 128:
+    result = _plain_decimal(match["integer"].replace(",", ""), match["fraction"] or "",
+                            int(match["exponent"] or "0"), max_digits)
+    if result is None:
         raise AssistantError("forbidden_token_invalid")
+    return ("-" if negative and result != "0" else "") + result
+
+
+def _plain_decimal(integer: str, fraction: str, exponent: int, max_digits: int) -> str | None:
+    """The unsigned canonical decimal of ASCII digits, or None when it is over the bounds."""
+    if len(integer) + len(fraction) > max_digits or abs(exponent) > 128:
+        return None
     digits = integer + fraction
     point = len(integer) + exponent
     if point <= 0:
@@ -76,8 +84,7 @@ def normalize_numeric_token(value: str, *, max_digits: int = 128) -> str:
     whole, _, fractional = result.partition(".")
     whole = whole.lstrip("0") or "0"
     fractional = fractional.rstrip("0")
-    result = whole + ("." + fractional if fractional else "")
-    return ("-" if negative and result != "0" else "") + result
+    return whole + ("." + fractional if fractional else "")
 
 
 MAX_TOKEN_BYTES = 131_072
@@ -170,70 +177,188 @@ def load_token_snapshot(rules: dict, excluded_roots: tuple[Path, ...]) -> TokenS
     return TokenSnapshot(frozenset(hashes), path, count, fingerprint)
 
 
-# Broad passes cover grouping and exponents. The plain pass also finds a
-# literal beside punctuation/numeric CSV cells when a broad candidate is invalid.
-_PLAIN = re.compile(r"(?<!\d)\d+(?:\.\d+)?(?!\d)")
-_NUMBER = re.compile(r"(?<![\d.])(?:\()?[-+]?[$€£¥]?[-+]?\d+(?:[,._ \u00a0\u202f]\d+)*(?:[eE][-+]?\d+)?(?:\))?(?!\d)")
-_UNGROUPED = re.compile(r"(?<![\d.,])(?:\()?[-+]?[$€£¥]?[-+]?\d+(?:[,._]\d+)*(?:[eE][-+]?\d+)?(?:\))?(?![\d,])")
+_RUN = re.compile(r"\d+")  # Any Unicode decimal digits, like str.isdecimal.
+# What one character between two digit runs can mean inside a single number. Each class is
+# tried as every role it can play, so `48.213,57` is read both ways.
+_GAP_CLASS = {
+    "_": "_", "e": "e", "E": "e",
+    ".": ".", "\uff0e": ".", "\u066c": ".",
+    ",": ",", "\uff0c": ",", "\u066b": ",",
+    " ": " ", "\u00a0": " ", "\u2007": " ", "\u2009": " ", "\u202f": " ",
+    "'": "'", "\u2019": "'",
+}
+_MARKS = (".", ",")
+_GROUP_CLASSES = frozenset(". ,'")
+_LEADING_POINTS = ".\uff0e"
+# Inside a longer row of three-digit groups, readings up to this many groups are tried from each
+# start, and the longest one. Eight groups past the first is 27 digits.
+_GROUPS_TRIED = 8
+# No reading reaches further than this many runs past its first: a whole part of at most
+# MAX_FIGURE_DIGITS + 1 runs, a fraction of as many, and an exponent.
+_LOOKAHEAD = 2 * MAX_FIGURE_DIGITS + 8
 
 
-# A preceding/following separate number must not swallow a space-grouped value.
-# Match valid space/underscore groups directly as well as broad candidates.
-_SPACED = re.compile(r"(?<![\d.,])(?:\()?[-+]?[$€£¥]?[-+]?\d{1,3}"
-                     r"(?P<group>[ _\u00a0\u202f])\d{3}(?:(?P=group)\d{3})*"
-                     r"(?:\.\d+)?(?:[eE][-+]?\d+)?(?:\))?(?!\d|[,.]\d)")
+def _gap_class(text: str, end: int, start: int) -> str | None:
+    """How the characters between two digit runs join them, or None when they do not."""
+    if start - end == 1:
+        return _GAP_CLASS.get(text[end])
+    if start - end == 2 and text[end] in "eE" and text[end + 1] in "+-":
+        return "e" + text[end + 1]
+    return None
 
 
-_DIGIT_SEPARATED = re.compile(
-    r"(?<![\d.])(?:\()?[-+]?[$€£¥]?[-+]?\d[\d_]*"
-    r"(?:\.[\d_]+)?(?:[eE][-+]?[\d_]+)?(?:\))?(?!\d)"
-)
+def _readings(text: str):
+    """Yield (whole, fraction, exponent) for every way the digits in text can be read as a number.
 
+    A number is a whole part, an optional fraction and an optional exponent. The whole part is
+    one digit run, runs joined by underscores, or groups of three joined by one separator.
+    Signs, currency signs, brackets and letters beside a number never hide it, because only
+    digit runs and the single characters between them are read. Reading every start and every
+    role over-reads on purpose: `1,234` is also read as 1 and as 234. A point between digits is
+    a decimal point first: `73026.04` is not also read as 73026, and the digits after a point
+    start a number of their own only with their own fraction or groups, as in `1.48213.57`.
 
-def _listed(number: str, snapshot: TokenSnapshot) -> bool:
-    magnitude = number.lstrip("-")
-    # Hash-only policies can list either sign. Compare both without
-    # recovering or retaining any configured plaintext value.
-    forms = {number, magnitude, "-" + magnitude} if magnitude != "0" else {"0"}
-    return any(hashlib.sha256(form.encode("utf-8")).hexdigest() in snapshot.hashes for form in forms)
-
-
-_LEADING_ZEROS = re.compile(r"(?<![0-9.,])0+(?=[0-9])")
-
-
-def _without_zero_padding(candidate: str) -> str:
-    """Drop leading integer zeros and trailing fraction zeros, which never change a value.
-
-    Unicode decimal digits become ASCII and underscores between digits are removed
-    first, so Arabic-Indic zero padding is trimmed and `1.20_1` stays 1.201. The
-    fraction is trimmed in one linear pass.
+    Leading zeros are dropped from each whole part, so padding never hides a value. Work is
+    linear in the text and memory is bounded: runs are read through a sliding window, and
+    only the first run of a row of groups or of underscore-joined runs is read to its end.
     """
-    ascii_digits = "".join(str(unicodedata.decimal(c)) if c.isdecimal() else c for c in candidate)
-    compact = _LEADING_ZEROS.sub("", re.sub(r"(?<=[0-9])_(?=[0-9])", "", ascii_digits))
-    point = compact.rfind(".")
-    if point < 0:
-        return compact
-    end = point + 1
-    while end < len(compact) and compact[end].isdigit():
-        end += 1
-    fraction = compact[point + 1:end].rstrip("0")
-    return compact[:point] + ("." + fraction if fraction else "") + compact[end:]
+    starts, digits, before, gaps, inner = [], [], [], [], []
+
+    def joined(index: int, value: str) -> tuple[str, int]:
+        last = index
+        while gaps[last] == "_" and len(value) <= MAX_FIGURE_DIGITS:
+            last += 1
+            value += digits[last]
+        return value, last
+
+    def with_exponent(whole: str, fraction: str, last: int):
+        yield whole, fraction, 0
+        gap = gaps[last]
+        if gap is not None and gap[0] == "e" and len(digits[last + 1]) <= 3:
+            yield whole, fraction, int(digits[last + 1]) * (-1 if gap[-1] == "-" else 1)
+
+    def with_fraction(whole: str, last: int, separator: str | None, alone: bool):
+        mark = gaps[last]
+        decimal = mark in _MARKS and mark != separator
+        if alone and not (decimal and mark == "."):
+            yield from with_exponent(whole, "", last)
+        if decimal:
+            yield from with_exponent(whole, digits[last + 1], last + 1)
+            fraction, far = joined(last + 1, digits[last + 1])
+            if far > last + 1:
+                yield from with_exponent(whole, fraction, far)
+
+    def from_run(index: int):
+        first = digits[index].lstrip("0")
+        fractional = before[index] == "."
+        yield from with_fraction(first, index, None, not fractional)
+        # After an all-zero run the next run starts the same value, and a run inside an
+        # underscore-joined number is not read as the start of another one.
+        if first and not inner[index]:
+            whole, last = joined(index, first)
+            if last > index:
+                yield from with_fraction(whole, last, None, not fractional)
+        separator = gaps[index]
+        if separator in _GROUP_CLASSES and len(first) <= 3:
+            # Inside a row of groups a few readings are tried from each start; its first run
+            # is also read to the end of the row.
+            most = MAX_FIGURE_DIGITS if before[index] != separator else _GROUPS_TRIED
+            whole, last, groups = first, index, 0
+            while (gaps[last] == separator and len(digits[last + 1]) == 3 and groups < most
+                   and len(whole) <= MAX_FIGURE_DIGITS):
+                last += 1
+                whole = (whole + digits[last]).lstrip("0")
+                groups += 1
+                if groups <= _GROUPS_TRIED:
+                    yield from with_fraction(whole, last, separator, True)
+            if groups > _GROUPS_TRIED:
+                yield from with_fraction(whole, last, separator, True)
+        start = starts[index]
+        if start and text[start - 1] in _LEADING_POINTS and not fractional:
+            yield from with_exponent("", digits[index], index)  # `.57`
+            fraction, far = joined(index, digits[index])
+            if far > index:
+                yield from with_exponent("", fraction, far)
+
+    previous_end, significant = None, False
+    for match in _RUN.finditer(text):
+        gap = None if previous_end is None else _gap_class(text, previous_end, match.start())
+        if previous_end is not None:
+            gaps.append(gap)
+        # True when the underscore-joined run before this one already holds a non-zero digit.
+        significant = gap == "_" and (significant or bool(digits[-1].strip("0")))
+        run = match.group()
+        starts.append(match.start())
+        digits.append(run if run.isascii() else "".join(str(unicodedata.decimal(c)) for c in run))
+        before.append(gap)
+        inner.append(significant)
+        previous_end = match.end()
+        if len(digits) > 2 * _LOOKAHEAD:
+            ready = len(digits) - _LOOKAHEAD
+            for index in range(ready):
+                yield from from_run(index)
+            del starts[:ready], digits[:ready], before[:ready], gaps[:ready], inner[:ready]
+    gaps.append(None)
+    for index in range(len(digits)):
+        yield from from_run(index)
+
+
+_ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})|\\U([0-9a-fA-F]{8})|\\x([0-9a-fA-F]{2})")
+
+
+def _spelled_out(text: str) -> str | None:
+    """The text with character escapes and HTML entities replaced by what they spell, or None if it has none.
+
+    JSON, JavaScript and Python write a no-break space as an escape and HTML writes it as an
+    entity, so `48\\u00a0213.57` and `48&nbsp;213.57` are read as the figure they display.
+    """
+    if "\\" not in text and "&" not in text:
+        return None
+
+    def character(match: re.Match) -> str:
+        try:
+            return chr(int(match.group(1) or match.group(2) or match.group(3), 16))
+        except ValueError:  # Past the last code point: not a character.
+            return match.group()
+
+    decoded = html.unescape(_ESCAPE.sub(character, text))
+    return None if decoded == text else decoded
+
+
+def _listed(magnitude: str, snapshot: TokenSnapshot) -> bool:
+    # A hash-only policy can list either sign. Compare both without
+    # recovering or retaining any configured plaintext value.
+    forms = (magnitude, "-" + magnitude) if magnitude != "0" else ("0",)
+    return any(hashlib.sha256(form.encode("utf-8")).hexdigest() in snapshot.hashes for form in forms)
 
 
 def screen_text(text: str, snapshot: TokenSnapshot) -> None:
     """Check content only; callers must select typed content, not filenames."""
     if not snapshot.hashes:
         return
-    for pattern in (_NUMBER, _UNGROUPED, _SPACED, _DIGIT_SEPARATED, _PLAIN):
-        for match in pattern.finditer(text):
-            candidate = match.group()
-            for form in {candidate, _without_zero_padding(candidate)}:
-                try:
-                    number = normalize_numeric_token(form, max_digits=MAX_FIGURE_DIGITS)
-                except AssistantError:
-                    continue
-                if _listed(number, snapshot):
-                    raise AssistantError("forbidden_token_present")
+    seen = set()
+    for view in (text, _spelled_out(text)):
+        for whole, fraction, exponent in _readings(view or ""):
+            # Zeros that never change the value are dropped before the bounds apply.
+            number = _plain_decimal(whole, fraction.rstrip("0"), exponent, MAX_FIGURE_DIGITS)
+            if number is None or number in seen:
+                continue
+            seen.add(number)
+            if _listed(number, snapshot):
+                raise AssistantError("forbidden_token_present")
+
+
+def _screen_python_numbers(numbers, snapshot: TokenSnapshot) -> None:
+    """Refuse a listed value among the plain decimal texts of Python literals."""
+    for plain in numbers:
+        if plain is None:
+            continue
+        try:
+            number = normalize_numeric_token(plain, max_digits=MAX_FIGURE_DIGITS)
+        except AssistantError:
+            continue
+        if _listed(number.lstrip("-"), snapshot):
+            raise AssistantError("forbidden_token_present")
 
 
 def screen_source(text: str, path: str | None, snapshot: TokenSnapshot) -> None:
@@ -250,22 +375,18 @@ def screen_source(text: str, path: str | None, snapshot: TokenSnapshot) -> None:
         # Never fall back silently: an unreadable Python file is refused.
         raise AssistantError("forbidden_token_python_unreadable")
     numbers = [number_text(token.string) for token in tokens if token.type == tokenize.NUMBER]
-    if hidden_fstring_fields(tokens):
-        # Before Python 3.12 numbers inside f-string fields stay inside one STRING
-        # token, so only the AST can read them.
-        tree = python_tree(text)
-        if tree is None:
-            raise AssistantError("forbidden_token_python_unreadable")
+    # Before Python 3.12 numbers inside f-string fields stay inside one STRING token, and a
+    # string's value can differ from its source text. Only the AST can read either.
+    hidden, respelled = hidden_fstring_fields(tokens), strings_read_differently(tokens)
+    tree = python_tree(text) if hidden or respelled else None
+    if tree is None and (hidden or respelled):
+        raise AssistantError("forbidden_token_python_unreadable")
+    if hidden:
         numbers += fstring_constant_texts(tree, text)
-    for plain in numbers:
-        if plain is None:
-            continue
-        try:
-            number = normalize_numeric_token(plain, max_digits=MAX_FIGURE_DIGITS)
-        except AssistantError:
-            continue
-        if _listed(number, snapshot):
-            raise AssistantError("forbidden_token_present")
+    _screen_python_numbers(numbers, snapshot)
+    if respelled:
+        for value in string_constant_values(tree):
+            screen_text(value, snapshot)
 
 
 def _line_numbers(line: str) -> list[str | None]:
@@ -302,15 +423,7 @@ def screen_lines(lines: list[str], path: str | None, snapshot: TokenSnapshot) ->
     if not is_python_path(path):
         return
     for line in lines:
-        for plain in _line_numbers(line):
-            if plain is None:
-                continue
-            try:
-                number = normalize_numeric_token(plain, max_digits=MAX_FIGURE_DIGITS)
-            except AssistantError:
-                continue
-            if _listed(number, snapshot):
-                raise AssistantError("forbidden_token_present")
+        _screen_python_numbers(_line_numbers(line), snapshot)
 
 
 def screen_packet(packet: dict, system: str, snapshot: TokenSnapshot) -> None:
@@ -320,9 +433,22 @@ def screen_packet(packet: dict, system: str, snapshot: TokenSnapshot) -> None:
         for side in ("before", "after"):
             if item[side] is not None:
                 screen_source(item[side], item.get("path"), snapshot)
+    screen_related(packet, snapshot)
+
+
+def screen_related(packet: dict, snapshot: TokenSnapshot) -> None:
+    """The related-context snippets of a packet: each symbol and every line shown."""
     for item in packet.get("related", {}).get("snippets", ()):
         screen_text(item["symbol"], snapshot)
         screen_lines([line for _number, line in item["lines"]], item.get("path"), snapshot)
+
+
+def screen_review_output(review: dict, snapshot: TokenSnapshot) -> None:
+    """The free text a model returned in a review, before any of it is shown or saved."""
+    screen_text(review["summary"], snapshot)
+    for finding in review["findings"]:
+        for name in ("claim", "impact", "reproduction"):
+            screen_text(finding[name], snapshot)
 
 
 @dataclass(frozen=True)

@@ -13,13 +13,13 @@ from .ci_policy import read_document, revision
 from .errors import AssistantError
 from .finding_identity import finding_identifier
 
-from .forbidden_tokens import TokenGuard, load_token_snapshot, screen_packet, screen_source, screen_text
+from .forbidden_tokens import TokenGuard, load_token_snapshot, screen_review_output
 from .github_context import pull_request_context, verify_origin
 from .ledger import Ledger
 from .model_policy import load_model_policy
 from .providers import request_identity, request_shape
 from .review import PolicyRequestApproval, call_model, review_schema, validate_review
-from .scope import WITHHELD_CODES, build_packet, git, resolve
+from .scope import WITHHELD_CODES, build_packet, checkout_roots, git, resolve
 from .policy_ignores import ignored_paths, screen_ignores as _screen_ignores
 from .security import canonical, check_model_path as _scope_path, digest, regular_path
 
@@ -99,19 +99,11 @@ def prepare_token_guard(policy, source_repo: Path | None = None) -> TokenGuard |
     rules = policy.document["model_review"]
     if not any(name in rules for name in ("forbidden_token_file", "forbidden_token_hashes")):
         return None
-    roots = []
-    for repo in dict.fromkeys((source_repo, policy.repo)):
-        if repo is None:
-            continue
-        roots.append(repo)
-        common = Path(git(repo, "rev-parse", "--git-common-dir"))
-        roots.append(common if common.is_absolute() else repo / common)
-        # A linked checkout is part of the same repository, even when its path
-        # is outside the current checkout and common Git directory.
-        entries = git(repo, "worktree", "list", "--porcelain", "-z", binary=True).decode().split("\0")
-        roots.extend(Path(entry.removeprefix("worktree ")) for entry in entries if entry.startswith("worktree "))
-    guard = TokenGuard(dict(rules), tuple(roots), load_token_snapshot(rules, tuple(roots)))
-    return guard
+    # A linked checkout is part of the same repository, even when its path is outside the
+    # current checkout and common Git directory.
+    roots = tuple(root for repo in dict.fromkeys((source_repo, policy.repo)) if repo is not None
+                  for root in checkout_roots(repo))
+    return TokenGuard(dict(rules), roots, load_token_snapshot(rules, roots))
 
 
 def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_repo: Path | None = None) -> dict:
@@ -163,7 +155,7 @@ def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_rep
     if policy_repo is not None and (policy_repo != repo or policy.base != base):
         _screen_ignores(policy_repo, {policy.base}, reviewed + profile_paths + marker_paths)
     guard = prepare_token_guard(policy, repo)
-    admit = screen = None
+    admit = None
     if config.related_context == "related":
         def admit(candidates: list[str]) -> set[str]:
             """Related candidates meet the same policy rules as changed files, or are left out."""
@@ -181,18 +173,14 @@ def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_rep
                 ignored |= ignored_paths(policy_repo, {policy.base}, kept)
             return set(kept) - ignored
 
-        if guard is not None:
-            def screen(text: str, path: str) -> None:
-                screen_source(text, path, guard.snapshot)
+    # The builder screens the instructions, every file, each related candidate and every snippet.
     packet = build_packet(repo, base, head, config, withhold=frozenset(withhold), related_admit=admit,
-                          related_screen=screen)
+                          token_guard=guard)
     withheld = packet.get("withheld", {}).get("count", 0)
     if packet["omitted"] or withheld != len(withhold) or len(packet["files"]) != len(reviewed):
         raise AssistantError("scope_incomplete")
     if not packet["files"]:
         raise AssistantError("review_scope_entirely_withheld")
-    if guard is not None:
-        screen_packet(packet, config.instructions(), guard.snapshot)
     return packet
 
 
@@ -277,10 +265,7 @@ def _evaluate_model_gate(repo: Path, base: str, head: str, policy_loader, state_
             raise AssistantError("gate_provider_echoed_key")
         validate_review(data, packet, config=config)
         if token_guard is not None:
-            screen_text(data["summary"], token_guard.snapshot)
-            for finding in data["findings"]:
-                for field in ("claim", "impact", "reproduction"):
-                    screen_text(finding[field], token_guard.snapshot)
+            screen_review_output(data, token_guard.snapshot)
         report["findings"] = [{"severity": finding["severity"], "file": finding["path"],
                                "line": finding["line"], "claim": finding["claim"],
                                "evidence_status": "source-reference-validated-not-reproduced"}
