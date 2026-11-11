@@ -203,13 +203,27 @@ _CELL_EDGE = re.compile(r"[\s$\u20ac\u00a3\u00a5%()+\-\u2212\"']*(?:[A-Z]{3})?[\
 
 
 def _cell_readings(cell: str) -> list[tuple[str, str]]:
-    """Every (whole, fraction) reading of a cell that holds exactly one number, in any notation."""
+    """Every value a cell that holds exactly one number can have, as (whole, fraction) digits.
+
+    Any notation the screen reads in a payload is read here: groups, either decimal mark, a
+    leading point as in `.4821357`, and an exponent as in `1.23456789e6`, which is applied.
+    """
     runs = list(_RUN.finditer(cell))
-    if not runs or len(runs) > 64 or not (_CELL_EDGE.fullmatch(cell[:runs[0].start()])
-                                         and _CELL_EDGE.fullmatch(cell[runs[-1].end():])):
+    if not runs or len(runs) > 64:
         return []
-    return [(whole, fraction) for whole, fraction, exponent, first, last in _readings(cell)
-            if exponent == 0 and first == 0 and last == len(runs) - 1]
+    lead = cell[:runs[0].start()]
+    pointed = lead[-1:] in _LEADING_POINTS and bool(lead)  # `.57`: the point is part of the number.
+    if not (_CELL_EDGE.fullmatch(lead[:-1] if pointed else lead) and _CELL_EDGE.fullmatch(cell[runs[-1].end():])):
+        return []
+    found = []
+    for whole, fraction, exponent, first, last in _readings(cell):
+        # The reading must take in the whole cell; behind a leading point it has no whole part.
+        if exponent is None or first != 0 or last != len(runs) - 1 or (pointed and whole):
+            continue
+        number = _plain_decimal(whole, fraction.rstrip("0"), exponent, 128)
+        if number is not None:
+            found.append(tuple(number.partition(".")[::2]))
+    return found
 
 
 def _source_figures(raw: bytes, min_digits: int) -> tuple[set[str], set[str]]:
@@ -225,10 +239,9 @@ def _source_figures(raw: bytes, min_digits: int) -> tuple[set[str], set[str]]:
         for cell in row:
             for whole, fraction in _cell_readings(cell):
                 found = _digit_forms(whole, fraction, min_digits)
-                number = _plain_decimal(whole, fraction.rstrip("0"), 0, 128)
-                if not found or number is None or (not fraction and _is_date(whole.lstrip("0"))):
+                if not found or (not fraction and _is_date(whole.lstrip("0"))):
                     continue
-                values.add(number)
+                values.add(whole + ("." + fraction if fraction else ""))
                 forms |= found
     return values, forms
 
@@ -342,15 +355,19 @@ _HEX = frozenset("0123456789abcdefABCDEF")
 _HEX_LETTERS = frozenset("abcdfABCDF")  # Without e: `482135712e-4` is a number with an exponent.
 
 
-def _in_hex_token(text: str, start: int, end: int) -> bool:
-    """True when a digit run sits inside a word of seven or more hexadecimal characters that holds
-    a letter other than e: a commit or content hash, whose digits are not a figure."""
+def _hex_token(text: str, start: int, end: int) -> tuple[int, int, bool]:
+    """The word around a digit run, as (start, end, hexadecimal).
+
+    Hexadecimal means seven or more hexadecimal characters with a letter other than e: a commit
+    or content hash, whose digits are not a figure. The caller keeps the answer for every other
+    run inside the same word, so a word is scanned once however many runs it holds.
+    """
     while start and text[start - 1] in _WORD:
         start -= 1
     while end < len(text) and text[end] in _WORD:
         end += 1
     word = text[start:end]
-    return len(word) >= 7 and all(c in _HEX for c in word) and any(c in _HEX_LETTERS for c in word)
+    return start, end, len(word) >= 7 and all(c in _HEX for c in word) and any(c in _HEX_LETTERS for c in word)
 
 
 def _readings(text: str, digit_limit: int = 0):
@@ -374,6 +391,7 @@ def _readings(text: str, digit_limit: int = 0):
     only the first run of a row of groups or of underscore-joined runs is read at every length.
     """
     starts, digits, before, gaps, inner = [], [], [], [], []
+    word = (0, 0, False)  # The last word examined for digit matching: (start, end, hexadecimal).
 
     def joined(index: int, value: str) -> tuple[str, int]:
         last = index
@@ -432,8 +450,11 @@ def _readings(text: str, digit_limit: int = 0):
         # Digit matching: significant digits never start with a zero run, and a row is followed
         # only while it can still be as short as a listed form (trailing zeros do not count).
         if digit_limit and first:
+            nonlocal word
             row, last = first, index
-            if not _in_hex_token(text, start, start + len(digits[index])):
+            if not word[0] <= start < word[1]:  # Runs come in text order, so one word is scanned once.
+                word = _hex_token(text, start, start + len(digits[index]))
+            if not word[2]:
                 yield row, None, None, index
             while gaps[last] in _DIGIT_JOINS and len(row.rstrip("0")) <= digit_limit and len(row) <= digit_limit + 32:
                 last += 1
@@ -523,8 +544,10 @@ def screen_text(text: str, snapshot: TokenSnapshot) -> None:
             if _listed(number, snapshot):
                 raise AssistantError("forbidden_token_present")
             # A longer decimal also matches by its two-place rounding, as the list's own figures do.
-            if limit and len(fraction) > 2 and len(whole) + len(fraction) <= 64 and _digits_listed(
-                    _digit_forms(whole, fraction, MIN_DIGITS) - {(whole + fraction).strip("0")}, snapshot):
+            # The rounding is of the value, with any exponent applied: `9.05125e2` is 905.125.
+            units, _, places = number.partition(".")
+            if limit and len(places) > 2 and len(number) <= 65 and _digits_listed(
+                    _digit_forms(units, places, MIN_DIGITS) - {(units + places).strip("0")}, snapshot):
                 raise AssistantError("forbidden_token_present")
 
 
