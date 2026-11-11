@@ -1,9 +1,9 @@
 """Unattended checks under a pinned CI envelope; never approve model requests."""
 
-from dataclasses import asdict
 import json
 from pathlib import Path
 
+from .config import config_hash
 from .ci_policy import load_ci_policy, repository_name
 from .errors import OperationOutcomeUnknown
 from .github_context import PullRequestContext, verify_origin
@@ -110,7 +110,7 @@ def ci_gate(repo: Path, context: PullRequestContext, policy_path: str, policy_sh
     report = {
         "schema_version": 1, "status": "blocked" if blockers else "passed", "mode": "checks-only",
         "context": context.document(), "policy_hash": policy.sha256, "policy_revision": policy.revision,
-        "config_hash": digest(canonical(asdict(config))),
+        "config_hash": config_hash(config),
         "packet_hash": packet["packet_hash"] if packet else None, "plan_hash": plan["plan_hash"] if plan else None,
         "workflow_run_id": identifier, "blocking_reasons": sorted(blockers),
         "checks": {"required": steps, "completed": len(execution["check_records"]) if execution else 0},

@@ -1,16 +1,14 @@
 """Metadata-only command lifecycle. No arguments, source, provider output or credentials."""
 
 from contextlib import contextmanager
-from dataclasses import asdict
 from pathlib import Path
 import re
 import time
 import uuid
 
-from .config import Config
+from .config import Config, config_hash
 from .errors import AssistantError, OperationOutcomeUnknown
 from .ledger import CURRENT_RUN, Ledger
-from .security import canonical, digest
 
 
 @contextmanager
@@ -28,7 +26,7 @@ def command_audit(path: Path, command: str, config: Config):
                 {
                     "event": "command_started",
                     "command": command,
-                    "config_hash": digest(canonical(asdict(config))),
+                    "config_hash": config_hash(config),
                 }
             )
         try:

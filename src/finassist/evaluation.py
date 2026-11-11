@@ -12,7 +12,7 @@ from .config import Config
 from .platform_support import find_tool
 from .errors import AssistantError
 from .review import review_packet
-from .scope import build_packet
+from .scope import build_packet, config_token_guard
 from .security import canonical, check_context_document, check_text, digest
 
 
@@ -104,6 +104,7 @@ def evaluate(
                 network_approved=network_approved,
                 approved_packet_hash=packet["packet_hash"],
                 transport=transport,
+                token_guard=config_token_guard(local_config, repo),
             )
             reports.append({"id": case["id"], "expected_defect": case["expected_defect"], "report": review})
     result = {

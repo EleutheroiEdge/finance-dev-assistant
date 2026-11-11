@@ -13,7 +13,7 @@ import test_dashboard
 import test_readiness
 
 from finassist.cli import main
-from finassist.config import Config, save_config
+from finassist.config import Config, save_config, config_hash
 from finassist.errors import AssistantError
 from finassist.ledger import Ledger
 from finassist.readiness import verify_gate
@@ -256,7 +256,6 @@ def test_nonzero_command_exit_is_distinct_from_success_in_recent_runs(tmp_path):
 
 
 def test_generated_exclusions_keep_model_review_and_readiness_complete(repository, tmp_path, monkeypatch):
-    from dataclasses import asdict
     import httpx
     from finassist.review import review_packet
     from test_providers_review import model_config, envelope, response
@@ -305,7 +304,7 @@ def test_generated_exclusions_keep_model_review_and_readiness_complete(repositor
         "passed": True,
         "cleanup_verified": True,
         "isolation": "network-disabled container",
-        "config_hash": digest(canonical(asdict(config))),
+        "config_hash": config_hash(config),
     }
     with Ledger(state) as ledger:
         ledger.append(

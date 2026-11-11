@@ -5,7 +5,7 @@ from pathlib import Path
 import platform
 
 from . import installed_version
-from .config import Config
+from .config import Config, config_hash
 from .platform_support import tool_present, private_state_protection
 
 
@@ -40,21 +40,19 @@ def evidence_status(state_dir: Path, config: Config) -> tuple[dict | None, list[
     """Saved check records and workflow plans in the audit ledger bound to another configuration.
 
     The configuration hash covers every setting with its default, so a default that changes
-    between releases changes it too. Evidence recorded before an upgrade that adds settings
-    then stops counting, and the warning says what to run again. The ledger is opened
-    read-only; nothing is written. Without a ledger there is nothing to report.
+    between releases changes it too, and so did every setting added before 0.11.0. Evidence
+    recorded before such an upgrade stops counting, and the warning says what to run again.
+    The ledger is opened read-only; nothing is written. Without a ledger there is nothing to report.
     """
-    from dataclasses import asdict
     import sqlite3
 
     from .errors import AssistantError
     from .ledger import Ledger
-    from .security import canonical, digest
 
     path = Path(state_dir) / "audit.sqlite"
     if not path.is_file():
         return None, []
-    current = digest(canonical(asdict(config)))
+    current = config_hash(config)
     kinds = {"check_completed": "check_records", "workflow_plan_bound": "workflow_plans"}
     recorded, other = dict.fromkeys(kinds.values(), 0), dict.fromkeys(kinds.values(), 0)
     try:

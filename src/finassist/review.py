@@ -5,7 +5,7 @@ from __future__ import annotations
 from .platform_support import read_utf8
 
 from decimal import Decimal
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from importlib.resources import files
 import json
 from pathlib import Path
@@ -13,9 +13,9 @@ import re
 
 import jsonschema
 
-from .config import Config
+from .config import Config, config_hash
 from .errors import AssistantError, network_not_approved, prices_required
-from .forbidden_tokens import token_file_audit
+from .forbidden_tokens import screen_review_output, token_file_audit
 from .ledger import Ledger
 from .providers import invoke, request_identity, request_shape
 from .scope import WITHHELD_REASON, triage, verify_packet, review_omissions
@@ -117,6 +117,11 @@ def call_model(
 ):
     verify_packet(packet, config)
     config.validate()
+    listed = config.forbidden_token_rules
+    if listed and (token_guard is None
+                   or any(token_guard.rules.get(name) != value for name, value in listed.items())):
+        # A configuration that lists figures sends nothing without the screen built from that list.
+        raise AssistantError("forbidden_token_guard_required")
     check_context_document(packet, extra_patterns=config.extra_sensitive_patterns)
     if approved_packet_hash != packet["packet_hash"]:
         raise AssistantError("packet_approval_required")
@@ -197,7 +202,7 @@ def call_model(
                 "provider": config.provider,
                 "model": config.model,
                 "profile": config.profile,
-                "config_hash": digest(canonical(asdict(config))),
+                "config_hash": config_hash(config),
             }
         )
         result = invoke(config, system, packet, schema, network_approved=True, transport=transport,
@@ -234,6 +239,7 @@ def review_packet(
     network_approved: bool = False,
     approved_packet_hash: str | None = None,
     transport=None,
+    token_guard=None,
 ) -> dict:
     verify_packet(packet, config)
     config.validate()
@@ -264,12 +270,15 @@ def review_packet(
         network_approved=network_approved,
         approved_packet_hash=approved_packet_hash,
         transport=transport,
+        token_guard=token_guard,
     )
     try:
         data = json.loads(result.text)
     except ValueError as exc:
         raise AssistantError("review_json_invalid") from exc
     validate_review(data, packet, extra_patterns=config.extra_sensitive_patterns, config=config)
+    if token_guard is not None:
+        screen_review_output(data, token_guard.snapshot)
     report = {
         "status": "partial-review"
         if review_omissions(packet)
@@ -279,7 +288,7 @@ def review_packet(
         "base": packet["base"],
         "provider": config.provider,
         "model": config.model,
-        "config_hash": digest(canonical(asdict(config))),
+        "config_hash": config_hash(config),
         "review": data,
         "triage": triaged,
         "reservation": reservation,

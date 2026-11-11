@@ -93,6 +93,48 @@ def hidden_fstring_fields(tokens: list[tokenize.TokenInfo]) -> bool:
     return False
 
 
+# An escape that spells a character (an apostrophe can group digits), or a line continuation:
+# the string's value then holds digits or separators its source text does not show.
+_SPELLING_ESCAPE = re.compile(r"\\(?:[xuUN0-7']|\r?\n)")
+_LITERAL_STARTS = frozenset({"STRING", "FSTRING_START", "TSTRING_START"})
+_LITERAL_ENDS = frozenset({"STRING", "FSTRING_END", "TSTRING_END"})
+_LITERAL_TOKENS = _LITERAL_STARTS | _LITERAL_ENDS | {"FSTRING_MIDDLE", "TSTRING_MIDDLE"}
+_BETWEEN_LITERALS = frozenset({"NL", "COMMENT"})
+
+
+def strings_read_differently(tokens: list[tokenize.TokenInfo]) -> bool:
+    """True when a string's value can differ from its source text in digits or separators.
+
+    That takes a spelling escape, a line continuation, or two adjacent literals, which Python
+    joins into one value. Only the AST gives those values.
+    """
+    after_literal = False
+    for token in tokens:
+        name = tokenize.tok_name.get(token.type)
+        if name in _LITERAL_TOKENS:
+            if _SPELLING_ESCAPE.search(token.string) or (after_literal and name in _LITERAL_STARTS):
+                return True
+            after_literal = name in _LITERAL_ENDS
+        elif name not in _BETWEEN_LITERALS:
+            after_literal = False
+    return False
+
+
+def string_constant_values(tree: ast.AST) -> list[str]:
+    """The value of every string and bytes constant, as Python reads it."""
+    values = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, str):
+                values.append(node.value)
+            elif isinstance(node.value, bytes):
+                try:
+                    values.append(node.value.decode("utf-8"))
+                except UnicodeDecodeError:
+                    values.append(node.value.decode("latin-1"))
+    return values
+
+
 def _plain_decimal(number: Decimal) -> str | None:
     """Plain decimal text of an exact value within the figure bounds, or None."""
     if not number.is_finite() or not -(MAX_FIGURE_DIGITS + 1) <= number.adjusted() <= MAX_FIGURE_DIGITS:

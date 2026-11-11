@@ -9,7 +9,7 @@ from pathlib import Path
 
 import jsonschema
 
-from .config import Config
+from .config import Config, config_hash
 from .errors import AssistantError
 from .security import canonical, check_text, digest, regular_path, write_private
 from .workflow import parse_template
@@ -245,7 +245,7 @@ def resolve_bundle(bundle: dict, repo: Path, config: Config) -> dict:
     configuration = asdict(effective)
     resolution = {
         "schema_version": 1, "bundle_name": bundle["name"], "bundle_hash": digest(canonical(bundle)),
-        "base_config_hash": digest(canonical(asdict(config))), "config_hash": digest(canonical(configuration)),
+        "base_config_hash": config_hash(config), "config_hash": config_hash(effective),
         "template_hash": digest(canonical(workflow)), "sources": sources, "decisions": decisions,
     }
     resolution["resolution_hash"] = digest(canonical(resolution))
@@ -266,7 +266,7 @@ def verify_resolution(resolution: dict, template: dict, config: Config) -> str:
         }))
     ):
         raise AssistantError("workflow_resolution_invalid")
-    if resolution["config_hash"] != digest(canonical(asdict(config))) or resolution["template_hash"] != digest(canonical(template)):
+    if resolution["config_hash"] != config_hash(config) or resolution["template_hash"] != digest(canonical(template)):
         raise AssistantError("workflow_resolution_inputs_changed")
     return resolution["resolution_hash"]
 

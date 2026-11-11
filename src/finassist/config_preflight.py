@@ -9,20 +9,20 @@ screening. Once its own checks pass it runs the real packet builder, so "ready" 
 plan builds this range's packet and review accepts it up to the provider call.
 """
 
-from dataclasses import asdict
 from decimal import Decimal
 import os
 from pathlib import Path
 
-from .config import Config
+from .config import Config, config_hash
 from .error_hints import error_fields
 from .errors import AssistantError
 from .health import config_warnings
 from .onboarding import _shown_argument
 from .providers import request_payload
 from .review import review_schema, spend_estimate
-from .scope import _private_name, build_packet, git, read_entry, resolve
-from .security import PUBLIC_ASSETS, canonical, check_text, digest, local_name, regular_path
+from .forbidden_tokens import screen_source
+from .scope import _private_name, build_packet, config_token_guard, git, read_entry, resolve
+from .security import PUBLIC_ASSETS, canonical, check_text, local_name, regular_path
 
 _EXAMPLES = 20  # Example names kept per grouped blocker.
 _DEFAULT_HINT = "See the configuration guide for this code."
@@ -41,13 +41,16 @@ class _ConfigPreflight:
         self.report = {
             "schema_version": 1, "mode": "config-preflight", "status": "blocked", "base": None, "head": None,
             "config": {"source": "defaults" if config_path is None else "file",
-                       "config_hash": digest(canonical(asdict(config)))},
+                       "config_hash": config_hash(config)},
             "blockers": [], "warnings": [], "paths": [], "coverage_complete": None, "packet": None,
+            # Whether a list of confidential figures is configured, and how many entries it holds.
+            "figure_screen": {"configured": False, "listed": 0},
             "request": None, "provider": None, "network_used": False, "key_value_read": False,
             "ledger_opened": False, "next_step": None,
         }
         # Path blockers are grouped by code: a count plus a few example names.
         self._grouped: dict[str, dict] = {}
+        self.guard = None
 
     def block(self, code: str, **details) -> None:
         self.report["blockers"].append({"code": code, **details, "hint": _hint(code)})
@@ -83,11 +86,18 @@ class _ConfigPreflight:
         except AssistantError as exc:
             return self.block(exc.code)
         self.report.update(base=base, head=head)
+        self.report["figure_screen"]["configured"] = bool(config.forbidden_token_rules)
+        try:
+            self.guard = config_token_guard(config, repo)
+        except AssistantError as exc:  # The list can't be read; the other blockers are still listed.
+            self.block(exc.code)
+        if self.guard is not None:
+            self.report["figure_screen"]["listed"] = len(self.guard.snapshot.hashes)
         rows = self._paths(repo, base, head)
         packet = None
         if rows and not self._grouped and not self.report["blockers"]:
             try:  # The real builder, so "ready" means plan builds this packet.
-                packet = build_packet(repo, base, head, config)
+                packet = build_packet(repo, base, head, config, token_guard=self.guard)
             except AssistantError as exc:
                 self.block(exc.code, **exc.public_details)
             else:
@@ -161,6 +171,8 @@ class _ConfigPreflight:
                 except UnicodeError as exc:
                     raise AssistantError("non_text_blob") from exc
                 check_text(text, extra_patterns=config.extra_sensitive_patterns, source_path=path)
+                if self.guard is not None:
+                    screen_source(text, path, self.guard.snapshot)
         except AssistantError as exc:
             return {**row, "status": "refused", "code": exc.code, **exc.public_details}
         return {**row, "status": "included"}

@@ -1,10 +1,9 @@
 """Read-only evidence eligibility. This never grants merge or deployment authority."""
 
-from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .config import Config
+from .config import Config, config_hash
 from .errors import AssistantError
 from .ledger import CURRENT_RUN, Ledger
 from .review import validate_review
@@ -34,6 +33,7 @@ def verify_gate(
     ):
         raise AssistantError("readiness_evidence_invalid")
     blockers = set()
+    current = config_hash(config)
     if packet["schema_version"] < 2:
         blockers.add("packet_mode_evidence_missing")
     if packet["head"] != head or review.get("head") != head:
@@ -48,7 +48,7 @@ def verify_gate(
         or review.get("model") != config.model
     ):
         blockers.add("review_policy_changed")
-    if review.get("config_hash") != digest(canonical(asdict(config))):
+    if review.get("config_hash") != current:
         blockers.add("review_configuration_changed")
     if review.get("provider") in {None, "offline"}:
         blockers.add("model_review_absent")
@@ -124,8 +124,7 @@ def verify_gate(
             blockers.add("check_revision_mismatch")
         if receipt.get("snapshot_hash") != digest(canonical(snapshot)):
             blockers.add("snapshot_integrity_failed")
-        config_hash = digest(canonical(asdict(config)))
-        if receipt.get("config_hash") != config_hash:
+        if receipt.get("config_hash") != current:
             blockers.add("check_configuration_changed")
         entries = snapshot.get("files")
         if not isinstance(entries, list) or any(
@@ -159,7 +158,7 @@ def verify_gate(
             p.get("event") == "check_completed"
             and p.get("head") == head
             and p.get("receipt_hash") == receipt_hash
-            and p.get("config_hash") == config_hash
+            and p.get("config_hash") == current
             and fresh(p)
             and p.get("workflow_run_id") not in abandoned
             for p, _ in events
@@ -177,7 +176,7 @@ def verify_gate(
         "head": head,
         "blocking_reasons": sorted(blockers),
         "required_recipes": list(required_recipes),
-        "policy_hash": digest(canonical(asdict(config))),
+        "policy_hash": current,
         "merge_authority": False,
         "deployment_authority": False,
         "qualification": "Local source-bound evidence only. Verify current GitHub protections, approvals, target environment and release/rollback plan separately.",

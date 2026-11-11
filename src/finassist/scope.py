@@ -12,6 +12,7 @@ import subprocess
 from .config import Config
 from .platform_support import find_tool, clean_environment
 from .errors import AssistantError, local_details
+from .forbidden_tokens import TokenGuard, load_token_snapshot, screen_related, screen_source, screen_text
 from .security import PUBLIC_ASSETS, canonical, check_private_name, check_text, digest, local_name
 
 
@@ -283,6 +284,23 @@ def _grep_names(repo: Path, head: str, names: list[str], paths: list[str]) -> li
     return sorted(set(found) & set(paths))
 
 
+def checkout_roots(repo: Path) -> tuple[Path, ...]:
+    """The checkout, its common Git directory and every linked worktree: all one repository."""
+    common = Path(git(repo, "rev-parse", "--git-common-dir"))
+    entries = git(repo, "worktree", "list", "--porcelain", "-z", binary=True).decode().split("\0")
+    return (repo, common if common.is_absolute() else repo / common,
+            *(Path(entry.removeprefix("worktree ")) for entry in entries if entry.startswith("worktree ")))
+
+
+def config_token_guard(config: Config, repo: Path) -> TokenGuard | None:
+    """The figure screen a configuration asks for, or None when it lists no figures."""
+    rules = config.forbidden_token_rules
+    if not rules:
+        return None
+    roots = checkout_roots(repo)
+    return TokenGuard(rules, roots, load_token_snapshot(rules, roots))
+
+
 def _related(repo: Path, head: str, files: list[dict], config: Config, room: int, admit=None, screen=None) -> dict:
     from .related import candidates, related_block
 
@@ -307,7 +325,7 @@ def _related(repo: Path, head: str, files: list[dict], config: Config, room: int
         except UnicodeError as exc:
             raise AssistantError("non_text_blob") from exc
         check_text(text, extra_patterns=config.extra_sensitive_patterns, source_path=path)
-        if screen is not None:  # A gate's forbidden figures: the whole file, as for a changed file.
+        if screen is not None:  # Forbidden figures: the whole file, as for a changed file.
             screen(text, path)
         return text
 
@@ -324,10 +342,18 @@ def _related(repo: Path, head: str, files: list[dict], config: Config, room: int
 
 def build_packet(
     repo: Path, base: str, head: str, config: Config, *, withhold: frozenset = frozenset(),
-    withheld_names: list | None = None, related_admit=None, related_screen=None,
+    withheld_names: list | None = None, related_admit=None, token_guard: TokenGuard | None = None,
 ) -> dict:
-    """Review the head's own change from its merge base, not unrelated base additions."""
+    """Review the head's own change from its merge base, not unrelated base additions.
+
+    Every caller gets the configuration's figure screen: instructions, both versions of every
+    file, each related candidate's whole file and every snippet line. A gate passes its policy's
+    guard instead.
+    """
     config.validate()
+    guard = token_guard if token_guard is not None else config_token_guard(config, repo)
+    if guard is not None:
+        screen_text(config.instructions(), guard.snapshot)
     base_sha, head_sha = resolve(repo, base), resolve(repo, head)
     ancestor = git(repo, "merge-base", base_sha, head_sha)
     # No rename collapsing: both old deletion and new addition are screened.
@@ -393,6 +419,8 @@ def build_packet(
                     raise AssistantError("non_text_blob") from exc
                 if text is not None:
                     check_text(text, extra_patterns=config.extra_sensitive_patterns, source_path=path)
+                    if guard is not None:
+                        screen_source(text, path, guard.snapshot)
                 decoded.append(text)
         except AssistantError as exc:
             # Local output only (plan and watch print it); never in a packet, report or audit row.
@@ -430,7 +458,10 @@ def build_packet(
     if config.related_context == "related":
         # 16 KiB is kept for the block's own fields and the names of skipped candidates.
         room = config.max_packet_bytes - len(canonical(packet)) - 16_384
-        packet["related"] = _related(repo, head_sha, files, config, room, related_admit, related_screen)
+        screen = None if guard is None else (lambda text, path: screen_source(text, path, guard.snapshot))
+        packet["related"] = _related(repo, head_sha, files, config, room, related_admit, screen)
+        if guard is not None:
+            screen_related(packet, guard.snapshot)
     encoded = canonical(packet)
     if len(encoded) > config.max_packet_bytes:
         raise AssistantError("packet_limit_exceeded", {"limit": config.max_packet_bytes, "bytes": len(encoded)})

@@ -14,11 +14,11 @@ import pytest
 from conftest import command
 from test_model_policy import model_policy
 from finassist.cli import main
-from finassist.config import Config, save_config
+from finassist.config import Config, save_config, config_hash
 from finassist.config_preflight import config_preflight
 from finassist.ledger import Ledger
 from finassist.onboarding import policy_preflight
-from finassist.security import canonical, digest
+from finassist.security import canonical
 
 pytest_plugins = ("test_model_gate", "test_model_policy")
 KEY_VALUE = "fictional-provider-value"
@@ -222,7 +222,7 @@ def test_a_partial_range_is_named(repository, capsys):
 
 def test_doctor_flags_evidence_recorded_under_another_configuration(tmp_path, capsys):
     state = tmp_path / "state"
-    current = digest(canonical(__import__("dataclasses").asdict(Config())))
+    current = config_hash(Config())
     with Ledger(state / "audit.sqlite") as ledger:
         for bound in ("1" * 64, current):
             ledger.append({"event": "check_completed", "head": "0" * 40, "receipt_hash": "2" * 64,
@@ -235,7 +235,7 @@ def test_doctor_flags_evidence_recorded_under_another_configuration(tmp_path, ca
 
 def test_doctor_is_quiet_when_evidence_matches(tmp_path, capsys):
     state = tmp_path / "state"
-    current = digest(canonical(__import__("dataclasses").asdict(Config())))
+    current = config_hash(Config())
     with Ledger(state / "audit.sqlite") as ledger:
         ledger.append({"event": "check_completed", "head": "0" * 40, "receipt_hash": "2" * 64,
                        "config_hash": current, "recipe": "unit", "passed": True})

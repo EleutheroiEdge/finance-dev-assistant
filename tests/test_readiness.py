@@ -7,7 +7,7 @@ import subprocess
 import httpx
 import pytest
 
-from finassist.config import Config
+from finassist.config import Config, config_hash
 from finassist.errors import AssistantError
 from finassist.github_audit import inspect_github
 from finassist.ledger import Ledger
@@ -56,7 +56,7 @@ def gate_bundle(repository, tmp_path, monkeypatch):
         "passed": True,
         "cleanup_verified": True,
         "isolation": "network-disabled container",
-        "config_hash": digest(canonical(asdict(config))),
+        "config_hash": config_hash(config),
     }
     with Ledger(state) as ledger:
         ledger.append(
@@ -147,7 +147,7 @@ def test_workflow_blocks_green_unit_tests_without_financial_evidence(gate_bundle
     assert not result["workflow_missing_requirements"]
     assert not result["merge_authority"] and not result["deployment_authority"]
     # Required evidence is added without changing the original policy/receipt hashes.
-    assert result["policy_hash"] == digest(canonical(asdict(config)))
+    assert result["policy_hash"] == config_hash(config)
     # Exercise the actual CLI flag, audit correlation and unchanged default gate.
     config_path = tmp_path / "config.json"
     save_config(config_path, config)
@@ -209,15 +209,15 @@ def test_workflow_can_supply_nonempty_requirements_without_weakening_empty_legac
     packet, review, checks, config, head, state = gate_bundle
     repo, _base, _head = repository
     config = replace(config, required_recipes=())
-    config_hash = digest(canonical(asdict(config)))
-    review["config_hash"] = config_hash
-    checks[0]["receipt"]["config_hash"] = config_hash
+    current = config_hash(config)
+    review["config_hash"] = current
+    checks[0]["receipt"]["config_hash"] = current
     with Ledger(state) as ledger:
         review["receipt"] = ledger.append({
             "event": "review_completed", "packet_hash": packet["packet_hash"],
             "report_hash": digest(canonical({key: value for key, value in review.items() if key != "receipt"})),
         })
-        ledger.append({"event": "check_completed", "head": head, "config_hash": config_hash,
+        ledger.append({"event": "check_completed", "head": head, "config_hash": current,
                        "receipt_hash": digest(canonical(checks[0]["receipt"]))})
     assert "required_recipes_unconfigured" in verify_gate(packet, review, checks, config, head, state)["blocking_reasons"]
     template = {
