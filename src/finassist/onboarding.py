@@ -564,8 +564,10 @@ class _Preflight:
             outcome = {**row, "status": "omitted", "reason": reason}  # A version too large, or not UTF-8 text.
         else:
             outcome = {**row, "status": "included"}
-        hidden = waiting.first  # Never left out, and never sent.
-        return outcome if hidden is None else {**row, "status": "refused", "code": hidden.code, **refusal_location(hidden)}
+        if waiting.first is None:
+            return outcome
+        # Never left out, and never sent.
+        return {**row, "status": "refused", "code": "hidden_characters", **refusal_location(waiting.first)}
 
     def _gate_source(self, repo: Path, base: str, head: str, policy: ModelGatePolicy) -> None:
         """Run the gate's own loader and source builder, then size the key-free request body."""

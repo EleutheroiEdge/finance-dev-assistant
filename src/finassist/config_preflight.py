@@ -185,8 +185,10 @@ class _ConfigPreflight:
             outcome = {**row, "status": "omitted", "reason": reason}
         else:
             outcome = {**row, "status": "included"}
-        hidden = waiting.first  # Never left out, and never sent.
-        return outcome if hidden is None else {**row, "status": "refused", "code": hidden.code, **refusal_location(hidden)}
+        if waiting.first is None:
+            return outcome
+        # Never left out, and never sent.
+        return {**row, "status": "refused", "code": "hidden_characters", **refusal_location(waiting.first)}
 
     def _provider(self, packet: dict | None) -> None:
         config = self.config
