@@ -1,6 +1,5 @@
 """Generate code proposals as data; applying them is an independent operator action."""
 
-import json
 from pathlib import Path
 
 import jsonschema
@@ -11,6 +10,7 @@ from .forbidden_tokens import screen_text
 from .hidden_text import Waiting
 from .patching import patch_paths
 from .ledger import Ledger
+from .providers import reply_json
 from .review import call_model
 from .security import canonical, check_output_document, digest
 
@@ -54,7 +54,7 @@ def propose(
         token_guard=token_guard,
     )
     try:
-        artifact = json.loads(result.text)
+        artifact = reply_json(result.text)
         jsonschema.validate(artifact, SCHEMA)
     except (ValueError, jsonschema.ValidationError) as exc:
         raise AssistantError("proposal_schema_invalid") from exc
