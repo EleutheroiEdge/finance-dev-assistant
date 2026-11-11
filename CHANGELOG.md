@@ -163,8 +163,10 @@ Nothing else about what a gate accepts, authorizes or spends has changed.
   refused before as well, by the schema that came next; they now get the same refusal as other
   text that is not JSON. No route returned a PASS for such a reply before.
 - **A gate run no longer ends without a report when a model writes a line number as `2.0`.** The
-  run ended with `gate_report_invalid`. A number with a point or an exponent that equals an
-  integer is now read as that integer on every route, which is how the reply schema reads it.
+  run ended with `gate_report_invalid`. A number with a point or an exponent whose digits say
+  it is an integer is now read as that integer, exactly, on every route, which is how the reply
+  schema reads it. A number that only rounding would make an integer, such as
+  `2.0000000000000001`, is refused as invalid JSON.
   And a gate that is refused while it gives its findings their identifiers now blocks with that
   reason, and its report is valid.
 - **A key given twice in one object of a reply is refused as invalid JSON.** The last value was

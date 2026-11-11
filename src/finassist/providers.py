@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 import json
 import math
 import os
@@ -28,11 +29,22 @@ def _not_json(_name: str):
 
 
 def _number(text: str) -> int | float:
-    """A number written with a point or an exponent. One that equals an integer is that integer."""
+    """A number written with a point or an exponent.
+
+    One whose digits say it is an integer is that integer, exactly: 2.0 and 2e0 are 2. That is
+    asked of the digits as written, never of the binary value they round to, so
+    2.0000000000000001 is not 2. A number which only rounding would make an integer is refused,
+    and so is one too small to hold: what it says cannot be kept.
+    """
     value = float(text)
     if not math.isfinite(value):
         raise ValueError("a number too large to hold")
-    return int(value) if value.is_integer() else value
+    exact = Decimal(text)
+    if exact == exact.to_integral_value():
+        return int(exact)  # At most 309 digits, because the value is finite.
+    if value.is_integer():
+        raise ValueError("a number that only rounding would make an integer")
+    return value
 
 
 def _members(pairs: list) -> dict:
@@ -53,7 +65,8 @@ def reply_json(text: str | bytes):
     Two things JSON leaves open are settled here as well. A key given twice in one object
     says two things, and choosing between them is not ours to do: it is refused. A number
     such as 2.0 is the integer it equals, which is how the schemas for a reply read it, so
-    a line number written that way is a line number.
+    a line number written that way is a line number. A number that is not an integer as
+    written never becomes one: see `_number`.
     """
     try:
         return json.loads(text, parse_constant=_not_json, parse_float=_number, object_pairs_hook=_members)
