@@ -99,9 +99,9 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   `password` field given `get_password()` from the source it was sent had its whole reply
   refused, in Python too. The label, separator and value are now accepted when they stand in the
   screened source exactly so and nothing after them on the line holds a quote mark or an equals
-  sign. The quote must also end its expression: in prose as a code span with prose after it, in
-  code at the end of its line with nothing left open. The same label with any other value is
-  refused as before.
+  sign. The quote must also end its expression: in prose as a code span with only plain prose
+  after it to the end of its clause, in code at the end of its line with nothing left open. The
+  same label with any other value is refused as before.
 - **In Python, a credential-named literal that is one expansion is no longer refused,** by the
   same rule as in other files.
 - **Adding these settings does not change the configuration hash.** A setting marked this way is

@@ -68,8 +68,8 @@ environment lookup. That is a reference, and it is not refused. The same words i
 string or a comment are text and keep the strict rules, and a number is a literal
 everywhere.
 
-A reference is still refused when its expression holds a number of 12 or more characters,
-or a quoted literal that long that the field would receive. That is every string in the
+A reference is still refused when its expression holds a quoted literal or a number of 12
+or more characters that the field would receive. That is every string and number in the
 expression except three kinds:
 
 - **The name a lookup is given.** When the name of a call or of an indexed object is made
@@ -178,22 +178,16 @@ bracket or a string it opened, as the first line of a call that goes on over the
 does. And it must end its expression, in one of two shapes:
 
 - **In prose, a code span:** a backtick just before the label and one just after the
-  quote. Two things are then asked of what follows the span.
-  - **Only what prose is made of may come next:** the end of the reply or of a sentence, a
-    comma or a semicolon, a colon with no literal after it on its line, a question mark, a
-    word, a dash, an aside in round brackets that holds words, the bar of a table when the
-    span stands in a table row, or a line that begins a bullet, a quotation, a numbered
-    item, a heading or a quoted key. Any other sign is refused, whatever it is, because it
-    could be an operator or an accessor that carries the expression on.
-  - **The clause that follows may not join a literal to the quote.** A word in prose can
-    be a word in code, such as `as`, `in` or `is`, so the text is read on as a clause of
-    code would be: to a comma or a semicolon outside the brackets it opened, to a closing
-    bracket it did not open, or to the end of the reply, and in a table row to the end of
-    the row. A quoted piece is taken as a whole: a code span, a fenced block, a string in
-    quote marks. In the clause, `||`, `??`, `&&`, `+`, `?:` or a `?` with a `:` after it
-    may not stand before a literal of 12 or more characters, however deep in a call it
-    is: a quoted piece that long, or a number. A sign inside a code span is text. A clause
-    with no end within 4,000 characters is refused.
+  quote. After the span, only plain prose may stand to the end of its clause. The clause
+  ends at the first comma or semicolon outside the brackets opened on the way, at the
+  first closing bracket that nothing opened, or with the reply. Plain prose holds nothing
+  that can begin a string, a comment or type arguments, and no long number: no quote
+  mark, backtick, slash, backslash, hash sign, double dash or `<`, and no number of 12 or
+  more characters. So no literal can follow the quote, whatever sign or word stands
+  before it, and nothing can hide where the clause ends. Two things with a backtick are
+  plain: a code span of fewer than 12 characters with no escape, quote mark, dollar or
+  brace in it, and a span that holds another permitted quote. A clause with no end
+  within 4,000 characters is refused.
 - **In code, the end of its line:** nothing after the quote but a comma or a semicolon.
   Without one, the next line that holds code must begin something new: a name that is no
   operator, a closing bracket, a quoted key, or the end of a fenced block. A word that
@@ -235,13 +229,15 @@ Known limits of reading a file as its language, each listed with its reason in
 - SQL comments are read as nesting, which PostgreSQL does and MySQL does not.
 - A reply that repeats a reference whose expression goes on over the next line is refused.
   So is one that quotes a reference outside a code span with more text on its line, or
-  with a bullet, a number or an opening bracket at the start of the next. After a code
-  span, a reply is refused when another code span, a fenced block, a link or an image
-  comes next with no word between; when a sign such as `+` or `||` stands in plain text
-  before a long quoted piece in the same clause; and when the text that follows has no
-  comma or semicolon for 4,000 characters.
-- In prose a word after a code span is read as prose. So `or` and `and`, which join values
-  in Python, pass before another code span, as Python source with such a fallback does.
+  with a bullet, a number or an opening bracket at the start of the next.
+- After a quoted code span, a reply is refused when anything but plain prose stands before
+  the next comma, semicolon or closing bracket: a longer code span, a fenced block, a
+  quotation mark or an apostrophe, a path or a link with a slash, a heading, the rule of
+  a table, a comparison written with `<`, or a long number. A full stop does not end the
+  clause. So a sentence that names the reference and then a file in a second code span
+  is refused, and the same sentence with a comma before the file is not.
+- A reply that repeats a reference whose rest holds a regular expression with a quote mark
+  in it is refused.
 - In Kotlin, an infix call on the next line inside brackets is not read as part of the
   expression, so a literal it is given is not seen.
 - A statement that ends its line with something other than an operand is read on into the

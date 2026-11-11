@@ -190,8 +190,8 @@ _LAST_WORD = re.compile(r"(?:^|[^A-Za-z0-9_$])([A-Za-z_$][A-Za-z0-9_$]*)\s*$")
 _SQL_OPERATORS = frozenset("|+-*/%=<>,(")
 _AFTER_STRING = '"'  # stands for a whole string in the record of what came before
 # A number in an expression: digits and letters, and a point only before another digit, so the
-# name of a method called on it is no part of it.
-_NUMBER = re.compile(r"(?<![A-Za-z0-9_$.])[0-9][0-9A-Za-z_]*(?:\.[0-9][0-9A-Za-z_]*)*")
+# name of a method called on it is no part of it. It may begin with a point.
+_NUMBER = re.compile(r"(?<![A-Za-z0-9_$.])\.?[0-9][0-9A-Za-z_]*(?:\.[0-9][0-9A-Za-z_]*)*")
 # A slash starts a regular expression after one of these characters or words, and at the start of
 # the file. After a name, a number, a string or a closing bracket it divides. A less-than sign is
 # left out on purpose: with a slash it closes a tag, which has_markup has to see.
@@ -650,9 +650,10 @@ class CodeText:
             chunk = "".join(text[position:end].split())
             if chunk:
                 line_end = text[position:end]
-                # A number is a literal as a string is, wherever it stands in the expression.
-                strings.extend(_Literal(len(number.group()), "", "", "")
-                               for number in _NUMBER.finditer(text, position, end))
+                for number in _NUMBER.finditer(text, position, end):
+                    # A number is a literal as a string is, and it is excused where a string would be.
+                    front = (before + "".join(text[position:number.start()].split()))[-_CONTEXT:]
+                    strings.append(_Literal(len(number.group()), front, *(open_brackets[-1] if open_brackets else ("", ""))))
             angles[-1] = _angle_depth(before[-1:], chunk, angles[-1])
             before = (before + chunk)[-_CONTEXT:]
             if found is None:
@@ -737,8 +738,8 @@ class CodeText:
     def literal_assigned(self, start: int, minimum: int) -> bool | None:
         """Whether the expression at `start` holds a literal of `minimum` characters or more.
 
-        A string counts only when the field would receive it: see `_Literal.is_value`. A number
-        always counts. None means unclear, and the caller then treats the value as text.
+        A string or a number counts only when the field would receive it: see
+        `_Literal.is_value`. None means unclear, and the caller then treats the value as text.
         """
         try:
             strings = self._strings(start)

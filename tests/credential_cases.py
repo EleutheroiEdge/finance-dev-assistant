@@ -49,6 +49,7 @@ TYPESCRIPT = [
     ("ts", "  @sec@: process.env.JWT_@SEC@ ?? settingsByIndex[0],"),
     ("ts", "  @aK@: readSettingAt(process.env.SERVICE_@AK@_INDEX, 12345678901),"),
     ("ts", "  @aK@: process.env.SERVICE_@AK@_V2_123456789012345,"),  # digits in a name are the name
+    ("ts", "  @aT@: signAccessToken(process.env.JWT_@SEC@, { expiresIn: 1767225600000 }),"),  # a field of an argument object
     ("ts", "  @pw@: user.@pw@Hash,"),
     ("ts", "  @pw@: credentials.@pw@,"),
     ("ts", "  @aK@: options.@aK@,"),
@@ -336,6 +337,7 @@ MUST_REFUSE = [
     # A number of that length anywhere in the expression is a literal too.
     ("ts", "  @pw@: process.env.DB_@PW@ || 123456789012345,"),
     ("ts", "  @pw@: process.env.DB_@PW@ ?? 0xDEADBEEFCAFEBABE1234,"),
+    ("ts", "  @pw@: process.env.DB_@PW@ || .123456789012345,"),
     ("ts", "  @sec@: process.env.JWT_@SEC@ ||\n    123_456_789_012_345,"),
     ("ts", "  @pw@: deriveFromSettings(process.env.DB_@PW@, 123456789012345),"),
     ("go", "\t@Pw@: settingsFromEnvironment.Value + 123456789012345,"),

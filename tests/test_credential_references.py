@@ -236,30 +236,40 @@ SCRIPT = "export const settings = {\n  @pw@: process.env.DB_@PW@,\n  retries: 3,
     "Did you mean `@pw@: process.env.DB_@PW@`?",
     "- `@pw@: process.env.DB_@PW@`\n- `retries: 3` is new",
     "It reads `@pw@: process.env.DB_@PW@`\nIf it is unset, startup fails.",
-    "`@pw@: process.env.DB_@PW@` is unchanged.\nThe old code read `settings || {}` first, and `mode || \"fast\"` stays.",
-    "`@pw@: process.env.DB_@PW@` is unchanged.\n\n| field | note |\n| --- | --- |\n| `retries` | now 5 |",
+    "`@pw@: process.env.DB_@PW@` is unchanged,\nand the old code read `settings || {}` first, and `mode || \"fast\"` stays.",
+    "`@pw@: process.env.DB_@PW@` is unchanged; a table follows.\n\n| field | note |\n| --- | --- |\n| `retries` | now 5 |",
     # What prose is made of may follow a code span.
     "| `@pw@: process.env.DB_@PW@` | read from the environment |",
     "1. `@pw@: process.env.DB_@PW@`\n2. `retries: 3` is new",
     "* `@pw@: process.env.DB_@PW@`\n* `retries: 3` is new",
     "**`@pw@: process.env.DB_@PW@`** is unchanged.",
     "(`@pw@: process.env.DB_@PW@`), as before.",
-    "`@pw@: process.env.DB_@PW@`\n\n## Next\n\nText.",
     "`@pw@: process.env.DB_@PW@`\n> quoted from the guide",
-    "See `@pw@: process.env.DB_@PW@`:\n\n```ts\nconst retries = 3;\n```",
     "`@pw@: process.env.DB_@PW@` - read once at start.",
     "`@pw@: process.env.DB_@PW@` " + chr(0x2014) + " read once at start.",
     "`@pw@: process.env.DB_@PW@` (line 2) is unchanged.",
     "`@pw@: process.env.DB_@PW@`... and so on.",
-    "`@pw@: process.env.DB_@PW@` is read in `src/settings/loader.ts`.",
     "`@pw@: process.env.DB_@PW@`, `retries: 3` and `src/settings/loader.ts` are unchanged.",
-    "`@pw@: process.env.DB_@PW@` or the value from `src/settings/loader.ts`.",
-    # A sign inside a later code span or block is text, and a comma or a semicolon ends the clause.
-    "`@pw@: process.env.DB_@PW@` is unchanged.\n\n```ts\nhost: process.env.DB_HOST || \"db.internal.example\",\n```",
+    # A comma, a semicolon or a closing bracket that nothing opened ends the clause, and what follows is free.
+    "`@pw@: process.env.DB_@PW@` is unchanged, as `src/settings/loader.ts` shows.",
     "`@pw@: process.env.DB_@PW@` is fine,\nbut the default in `host || \"db.internal.example\"` is not.",
     "`@pw@: process.env.DB_@PW@` is read once;\nlater the name + `-suffix-long-enough` is built.",
-    "Did you mean `@pw@: process.env.DB_@PW@`? See `src/settings/loader.ts` for the caller.",
     "(as in `@pw@: process.env.DB_@PW@`) and so the fallback || `src/settings/loader.ts` is unused.",
+    "`@pw@: process.env.DB_@PW@`) || `@V@`",
+    "Is `@pw@: process.env.DB_@PW@` used?\nYes, and `src/settings/loader.ts` reads it.",
+    # Plain prose of any kind may stand before the clause ends: no list says which sign may come first.
+    "`@pw@: process.env.DB_@PW@` *is* read once at startup.",
+    "`@pw@: process.env.DB_@PW@` @owner please check this.",
+    "`@pw@: process.env.DB_@PW@` is 100% unchanged.",
+    "`@pw@: process.env.DB_@PW@` | read from the environment |",
+    "`@pw@: process.env.DB_@PW@`[^1] is unchanged.",
+    "`@pw@: process.env.DB_@PW@`**note** it is unchanged.",
+    "`@pw@: process.env.DB_@PW@` is unchanged. Nothing else moves. The loader still runs first.",
+    "`@pw@: process.env.DB_@PW@` || fallbackName is how the old code read it.",
+    "`@pw@: process.env.DB_@PW@` + 12345678901 is still a short number.",
+    # A code span too short to be a credential is plain, as short strings are in source.
+    "`@pw@: process.env.DB_@PW@` is set before `retries` and `mode`.",
+    "`@pw@: process.env.DB_@PW@` as string || `Zq7Lm2` + `Xp9Rt4Vw8`",
     "```\nexport const settings = {\n  @pw@: process.env.DB_@PW@,\n  retries: 3,\n};\n```",
 ])
 def test_a_model_may_repeat_a_reference_from_the_source_it_was_sent(quote):
@@ -300,6 +310,52 @@ def test_a_model_may_repeat_a_reference_from_the_source_it_was_sent(quote):
     "`@pw@: process.env.DB_@PW@`\n\n | 0 ||\n \"@V@\"",
     "`@pw@: process.env.DB_@PW@`\n\n|| \"@V@\"",
     "`@pw@: process.env.DB_@PW@` is the field.\n\nLater: fallback ?? '@V@'",
+    # After a code span, anything that can hold a literal before the clause ends. These hold none, and are the cost.
+    "`@pw@: process.env.DB_@PW@` is read in `src/settings/loader.ts`.",
+    "`@pw@: process.env.DB_@PW@` or the value from `src/settings/loader.ts`.",
+    "Did you mean `@pw@: process.env.DB_@PW@`? See `src/settings/loader.ts` for the caller.",
+    "`@pw@: process.env.DB_@PW@` is unchanged.\nThe old code read `settings || {}` first.",
+    "`@pw@: process.env.DB_@PW@` is unchanged.\n\n```ts\nhost: process.env.DB_HOST || \"db.internal.example\",\n```",
+    "See `@pw@: process.env.DB_@PW@`:\n\n```ts\nconst retries = 3;\n```",
+    "`@pw@: process.env.DB_@PW@`\n\n## Next\n\nText.",
+    "`@pw@: process.env.DB_@PW@` is unchanged.\n\n| field | note |\n| --- | --- |\n| `retries` | now 5 |",
+    "`@pw@: process.env.DB_@PW@` is unchanged. See src/settings/loader.ts for the caller.",
+    "`@pw@: process.env.DB_@PW@` is unchanged. It doesn't matter here.",
+    "`@pw@: process.env.DB_@PW@` is read when a < b holds.",
+    # Third review, finding 1: behind a word, any sign at all before a literal.
+    "`@pw@: process.env.DB_@PW@` as string | `@V@`",
+    "`@pw@: process.env.DB_@PW@` as string & `@V@`",
+    "`@pw@: process.env.DB_@PW@` as string ^ `@V@`",
+    "`@pw@: process.env.DB_@PW@` as string * `@V@`",
+    "`@pw@: process.env.DB_@PW@` as string - `@V@`",
+    "`@pw@: process.env.DB_@PW@` as string % `@V@`",
+    "`@pw@: process.env.DB_@PW@` as string >> `@V@`",
+    "`@pw@: process.env.DB_@PW@` as string ** `@V@`",
+    "`@pw@: process.env.DB_@PW@` as number | 123456789012345",
+    "`@pw@: process.env.DB_@PW@` as number - 123456789012345",
+    "`@pw@: process.env.DB_@PW@` as number < 123456789012345",
+    "`@pw@: process.env.DB_@PW@` as number | .123456789012345",
+    "`@pw@: process.env.DB_@PW@` as string . padEnd(20, `@V@`)",
+    "`@pw@: process.env.DB_@PW@` as any [`@V@`]",
+    "`@pw@: process.env.DB_@PW@` as any (`@V@`)",
+    "`@pw@: process.env.DB_@PW@` as any { value: `@V@` }",
+    "`@pw@: process.env.DB_@PW@` as any String.raw`@V@`",
+    "`@pw@: process.env.DB_@PW@` as string in `@V@`",
+    "`@pw@: process.env.DB_@PW@` or `@V@`",
+    "`@pw@: process.env.DB_@PW@` orElse `@V@`",
+    # Finding 2: a comma, a semicolon or a bracket inside a comment ends nothing.
+    "`@pw@: process.env.DB_@PW@` as string /* , */ || `@V@`",
+    "`@pw@: process.env.DB_@PW@` as string /* ; */ || `@V@`",
+    "`@pw@: process.env.DB_@PW@` as string /* ) */ || `@V@`",
+    "`@pw@: process.env.DB_@PW@` as string /* , */ || 123456789012345",
+    "`@pw@: process.env.DB_@PW@` as string // note;\n|| \"@V@\"",
+    "`@pw@: process.env.DB_@PW@` as string -- note,\n|| '@V@'",
+    "`@pw@: process.env.DB_@PW@` as string # note,\n|| \"@V@\"",
+    "`@pw@: process.env.DB_@PW@` as string || /,/.source + `@V@`",
+    # Finding 3: an escape, a dollar or a brace makes a short span something else.
+    "`@pw@: process.env.DB_@PW@` as string ||\n\"aa\\\" || \\\"bbbbbbbb\"",
+    "`@pw@: process.env.DB_@PW@` as string || `aa\\` || \\`bbbbbbbb`",
+    "`@pw@: process.env.DB_@PW@` as string || `${\"@V@\"}`",
     # After a code span, whatever is not prose. No list of operators decides.
     "`@pw@: process.env.DB_@PW@`\n ? \"@V@\" : other",
     "`@pw@: process.env.DB_@PW@` ?: `@V@`",
@@ -322,7 +378,6 @@ def test_a_model_may_repeat_a_reference_from_the_source_it_was_sent(quote):
     "`@pw@: process.env.DB_@PW@`: `@V@`",
     "`@pw@: process.env.DB_@PW@`!.concat(`@V@`)",
     "`@pw@: process.env.DB_@PW@`** + `@V@`",
-    "`@pw@: process.env.DB_@PW@`) || `@V@`",
     # Behind a word, a dash or a bar, the operator and the literal are found wherever they stand.
     "`@pw@: process.env.DB_@PW@` as string ?: `@V@`",
     "`@pw@: process.env.DB_@PW@` as string ? `@V@` : other",
@@ -381,12 +436,16 @@ def test_a_quote_outside_a_code_span_must_end_its_line(text):
                           source("src/settings.ts", "export const settings = { @pw@: process.env.DB_@PW@ };\n"))
 
 
-def test_in_a_patch_the_mark_of_a_line_is_not_an_operator():
+def test_in_a_patch_the_mark_of_a_line_is_not_part_of_its_text():
     files = source("src/settings.ts", SCRIPT)
-    head = "--- a/README.md\n+++ b/README.md\n@@ -1,2 +1,2 @@\n"
-    check_output_document({"patch": spell(head + "-see `@pw@: process.env.DB_@PW@`\n+\"a-long-quoted-key-name\": 1\n")},
-                          files, diff=True)
-    for body in ("-see `@pw@: process.env.DB_@PW@` + `@V@`\n", "-see `@pw@: process.env.DB_@PW@`\n+ || `@V@`\n"):
+    head = "--- a/README.md\n+++ b/README.md\n@@ -1,3 +1,3 @@\n"
+    # A removed bullet reads "-- old" with its mark, which would be two dashes. The mark is not text.
+    body = "-see `@pw@: process.env.DB_@PW@`\n-- an old bullet\n+- a new bullet\n"
+    check_output_document({"patch": spell(head + body)}, files, diff=True)
+    with pytest.raises(AssistantError, match="^sensitive_content$"):
+        check_output_document(output(body), files)  # Outside a patch the same lines hold two dashes.
+    for body in ("-see `@pw@: process.env.DB_@PW@` + `@V@`\n", "-see `@pw@: process.env.DB_@PW@`\n+ || `@V@`\n",
+                 "-see `@pw@: process.env.DB_@PW@`\n+\"@V@\"\n"):
         with pytest.raises(AssistantError, match="^sensitive_content$"):
             check_output_document({"patch": spell(head + body)}, files, diff=True)
 
@@ -407,7 +466,7 @@ def test_a_clause_after_a_code_span_that_has_no_end_in_reach_is_refused():
     words = "and so on " * 500
     check_output_document(output("`@pw@: process.env.DB_@PW@` is read, " + words + "|| `@V@`"), files)  # the comma ends it
     check_output_document(output("`@pw@: process.env.DB_@PW@` is read " + "and so on " * 300), files)  # the reply ends it
-    for text in ("`@pw@: process.env.DB_@PW@` is read " + words + "|| `@V@`",       # the sign is out of reach
+    for text in ("`@pw@: process.env.DB_@PW@` is read " + words + "|| `@V@`",       # the literal is out of reach
                  "`@pw@: process.env.DB_@PW@` is read " + words + ", the end",       # and so is the comma
                  "`@pw@: process.env.DB_@PW@` is read " + "( " * 500 + "the end"):   # too many parts
         with pytest.raises(AssistantError, match="^sensitive_content$"):

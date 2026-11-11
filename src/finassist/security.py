@@ -562,35 +562,19 @@ def _reference_quotes(text: str, path: str) -> dict[str, set[str]]:
     return quotes
 
 
-# In prose, what may follow the code span that held a quote: only what prose is made of. First the
-# end of emphasis or of a bracket around the span, and an aside in round brackets that holds words.
-# Then the end of the reply, the end of a sentence or of a clause, a colon that no literal follows
-# on its line, a question mark, a word, a dash, the bar of a table when the span stands in a table
-# row, or a line that begins a new block: a bullet, a quotation, a numbered item, a heading or a
-# quoted key. Any other sign could be an operator or an accessor that carries the expression on,
-# so it is refused unnamed.
-_AFTER_SPAN = re.compile(
-    r"[*_~]*(?:[ \t]*[)\]}][*_~]*)*"
-    r"(?:[ \t]+\((?=[^\W\d_])(?![^()\n]*[0-9]{12})[^()`\"'\n]*\)[*_~]*)?"
-    r"(?:\s*\Z"
-    r"|[.!]+(?=[\s*_~)\]}]|\Z)"
-    r"|[,;]"
-    r"|:(?![ \t]*[`\"'0-9])"
-    r"|\?(?=\s|\Z)"
-    r"|\s+(?:[^\W\d_]|[^\x00-\x7f]|-[ \t]|(?P<bar>\|(?!\|)))"
-    r"|\s*\n[ \t]*(?:[*>][ \t]|[0-9]{1,3}[.)][ \t]|\#{1,6}[ \t]|[\"']))")
-# A word after the span is prose, and a word in prose can be a word in code: "as", "in", "is". So
-# what follows the span is also read on as a clause of code would be: see `_joins_a_literal`. These
-# are its parts. A quoted piece is taken as a whole: a fenced block, a code span, a string in quote
-# marks, which ends with its line. Then a long number, a sign that chooses or joins a value, and the
-# signs that open, close or end a clause.
+# In prose, after the code span that held a quote, the reply is read on to the end of its clause:
+# the first comma or semicolon outside the brackets opened on the way, the first closing bracket
+# that nothing opened, or the end of the reply. Up to there only plain prose may stand: nothing
+# that can begin a string, a comment or type arguments, and no long number. So no literal can
+# follow the quote, whatever sign or word stands before it, and nothing can hide where the clause
+# ends. Two things are plain though they hold a backtick: a code span too short to be a credential,
+# with no escape, quote mark, dollar or brace in it, and a span that holds another quote.
 _CLAUSE = re.compile(
-    r"(?P<piece>```[\s\S]*?(?:```|\Z)|`[^`]*(?:`|\Z)|\"[^\"\n]*(?:\"|(?=\n)|\Z)|'[^'\n]*(?:'|(?=\n)|\Z))"
-    r"|(?P<number>(?<![A-Za-z0-9_$.])[0-9][0-9A-Za-z_.]{11,})"
-    r"|(?P<joins>\|\||\?\?|&&|\+|\?:)"
-    r"|(?P<sign>[?:,;()\[\]{}<>])")
+    r"(?P<plain>`[^`\\\"'${}\n]{0," + str(MIN_SECRET_LENGTH - 1) + r"}`)"
+    r"|(?P<end>[,;])|(?P<open>[(\[{])|(?P<close>[)\]}])"
+    r"|(?P<refused>[\"'`/\\#<]|--|(?<![A-Za-z0-9_$.])\.?[0-9][0-9A-Za-z_.]{" + str(MIN_SECRET_LENGTH - 1) + r",})")
 _CLAUSE_REACH = 4000  # characters read after a span for the end of its clause
-_CLAUSE_SIGNS = 400  # and the parts read in them
+_CLAUSE_PARTS = 400  # and the brackets and short spans read in them
 _PATCH_MARK = re.compile(r"(?<=\n)[+\- ]")  # the mark that begins each further line of a patch
 _LINE_BREAK = re.compile(r"\n")
 _VALUE_MARK = re.compile(r"[\"'=]")
@@ -619,10 +603,11 @@ class _Reply(NamedTuple):
     starts: list[int]  # where each line starts
     new_after: list[bool]  # for each line: whether the next line that holds code begins something new
     marks: list[int]  # where a quote mark or an equals sign stands
+    spans: dict[int, int]  # for each code span that holds a quote of a reference: where it opens, and where it closes
     diff: bool
 
 
-def _read_reply(value: str, text: str, diff: bool) -> _Reply:
+def _read_reply(value: str, text: str, diff: bool, quotes: list) -> _Reply:
     """Read one string of output once, so that each quote in it is then judged where it stands.
 
     A reply can be made of quotes. Reading the rest of it again for each would take time that
@@ -640,7 +625,14 @@ def _read_reply(value: str, text: str, diff: bool) -> _Reply:
             new = _BEGINS_NEW.match(line) is not None
     prose = _PATCH_MARK.sub(" ", text) if diff else text  # the mark of a patch line is not an operator
     marks = [found.start() for found in _VALUE_MARK.finditer(text)]
-    return _Reply(value, text, prose, starts, new_after, marks, diff)
+    spans = {}
+    for start, end, rests in quotes:
+        if value[start - 1:start] == "`":
+            for rest in ("", *rests):
+                closes = _BLANK.match(value, end + len(rest)).end() if value.startswith(rest, end) else -1
+                if closes >= 0 and value[closes:closes + 1] == "`":
+                    spans[start - 1] = closes
+    return _Reply(value, text, prose, starts, new_after, marks, spans, diff)
 
 
 def _ends_there(reply: _Reply, start: int, end: int, rests: set[str]) -> bool:
@@ -655,54 +647,36 @@ def _ends_there(reply: _Reply, start: int, end: int, rests: set[str]) -> bool:
                for stop in (end + len(rest) for rest in ("", *rests) if value.startswith(rest, end)))
 
 
-def _joins_a_literal(prose: str, position: int, stop: int) -> bool:
-    """Whether the clause that starts at `position` joins a literal to what stands before it.
+def _plain_to_the_end_of_its_clause(reply: _Reply, position: int) -> bool:
+    """Whether only plain prose stands from `position` to the end of the clause that begins there.
 
-    The clause is read as a clause of code would be. It ends at a comma or a semicolon outside
-    the brackets it opened, at a closing bracket it did not open, and at `stop`. In it, a sign
-    that chooses or joins a value may not stand before a literal of the length a credential has,
-    however deep in a call: "||", "??", "&&", "+", "?:", and "?" with a ":" after it. A quoted
-    piece is a whole, so a sign inside a code span is text. No end in reach is unclear, and
-    unclear is refused.
+    The clause ends at a comma or a semicolon outside the brackets opened on the way, at a closing
+    bracket that nothing opened, and with the reply. Brackets can be counted because nothing that
+    could hold one as text is let through: see `_CLAUSE`. A code span that holds another quote of
+    a reference is stepped over: if that quote is not permitted either, the label rules refuse
+    it. No end in reach is unclear, and unclear is refused.
     """
-    limit = min(stop, position + _CLAUSE_REACH)
-    depth = angles = parts = 0
-    joined = asked = held = False  # a joining sign was read; a question mark; a literal after it
-    for part in _CLAUSE.finditer(prose, position, limit):
-        kind, sign = part.lastgroup, part.group()
-        parts += 1
-        if parts > _CLAUSE_SIGNS:
+    prose, depth = reply.prose, 0
+    limit = min(len(prose), position + _CLAUSE_REACH)
+    for _part in range(_CLAUSE_PARTS):
+        part = _CLAUSE.search(prose, position, limit)
+        if part is None:
+            return limit == len(prose)  # The reply ends here, and nothing was joined to the quote.
+        kind, position = part.lastgroup, part.end()
+        if kind == "end" and not depth:
             return True
-        if kind in ("piece", "number"):
-            mark = 3 if sign.startswith("```") else 1
-            inside = len(sign) - mark - (mark if len(sign) >= 2 * mark and sign.endswith(sign[:mark]) else 0)
-            if kind == "number" or inside >= MIN_SECRET_LENGTH:
-                if joined:
-                    return True
-                held = held or asked
-        elif kind == "joins":
-            joined = True
-        elif sign == "?":
-            asked = True
-        elif sign == ":":
-            if asked:  # The other branch of a choice: what stood in the first one, or stands in this one.
-                if held:
-                    return True
-                joined = True
-        elif sign in ",;":
-            if not depth and not angles:
-                return False
-        elif sign in "([{":
+        if kind == "open":
             depth += 1
-        elif sign in ")]}":
+        elif kind == "close":
             if not depth:
-                return False
+                return True
             depth -= 1
-        elif sign == "<":
-            angles += 1  # It may open type arguments, and a comma between those is not an end.
-        elif angles and prose[part.start() - 1] not in "=-":
-            angles -= 1
-    return limit < stop
+        elif kind == "refused":
+            closes = reply.spans.get(part.start())
+            if closes is None:
+                return False
+            position = closes + 1
+    return False
 
 
 def _leaves_open(quote: str) -> bool:
@@ -725,10 +699,10 @@ def _is_over(reply: _Reply, start: int, end: int) -> bool:
     """Whether nothing from `end` on can give the label that starts at `start` another value.
 
     A quote is over in two shapes. In prose it is a code span: a backtick just before the label
-    and one just after the quote, with prose after it, and no sign in the clause that follows
-    that joins a literal to it. In code it ends its line, or a comma or a semicolon does, and the
-    next line of code begins something new. Anything else after the quote could hold a literal,
-    in quote marks, in backticks or as a number.
+    and one just after the quote, with only plain prose after it to the end of its clause. In
+    code it ends its line, or a comma or a semicolon does, and the next line of code begins
+    something new. Anything else after the quote could hold a literal, in quote marks, in
+    backticks or as a number.
     """
     text = reply.text
     line = bisect_right(reply.starts, end) - 1
@@ -738,16 +712,8 @@ def _is_over(reply: _Reply, start: int, end: int) -> bool:
         return False  # a quote mark or an equals sign after the quote on its line
     first = _BLANK.match(text, end, line_end).end()  # where the first thing after the quote on its line is
     if first < line_end and text[first] == "`":
-        if text[start - 1:start] != "`":
-            return False
-        # The code span has ended, and prose must follow it. A bar is a table's only in a table row.
-        prose = reply.prose
-        follows = _AFTER_SPAN.match(prose, first + 1)
-        row_start = _BLANK.match(prose, reply.starts[line]).end()
-        in_row = prose[row_start:row_start + 1] == "|"
-        if follows is None or (follows.lastgroup == "bar" and not in_row):
-            return False
-        return not _joins_a_literal(prose, first + 1, line_end if in_row else len(prose))
+        # The code span has ended. Only plain prose may follow it, to the end of its clause.
+        return text[start - 1:start] == "`" and _plain_to_the_end_of_its_clause(reply, first + 1)
     if first < line_end:
         return text[first] in ",;" and _BLANK.match(text, first + 1, line_end).end() == line_end
     return reply.new_after[line]  # The quote ends its line: what begins the next line that holds code?
@@ -782,7 +748,7 @@ def _mask_references(value: str, references: dict[str, set[str]], diff: bool) ->
         return "".join(chars)
 
     without = blanked(quotes)
-    reply = _read_reply(value, without, diff)
+    reply = _read_reply(value, without, diff, quotes)
     permitted = [quote for quote in quotes if _ends_there(reply, *quote)]
     return without if len(permitted) == len(quotes) else blanked(permitted)
 
