@@ -36,6 +36,54 @@ The repositories keep moving, so a later run counts later changes. The two rows 
 changes were measured again after the script was corrected to count an added line that starts
 with `++`; the other rows are from the first run.
 
+## Where the next release stands
+
+Measured on the source tree of main at `5c1af62`, offline, with no model call. The reference set
+is 225 changes at pinned commits, with the fingerprint `471b2dfe27d4dc2a` (see Commands). No
+candidate wheel exists yet, so this is not gate C1. A rehearsal on a wheel built locally from the
+same tree gave the same test results and the same totals from the wheel's own files.
+
+| Gate | Result | Met |
+|---|---|---|
+| A1 | The matrix test passes: no miss and no false alarm | Yes |
+| A2 | 1,092 of 1,092 numbers that the reference changes add are refused when listed | Yes |
+| A3 | 0 of 6,020 file versions refused with 1,000 control figures listed, and no collision | Yes |
+| A4 | 0 escapes in 10,000 generated payloads against a baseline guard (`tests/test_figure_digits.py`) | Yes |
+| A5 | The route tests pass: every path to a provider runs the four screens | Yes |
+| A6 | A reply is screened on the review, gate and proposal routes, hidden characters last | Yes |
+| A7 | Not measured. It needs live calls | No |
+| B1 | 9 of 9 drafted policies are accepted by the gate | Yes |
+| B2 | 180 of 225 (80%). The threshold is 180 | Yes, with none to spare |
+| B3 | 185 of 225 (82%) | Yes |
+| B3a | With test paths listed: gate route 195 (87%), configuration route 202 (90%) | Reported |
+| B4 | All 45 distinct lines refused for a credential hold a literal value under a credential label, 40 of them in test files. None is a call, a member expression or an environment lookup | Yes |
+| B5 | The labelled set passes | Yes |
+| B6 | `doctor`: median 0.46 s, slowest 12.7 s over 1,800 runs. The dense-number test passes | Yes |
+| B7 | The configuration tests pass. `scripts/upgrade_smoke.py` needs the candidate wheel | Partly |
+| C1 to C4 | No candidate wheel yet | No |
+| D1 to D6 | Not measured. The spending decision is open | No |
+| E1 | The release workflow attests every file. The README does not give the verifying command yet | No |
+| E2 | `scripts/action_lock.py --check` passes | Yes |
+| E3 | Not read for this page | Open |
+
+What the gate route still blocks, by number of changes: credential content 28, a change to an
+ignore file 7, a request over the size limit 5, the run budget 3, the packet limit 1, a hidden
+character 1, the file count 1, a range of private files only 1, and nothing to review 1. Some
+changes have more than one.
+
+What is left before a release, in order:
+
+1. **E1:** add the verifying command to the README, after it has been run once against the
+   published 0.10.0 files.
+2. **C1:** build the candidate with the release workflow and run every gate above on that wheel.
+3. **A7 and D1 to D6:** these need live model calls, so they wait for the spending decision.
+   Until then the documentation says only what a PASS means.
+4. **B2 has nothing to spare.** One reference change fewer would miss it. What it still refuses
+   for credential content is a literal under a credential label, and 40 of those 45 lines are in
+   test files. `placeholder_credential_paths` is the setting for test files that hold only
+   made-up logins, and whether its numbers (B3a) may count towards B2 and B3 is the owner's
+   decision.
+
 ## Gates
 
 Each gate has a number, a threshold and the command that produces it. A gate without a
@@ -61,7 +109,7 @@ measurement is not passed.
 | B2. First run, gate route | At least 80% of the 225 reference changes are ready with the drafted policy plus `skip-and-report` | the same script |
 | B3. First run, configuration route | At least 80%, counting only setup blockers | the same script |
 | B3a. First run, with test paths listed | The script also measures both routes with test files listed in `placeholder_credential_paths` on top of both skip settings. It is reported beside B2 and B3 and does not replace them: listing a path is a statement about a repository that only its owner can make | the same script, variants `gate+tests` and `config+tests` |
-| B4. Every remaining refusal is deliberate | Each blocker code left in B2 and B3 is one of: a change to the review rules, a private file, a binary file, a file over a stated limit. No `sensitive_content` on a call, a member expression or an environment lookup | blocker histogram from the same script, which counts each content refusal by rule and file suffix |
+| B4. Every remaining refusal is deliberate | Each blocker code left in B2 and B3 is one of: a literal value under a credential label, a hidden character, a change to the review rules, a private file, a binary file, a size or a cost over a stated limit. No `sensitive_content` on a call, a member expression or an environment lookup | blocker histogram from the same script, which counts each content refusal by rule and file suffix |
 | B5. Other languages | TypeScript, Go, SQL and YAML changes that assign from a variable, a call or the environment are not refused as credentials: 0 false refusals on a labelled set of 200 lines | `pytest tests/test_credential_references.py`, on the set in `tests/credential_cases.py` |
 | B6. Speed | `doctor` median under 2 seconds and worst case under 15 on the reference changes; 1.6 MB of dense numbers screened in under 20 seconds | the script; `tests/test_figure_matrix.py` |
 | B7. Upgrade | A 0.10.0 configuration and policy load unchanged, and an unchanged configuration keeps its hash | `tests/test_config_figure_screen.py`, `scripts/upgrade_smoke.py` |
@@ -127,13 +175,27 @@ python scripts/seeded_figure_screen.py --changes 25 REPO [REPO ...]
 # B5
 python -m pytest tests/test_credential_references.py
 
-# B1 to B4 and B6: --output is a new folder, created by the script
+# B1 to B4 and B6: --output is a new folder, created by the script, which writes tips.txt there
 python scripts/first_run_scenarios.py --changes 25 --output /private/new-folder REPO [REPO ...]
+
+# The same changes again, on another day or another tree: the repositories in the same order
+python scripts/first_run_scenarios.py --changes 25 --tips /private/new-folder/tips.txt \
+    --output /private/another-folder REPO [REPO ...]
+python scripts/seeded_figure_screen.py --changes 25 --tips /private/new-folder/tips.txt REPO [REPO ...]
 ```
 
 Both scripts print codes, counts and timings only, under an anonymous number for each
 repository: never a number, a line, a file name or a path.
 
+- **The same changes, or no comparison.** The repositories keep moving, so the last 25 changes are
+  different changes on a later day, and a count can move by itself. A whole run of the scenario
+  script writes the commit it read each history from to `tips.txt` in its output folder, and
+  both scripts print a fingerprint of the set they read. With `--tips` they read those commits
+  again. Compare two counts only when their runs print the same fingerprint, and give it with
+  every number that leaves this page.
+- **Nothing is locked.** Neither script writes inside a repository, and both run every Git
+  command with `GIT_OPTIONAL_LOCKS=0`, so a measurement never holds the index lock of a
+  repository that someone is working in.
 - **A private path is never read.** The seeded script decides by name, with the product's own
   path policy, before it diffs or opens a file, and counts what it leaves out.
 - **An incomplete run is not a measurement.** A missing repository or branch, a failed Git read,
