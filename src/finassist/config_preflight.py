@@ -276,12 +276,12 @@ def budgets_for_the_packet_limit(proposed: Config) -> dict:
     budgets = {}
     if run > stated_run:
         budgets["max_run_usd"] = float(run)
-    # A day that has to change is given three requests, as the gate policy draft gives it.
-    changed = run > stated_run or run > stated_day
-    daily = max(stated_day, 3 * run) if changed else stated_day
+    # When the run or the day holds less than one request, the day is given three, as the gate
+    # policy draft gives it. A day that already holds three stays.
+    daily = max(stated_day, 3 * run) if run > stated_run or run > stated_day else stated_day
     if daily > stated_day:
         budgets["daily_budget_usd"] = float(daily)
     # A month holds the day that is proposed beside it. Beside a day that stays, it holds one request.
-    if (daily if changed else run) > stated_month:
+    if (daily if daily > stated_day else run) > stated_month:
         budgets["monthly_budget_usd"] = float(daily)
     return budgets

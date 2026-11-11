@@ -297,6 +297,13 @@ def test_a_month_that_holds_one_request_stays_beside_a_larger_day(tmp_path, caps
     proposal = _proposal(capsys, ["--config", str(stated), "init", "--detect", "--repo", str(repo), *pricey])
     assert not {"max_run_usd", "daily_budget_usd", "monthly_budget_usd"} & set(proposal["config"])
     assert "budget_raised_for_packet_limit" not in {entry["code"] for entry in proposal["warnings"]}
+    # The same when the run budget is the one that is raised: the day holds three requests and stays, so the
+    # month is asked only whether it holds one.
+    stated.write_text(json.dumps({"max_run_usd": 1, "daily_budget_usd": 60, "monthly_budget_usd": 20}), encoding="utf-8")
+    proposal = _proposal(capsys, ["--config", str(stated), "init", "--detect", "--repo", str(repo), *pricey])
+    assert {"max_run_usd", "daily_budget_usd", "monthly_budget_usd"} & set(proposal["config"]) == {"max_run_usd"}
+    assert [set(entry) for entry in proposal["warnings"] if entry["code"] == "budget_raised_for_packet_limit"] == [
+        {"code", "max_run_usd"}]
 
 
 def test_a_draft_the_gate_schema_refuses_is_reported_and_the_proposal_still_prints(tmp_path, capsys):
