@@ -47,6 +47,11 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   Nothing else about what a gate accepts, authorizes or spends has changed.
 
 ### Fixed
+- **`init --detect` left hidden directories out of `allow_paths`.** A change to `.github/workflows/`,
+  to a tool's settings directory or to a root file such as `.pre-commit-config.yaml` then left every
+  range that touched it incomplete, or refused by a gate. On nine real repositories that was the most
+  common blocker: it left something out of 56 of 225 changes, and in 43 of them nothing else. The proposal now lists hidden directories and root dotfiles that
+  hold reviewable text. Private ones, such as `.env` files, are still never proposed, read or sized.
 - **`init --detect` drafted a gate policy that the gate refused.** The draft listed private files
   found inside reviewed directories under `deny_paths`, and the policy check refused any policy whose
   `deny_paths` named a private path such as `.env.example`, `holdings/` or `USER.md`. Every range was

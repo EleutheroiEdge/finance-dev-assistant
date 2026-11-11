@@ -26,8 +26,7 @@ from .errors import AssistantError, prices_required
 from .model_policy import check_draft, missing_fields
 from .review import ENVELOPE_ALLOWANCE, reserved_usd
 from .scope import git, git_command, git_environment, resolve
-from .security import (DENIED_PARTS, TEXT_SUFFIXES, _check_model_private, canonical, check_path,
-                       check_text, local_name)
+from .security import (_PRIVATE, _check_model_private, DENIED_PARTS, TEXT_SUFFIXES, canonical, check_path, check_text, local_name)
 
 PURPOSES = {"quant": "quant-review", "accounting": "finance-saas", "research": "investment-research",
             "general": "general"}
@@ -196,10 +195,14 @@ class _Detector:
                 self.note("allow_paths", name, "project_file", name)
         # A range that changes a reviewable file outside allow_paths is left incomplete or refused,
         # so other directories of text, and root text files such as a roadmap, are proposed too.
+        # That includes hidden ones, such as .github/ and .pre-commit-config.yaml: workflow and
+        # tool settings change in many pull requests. The path policy has already refused the
+        # private ones it names (.env files, .git, .aws), and a hidden name that is private
+        # without its dot, such as .secrets, is left out here.
         others: dict[str, str] = {}
         for path in sorted(self.files):
             parts = PurePosixPath(path).parts
-            if (self.private(path) or _refusal(path) or parts[0].startswith(".")
+            if (self.private(path) or _refusal(path) or _hidden_private(parts[0])
                     or PurePosixPath(path).suffix.lower() not in TEXT_SUFFIXES
                     or any(character in parts[0] for character in "*?[]")):  # A gate policy refuses such a prefix.
                 continue
@@ -587,6 +590,11 @@ def _is_nox_session(node) -> bool:
 
 def _rank(confidence: str) -> int:
     return {"low": 0, "medium": 1, "high": 2}[confidence]
+
+
+def _hidden_private(top: str) -> bool:
+    """A hidden name that the path policy would refuse without its leading dot, such as `.secrets`."""
+    return top.startswith(".") and top[1:].lower().rstrip(". ") in DENIED_PARTS | _PRIVATE
 
 
 def _allowed(path: str, allow: list[str]) -> bool:

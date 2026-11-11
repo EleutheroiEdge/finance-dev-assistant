@@ -70,7 +70,8 @@ finassist init --detect --purpose quant --write --output finassist.json
 - **What it proposes:**
   - `allow_paths`: source directories, root source files, tests, docs and scripts, then any other
     directory of reviewable text and root text files such as a roadmap, so a change to one doesn't
-    leave a range incomplete;
+    leave a range incomplete. Hidden directories and root dotfiles count too, such as `.github/` and
+    `.pre-commit-config.yaml`; a private name, or a hidden name that is private without its dot, never does;
   - `generated_paths`: lock files, hash-named build assets, `dist/`, and files `.gitattributes` marks `linguist-generated` or `linguist-vendored`;
   - `protected_paths`;
   - `profile`: from `--purpose` or `--profile`. Without either, it follows the README and agent
