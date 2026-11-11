@@ -86,6 +86,55 @@ def test_digit_matching_passes_other_numbers(custody, text):
     assert not _refused(text, _snapshot(custody))
 
 
+def test_a_source_cell_with_an_exponent_or_a_leading_point_is_listed(tmp_path):
+    # One ordinary cell beside each notation: a figure that was left out must not hide behind another.
+    path = tmp_path / "mixed.csv"
+    path.write_text("value\n48213.57\n1.23456789e6\n.4821399\n9.0513E+02\n6729102500e-3\n$ .7302604\n",
+                    encoding="utf-8", newline="\n")
+    listed = ("48213.57", "1234567.89", "0.4821399", "905.13", "6729102.5", "0.7302604")
+    for match in ("digits", "value"):
+        snapshot = _snapshot(str(path), match=match)
+        assert snapshot.source_figures == len(listed)
+        for value in listed:
+            assert _refused("total " + value + " due", snapshot), (match, value)
+    # A leading point is a fraction: the cell is not also listed as the whole number its digits spell.
+    assert not _refused("4821399", _snapshot(str(path), match="value"))
+    # An exponent too large to be a figure is not one, and the other cells still load.
+    path.write_text("value\n48213.57\n123456e678\n", encoding="utf-8", newline="\n")
+    assert _snapshot(str(path)).source_figures == 1
+
+
+@pytest.mark.parametrize("text", [
+    "9.05125e2", "905125e-3", "0.905125E3", "90512.5e-2", "9.05134e+2",  # 905.125 and 905.134 round to 905.13
+    '{"market_value": 9.05125e2}', "total 0.0905125e4 due",
+])
+def test_a_number_with_an_exponent_is_rounded_as_its_value(custody, text):
+    snapshot = _snapshot(custody)
+    assert _refused(text, snapshot)
+    assert _refused(text, snapshot, "notes.md") and _refused(text, snapshot, "report.json")
+
+
+@pytest.mark.parametrize("text", ["9.05124e2", "9.05135e2", "905124e-3", "9.05136e2", "0.905124E3"])
+def test_an_exponent_number_that_rounds_elsewhere_passes(custody, text):
+    snapshot = _snapshot(custody)
+    assert not _refused(text, snapshot) and not _refused(text, snapshot, "report.json")
+
+
+def test_digit_matching_scans_each_word_once(custody, monkeypatch):
+    """A word of many digit runs is examined once, not once a run: the work stays linear in the text."""
+    class Counting(frozenset):
+        calls = 0
+
+        def __contains__(self, item):
+            Counting.calls += 1
+            return frozenset.__contains__(self, item)
+
+    monkeypatch.setattr(forbidden_tokens, "_WORD", Counting(forbidden_tokens._WORD))
+    text = "a1" * 20_000 + " " + "9f8e7d6c5b4a" * 2_000 + " x" + "7_" * 5_000
+    assert not _refused(text, _snapshot(custody))
+    assert 0 < Counting.calls <= 4 * len(text)
+
+
 def test_value_matching_with_a_source_refuses_the_value_but_not_its_scalings(custody):
     snapshot = _snapshot(custody, match="value")
     assert not snapshot.digit_hashes

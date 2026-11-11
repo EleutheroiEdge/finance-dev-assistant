@@ -33,12 +33,14 @@ FILES = {
 
 LARGE = "SYNTHETIC = 1\n" * 30_000  # About 420 KB: it would lift every limit if it were sized.
 PUBLIC = {".docker/compose.yml": "services: {}\n", ".config/nextest.toml": "[profile.default]\n"}
-# Private by a hidden spelling of a private name, at any depth, or as a credential store. Shapes
-# only: no value here is a credential.
+# Private by a hidden spelling of a private name or of the .env family, at any depth, or as a
+# credential store. Shapes only: no value here is a credential.
 NESTED = {
     ".github/.secrets/config.py": LARGE,
     ".github/.data/rows.py": LARGE,
     ".github/.credentials/login.py": LARGE,
+    ".github/..env.local/config.py": LARGE,
+    ".github/...env.production/settings.py": LARGE,
     "src/.private/notes.py": LARGE,
     ".docker/config.json": json.dumps({"auths": {"registry.invalid": {
         "auth": base64.b64encode(b"synthetic:synthetic").decode("ascii")}}}) + "\n",
@@ -47,7 +49,7 @@ NESTED = {
     ".kube/config.yaml": "apiVersion: v1\nkind: Config\n",
     ".claude/.credentials.json": "{}\n",
 }
-INSIDE = 7  # Of NESTED, the files under a directory the proposal allows: .github/, src/, .docker/ and .config/.
+INSIDE = 9  # Of NESTED, the files under a directory the proposal allows: .github/, src/, .docker/ and .config/.
 
 
 def _repo(tmp_path, files=None):
@@ -165,9 +167,11 @@ def test_a_private_file_under_an_allowed_hidden_directory_is_refused_or_withheld
     command(repo, "add", "gate-policy.json")
     command(repo, "commit", "-q", "-m", "Synthetic reviewed policy")
     base = command(repo, "rev-parse", "HEAD")
-    private = [".config/gh/hosts.yml", ".docker/config.json", ".github/.secrets/config.py"]
+    private = [".config/gh/hosts.yml", ".docker/config.json", ".github/..env.local/config.py",
+               ".github/.secrets/config.py"]
     head = _change(repo, {".docker/compose.yml": "services:\n  app: {}\n", ".docker/config.json": "{}\n",
                           ".github/.secrets/config.py": "SYNTHETIC = 3\n",
+                          ".github/..env.local/config.py": "SYNTHETIC = 4\n",
                           ".config/gh/hosts.yml": "github.invalid:\n    user: other\n"})
     report = policy_preflight(repo, base, head, "gate-policy.json", digest(canonical(draft)),
                               environment={"REVIEW_PROVIDER_KEY": "fictional"})

@@ -143,8 +143,9 @@ Runtime/Git internals, environment files, private profile filenames, credential
 formats and binary restrictions remain intrinsic protections. There is no bypass switch.
 
 A hidden spelling of a private name is the same name: `.secrets/`, `.data/` and `.credentials.json`
-are refused like `secrets/`, `data/` and `credentials.json`, at any depth. Removing a component from
-`denied_parts` admits its hidden spelling too.
+are refused like `secrets/`, `data/` and `credentials.json`, at any depth. Extra leading dots change
+nothing: `..secrets/` is `secrets/`, and `..env.local` is an environment file like `.env.local`.
+Removing a component from `denied_parts` admits its hidden spelling too.
 
 Credential stores are private by name, wherever they sit and in any case, and no setting admits one.
 These are the names tools use for a signed-in session, a registry password or a private key:
