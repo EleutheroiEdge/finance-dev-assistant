@@ -71,7 +71,7 @@ finassist init --detect --purpose quant --write --output finassist.json
   - `allow_paths`: source directories, root source files, tests, docs and scripts, then any other
     directory of reviewable text and root text files such as a roadmap, so a change to one doesn't
     leave a range incomplete. Hidden directories and root dotfiles count too, such as `.github/` and
-    `.pre-commit-config.yaml`; a private name, or a hidden name that is private without its dot, never does;
+    `.pre-commit-config.yaml`; a private name, hidden or not, and a credential store never do;
   - `generated_paths`: lock files, hash-named build assets, `dist/`, and files `.gitattributes` marks `linguist-generated` or `linguist-vendored`;
   - `protected_paths`;
   - `profile`: from `--purpose` or `--profile`. Without either, it follows the README and agent
@@ -140,6 +140,31 @@ bytes remain subject to publication scans and build-integrity CI. `.gitattribute
 is reviewable and protected by default.
 Runtime/Git internals, environment files, private profile filenames, credential
 formats and binary restrictions remain intrinsic protections. There is no bypass switch.
+
+A hidden spelling of a private name is the same name: `.secrets/`, `.data/` and `.credentials.json`
+are refused like `secrets/`, `data/` and `credentials.json`, at any depth. Removing a component from
+`denied_parts` admits its hidden spelling too.
+
+Credential stores are private by name, wherever they sit and in any case, and no setting admits one.
+These are the names tools use for a signed-in session, a registry password or a private key:
+
+- **Directories, with everything under them:** `.bluemix/`, `.doppler/`, `.gnupg/`, `.kaggle/`,
+  `.kube/`, `.ngrok2/`, `.oci/`, `.password-store/`, `.pki/`, `.snowsql/`, `.terraform.d/`,
+  `.config/configstore/`, `.config/doctl/`, `.config/gcloud/`, `.config/gh/`,
+  `.config/github-copilot/`, `.config/glab-cli/`, `.config/hcloud/`, `.config/helm/registry/`,
+  `.config/netlify/`, `.config/ngrok/`, `.config/op/`, `.config/rclone/`, `.config/sops/`,
+  `.config/stripe/`, `.local/share/keyrings/`, `.subversion/auth/`, `.wrangler/config/`.
+- **One file inside a directory that may hold ordinary settings too:** `.cargo/credentials`,
+  `.cargo/credentials.toml`, `.config/git/credentials`, `.config/hub`, `.config/linode-cli`,
+  `.config/pypoetry/auth.toml`, `.docker/config.json`, `.expo/state.json`, `.fly/config.yml`,
+  `.gem/credentials`, `.gradle/gradle.properties`, `.m2/settings-security.xml`, `.m2/settings.xml`.
+- **Files, in any directory:** `.boto`, `.databrickscfg`, `.dockercfg`, `.git-credentials`,
+  `.htpasswd`, `.mylogin.cnf`, `.netrc`, `.pgpass`, `.pypirc`, `.s3cfg`, `.terraformrc`,
+  `.vault-token`, `_netrc`, `id_dsa`, `id_ecdsa`, `id_ed25519`, `id_rsa`, `pgpass.conf`.
+
+The list covers common tools, not every tool. Keep any other credential location out of `allow_paths`,
+or name it under `deny_paths` in a gate policy. `private_paths: skip-and-report` withholds a store
+unread, like any other private path.
 
 ## Related-code context
 
@@ -215,7 +240,8 @@ defaults. For a gate range, use `doctor --policy` instead (see the pre-merge gat
 With `private_paths` set to `refuse` (the default), a private path anywhere in the range refuses
 the whole review:
 - **`plan` and `review`** refuse a data, binary or credential file (by suffix), a path under a
-  denied directory (`denied_parts`, such as `credentials/` or `.env`) and a reserved profile name.
+  denied directory (`denied_parts`, such as `credentials/` or `.env`, hidden or not), a credential
+  store and a reserved profile name.
 - **A gate** also refuses the gate's private directories and names, such as `data/`, `private/`,
   `client/`, `household/` or `client.json`.
 
