@@ -293,7 +293,7 @@ def read_sides(repo: Path, revisions: tuple[str, str], path: str, config: Config
     """
     limit = config.file_byte_limit(path)
     sides, unreadable = [], None
-    for revision in revisions:
+    for version, revision in zip(("base", "head"), revisions, strict=True):
         try:
             data, mode = read_entry(repo, revision, path, limit, config)
             text = None
@@ -308,7 +308,11 @@ def read_sides(repo: Path, revisions: tuple[str, str], path: str, config: Config
             unreadable = unreadable or exc
             continue
         if text is not None:
-            check_text(text, extra_patterns=config.extra_sensitive_patterns, source_path=path)
+            try:
+                check_text(text, extra_patterns=config.extra_sensitive_patterns, source_path=path)
+            except AssistantError as exc:
+                exc.local_details.setdefault("version", version)  # The lines are counted in this version.
+                raise
             if screen is not None:
                 screen(text, path)
         sides.append((data, mode, text))

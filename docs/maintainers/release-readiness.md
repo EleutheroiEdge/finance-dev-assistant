@@ -60,8 +60,8 @@ measurement is not passed.
 | B1. The draft is valid | On every reference repository, `init --detect` drafts a policy the gate accepts | `scripts/first_run_scenarios.py` |
 | B2. First run, gate route | At least 80% of the 225 reference changes are ready with the drafted policy plus `skip-and-report` | the same script |
 | B3. First run, configuration route | At least 80%, counting only setup blockers | the same script |
-| B4. Every remaining refusal is deliberate | Each blocker code left in B2 and B3 is one of: a change to the review rules, a private file, a binary file, a file over a stated limit. No `sensitive_content` on a call, a member expression or an environment lookup | blocker histogram from the same script |
-| B5. Other languages | TypeScript, Go, SQL and YAML changes that assign from a variable, a call or the environment are not refused as credentials: 0 false refusals on a labelled set of 200 lines | labelled set, to be written |
+| B4. Every remaining refusal is deliberate | Each blocker code left in B2 and B3 is one of: a change to the review rules, a private file, a binary file, a file over a stated limit. No `sensitive_content` on a call, a member expression or an environment lookup | blocker histogram from the same script, which counts each content refusal by rule and file suffix |
+| B5. Other languages | TypeScript, Go, SQL and YAML changes that assign from a variable, a call or the environment are not refused as credentials: 0 false refusals on a labelled set of 200 lines | `pytest tests/test_credential_references.py`, on the set in `tests/credential_cases.py` |
 | B6. Speed | `doctor` median under 2 seconds and worst case under 15 on the reference changes; 1.6 MB of dense numbers screened in under 20 seconds | the script; `tests/test_figure_matrix.py` |
 | B7. Upgrade | A 0.10.0 configuration and policy load unchanged, and an unchanged configuration keeps its hash | `tests/test_config_figure_screen.py`, `scripts/upgrade_smoke.py` |
 
@@ -106,7 +106,8 @@ the code is free of defects.
    matched by its significant digits and its two-place rounding, as common guards do. Gates A2
    to A4.
 4. **Credential screen outside Python.** Skip values that are identifiers, member expressions,
-   calls and environment lookups, as the Python reading already does. Gates B4 and B5.
+   calls and environment lookups, as the Python reading already does. Gates B4 and B5. The
+   labelled set also lists what the screen still gets wrong, in both directions, with the reason.
 5. **Hidden and bidirectional characters in content,** on every route. Gate A5.
 6. **Fit:** unsupported suffixes and files over the limit are left out and reported, not fatal to
    the whole range, when the operator chooses that. Gates B2 and B3.
@@ -121,6 +122,9 @@ python -m pytest tests/test_figure_matrix.py
 
 # A2 and A3: each REPO is a local checkout; nothing is written and nothing is sent
 python scripts/seeded_figure_screen.py --changes 25 REPO [REPO ...]
+
+# B5
+python -m pytest tests/test_credential_references.py
 
 # B1 to B4 and B6: --output is a new folder, created by the script
 python scripts/first_run_scenarios.py --changes 25 --output /private/new-folder REPO [REPO ...]

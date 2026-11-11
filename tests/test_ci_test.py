@@ -161,6 +161,7 @@ def test_every_test_that_times_itself_is_marked_to_run_alone():
                 if any(ast.unparse(decorator) == "pytest.mark." + ci_test.ALONE for decorator in node.decorator_list):
                     marked.add(name)
     assert timed == marked == {
+        "test_code_text.py::test_hostile_code_is_screened_in_bounded_time",
         "test_figure_matrix.py::test_dense_numeric_text_is_screened_in_bounded_time",
         "test_python_screening.py::test_long_zero_runs_screen_in_linear_time",
         "test_python_screening.py::test_many_numeric_credential_values_screen_in_linear_time",
