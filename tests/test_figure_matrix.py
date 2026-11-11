@@ -98,6 +98,48 @@ def test_documented_readings_of_a_whole_number(text, refused):
     assert _refused(text, "73026") is refused
 
 
+@pytest.mark.parametrize("text", [
+    '{"amount":4821357e-0002}', "4821357e-0002", "4.821357E+0004", "48213.57e0000", "482.1357e+02", "0.4821357e005",
+])
+def test_a_zero_padded_exponent_is_read_by_its_value(text):
+    assert _refused(text, "48213.57")
+    assert _refused(text, "48213.57", "data/amounts.json")
+
+
+@pytest.mark.parametrize("text", ["48213.57e1000", "48213.57e-0999", "1e99999999999", "9e" + "0" * 400 + "1"])
+def test_an_exponent_past_the_bounds_is_another_number(text):
+    screen_text(text, _listing("4821357"))  # Neither a crash nor a match.
+
+
+LONG = "123456789012345678901234567890"  # Thirty digits: ten groups.
+
+
+@pytest.mark.parametrize("separator", [" ", ",", "\u00a0", "'"])
+def test_a_long_figure_that_starts_a_row_is_found_whatever_follows_it(separator):
+    listed = _listing(LONG)
+    groups = [LONG[i:i + 3] for i in range(0, 30, 3)]
+
+    def refused(row):
+        try:
+            screen_text(separator.join(row), listed)
+        except AssistantError:
+            return True
+        return False
+
+    assert refused(groups) and refused([*groups, "112"]) and refused([*groups, "112", "345", "678"])
+    assert refused(["7", *groups]) is False  # One more leading group makes another number,
+    assert refused(["x" + groups[0], *groups[1:], "112"])  # but text before the row does not.
+    # Nine groups are found from any start; ten are found only from the row's first run.
+    nine = _listing(LONG[:27])
+    for row in (groups[:9], ["555", *groups[:9]], ["555", *groups[:9], "112"]):
+        try:
+            screen_text(separator.join(row), nine)
+        except AssistantError:
+            continue
+        raise AssertionError("a nine-group figure was missed")
+    assert refused(["555", *groups, "112"]) is False  # The documented limit: ten groups, not at the start.
+
+
 @pytest.mark.alone
 @pytest.mark.parametrize("text", [
     ",".join(["123"] * 400_000),                 # one row of three-digit groups, 1.6 MB

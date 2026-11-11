@@ -544,7 +544,8 @@ def config_identity(config: Config) -> dict:
     """
     document = asdict(config)
     for item in fields(config):
-        if item.metadata.get("identity") == "when-set" and getattr(config, item.name) == item.default:
+        # Compared as serialized, so an empty list given in code counts as the empty default.
+        if item.metadata.get("identity") == "when-set" and canonical(document[item.name]) == canonical(item.default):
             del document[item.name]
     return document
 

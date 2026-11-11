@@ -63,6 +63,9 @@ def test_unset_figure_settings_leave_the_configuration_hash_as_it_was():
     assert not {name for name in config_identity(config) if name.startswith("forbidden_token_")}
     assert config_hash(config) == DEFAULT_HASH_0_10_0
     assert config_hash(replace(config, forbidden_token_hashes=(HASH,))) != DEFAULT_HASH_0_10_0
+    # An empty list given in code is the empty default, as it is when loaded from JSON.
+    assert config_hash(replace(config, forbidden_token_hashes=[]).validate()) == DEFAULT_HASH_0_10_0
+    assert config_hash(load_config(content=b'{"forbidden_token_hashes": [], "forbidden_token_file": ""}')) == DEFAULT_HASH_0_10_0
     assert config_hash(replace(config, **{"forbidden_token_file": "/synthetic/figures.txt"})) != DEFAULT_HASH_0_10_0
     # Every other setting is hashed whether or not it has its default.
     assert set(asdict(config)) - set(config_identity(config)) == {

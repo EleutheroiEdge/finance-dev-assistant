@@ -61,9 +61,9 @@ def test_root_text_files_and_other_text_directories_are_proposed(tmp_path):
     proposal = detect_module.detect(_repo(tmp_path, LAYOUT))
     allow = proposal["config"]["allow_paths"]
     assert {"engine/", "tests/", "README.md", "ROADMAP.md", "CONSTITUTION.md", "requirements.txt", "ops/",
-            "FLAGS/"} <= set(allow)
-    # Private data, hidden directories, example directories, lock files and binary assets are not proposed.
-    assert not {"data/", ".internal/", "examples/", "uv.lock", "assets/", ".gitignore"} & set(allow)
+            "FLAGS/", ".internal/"} <= set(allow)  # A hidden directory of text is proposed like any other.
+    # Private data, example directories, lock files and binary assets are not proposed.
+    assert not {"data/", "examples/", "uv.lock", "assets/", ".gitignore"} & set(allow)
     assert proposal["gate_policy_draft"]["model_review"]["allow_paths"] == allow
     rules = {entry["value"]: entry["rule"] for entry in proposal["evidence"]["allow_paths"]}
     assert rules["ROADMAP.md"] == "root_text_file" and rules["ops/"] == "text_files"
