@@ -4,6 +4,8 @@ import errno
 import os
 import select
 import subprocess
+import sys
+import time
 
 from .errors import AssistantError
 from .platform_support import find_tool, clean_environment
@@ -26,6 +28,34 @@ def zombie_group_only(pid):
         return result.returncode == 0 and bool(rows) and all(row.startswith("Z") for row in rows)
     except (OSError, subprocess.SubprocessError, AssistantError):
         return False
+
+
+SIGNAL_SETTLE_SECONDS = 1.0  # How long a refused group signal is retried while the leader finishes exiting.
+
+
+def signal_group(pid: int, sig: int, observer, *, platform: str = sys.platform) -> None:
+    """Signal a child's process group. A group that is gone, or only a zombie on macOS, needs none.
+
+    macOS refuses to signal a group whose only member is a zombie. A leader that is exiting can
+    be refused a moment before its exit is reported or `ps` shows it as a zombie, so the signal
+    is tried again for a short time. The refusal is accepted only once the exit has been
+    observed and every member is a zombie: a live member is never left unsignalled silently.
+    """
+    deadline = time.monotonic() + SIGNAL_SETTLE_SECONDS
+    while True:
+        try:
+            os.killpg(pid, sig)
+            return
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            if platform != "darwin" or observer is None:
+                raise
+            if observer.poll() and zombie_group_only(pid):
+                return
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.02)
 
 
 def non_reaping_wait_available() -> bool:
