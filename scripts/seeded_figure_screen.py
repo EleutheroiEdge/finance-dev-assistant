@@ -19,8 +19,8 @@ With --tips, each history is read from the commit that file names for the reposi
 the same order, to measure the same changes: both scripts then print the same fingerprint.
 
 Exit status: 0 complete with no miss and no false alarm; 1 a miss or a false alarm; 2 incomplete
-(a repository, branch or Git read failed, a history holds fewer changes than asked for, or a
-collision made a control unusable).
+(a repository, branch or Git read failed, a repository holds a grafts file, a history holds fewer
+changes than asked for, or a collision made a control unusable).
 """
 
 from __future__ import annotations
@@ -71,6 +71,24 @@ def git(repo: Path, *args: str) -> bytes:
     if done.returncode:
         raise Incomplete("git " + args[0])
     return done.stdout
+
+
+def ancestry_as_written(repo: Path) -> None:
+    """Refuse a repository whose history is not the one its commits were written with.
+
+    A legacy grafts file gives commits other parents, whatever the environment says, so the same
+    tips would name other changes there. Such a repository is not measured.
+    """
+    listed = git(repo, "rev-parse", "--git-path", "info/grafts")
+    path = Path(listed.decode().strip() if isinstance(listed, bytes) else listed)
+    try:
+        lines = (path if path.is_absolute() else repo / path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except FileNotFoundError:
+        return
+    except OSError:
+        raise Incomplete("the grafts file cannot be read") from None
+    if any(line.strip() and not line.lstrip().startswith("#") for line in lines):
+        raise Incomplete("the repository holds a grafts file")
 
 
 def read_tips(path: Path, count: int) -> list[str] | None:
@@ -263,6 +281,7 @@ def main(argv: list[str] | None = None) -> int:
     total, tips, incomplete = collections.Counter(), [], 0
     for number, repo in enumerate(args.repositories, 1):
         try:
+            ancestry_as_written(repo.resolve())
             revision = pinned[number - 1] if pinned else args.branch
             tip = git(repo.resolve(), "rev-parse", "--verify", "--quiet", revision + "^{commit}").decode().strip()
             row = seeded(repo.resolve(), tip, args.changes, decoys, decoy_digits)

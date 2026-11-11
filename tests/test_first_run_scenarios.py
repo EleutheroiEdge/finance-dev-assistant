@@ -281,3 +281,30 @@ def test_a_replacement_ref_cannot_put_other_changes_in_the_place_of_the_pinned_o
                  "--output", str(again)) == 0
     assert _fingerprint(capsys.readouterr().out) == _fingerprint(earlier)
     assert _counts(again) == _counts(first)
+
+
+def test_a_repository_with_a_grafts_file_is_not_measured(repository, tmp_path, capsys):
+    """Codex P114-2: a graft gave the pinned commit another parent, under the same tips and fingerprint."""
+    repo, _base, _head = repository
+    _history(repo)
+    first = tmp_path / "first"
+    assert _main(str(repo), "--changes", "2", "--branch", "main", "--output", str(first)) == 0
+    capsys.readouterr()
+    tip = command(repo, "rev-parse", "main")
+    grafts = repo / ".git/info/grafts"
+    grafts.parent.mkdir(exist_ok=True)
+    # The pinned commit is given its grandparent for a parent. Its own object still names its parent.
+    parent, grandparent = command(repo, "rev-parse", tip + "~1"), command(repo, "rev-parse", tip + "~2")
+    grafts.write_text("%s %s\n" % (tip, grandparent), encoding="utf-8")
+    assert scenarios.git(repo, "rev-list", "--parents", "-n", "1", tip).split()[1] == grandparent
+    assert ("parent " + parent) in scenarios.git(repo, "cat-file", "commit", tip)
+    grafted = tmp_path / "grafted"
+    assert _main(str(repo), "--changes", "2", "--tips", str(first / "tips.txt"), "--output", str(grafted)) == 2
+    shown = capsys.readouterr().out
+    assert "INCOMPLETE (the repository holds a grafts file)" in shown and "reference set:" not in shown
+    assert not (grafted / "tips.txt").exists()
+    # A grafts file that says nothing changes nothing.
+    grafts.write_text("# no grafts\n\n", encoding="utf-8")
+    again = tmp_path / "again"
+    assert _main(str(repo), "--changes", "2", "--tips", str(first / "tips.txt"), "--output", str(again)) == 0
+    assert _counts(again) == _counts(first)

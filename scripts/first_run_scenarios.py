@@ -9,7 +9,7 @@ with `doctor` on both routes: as drafted, with `private_paths: skip-and-report`,
 Nothing is sent anywhere and no key is read: `doctor` is offline and the key variable holds a
 placeholder. Nothing is written inside a repository, Git's optional index lock is never taken
 in one, and its objects are read as they are: replacement refs and the caller's own Git settings
-are left out. Only codes, counts and timings are printed,
+are left out, and a repository with a grafts file is not measured. Only codes, counts and timings are printed,
 under an anonymous number for each repository, and a content refusal is counted by its rule and
 the file's suffix. Raw `doctor` output, which names files, and the
 list of which number is which repository go to --output: a new folder, created here, that must
@@ -23,7 +23,8 @@ fingerprint of them. Give that file as --tips to read the same changes again. Tw
 compared only when their runs print the same fingerprint.
 
 Exit status: 0 when every repository was measured in full; 2 when a repository, a branch, a Git
-read, `init --detect` or a `doctor` run failed, or a history holds fewer changes than asked for,
+read, `init --detect` or a `doctor` run failed, a repository holds a grafts file, or a history
+holds fewer changes than asked for,
 so the totals are not a whole measurement. A range `doctor` refuses is a measurement, not a failure.
 """
 
@@ -80,6 +81,24 @@ def git(repo: Path, *args: str) -> str:
     if done.returncode:
         raise Incomplete("git " + args[0])
     return done.stdout.strip()
+
+
+def ancestry_as_written(repo: Path) -> None:
+    """Refuse a repository whose history is not the one its commits were written with.
+
+    A legacy grafts file gives commits other parents, whatever the environment says, so the same
+    tips would name other changes there. Such a repository is not measured.
+    """
+    listed = git(repo, "rev-parse", "--git-path", "info/grafts")
+    path = Path(listed.decode().strip() if isinstance(listed, bytes) else listed)
+    try:
+        lines = (path if path.is_absolute() else repo / path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except FileNotFoundError:
+        return
+    except OSError:
+        raise Incomplete("the grafts file cannot be read") from None
+    if any(line.strip() and not line.lstrip().startswith("#") for line in lines):
+        raise Incomplete("the repository holds a grafts file")
 
 
 def read_tips(path: Path, count: int) -> list[str] | None:
@@ -146,6 +165,7 @@ def scenario(command: list[str], label: str, repo: Path, revision: str, changes:
              environment: dict) -> tuple[dict, str]:
     """One repository's counts, and the commit its history was read from."""
     before = git(repo, "status", "--porcelain")
+    ancestry_as_written(repo)
     tip = git(repo, "rev-parse", "--verify", "--quiet", revision + "^{commit}")
     ranges = []
     for commit in reversed(git(repo, "rev-list", "--first-parent", "-n", str(changes), tip).split()):

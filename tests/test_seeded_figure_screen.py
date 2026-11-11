@@ -2,6 +2,7 @@
 
 import importlib.util
 from pathlib import Path
+import re
 
 import pytest
 
@@ -34,7 +35,11 @@ def test_added_numbers_are_listed_one_at_a_time_and_only_counts_are_printed(repo
     assert code == 0 and "'seeded_refused': 2" in shown and "seeded_missed" not in shown
     assert "'file_versions': 2" in shown and "'changes': 1" in shown and "false_alarms" not in shown
     assert "repository 1" in shown and str(repo) not in shown
-    assert not any(part in shown for part in ("48", "729", "cash.py"))
+    # The last line names the set of changes by a fingerprint of sixteen hexadecimal digits and nothing else.
+    # Every other line holds counts: no digits of a figure, and no file name.
+    *counts, fingerprint = shown.splitlines()
+    assert re.fullmatch(r"reference set: [0-9a-f]{16} \(1 repositories, 1 changes each\)", fingerprint)
+    assert not any(part in line for line in counts for part in ("48", "729", "cash.py"))
 
 
 def test_a_number_added_to_two_files_is_counted_in_each(repository, capsys, monkeypatch):
@@ -280,3 +285,24 @@ def test_a_replacement_ref_does_not_change_what_a_pinned_commit_adds(repository,
     code, after = _run(capsys, repo, "--tips", str(tips))
     assert code == 0 and "'seeded_refused': 1" in after and "'seeded_refused': 3" not in after
     assert after == before
+
+
+def test_a_repository_with_a_grafts_file_is_not_measured_here_either(repository, tmp_path, capsys):
+    """Codex P114-2: a graft from the pinned commit to an earlier parent changed the count from 1 to 3."""
+    repo, _base, _head = repository
+    _change(repo, {"src/fees.py": "FEE = 6729102.50\nRATE = 31415.926\n"})
+    _change(repo, {"src/cash.py": "OPENING = 48_213.57\n"})
+    tip = command(repo, "rev-parse", "HEAD")
+    tips = tmp_path / "tips.txt"
+    tips.write_text(tip + "\n", encoding="utf-8")
+    code, before = _run(capsys, repo, "--tips", str(tips))
+    assert code == 0 and "'seeded_refused': 1" in before
+    grafts = repo / ".git/info/grafts"
+    grafts.parent.mkdir(exist_ok=True)
+    grafts.write_text("%s %s\n" % (tip, command(repo, "rev-parse", tip + "~2")), encoding="utf-8")
+    code, shown = _run(capsys, repo, "--tips", str(tips))
+    assert code == 2 and "INCOMPLETE (the repository holds a grafts file)" in shown
+    assert "seeded_refused" not in shown and "reference set:" not in shown
+    grafts.write_text("# no grafts\n", encoding="utf-8")
+    code, after = _run(capsys, repo, "--tips", str(tips))
+    assert code == 0 and after == before
