@@ -25,6 +25,8 @@ SCENARIOS = {
                                        {"max_file_bytes": 100_000}, "file_limit_exceeded", "file_limit_exceeded"),
     "a private file in the range": ({"src/data/rows.csv": "a,b\n1,2\n"}, {}, {},
                                     "private_or_binary_path", "private_or_binary_path"),
+    "a denied file type in the range": ({"src/report.pdf": "%PDF-1.4\n"}, {}, {},
+                                        "private_or_binary_path", "private_or_binary_path"),
     "a file outside the scope": ({"tools/extra.py": "y = 2\n"}, {}, {}, "scope_incomplete", "gate_path_not_allowed"),
     "a change over the size limit": ({"src/more.py": "z = 3\n" * 2_000}, {"max_packet_bytes": 5_000},
                                      {"max_request_bytes": 5_000}, "packet_limit_exceeded",
