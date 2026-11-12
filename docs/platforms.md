@@ -5,7 +5,9 @@ Run finledgerpoli on Windows, macOS and Linux with native tools and portable tex
 Install the Python package in a virtual environment;
 the README provides commands for PowerShell and POSIX shells without changing
 machine execution policies. Git, GitHub CLI, Docker and Podman are discovered on
-PATH, including native executables on Windows. Batch-file tool shims are refused;
+PATH, including native executables on Windows. Only the absolute entries of PATH are
+searched: the directory a command runs in is never searched unless PATH names it in
+full, and an empty or relative entry is skipped. Batch-file tool shims are refused;
 subprocesses never use `shell=True`. No tool installation or login occurs implicitly.
 
 ## Text, paths and temporary files

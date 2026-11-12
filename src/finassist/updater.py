@@ -5,12 +5,11 @@ import json
 import os
 from pathlib import Path
 import shlex
-import shutil
 import subprocess
 import sys
 
 from .errors import AssistantError, OperationOutcomeUnknown
-from .platform_support import clean_environment
+from .platform_support import clean_environment, locate_tool
 from .update_check import cached_check, check_report
 from .update_settings import checks_disabled, update_setting
 
@@ -43,7 +42,7 @@ def installation() -> dict:
         reason = "installer-metadata-unavailable"
     manager = {"pipx": "pipx", "uv tool": "uv"}.get(method)
     if manager:
-        executable = shutil.which(manager)
+        executable = locate_tool(manager)
         argv = [executable or manager, *(["tool"] if method == "uv tool" else []), "upgrade", "finledgerpoli"]
         if (executable is None or not Path(executable).is_absolute()
                 or Path(executable).suffix.lower() in {".bat", ".cmd"}):
