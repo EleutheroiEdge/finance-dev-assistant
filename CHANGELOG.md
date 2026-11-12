@@ -4,6 +4,12 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ## Unreleased
 
+### Fixed
+- When file-size refusals are the only path blockers, both routes of doctor now
+  warn if the sum of both committed file versions already exceeds the request or
+  packet limit. The advisory reads Git object sizes only, excludes omitted and
+  withheld files, and leaves every blocker and gate acceptance rule unchanged.
+
 ### Security
 - **The credential screen knows ten more formats.** Each has a shape its issuer publishes: Stripe
   live secret and restricted keys, Slack tokens, a Google API key, npm, PyPI and GitLab tokens, a
