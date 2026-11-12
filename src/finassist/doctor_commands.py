@@ -3,13 +3,14 @@
 from pathlib import Path
 
 from .config import Config
-from .doctor_environment import environment_report
-from .doctor_package import add_package_details
 from .health import doctor_report
-from .update_check import check_once
 
 
 def doctor_result(args, config: Config) -> tuple[dict, int]:
+    from .doctor_environment import environment_report
+    from .doctor_package import add_package_details
+    from .update_check import check_once
+
     checked = check_once(network_allowed=config.allow_network) if args.check_updates else None
     state = args.audit_dir or args.state_dir or Path(".finassist")
     report = doctor_report(config, update_check=checked, config_path=args.config,
