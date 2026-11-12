@@ -20,7 +20,17 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   at a time and applies every option: each must clear its blocker, and following the first option
   each time must reach `ready`.
 
+### Changed
+- Plain `init` detects the committed project layout; `--template` retains the fixed layout.
+  An explicit detected write can refine the exact untouched plain-init output once, with
+  recovery bytes kept locally; every other existing output remains refused. Setup reports
+  a local `.finassist/` Git exclusion or the manual rule to add. Empty repositories get
+  an empty source allow list. Help and the readable guide index show a starting path;
+  `guide --json` retains the structured index. The quick start uses one-line commands.
+  Gate acceptance, screening, provider approval and budget rules are unchanged.
+
 ### Fixed
+- Plain init outside a Git repository reports `init_repository_required` with repository/template remedies; corrupt Git configuration keeps its read error.
 - **The gate named a setting it does not have.** A change whose packet is over the gate's packet
   limit, the larger of 2,000,000 bytes and `max_request_bytes`, was refused as
   `packet_limit_exceeded` with the configuration route's hint: raise `max_packet_bytes`. A gate

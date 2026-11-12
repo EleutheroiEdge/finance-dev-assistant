@@ -10,9 +10,9 @@ def test_demo_doctor_and_configuration(tmp_path, capsys):
     assert main(["doctor"]) == 0
     assert json.loads(capsys.readouterr().out)["provider"] == "offline"
     config = tmp_path / "config.json"
-    assert main(["init", "--output", str(config)]) == 0
+    assert main(["init", "--template", "--output", str(config)]) == 0
     assert config.exists()
-    assert main(["init", "--output", str(config)]) == 2
+    assert main(["init", "--template", "--output", str(config)]) == 2
 
 
 def test_plan_and_offline_review_are_distinct_from_test_success(repository, tmp_path, capsys):

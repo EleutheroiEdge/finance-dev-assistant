@@ -24,7 +24,7 @@ def test_guides_are_offline_read_only_and_ignore_broken_config(tmp_path, monkeyp
     monkeypatch.setattr("finassist.cli.load_config", refuse)
     monkeypatch.setattr("finassist.cli.command_audit", refuse)
     monkeypatch.chdir(tmp_path)
-    assert main(["--config", "missing.json", "guide"]) == 0
+    assert main(["--config", "missing.json", "guide", "--json"]) == 0
     topics = json.loads(capsys.readouterr().out)["topics"]
     assert {row["topic"] for row in topics} >= {"agents", "configuration", "cli-contracts", "threat-model"}
     for row in topics:
