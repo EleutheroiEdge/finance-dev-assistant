@@ -19,50 +19,53 @@ def array_schema(items: dict, **limits) -> dict:
     return {"type": "array", "items": items, **limits}
 
 
-def suite_envelope_valid(value) -> bool:
-    """Accept either spelling, or both agreeing, without changing the hashed input."""
-    if not isinstance(value, dict):
-        return False
-    versions = set(value) & {"version", "schema_version"}
-    return (bool(versions) and set(value) == versions | {"cases"}
-            and all(type(value[key]) is int and value[key] == 1 for key in versions))
+def fullmatch_pattern(expression: str) -> str:
+    # JSON Schema uses search, while enforcing modules use fullmatch. Unlike $
+    # alone, the final assertion also refuses a trailing newline.
+    return "^(?:" + expression + r")$(?![\s\S])"
 
 
-def _suite(case: dict) -> dict:
-    schema = object_schema({"version": {"type": "integer", "const": 1},
-                            "schema_version": {"type": "integer", "const": 1},
-                            "cases": array_schema(case, minItems=1, maxItems=50)}, ["cases"])
+def _suite(case: dict, *, version: int, max_cases: int) -> dict:
+    schema = object_schema({"version": {"type": "integer", "const": version},
+                            "schema_version": {"type": "integer", "const": version},
+                            "cases": array_schema(case, minItems=1, maxItems=max_cases)}, ["cases"])
     schema["anyOf"] = [{"required": ["version"]}, {"required": ["schema_version"]}]
     return schema
 
 
 def evaluation_suite_schema() -> dict:
+    from .evaluation import MAX_CASES, MAX_SOURCE_BYTES, SUITE_VERSION
+
     return _suite(object_schema({
         "id": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1},
-        "before": {"type": "string", "minLength": 1, "maxLength": 48_000},
-        "after": {"type": "string", "minLength": 1, "maxLength": 48_000},
+        "before": {"type": "string", "minLength": 1, "maxLength": MAX_SOURCE_BYTES,
+                   "description": "Character bound only; runtime additionally caps UTF-8 encoded bytes at this limit."},
+        "after": {"type": "string", "minLength": 1, "maxLength": MAX_SOURCE_BYTES,
+                   "description": "Character bound only; runtime additionally caps UTF-8 encoded bytes at this limit."},
         "expected_defect": {"type": "boolean"},
-    }))
+    }), version=SUITE_VERSION, max_cases=MAX_CASES)
 
 
 def history_suite_schema() -> dict:
-    from .history_suite import SEVERITY_WEIGHTS
+    from .history_suite import (IDENTIFIER_PATTERN, MAX_CASES, MAX_EXPECTED, MAX_EXPECTED_PATHS,
+                                MAX_REPOSITORY_LENGTH, POLICY_COMMIT_PATTERN, SEVERITY_WEIGHTS, SUITE_VERSION)
+    from .scope import REVISION_PATTERN, SHA256_PATTERN
 
-    identifier = {"type": "string", "pattern": r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$"}
-    revision = {"type": "string", "pattern": r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$"}
-    repository = {"type": "string", "minLength": 1, "maxLength": 4096,
+    identifier = {"type": "string", "pattern": fullmatch_pattern(IDENTIFIER_PATTERN)}
+    revision = {"type": "string", "pattern": fullmatch_pattern(REVISION_PATTERN)}
+    repository = {"type": "string", "minLength": 1, "maxLength": MAX_REPOSITORY_LENGTH,
                   "not": {"pattern": "://"}}
     expected = object_schema({
         "label": identifier, "severity": {"enum": list(SEVERITY_WEIGHTS)},
-        "paths": array_schema({"type": "string", "minLength": 1}, minItems=1, maxItems=50, uniqueItems=True),
+        "paths": array_schema({"type": "string", "minLength": 1}, minItems=1, maxItems=MAX_EXPECTED_PATHS, uniqueItems=True),
     })
     policy = object_schema({
         "path": {"type": "string", "minLength": 1},
-        "sha256": {"type": "string", "pattern": r"^[0-9a-f]{64}$"},
-        "repo_path": repository, "commit": {"type": "string", "pattern": r"^[0-9a-f]{40}$"},
+        "sha256": {"type": "string", "pattern": fullmatch_pattern(SHA256_PATTERN)},
+        "repo_path": repository, "commit": {"type": "string", "pattern": fullmatch_pattern(POLICY_COMMIT_PATTERN)},
     }, ["path", "sha256"])
     fields = {"id": identifier, "repo_path": repository, "base_sha": revision, "head_sha": revision,
-              "profile": identifier, "expected": array_schema(expected, maxItems=50),
+              "profile": identifier, "expected": array_schema(expected, maxItems=MAX_EXPECTED),
               "negative_control": {"type": "boolean"}, "policy": policy}
     case = object_schema(fields, fields.keys() - {"policy"})
     case["allOf"] = [
@@ -70,14 +73,21 @@ def history_suite_schema() -> dict:
          "then": {"properties": {"expected": {"maxItems": 0}}},
          "else": {"properties": {"expected": {"minItems": 1}}}},
         {"if": {"required": ["policy"], "properties": {"policy": {"not": {"required": ["commit"]}}}},
-         "then": {"properties": {"base_sha": {"pattern": r"^[0-9a-f]{40}$"}}}},
+         "then": {"properties": {"base_sha": {"pattern": fullmatch_pattern(POLICY_COMMIT_PATTERN)}}}},
     ]
-    return _suite(case)
+    return _suite(case, version=SUITE_VERSION, max_cases=MAX_CASES)
 
 
-@lru_cache(maxsize=4)
+@lru_cache(maxsize=6)
 def _validator(kind: str) -> Draft202012Validator:
-    if kind == "packet":
+    if kind == "related":
+        from .packet_schema import _related_schema
+        schema = _related_schema()
+    elif kind == "history-expected":
+        case = history_suite_schema()["properties"]["cases"]["items"]
+        schema = object_schema({key: case["properties"][key] for key in ("expected", "negative_control")})
+        schema["allOf"] = [case["allOf"][0]]
+    elif kind == "packet":
         from .packet_schema import packet_schema
         schema = packet_schema()
     elif kind == "review-report":
@@ -89,8 +99,61 @@ def _validator(kind: str) -> Draft202012Validator:
     return Draft202012Validator(schema)
 
 
+def _shape_error_code(kind, exc, default):
+    """Keep documented field-level errors while the shared schema owns structure."""
+    path = list(exc.absolute_path)
+    if kind == "evaluation-suite" and path and path[0] == "cases":
+        if len(path) == 1:
+            return "invalid_eval_cases"
+        if len(path) == 2:
+            return "invalid_eval_case"
+        if path[2] in {"id", "expected_defect"}:
+            return "invalid_eval_identity"
+        if path[2] in {"before", "after"}:
+            return "invalid_eval_source"
+        return "invalid_eval_case"
+    if kind == "history-expected":
+        path = ["cases", 0, *path]
+        kind = "history-suite"
+    if kind == "history-suite" and path and path[0] == "cases":
+        if len(path) == 1:
+            return "history_cases_invalid"
+        if len(path) == 2:
+            return "history_case_invalid"
+        field = path[2]
+        if field in {"id", "profile"}:
+            return "history_identity_invalid"
+        if field == "repo_path":
+            return "history_repository_invalid"
+        if field in {"base_sha", "head_sha"}:
+            if field == "base_sha" and "allOf" in exc.absolute_schema_path:
+                return "history_policy_commit_invalid"
+            return "ci_revision_invalid"
+        if field in {"negative_control", "expected"}:
+            return "history_identity_invalid" if len(path) > 4 and path[4] == "label" else "history_expected_invalid"
+        if field == "policy":
+            if len(path) > 3 and path[3] == "repo_path":
+                return "history_policy_repository_invalid"
+            if len(path) > 3 and path[3] == "commit":
+                return "history_policy_commit_invalid"
+            return "history_policy_invalid"
+    if kind == "packet" and path:
+        if path[0] == "changed_paths":
+            return "packet_file_count_limit" if exc.validator == "maxItems" else "packet_coverage_invalid"
+        if path[0] == "files" and len(path) > 2:
+            if path[2].endswith("_mode"):
+                return "packet_mode_invalid"
+            if path[2].endswith("_hash"):
+                return "file_integrity_failed"
+        if path[0] == "packet_hash":
+            return "packet_integrity_failed"
+        if path[0] == "related" and path[1:] != ["rule_version"]:
+            return "packet_related_invalid"
+    return default
+
+
 def validate_document_shape(document: dict, kind: str, error: str) -> None:
     try:
         _validator(kind).validate(document)
     except ValidationError as exc:
-        raise AssistantError(error) from exc
+        raise AssistantError(_shape_error_code(kind, exc, error)) from exc

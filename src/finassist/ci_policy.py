@@ -10,21 +10,24 @@ import re
 import jsonschema
 
 from .config import Config
+from .config_schema import configuration_schema
+from .document_contracts import fullmatch_pattern
 from .errors import AssistantError
-from .scope import read_entry
+from .scope import read_entry, REVISION_PATTERN
 from .security import check_path, check_text, digest, pinned_image, regular_path
 from .policy_fixtures import FIXTURE_PROPERTIES, fixture_settings, load_policy_config
 from .workflow import parse_template
 
 _REPOSITORY = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
-_SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+_SHA = re.compile(REVISION_PATTERN)
 _SCHEMA = {
     "type": "object", "additionalProperties": False,
     "required": ["schema_version", "repository", "events", "base_branches", "forks", "backend",
                  "review", "guard_paths", "max_steps", "max_check_seconds", "config", "workflow"],
     "properties": {
         "schema_version": {"type": "integer", "const": 1},
-        "repository": {"type": "string", "maxLength": 201},
+        "repository": {"type": "string", "pattern": fullmatch_pattern(_REPOSITORY.pattern),
+                       "not": {"pattern": r"^(?:\.{1,2}/|[^/]+/\.{1,2}$)"}},
         "events": {"const": ["pull_request"]},
         "base_branches": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True,
                           "items": {"type": "string", "minLength": 1, "maxLength": 256}},
@@ -34,9 +37,11 @@ _SCHEMA = {
                         "items": {"type": "string", "minLength": 1, "maxLength": 512}},
         "max_steps": {"type": "integer", "minimum": 1, "maximum": 64},
         "max_check_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
-        "config": {"type": "object"}, "workflow": {"type": "object"},
+        "config": {"$ref": "#/$defs/config"},
+        "workflow": {"type": "object", "description": "Workflow template structure is validated by the workflow loader; a complete workflow schema is a separate follow-up."},
         **FIXTURE_PROPERTIES,
     },
+    "$defs": {"config": configuration_schema()},
 }
 
 
@@ -102,6 +107,16 @@ class CIPolicy:
                                     *self.document["guard_paths"], *getattr(self.config, "fixture_markers", {}))))
 
 
+def _check_config_capabilities(value: dict) -> None:
+    if value.get("profile_files"):
+        raise AssistantError("ci_external_profiles_forbidden")
+    if value.get("provider", "offline") != "offline" or any(
+        value.get(key, False) is not False
+        for key in ("allow_network", "allow_partial_review", "allow_local_readiness")
+    ):
+        raise AssistantError("ci_policy_capability_forbidden")
+
+
 def load_ci_policy(repo: Path, base: str, path: str, approved_sha256: str) -> CIPolicy:
     revision(base)
     path = check_path(path, source_only=False)
@@ -116,6 +131,10 @@ def load_ci_policy(repo: Path, base: str, path: str, approved_sha256: str) -> CI
     try:
         jsonschema.Draft202012Validator(_SCHEMA).validate(document)
     except jsonschema.ValidationError as exc:
+        if list(exc.absolute_path)[:1] == ["config"] and isinstance(document.get("config"), dict):
+            _check_config_capabilities(document["config"])  # Retain the existing capability refusal.
+        if list(exc.absolute_path) == ["repository"]:
+            raise AssistantError("ci_repository_invalid") from exc
         raise AssistantError("ci_policy_invalid") from exc
     if any(type(document[key]) is not int for key in ("schema_version", "max_steps", "max_check_seconds")):
         raise AssistantError("ci_policy_invalid")
@@ -126,13 +145,7 @@ def load_ci_policy(repo: Path, base: str, path: str, approved_sha256: str) -> CI
     for guarded in document["guard_paths"]:
         check_path(guarded.removesuffix("/"), source_only=False)
     check_text(raw.decode())
-    if document["config"].get("profile_files"):
-        raise AssistantError("ci_external_profiles_forbidden")
-    if document["config"].get("provider", "offline") != "offline" or any(
-        document["config"].get(key, False) is not False
-        for key in ("allow_network", "allow_partial_review", "allow_local_readiness")
-    ):
-        raise AssistantError("ci_policy_capability_forbidden")
+    _check_config_capabilities(document["config"])
     config = load_policy_config(document["config"], fixture_settings(repo, base, document))
     if config.provider != "offline" or config.allow_network or config.allow_partial_review or config.allow_local_readiness:
         raise AssistantError("ci_policy_capability_forbidden")

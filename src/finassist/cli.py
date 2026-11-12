@@ -84,7 +84,7 @@ def parser() -> argparse.ArgumentParser:
     commands = root.add_subparsers(dest="command", required=True)
     guide = commands.add_parser("guide", help="List or print bundled guides offline")
     guide.add_argument("topic", nargs="?", help="Topic from the guide index; omit to list topics as JSON")
-    config_command = commands.add_parser("config", help="Preview or explicitly apply reversible configuration migrations")
+    config_command = commands.add_parser("config", help="Print schemas or preview and apply reversible configuration migrations")
     config_actions = config_command.add_subparsers(dest="config_action", required=True)
     from .document_schemas import add_schema_command
     add_schema_command(config_actions)
@@ -763,9 +763,9 @@ def main(argv: list[str] | None = None) -> int:
             _emit(fix_local_state(path, audit_directory(args)))
             return 0
         if args.command == "config" and args.config_action == "schema":
-            from .document_schemas import document_schema
+            from .document_schemas import installed_document_schema
 
-            _emit(document_schema(args.kind))
+            _emit(installed_document_schema(args.kind))
             return 0
         if args.command == "config":
             from .config_compat import apply_config_migration, preview_config_migration

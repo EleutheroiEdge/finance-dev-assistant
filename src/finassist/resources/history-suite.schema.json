@@ -1,5 +1,5 @@
 {
-  "$id": "https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/v0.10.0/schemas/history-suite.schema.json",
+  "$id": "urn:finledgerpoli:schema:history-suite:1",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "anyOf": [
@@ -60,7 +60,7 @@
             "then": {
               "properties": {
                 "base_sha": {
-                  "pattern": "^[0-9a-f]{40}$"
+                  "pattern": "^(?:[0-9a-f]{40})$(?![\\s\\S])"
                 }
               }
             }
@@ -68,7 +68,7 @@
         ],
         "properties": {
           "base_sha": {
-            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$(?![\\s\\S])",
             "type": "string"
           },
           "expected": {
@@ -76,7 +76,7 @@
               "additionalProperties": false,
               "properties": {
                 "label": {
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$",
+                  "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,79})$(?![\\s\\S])",
                   "type": "string"
                 },
                 "paths": {
@@ -110,11 +110,11 @@
             "type": "array"
           },
           "head_sha": {
-            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$(?![\\s\\S])",
             "type": "string"
           },
           "id": {
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$",
+            "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,79})$(?![\\s\\S])",
             "type": "string"
           },
           "negative_control": {
@@ -124,7 +124,7 @@
             "additionalProperties": false,
             "properties": {
               "commit": {
-                "pattern": "^[0-9a-f]{40}$",
+                "pattern": "^(?:[0-9a-f]{40})$(?![\\s\\S])",
                 "type": "string"
               },
               "path": {
@@ -140,7 +140,7 @@
                 "type": "string"
               },
               "sha256": {
-                "pattern": "^[0-9a-f]{64}$",
+                "pattern": "^(?:[0-9a-f]{64})$(?![\\s\\S])",
                 "type": "string"
               }
             },
@@ -151,7 +151,7 @@
             "type": "object"
           },
           "profile": {
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$",
+            "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,79})$(?![\\s\\S])",
             "type": "string"
           },
           "repo_path": {

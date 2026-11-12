@@ -42,6 +42,12 @@ class PolicyRequestApproval:
 ENVELOPE_ALLOWANCE = 16_384  # Input units reserved beyond the bytes sent, for the provider's own framing.
 
 
+OFFLINE_STATUS = "offline-analysis"
+PARTIAL_STATUS = "partial-review"
+FINDINGS_STATUS = "findings"
+NO_FINDINGS_STATUS = "no-findings-reported"
+
+
 def reserved_usd(input_units: int, output_tokens: int, price_in, price_out) -> Decimal:
     """What a request reserves: every input unit and every permitted output token, at its price."""
     return (Decimal(input_units) * Decimal(str(price_in)) + Decimal(output_tokens) * Decimal(str(price_out))) / 1_000_000
@@ -268,7 +274,7 @@ def review_packet(
     if config.provider == "offline":
         waiting.release()  # With a provider, the function that calls it releases its own list, last.
         report = {
-            "status": "offline-analysis",
+            "status": OFFLINE_STATUS,
             "packet_hash": packet["packet_hash"],
             "head": packet["head"],
             "provider": "offline",
@@ -301,9 +307,9 @@ def review_packet(
         screen_review_output(data, token_guard.snapshot)
     unseen.release()
     report = {
-        "status": "partial-review"
+        "status": PARTIAL_STATUS
         if review_omissions(packet)
-        else ("findings" if data["findings"] else "no-findings-reported"),
+        else (FINDINGS_STATUS if data["findings"] else NO_FINDINGS_STATUS),
         "packet_hash": packet["packet_hash"],
         "head": packet["head"],
         "base": packet["base"],

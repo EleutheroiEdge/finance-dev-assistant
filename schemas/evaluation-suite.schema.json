@@ -1,5 +1,5 @@
 {
-  "$id": "https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/v0.10.0/schemas/evaluation-suite.schema.json",
+  "$id": "urn:finledgerpoli:schema:evaluation-suite:1",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "anyOf": [
@@ -20,11 +20,13 @@
         "additionalProperties": false,
         "properties": {
           "after": {
+            "description": "Character bound only; runtime additionally caps UTF-8 encoded bytes at this limit.",
             "maxLength": 48000,
             "minLength": 1,
             "type": "string"
           },
           "before": {
+            "description": "Character bound only; runtime additionally caps UTF-8 encoded bytes at this limit.",
             "maxLength": 48000,
             "minLength": 1,
             "type": "string"

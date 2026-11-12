@@ -9,10 +9,10 @@ import httpx
 import pytest
 from jsonschema import Draft202012Validator, ValidationError
 
-from finassist import __version__, ci_policy, model_policy
+from finassist import ci_policy, model_policy
 from finassist.cli import main
 from finassist.config import Config
-from finassist.document_schemas import SCHEMA_FILES, document_schema, document_schema_text
+from finassist.document_schemas import SCHEMA_FILES, SCHEMA_IDS, document_schema, document_schema_text
 from finassist.errors import AssistantError
 from finassist.evaluation import evaluate, validate_suite
 from finassist.history_suite import history_approval_hash, plan_history, validate_history_suite
@@ -35,7 +35,7 @@ def sample(kind):
 def test_published_and_packaged_schemas_equal_runtime_export(kind, name):
     schema = document_schema(kind)
     Draft202012Validator.check_schema(schema)
-    assert schema["$id"].endswith(f"/v{__version__}/schemas/{name}")
+    assert schema["$id"] == SCHEMA_IDS[kind]
     text = document_schema_text(kind)
     assert (ROOT / "schemas" / name).read_text(encoding="utf-8") == text
     assert files("finassist").joinpath("resources/" + name).read_text(encoding="utf-8") == text

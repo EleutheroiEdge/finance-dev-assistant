@@ -8,11 +8,9 @@ from dataclasses import asdict, fields
 import json
 from typing import get_origin, get_type_hints
 
-from . import __version__
 from .config import Config
 
-SCHEMA_ID = (f"https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/"
-             f"v{__version__}/schemas/finassist.schema.json")
+SCHEMA_ID = "urn:finledgerpoli:schema:config:1"
 
 
 def configuration_schema() -> dict:

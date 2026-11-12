@@ -1,5 +1,5 @@
 {
-  "$id": "https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/v0.10.0/schemas/packet.schema.json",
+  "$id": "urn:finledgerpoli:schema:packet:2",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "allOf": [
@@ -82,7 +82,7 @@
                   ]
                 },
                 "after_hash": {
-                  "pattern": "^[0-9a-f]{64}$",
+                  "pattern": "^(?:[0-9a-f]{64})$(?![\\s\\S])",
                   "type": [
                     "string",
                     "null"
@@ -95,7 +95,7 @@
                   ]
                 },
                 "before_hash": {
-                  "pattern": "^[0-9a-f]{64}$",
+                  "pattern": "^(?:[0-9a-f]{64})$(?![\\s\\S])",
                   "type": [
                     "string",
                     "null"
@@ -225,7 +225,7 @@
                   ]
                 },
                 "after_hash": {
-                  "pattern": "^[0-9a-f]{64}$",
+                  "pattern": "^(?:[0-9a-f]{64})$(?![\\s\\S])",
                   "type": [
                     "string",
                     "null"
@@ -245,7 +245,7 @@
                   ]
                 },
                 "before_hash": {
-                  "pattern": "^[0-9a-f]{64}$",
+                  "pattern": "^(?:[0-9a-f]{64})$(?![\\s\\S])",
                   "type": [
                     "string",
                     "null"
@@ -296,7 +296,7 @@
       "type": "array"
     },
     "base": {
-      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$(?![\\s\\S])",
       "type": "string"
     },
     "changed_paths": {
@@ -319,11 +319,11 @@
       "type": "array"
     },
     "head": {
-      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$(?![\\s\\S])",
       "type": "string"
     },
     "merge_base": {
-      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$(?![\\s\\S])",
       "type": "string"
     },
     "omitted": {
@@ -349,7 +349,7 @@
       "type": "array"
     },
     "packet_hash": {
-      "pattern": "^[0-9a-f]{64}$",
+      "pattern": "^(?:[0-9a-f]{64})$(?![\\s\\S])",
       "type": "string"
     },
     "profile": {
@@ -373,7 +373,7 @@
                 "type": "string"
               },
               "reason": {
-                "pattern": "^[a-z][a-z0-9_]{0,80}$",
+                "pattern": "^(?:[a-z][a-z0-9_]{0,80})$(?![\\s\\S])",
                 "type": "string"
               },
               "symbol": {
@@ -470,7 +470,7 @@
                 ]
               },
               "sha256": {
-                "pattern": "^[0-9a-f]{64}$",
+                "pattern": "^(?:[0-9a-f]{64})$(?![\\s\\S])",
                 "type": "string"
               },
               "symbol": {

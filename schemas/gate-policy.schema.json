@@ -1,5 +1,5 @@
 {
-  "$id": "https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/v0.10.0/schemas/gate-policy.schema.json",
+  "$id": "urn:finledgerpoli:schema:gate-policy:2",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {

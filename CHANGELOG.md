@@ -5,6 +5,22 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 ## Unreleased
 
 ### Fixed
+- Document schemas now use stable contract URNs rather than package release URLs,
+  including the configuration schema's `$id`. The schema CLI reads installed
+  resources; `export-kit` includes every canonical schema and the generator has
+  a read-only `--check` mode.
+- Evaluation, history, packet and saved-review structural validation shares the
+  exported contract and enforcing-module limits, with boundary and runtime-call
+  regressions. CI policy schemas now constrain configuration and repository names;
+  complete workflow-template schemas remain a separate follow-up.
+- Acceptance changes: synthetic suite versions `true` and `1.0` are refused as
+  `invalid_eval_suite`; both suite types accept agreeing integer `version` and/or
+  `schema_version` aliases without rewriting their approval bytes. A packet's
+  related `rule_version: true` is now `packet_schema_invalid` (exit 2 instead of
+  acceptance); a nonobject synthetic case is `invalid_eval_case` instead of
+  `invalid_input` (still exit 2). Structural packet/report refusals use
+  `packet_schema_invalid`/`review_schema_invalid`. Source screening, coverage,
+  hashes, approvals and byte limits remain additional runtime checks.
 - When file-size refusals are the only path blockers, both routes of doctor now
   warn if the sum of both committed file versions already exceeds the request or
   packet limit. The advisory reads Git object sizes only, excludes omitted and
@@ -66,7 +82,7 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   size already, so the first-run numbers above do not move. See `docs/security-design.md`.
 
 ### Added
-- Published versioned document schemas and offline `finassist config schema --kind NAME`
+- Published document-contract schemas and offline `finassist config schema --kind NAME`
   exports for configuration, policies, packets, model gate/review reports and evaluation
   suites. Runtime screening, integrity checks and approvals remain required.
 - Evaluation and history suites also accept `schema_version: 1`, preserving the

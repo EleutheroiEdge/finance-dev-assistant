@@ -147,6 +147,13 @@ See [workflow artifacts](workflows.md), [readiness/auditing](readiness-and-audit
 [configuration](configuration.md) and [provider behavior](providers.md). These
 contracts do not replace the strict validators for saved outgoing requests/proposals.
 
+Shared document-schema checks can refuse malformed packet structure with
+`packet_schema_invalid` and malformed generated review reports with `review_schema_invalid`
+(both exit 2). A related block with `rule_version: true` now refuses instead of
+being accepted. A nonobject synthetic evaluation case reports `invalid_eval_case`
+instead of `invalid_input`; both are exit 2. See the
+[document schemas](configuration.md#editor-schema) for structural and runtime limits.
+
 ## Limits
 
 Partial output, missing artifacts and unknown outcomes are not success; reconcile state before retrying a mutation or provider call. JSON shape and citations do not establish correctness. Readiness grants no action authority. Private outputs must remain local. See the [threat model](threat-model.md).

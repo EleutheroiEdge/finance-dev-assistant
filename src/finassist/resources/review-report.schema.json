@@ -1,5 +1,5 @@
 {
-  "$id": "https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/v0.10.0/schemas/review-report.schema.json",
+  "$id": "urn:finledgerpoli:schema:review-report:1",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "oneOf": [
     {
@@ -10,14 +10,14 @@
           "type": "array"
         },
         "head": {
-          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$(?![\\s\\S])",
           "type": "string"
         },
         "merge_authority": {
           "const": false
         },
         "packet_hash": {
-          "pattern": "^[0-9a-f]{64}$",
+          "pattern": "^(?:[0-9a-f]{64})$(?![\\s\\S])",
           "type": "string"
         },
         "provider": {
@@ -98,15 +98,15 @@
       "additionalProperties": false,
       "properties": {
         "base": {
-          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$(?![\\s\\S])",
           "type": "string"
         },
         "config_hash": {
-          "pattern": "^[0-9a-f]{64}$",
+          "pattern": "^(?:[0-9a-f]{64})$(?![\\s\\S])",
           "type": "string"
         },
         "head": {
-          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$(?![\\s\\S])",
           "type": "string"
         },
         "merge_authority": {
@@ -135,7 +135,7 @@
           "type": "array"
         },
         "packet_hash": {
-          "pattern": "^[0-9a-f]{64}$",
+          "pattern": "^(?:[0-9a-f]{64})$(?![\\s\\S])",
           "type": "string"
         },
         "provider": {
@@ -151,7 +151,7 @@
           "type": "string"
         },
         "receipt": {
-          "pattern": "^[0-9a-f]{64}$",
+          "pattern": "^(?:[0-9a-f]{64})$(?![\\s\\S])",
           "type": "string"
         },
         "reservation": {
@@ -159,7 +159,6 @@
           "type": "string"
         },
         "review": {
-          "$schema": "https://json-schema.org/draft/2020-12/schema",
           "additionalProperties": false,
           "properties": {
             "findings": {
