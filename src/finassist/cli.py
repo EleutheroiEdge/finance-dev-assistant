@@ -369,7 +369,7 @@ def execute(args, config: Config | None = None) -> int:
         from .doctor_environment import environment_report
 
         state = args.audit_dir or args.state_dir or Path(".finassist")
-        report = doctor_report(config, update_check=checked, config_path=args.config, state_dir=state)
+        report = doctor_report(config, update_check=checked, config_path=args.config, state_dir=state, include_key_read=True)
         report["environment"] = environment_report(config, config_path=args.config, state_dir=state)
         from .doctor_package import add_package_details
 

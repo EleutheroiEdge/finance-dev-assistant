@@ -80,13 +80,18 @@ def git_status() -> dict:
 def directory_status(path: Path, *, windows: bool | None = None) -> dict:
     """Access estimate only. Never create a probe file or follow user symlinks."""
     windows = os.name == "nt" if windows is None else windows
-    report = {"path": None, "exists": False, "writable": None if windows else False,
+    report = {"path": None, "exists": False, "writable": None,
               "writability_check": ("unknown: Windows ACLs are not checked; no file created" if windows else
                                    "os.access on nearest existing directory; no file created; writes may still fail")}
     try:
-        path = regular_path(path)
+        path = Path(path).expanduser().absolute()
         report["path"] = _shown_path(str(path))
-        report["exists"] = path.exists()
+        try:
+            path.lstat()  # A refused link exists too; do not dereference its target.
+            report["exists"] = True
+        except FileNotFoundError:
+            pass
+        path = regular_path(path)
         ancestor = path
         while not ancestor.exists():
             if ancestor.parent == ancestor:

@@ -162,9 +162,11 @@ def request_payload(config: Config, system: str, packet: dict, schema: dict) -> 
 
 def request_shape(config: Config, system: str, packet: dict, schema: dict) -> tuple[str, dict, dict]:
     headers = {"Content-Type": "application/json"}
-    key = os.environ.get(config.key_name, "") if config.key_name else ""
-    if config.key_name and not key:
+    key = os.environ.get(config.key_name) if config.key_name else ""
+    if key is None:
         raise AssistantError("provider_key_missing")
+    if config.key_name and not key:
+        raise AssistantError("provider_key_empty")
     if "\r" in key or "\n" in key:
         raise AssistantError("invalid_provider_key")
     url = config.resolved_endpoint

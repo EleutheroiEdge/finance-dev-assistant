@@ -22,11 +22,16 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   each time must reach `ready`.
 
 ### Changed
+- Doctor accepts --config alongside --policy or --policy-file for additional diagnostics;
+  the gate still uses only the selected policy. This combination previously exited 2
+  with doctor_policy_options_conflict and now returns the selected preflight's 0/1 status.
 - Doctor's key_variable_set keeps its existence meaning (true even for an empty value).
   key_state distinguishes missing/empty/set. Preflight key_value_read changes from false
   to true when any selected value is inspected for emptiness, including diagnostic config
-  keys beside a policy key; no value or length is emitted. Empty keys that previously
-  reported ready now block with provider_key_empty; absent keys use provider_key_missing.
+  keys beside a policy key and an offline configuration's explicitly named key; no value
+  or length is emitted. Empty keys that previously
+  reported ready now block with provider_key_empty; runtime requests use the same codes
+  before reserving spend. Absent keys use provider_key_missing.
 - Plain doctor now exits 1 for missing/unusable Git; keys, directory writability and
   package problems are installation warnings and retain exit 0. Range preflights include
   all environment blockers for their selected route in top-level blockers/status and

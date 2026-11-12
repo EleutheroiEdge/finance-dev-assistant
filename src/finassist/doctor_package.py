@@ -51,15 +51,20 @@ def package_status() -> dict:
 def add_package_details(report: dict) -> None:
     """Enrich the CLI report only; dashboard health retains its smaller contract."""
     from .doctor_environment import _shown_path
-    from .platform_support import locate_tool
+    from .errors import AssistantError
+    from .platform_support import find_tool
 
     package = package_status()
     package["python_executable"] = _shown_path(package["python_executable"])
     report["version"] = package["code_version"]
     report["package"] = package
     report["python_executable"] = package["python_executable"]
-    report["tools"] = {name: _shown_path(path) if (path := locate_tool(name)) else None
-                       for name in ("docker", "podman", "gh")}
+    report["tools"] = {}
+    for name in ("docker", "podman", "gh"):
+        try:
+            report["tools"][name] = _shown_path(find_tool(name))
+        except AssistantError:
+            report["tools"][name] = None
     report["environment"]["warnings"].extend(package["warnings"])
-    report["key_value_read"] = report["environment"]["key_value_read"]
+    report["key_value_read"] = report.get("key_value_read", False) or report["environment"]["key_value_read"]
     report["key_values_returned"] = False

@@ -57,7 +57,6 @@ HINTS = {
                                 "marker at base whose first line is 'synthetic: true'.",
     "gate_endpoint_host_mismatch": "Set allowed_host to the endpoint's host.",
     "provider_prices_required": "Set both prices above zero, in US dollars per million tokens.",
-    "provider_key_missing": "Set the named environment variable to a non-empty key before gate run. Its value is never reported.",
     "gate_profile_missing_at_base": "Commit the profile file on the base branch.",
     "gate_profile_pin_mismatch": "Update profile_sha256 to the profile bytes at base.",
     "empty_review_scope": "The range changes no files.",

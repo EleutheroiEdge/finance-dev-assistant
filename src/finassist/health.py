@@ -1,6 +1,5 @@
 """Non-mutating local capability metadata shared by CLI and dashboard."""
 
-import os
 from pathlib import Path
 import platform
 
@@ -77,13 +76,15 @@ def evidence_status(state_dir: Path, config: Config) -> tuple[dict | None, list[
 
 
 def doctor_report(config: Config, *, update_check: dict | None = None, config_path: Path | None = None,
-                  file_selected: bool = False, state_dir: Path | None = None) -> dict:
+                  file_selected: bool = False, state_dir: Path | None = None, include_key_read: bool = False) -> dict:
     from .updater import update_status
+    from .doctor_environment import key_state
 
     updates = update_status()
     if update_check is not None:
         updates.update(update_check)
     evidence, stale = evidence_status(state_dir, config) if state_dir is not None else (None, [])
+    state = key_state(config.key_name) if config.key_name else None
     return {
         "version": installed_version(),
         "python": platform.python_version(),
@@ -91,7 +92,8 @@ def doctor_report(config: Config, *, update_check: dict | None = None, config_pa
         "provider": config.provider,
         "model_configured": bool(config.model),
         "network_enabled": config.allow_network,
-        "key_present": bool(os.environ.get(config.key_name)) if config.key_name else None,
+        "key_present": state == "set" if state is not None else None,
+        **({"key_value_read": state in {"empty", "set"}} if include_key_read else {}),
         "docker_binary_present": tool_present("docker"),
         "podman_binary_present": tool_present("podman"),
         "container_daemon_checked": False,
