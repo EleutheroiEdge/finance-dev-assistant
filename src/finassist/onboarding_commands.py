@@ -5,7 +5,7 @@ from .config import PROVIDERS
 
 
 def add_onboarding_commands(commands) -> None:
-    init = commands.add_parser("init", help="Create offline-by-default configuration")
+    init = commands.add_parser("init", help="Detect this repository and write offline configuration")
     init.add_argument("--output", default="finassist.json")
     init.add_argument("--provider", choices=sorted(PROVIDERS), default="offline")
     init.add_argument("--model", default="")
@@ -16,7 +16,9 @@ def add_onboarding_commands(commands) -> None:
     init.add_argument("--output-usd-per-million", type=float, help="Output price; required for paid providers")
     init.add_argument("--api-key-env", help="Name of the variable that holds the key; never the key")
     detect = init.add_argument_group("detect", "Propose settings from the committed layout; nothing is run")
-    detect.add_argument("--detect", action="store_true", help="Print a proposal; write only with --write")
+    mode = detect.add_mutually_exclusive_group()
+    mode.add_argument("--template", action="store_true", help="Write the fixed template instead of detecting this repository")
+    mode.add_argument("--detect", action="store_true", help="Print a proposal; write only with --write")
     # Its own name: other commands audit inside --repo, while init keeps its state where it always has.
     detect.add_argument("--repo", dest="detect_repo", help="Repository checkout to read (default: current directory)")
     detect.add_argument("--revision", help="Committed revision to read (default: HEAD)")

@@ -36,6 +36,14 @@ The repositories keep moving, so a later run counts later changes. The two rows 
 changes were measured again after the script was corrected to count an added line that starts
 with `++`; the other rows are from the first run.
 
+## What 0.11.0 is
+
+0.11.0 is a security release. Every release up to 0.10.0 could run a program from the current
+directory on Windows (see the changelog), so the owner decided to publish the fix ahead of the
+gates below that are still open. It holds everything merged up to that fix. It makes no claim
+about review accuracy, gates D1 to D6 are not measured, and no adopter is told to rely on it for
+that. The bar on this page still stands for the release that does make such a claim.
+
 ## Where the next release stands
 
 Measured on the source tree of main at `5c1af62`, offline, with no model call. The reference set
@@ -60,6 +68,7 @@ same tree gave the same test results and the same totals from the wheel's own fi
 | B5 | The labelled set passes | Yes |
 | B6 | `doctor`: median 0.46 s, slowest 12.7 s over 1,800 runs. The dense-number test passes | Yes |
 | B7 | The configuration tests pass. `scripts/upgrade_smoke.py` needs the candidate wheel | Partly |
+| B8 | Added since that measurement. 15 of 15 wrong setups, seven on the configuration route and eight on the gate route, give one named blocker; every remedy offered clears it; the first options reach `ready` | Yes |
 | C1 to C4 | No candidate wheel yet | No |
 | D1 to D6 | Not measured. The spending decision is open | No |
 | E1 | The release workflow attests every file. The README does not give the verifying command yet | No |
@@ -113,6 +122,7 @@ measurement is not passed.
 | B5. Other languages | TypeScript, Go, SQL and YAML changes that assign from a variable, a call or the environment are not refused as credentials: 0 false refusals on a labelled set of 200 lines | `pytest tests/test_credential_references.py`, on the set in `tests/credential_cases.py` |
 | B6. Speed | `doctor` median under 2 seconds and worst case under 15 on the reference changes; 1.6 MB of dense numbers screened in under 20 seconds | the script; `tests/test_figure_matrix.py` |
 | B7. Upgrade | A 0.10.0 configuration and policy load unchanged, and an unchanged configuration keeps its hash | `tests/test_config_figure_screen.py`, `scripts/upgrade_smoke.py` |
+| B8. Wrong setups | Each scenario of the misconfiguration matrix (a file over the limit, a file over it at both versions, a private file, a denied file type, a path outside the scope, a change too large, a budget under the reserve, on both routes, and a change over the gate's packet floor) gives exactly one named blocker with a hint. Every remedy `doctor` offers for it clears that blocker when applied, and following the first option each time reaches `ready` within four runs | `pytest tests/test_remedies.py` |
 
 ### C. Claims match the product
 
