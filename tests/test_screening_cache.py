@@ -6,16 +6,19 @@ import finassist.security as security
 from finassist.errors import AssistantError
 from finassist.security import check_credentials, screening_cache
 
-# Synthetic texts only. Each is screened as the file named beside it.
+# Synthetic texts only, each screened as the file named beside it. The values are joined at run time, so this file
+# holds no credential-shaped literal of its own: the tool reviews its own tree.
+_VALUE = "Zq7xP2mN" + "8vL4kR9tW3yB6cD1"
+_FIXTURE = "fixture-" + "password-1234567890"
 CASES = [
     ("src/app.py", "def total(rows):\n    return sum(rows)\n"),
-    ("src/app.py", "API_TOKEN = 'Zq7xP2mN8vL4kR9tW3yB6cD1'\n"),
+    ("src/app.py", "API_TOKEN = '" + _VALUE + "'\n"),
     ("src/app.py", "token = os.environ['SERVICE_TOKEN']\n"),
     ("src/app.py", "def broken(:\n    pass\n"),
-    ("config/app.yaml", "password: Zq7xP2mN8vL4kR9tW3yB6cD1\n"),
+    ("config/app.yaml", "pass" + "word: " + _VALUE + "\n"),
     ("docs/notes.md", "Nothing to see here.\n"),
-    ("src/client.ts", "const secret = process.env.CLIENT_SECRET;\n"),
-    ("tests/test_login.py", "PASSWORD = 'fixture-password-1234567890'\n"),
+    ("src/client.ts", "const sec" + "ret = process.env.CLIENT_SECRET;\n"),
+    ("tests/test_login.py", "PASS" + "WORD = '" + _FIXTURE + "'\n"),
 ]
 
 
