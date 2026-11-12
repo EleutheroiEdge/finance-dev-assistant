@@ -593,4 +593,3 @@ def test_apply_stops_before_removing_when_the_chain_does_not_verify(tmp_path, mo
     expected = {"garbage": {"audit_unavailable", "audit_integrity_failed"}, "link": {"linked_path"}}[damage]
     assert code == 2 and json.loads(err.strip().splitlines()[-1])["code"] in expected, err
     assert sorted(path.name for path in backups.iterdir()) == before
-
