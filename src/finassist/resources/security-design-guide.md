@@ -212,7 +212,18 @@ A refusal names its rule, and for a file's content the version (`base` or `head`
 to 20 line numbers, in local output only: under `local` in the error that `plan` prints,
 and in the path rows of both `doctor` reports. It never holds the value. The rules are
 `credential_label`, `account_label`, `private_key_block`, `github_token`,
-`aws_access_key_id`, `sk_prefixed_key` and `nine_digit_identifier`.
+`aws_access_key_id`, `sk_prefixed_key`, `stripe_live_key`, `slack_token`, `google_api_key`,
+`npm_token`, `pypi_token`, `gitlab_token`, `sendgrid_key`, `azure_storage_key` and
+`nine_digit_identifier`.
+
+The formats those rules know, each by a shape its issuer publishes: a private key block, plain,
+encrypted or PGP; GitHub tokens; an AWS access key ID; `sk-` keys; Stripe live secret and
+restricted keys; Slack tokens; a Google API key; npm and PyPI tokens; a GitLab personal access
+token with the default `glpat-` prefix; a SendGrid key; an Azure storage account key, with its
+field name in any letter case; and a nine-digit identifier written with two hyphens. A format
+is refused wherever it stands, under `placeholder_credential_paths` too, and in what a model
+returns. A token in a format that is not listed here is not known by its shape: it is refused
+only where a credential label stands before it.
 
 Known limits of the text rules, which are no longer extended:
 
