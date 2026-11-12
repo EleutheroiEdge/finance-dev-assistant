@@ -1,9 +1,12 @@
 """Batched doctor metadata stays bounded and independent of Git output order."""
 
+import subprocess
+
 import pytest
 
 from finassist import preflight_size
 from finassist.errors import AssistantError
+from finassist.scope import git_command, git_environment
 from test_preflight_size import lower, text
 
 pytest_plugins = ("test_preflight_size",)
@@ -42,12 +45,26 @@ def test_long_argument_lists_use_bounded_batches(change, route, monkeypatch):
     assert len(calls) == 4
 
 
-def test_matches_literal_names_in_tree_order_and_one_sided_files(change, monkeypatch):
+def test_matches_literal_names_in_tree_order_and_one_sided_files(repository, monkeypatch):
     # The helper sees already classified names. Delimiters and Unicode must not
     # confuse its metadata parser; paths are not parsed as shell arguments.
     before = {"src/zeta.py": text(180), "src/a\tname.py": text(40)}
     after = {"src/zeta.py": text(200), "src/unicode-\u00e9.py": text(50)}
-    repo, base, head = change(before, after)
+    repo = repository[0]
+    # A tab is legal in Git's tree but not in a Windows working-tree filename.
+    # Construct the exact objects without trying to materialize that filename.
+    def plumbing(*args, data=None):
+        return subprocess.run(git_command(repo, *args), input=data, capture_output=True,
+                              env=git_environment(), timeout=30, check=True).stdout.strip()
+    def revision(files):
+        entries = []
+        for name, content in files.items():
+            blob = plumbing("hash-object", "-w", "--stdin", data=content)
+            entries.append(b"100644 blob " + blob + b"\t" + name.removeprefix("src/").encode())
+        source = plumbing("mktree", "-z", data=b"\0".join(entries) + b"\0")
+        root = plumbing("mktree", "-z", data=b"040000 tree " + source + b"\tsrc\0")
+        return plumbing("commit-tree", root.decode(), "-m", "Synthetic filename metadata").decode()
+    base, head = revision(before), revision(after)
     paths = ["src/zeta.py", "src/unicode-\u00e9.py", "src/a\tname.py"]
     rows = [{"status": "refused", "code": "file_limit_exceeded"}, {"status": "included"}, {"status": "included"}]
     real, calls = preflight_size.git, []
