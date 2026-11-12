@@ -36,6 +36,14 @@ def parser() -> argparse.ArgumentParser:
         help="Private command audit directory; default is the operation state directory",
     )
     commands = root.add_subparsers(dest="command", required=True)
+    state = commands.add_parser("state", help="Inspect what the tool keeps on this machine; changes nothing")
+    state_actions = state.add_subparsers(dest="state_action", required=True)
+    status = state_actions.add_parser(
+        "status", help="List each store in the state folder with its size, row counts and oldest and newest entry")
+    status.add_argument("--state-dir", type=Path, default=Path(".finassist"),
+                        help="State folder to inspect (default: .finassist in the current directory)")
+    status.add_argument("--no-user", action="store_true",
+                        help="Leave out the per-user configuration and cache folders")
     guide = commands.add_parser("guide", help="List or print bundled guides offline")
     guide.add_argument("topic", nargs="?", help="Topic from the guide index; omit to list topics")
     guide.add_argument("--json", action="store_true", help="Print the topic index as JSON")

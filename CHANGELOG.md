@@ -5,6 +5,17 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 ## Unreleased
 
 ### Added
+- **`finassist state status`: what the tool keeps on this machine, read-only.** Each store in the state
+  folder (the audit chain, the evidence stores, patches, workflow runs and locks, history, configuration
+  backups, setup) with its size, its tables' row counts or its file count, and its oldest and newest entry;
+  any other name in the folder, so nothing goes unseen; and the per-user configuration and cache folders. It
+  writes nothing at all, not even an audit entry: a database with a journal or write-ahead file is read from a
+  private copy. A store it cannot read in full is listed with its error, never as a smaller count. The first
+  part of #120; archiving and cleaning come next.
+- **`doctor --format text`: the report for a person at a terminal.** The verdict first, each blocker by its
+  code with its hint and its remedies, what each remedy changes and what else it does, and the next command.
+  It works on the health report and on both range preflights, and prints only fields it knows, so no key
+  value or file content can reach it. JSON stays the default and the contract; the exit codes are the same.
 - Doctor lists Git capabilities, local configuration/state/settings/cache paths, writable-directory estimates and a deduplicated key-use table with separate host permissions and limits for configuration and supplied gate policy. Proxy/custom-CA variables are named without values; no connection or write probe runs.
 - Published document-contract schemas and offline `finassist config schema --kind NAME`
   exports for configuration, policies, packets, model gate/review reports and evaluation
@@ -46,9 +57,9 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 - Doctor's key_variable_set keeps its existence meaning (true even for an empty value).
   key_state distinguishes missing/empty/set. Preflight key_value_read changes from false
   to true when any selected value is inspected for emptiness, including diagnostic config
-  keys beside a policy key and an offline configuration's explicitly named key; no value
-  or length is emitted. Empty keys that previously
-  reported ready now block with provider_key_empty; runtime requests use the same codes
+  keys beside a policy key. Plain doctor also reads an offline configuration's explicitly
+  named key and reports that in its new key_value_read field; no value or length is emitted.
+  Empty keys that previously reported ready now block with provider_key_empty; runtime requests use the same codes
   before reserving spend. Absent keys use provider_key_missing.
 - Plain doctor now exits 1 for missing/unusable Git; keys, directory writability and
   package problems are installation warnings and retain exit 0. Range preflights include
