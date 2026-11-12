@@ -283,7 +283,9 @@ def run_config_doctor(args, config: Config) -> int:
 
     report = config_preflight(args.repo, args.base, args.head, config, args.config)
     attach_environment(report, environment_report(config, config_path=args.config, route="configuration"))
-    print(canonical(report).decode())
+    from .text_view import doctor_output
+
+    print(doctor_output(report, args))
     return 0 if report["status"] == "ready" else 1
 
 
