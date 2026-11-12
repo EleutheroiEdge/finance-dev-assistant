@@ -5,6 +5,18 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 ## Unreleased
 
 ### Added
+- **Remedies measured on real changes, and each change says where its setting is.**
+  `scripts/remedy_scenarios.py` sets up each reference repository once and then follows the first
+  option of every remedy on each later change, on both routes, until nothing but authorization is
+  in the way. Each change ends ready as drafted, remedied, needing a decision, or with a remedy
+  that fails or never settles. The first run found changes a setting would clear with no remedy
+  naming it: an unsupported file type, a blob that is not text, a private name, and a file left out
+  of the configuration route for a reason other than `allow_paths`. Each now has its remedy, and a
+  file outside a gate's scope is offered leaving it out before widening the scope. No remedy
+  proposes `allow_network`, `allow_partial_review` or `allow_local_readiness`: CI policies and
+  workflow packs refuse them, and only a person grants them. Every change also carries `pointer`,
+  the setting's place in the document as a JSON Pointer, so a program needs no knowledge of where
+  a gate policy keeps it. Release gate B9 holds the measurement.
 - **`doctor` lists remedies a program can read.** For a range, each blocker with a mechanical fix
   now has an entry in `remedies`: the document to edit, the setting, and the value, bound or paths
   that clear this instance, with what else the change does (`sends_more`, `spends_more` or
@@ -30,6 +42,10 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   Gate acceptance, screening, provider approval and budget rules are unchanged.
 
 ### Fixed
+- **`doctor` blocked a range for a file under `generated_paths`.** The configuration preflight
+  refused it as `scope_incomplete` and reported the coverage as incomplete, while the review and
+  triage count a configured generated file as outside the scope and go ahead. `doctor` now agrees
+  with them: the file is listed as omitted with its reason and blocks nothing.
 - Plain init outside a Git repository reports `init_repository_required` with repository/template remedies; corrupt Git configuration keeps its read error.
 - **The gate named a setting it does not have.** A change whose packet is over the gate's packet
   limit, the larger of 2,000,000 bytes and `max_request_bytes`, was refused as

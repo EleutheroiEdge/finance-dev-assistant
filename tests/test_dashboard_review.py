@@ -60,13 +60,15 @@ def test_plan_and_check_the_assistants_own_committed_tree(tmp_path, operation):
     # The generated Unicode alias table is excluded too (its generator script stays
     # in scope). SECURITY.md is outside the default allow list, so this test adds it.
     # The whole tree no longer fits one 2,000,000-byte packet, so it is planned in
-    # two parts that split the allow list; together they must cover every file.
+    # parts that split the allow list, src/ and tests/ each on their own; together
+    # they must cover every file, and no file may be in two of them.
     from finassist.guides import GUIDES
     copies = {"src/finassist/resources/" + resource: source for _title, source, resource in GUIDES.values()}
     generated = (*Config().generated_paths, "src/finassist/path_alias_data.py", *sorted(copies))
     allow = (*Config().allow_paths, "SECURITY.md")
-    parts = (("src/",), tuple(prefix for prefix in allow if prefix != "src/"))
-    assert sorted(parts[0] + parts[1]) == sorted(allow)
+    alone = ("src/", "tests/")
+    parts = (*((prefix,) for prefix in alone), tuple(prefix for prefix in allow if prefix not in alone))
+    assert sorted(prefix for part in parts for prefix in part) == sorted(allow)
     results = []
     for index, part in enumerate(parts if operation == "plan" else (allow,)):
         config = replace(Config(), max_packet_bytes=2_000_000, recipes={"scope": [sys.executable, "-c", script]},
@@ -94,10 +96,13 @@ def test_plan_and_check_the_assistants_own_committed_tree(tmp_path, operation):
     if operation == "plan":
         planned = [{row["path"] for row in result["files"]} for result in results]
         outside = [{row["path"] for row in result["omitted"] if row["reason"] == "outside_allowlist"} for result in results]
-        assert not planned[0] & planned[1]
-        # A file outside one part is planned by the other, or is outside both.
-        assert outside[0] - planned[1] == outside[1] - planned[0] == outside[0] & outside[1]
-        assert not any(Config().allows(name) for name in outside[0] & outside[1] if name != "SECURITY.md")
+        assert sum(len(files) for files in planned) == len(set().union(*planned))  # No file is in two parts.
+        # A file outside one part is planned by another, or is outside all of them.
+        everywhere = set.intersection(*outside)
+        for index, left in enumerate(outside):
+            others = set().union(*(files for number, files in enumerate(planned) if number != index))
+            assert left - others == everywhere
+        assert not any(Config().allows(name) for name in everywhere if name != "SECURITY.md")
         result = {"files": [row for part in results for row in part["files"]],
                   "omitted": [row for row in results[0]["omitted"] if row["reason"] != "outside_allowlist"]}
         assert any(row["reason"] == "generated_artifact_excluded" for row in result["omitted"])
