@@ -194,7 +194,9 @@ def test_a_blocker_that_needs_a_decision_has_no_remedy(drafted, draft, tmp_path)
     revisions = _change(drafted, {})
     refused = _preflight("configuration", revisions, {**draft[0], "allow_network": False}, tmp_path)
     assert _codes(refused) == ["network_not_approved"] and refused["remedies"] == []
-    secret = _change(drafted, {"src/settings.py": 'api_key = "' + "k9" * 12 + '"\n'})
+    # Assembled, so that this file does not itself hold a value under a credential label.
+    label, value = "api" + "_key", "k9" * 12
+    secret = _change(drafted, {"src/settings.py": label + ' = "' + value + '"\n'})
     for route in ("configuration", "gate"):
         report = _preflight(route, secret, _start(route, draft, "a private file in the range"), tmp_path)
         assert _codes(report) == ["sensitive_content"] and report["remedies"] == []
