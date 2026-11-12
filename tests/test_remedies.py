@@ -16,7 +16,7 @@ from finassist.onboarding import policy_preflight
 from finassist.platform_support import find_tool
 from finassist.remedies import MAX_FILE_BYTES, MAX_LISTED_PATHS, attach_remedies
 
-KEYS = {"GEMINI_API_KEY": "placeholder-not-a-key"}
+KEYS = ("GEMINI_API_KEY",)  # Names only: a preflight asks whether the variable exists and never reads a value.
 EFFECTS = {"sends_more", "spends_more", "leaves_files_out", "none"}
 SMALL = {"src/ledger.py": "def total(values):\n    return float(sum(values))\n"}
 # name: files the change adds, settings changed first, and the blocker each route must name.
