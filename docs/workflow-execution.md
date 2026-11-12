@@ -174,9 +174,11 @@ finassist workflow abandon --repo . --run-id RUN_ID --approve-plan FULL_PLAN_HAS
 
 ## State and audit boundaries
 
-Every state command accepts `--repo`; its default state is `REPO/.finassist`,
-including when invoked from another directory. Use the same target repository
-for status, reconciliation, retry and cancellation. An explicit `--state-dir`
+Every state command accepts `--repo`. Its default state is the `.finassist`
+folder of the repository holding `--config`, or, without `--config`, of the
+repository holding `--repo`, including when invoked from another directory; the
+auditing and readiness guide gives the whole rule. Use the same repository and
+configuration for status, reconciliation, retry and cancellation. An explicit `--state-dir`
 or global `--audit-dir` overrides this default; use that same directory for the
 readiness gate so unfinished work remains visible.
 

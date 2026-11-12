@@ -158,6 +158,7 @@ def test_the_write_step_uses_the_proposals_revision_and_checks_the_file():
 
 
 def test_writing_at_the_proposals_revision_ignores_later_commits(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)  # Its state stays out of the checkout.
     case = _repository(tmp_path, "quant-engine.json", QUANT, monkeypatch)
     repo = case["repo"]
     output = io.StringIO()

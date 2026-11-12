@@ -514,6 +514,7 @@ or creating audit state (one JSON object on stdout):
 ```sh
 finassist config schema
 finassist config schema --kind gate-policy
+finassist config schema --kind workflow-template
 ```
 
 The default kind is `config`. Schema IDs identify the document contract and its
@@ -529,6 +530,7 @@ editor. The CLI reads the installed packaged schema and never fetches an ID.
 | `config` | Configuration |
 | `gate-policy` | Version-2 model gate policy |
 | `ci-policy` | Version-1 deterministic CI policy |
+| `workflow-template` | Version-1 workflow template |
 | `packet` | Version-1 or version-2 source packet |
 | `gate-report` | Current version-2 model gate report |
 | `gate-report-v1` | Legacy version-1 model gate report |
@@ -547,13 +549,23 @@ report filenames remain `model-gate-report.schema.json` and
 exported copy; the provider request schema and existing request approvals stay
 unchanged.
 
-Evaluation suites, history suites, packets and saved review reports apply these
-shared structural contracts at runtime. Structural limits come from the modules
-that enforce or produce the document. The CI policy references the configuration
-contract and checks repository-name syntax. Its `workflow` field remains only an
-object in the exported schema; the workflow loader still validates that template.
-A complete workflow-template schema is a separate follow-up, along with the
-workflow-pack, evidence, evaluation-result and triage document families.
+Evaluation suites, history suites, packets, saved review reports and workflow
+templates apply these shared structural contracts at runtime. Structural limits
+come from the modules that enforce or produce the document. The CI policy checks
+repository-name syntax and references the configuration and workflow-template
+contracts by their IDs. Register both schemas locally in your editor when
+validating a CI policy. The template export covers every required field, closed
+object, identifier pattern, array bound, unique path/dependency list and text
+length from the workflow loader. Its ID is `urn:finledgerpoli:schema:workflow-template:1`.
+Workflow-pack, evidence, evaluation-result and triage schemas remain separate
+follow-ups.
+
+The workflow loader remains authoritative: a structurally valid template still
+needs a nonblank goal, allowed nongenerated methodology paths, unique requirement,
+recipe and step identities, complete methodology and step coverage, and a known,
+acyclic dependency graph. Content screening, configured recipe checks and Git
+bindings also remain runtime checks. Exporting the schema changes no runtime
+acceptance, approval or execution gate.
 
 Runtime validation additionally enforces private paths/content, unique case
 identities, packet coverage and hashes, Git/configuration bindings and approvals.
@@ -563,9 +575,9 @@ bytes, and each related snippet at 4,000 serialized bytes. Related aggregate
 budgets and source/request byte limits are additional runtime checks.
 
 JSON Schema's integer type accepts integral numeric values such as `1.0`.
-Evaluation/history suite versions, packet versions and CI policy version/limits
-require actual integers at runtime; the existing gate-report validator still
-accepts an integral version such as `2.0`. A related block's `rule_version: true`
+Evaluation/history suite versions, packet and workflow-template versions, and
+CI policy version/limits require actual integers at runtime; the existing
+gate-report validator still accepts an integral version such as `2.0`. A related block's `rule_version: true`
 is now refused as `packet_schema_invalid` (CLI exit 2), whereas its numeric
 `rule_version: 1` is valid. A nonobject synthetic case now reports
 `invalid_eval_case` instead of `invalid_input` (still exit 2). Malformed packet

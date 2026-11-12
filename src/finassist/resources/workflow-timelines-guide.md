@@ -9,9 +9,11 @@ It does not execute checks, adopt results or change the ledger.
 finassist workflow timeline --repo . --run-id RUN_ID --limit 100
 ```
 
-The default state is `REPO/.finassist`. An explicit `--state-dir` or global
-`--audit-dir` selects another private state root. Configuration is not loaded;
-even a missing or invalid `--config` cannot prevent historical inspection.
+The default state follows the shared rule: the `.finassist` folder of the
+repository holding `--config`, or, without it, of the repository holding
+`--repo`. An explicit `--state-dir` or global `--audit-dir` selects another
+private state root. Configuration is not loaded: a `--config` path only locates
+the folder, and even a missing or invalid file cannot prevent historical inspection.
 The database must already exist. The connection uses SQLite read-only mode,
 does not initialize or repair schema, change permissions, or append lifecycle
 events. An explicit `--output NEW_PRIVATE_FILE.json` writes a new private report

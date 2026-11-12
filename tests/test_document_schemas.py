@@ -28,8 +28,10 @@ ROOT = Path(__file__).parents[1]
 
 
 def exported_validator(kind):
-    config = document_schema("config")
-    registry = Registry().with_resource(config["$id"], Resource.from_contents(config))
+    registry = Registry().with_resources(
+        (SCHEMA_IDS[name], Resource.from_contents(document_schema(name)))
+        for name in ("config", "workflow-template")
+    )
     return Draft202012Validator(document_schema(kind), registry=registry)
 
 
