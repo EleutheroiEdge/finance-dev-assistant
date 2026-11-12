@@ -690,5 +690,7 @@ def run_policy_doctor(args) -> int:
     report = policy_preflight(args.repo, args.base, args.head, args.policy or "", args.policy_sha256,
                               policy_file=args.policy_file or None, diagnostic_config=diagnostic_config,
                               diagnostic_config_path=args.config, include_environment=True)
-    print(canonical(report).decode())
+    from .text_view import doctor_output
+
+    print(doctor_output(report, args))
     return 0 if report["status"] == "ready" else 1
