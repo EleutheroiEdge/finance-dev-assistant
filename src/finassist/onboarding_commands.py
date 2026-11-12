@@ -29,6 +29,8 @@ def add_onboarding_commands(commands) -> None:
     doctor.add_argument("--fix", action="store_true", help="Apply only explicit safe reversible local migrations")
     doctor.add_argument("--state-dir", type=Path)
     doctor.add_argument("--check-updates", action="store_true", help="Check PyPI once when project network use is allowed")
+    doctor.add_argument("--format", choices=("json", "text"), default="json",
+                        help="text prints the report for a person; JSON, the default, is the contract for programs")
     preflight = doctor.add_argument_group(
         "range preflight", "Report every blocker for one range, offline. Selected key values are checked for "
         "emptiness, never returned. With --policy or --policy-file, check the gate; --config adds diagnostics "
