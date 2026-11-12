@@ -76,7 +76,8 @@ def test_exported_examples_resolve_the_packaged_schema(tmp_path):
     load_config(example)
 
 
-def test_documented_commands_track_parser_and_real_exit_streams(capsys, tmp_path):
+def test_documented_commands_track_parser_and_real_exit_streams(capsys, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # Its state stays out of the checkout.
     commands = next(action.choices for action in parser()._actions if isinstance(action, argparse._SubParsersAction))
     documentation = (ROOT / "docs/cli-contracts.md").read_text(encoding="utf-8")
     assert set(re.findall(r"^\| `([a-z-]+)` \|", documentation, re.MULTILINE)) == set(commands)

@@ -120,7 +120,8 @@ def test_a_past_range_checks_against_a_policy_file_without_authorizing_a_run(ado
     assert "policy_from_working_tree" in {item["code"] for item in report["warnings"]}
 
 
-def test_init_warns_about_a_suffix_that_has_no_effect(adopter, tmp_path, capsys):
+def test_init_warns_about_a_suffix_that_has_no_effect(adopter, tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # Its state stays out of the checkout.
     offline = tmp_path / "offline.json"
     save_config(offline, replace(Config(), text_suffixes=(*Config().text_suffixes, ".csv")))
     assert main(["--config", str(offline), "init", "--template", "--output", str(tmp_path / "written.json")]) == 0
