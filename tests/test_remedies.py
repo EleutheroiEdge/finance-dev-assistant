@@ -5,15 +5,14 @@ A hint a person cannot follow is a support question. A remedy a program cannot a
 
 import copy
 import json
-import subprocess
 
 import pytest
 
+from conftest import command
 from finassist.cli import main
 from finassist.config import MAX_PACKET_BYTES, load_config
 from finassist.config_preflight import config_preflight
 from finassist.onboarding import policy_preflight
-from finassist.platform_support import find_tool
 from finassist.remedies import MAX_FILE_BYTES, MAX_LISTED_PATHS, attach_remedies
 
 KEYS = ("GEMINI_API_KEY",)  # Names only: a preflight asks whether the variable exists and never reads a value.
@@ -44,8 +43,7 @@ CASES = [(name, route) for name, scenario in SCENARIOS.items()
 
 
 def _git(repo, *args) -> str:
-    done = subprocess.run([find_tool("git"), "-C", str(repo), *args], check=True, capture_output=True, text=True)
-    return done.stdout.strip()
+    return command(repo, *args)  # The shared helper: a scrubbed environment, no hooks, the same on every platform.
 
 
 @pytest.fixture(scope="module")
@@ -54,11 +52,15 @@ def drafted(tmp_path_factory):
     repo = tmp_path_factory.mktemp("remedies") / "repo"
     (repo / "src").mkdir(parents=True)
     (repo / "tests").mkdir()
-    (repo / "src" / "ledger.py").write_text("def total(values):\n    return sum(values)\n", encoding="utf-8")
-    (repo / "tests" / "test_ledger.py").write_text("def test_total():\n    assert True\n", encoding="utf-8")
-    _git(repo, "init", "-q")
+    # newline="\n" everywhere: the sizes these setups depend on must not change with the platform.
+    (repo / "src" / "ledger.py").write_text("def total(values):\n    return sum(values)\n", encoding="utf-8",
+                                            newline="\n")
+    (repo / "tests" / "test_ledger.py").write_text("def test_total():\n    assert True\n", encoding="utf-8",
+                                                   newline="\n")
+    _git(repo, "init", "-b", "main")
     _git(repo, "config", "user.email", "remedies@example.invalid")
     _git(repo, "config", "user.name", "remedies")
+    _git(repo, "config", "core.autocrlf", "false")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-q", "-m", "first")
     return repo, _git(repo, "rev-parse", "HEAD")
@@ -79,7 +81,7 @@ def _change(drafted, files: dict) -> tuple:
     for name, text in {**SMALL, **files}.items():
         target = repo / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text, encoding="utf-8")
+        target.write_text(text, encoding="utf-8", newline="\n")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-q", "-m", "change")
     return repo, base, _git(repo, "rev-parse", "HEAD")
