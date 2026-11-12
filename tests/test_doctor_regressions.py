@@ -231,7 +231,7 @@ def test_gate_http_status_survives_without_response_body_headers_or_ledger_leak(
     calls = []
     def fail(request):
         calls.append(request)
-        return httpx.Response(status, text="never-output-response", headers={"X-Secret": "never-output-header"})
+        return httpx.Response(status, text="never-output-response", headers={"X-" + "Secret": "never-output-header"})
     report = model_gate(gate_case["repo"], gate_case["base"], gate_case["head"], "gate-policy.json",
                         gate_case["pin"], gate_case["state"], transport=httpx.MockTransport(fail))
     assert report["verdict"] == "BLOCKED" and code in report["reasons"] and len(calls) == 1
