@@ -138,13 +138,13 @@ def outcome(row: dict) -> str:
     return key
 
 
-def doctor(command: list[str], arguments: list[str], cwd: Path, environment: dict) -> dict:
-    """One range's status, blocker codes and per-path outcome counts. No path name is kept."""
-    done, seconds = finassist(command, arguments, cwd, environment)
+def report_or_refusal(done: subprocess.CompletedProcess) -> dict | str:
+    """`doctor`'s report, or the code of a refusal the product states. Anything else is a failed run."""
     try:
         report = json.loads(done.stdout.splitlines()[-1])
         if not isinstance(report, dict) or not isinstance(report.get("status"), str):
             raise ValueError
+        return report
     except (ValueError, IndexError):
         # No report. A refusal the product states is still a measurement: exit status 2 with its
         # error document. Anything else is a failed run, and counting it would hide the failure.
@@ -155,16 +155,23 @@ def doctor(command: list[str], arguments: list[str], cwd: Path, environment: dic
                 raise ValueError
         except (ValueError, IndexError, KeyError, TypeError):
             raise Incomplete("doctor gave no report") from None
-        return {"status": "refused", "blockers": [code], "paths": {}, "seconds": seconds}
+        return code
+
+
+def doctor(command: list[str], arguments: list[str], cwd: Path, environment: dict) -> dict:
+    """One range's status, blocker codes and per-path outcome counts. No path name is kept."""
+    done, seconds = finassist(command, arguments, cwd, environment)
+    report = report_or_refusal(done)
+    if isinstance(report, str):
+        return {"status": "refused", "blockers": [report], "paths": {}, "seconds": seconds}
     paths = collections.Counter(outcome(row) for row in report.get("paths", []))
     return {"status": report.get("status"), "blockers": sorted({item.get("code") for item in report.get("blockers", [])}),
             "paths": dict(paths), "seconds": seconds}
 
 
-def scenario(command: list[str], label: str, repo: Path, revision: str, changes: int, output: Path,
-             environment: dict) -> tuple[dict, str]:
-    """One repository's counts, and the commit its history was read from."""
-    before = git(repo, "status", "--porcelain")
+def changes_after_setup(repo: Path, revision: str, changes: int) -> tuple[str, list[tuple[str, str]]]:
+    """The commit the history is read from, and its last N first-parent changes, oldest first, each as
+    its parent and its commit."""
     ancestry_as_written(repo)
     tip = git(repo, "rev-parse", "--verify", "--quiet", revision + "^{commit}")
     ranges = []
@@ -174,13 +181,30 @@ def scenario(command: list[str], label: str, repo: Path, revision: str, changes:
             ranges.append((parents[0], commit))
     if len(ranges) < changes:  # A short or shallow history: fewer ranges than the totals would claim.
         raise Incomplete(f"history holds {len(ranges)} of the {changes} changes asked for")
-    done, seconds = finassist(command, ["init", "--detect", "--repo", str(repo), "--revision", ranges[0][0], *PROVIDER],
+    return tip, ranges
+
+
+def detect(command: list[str], repo: Path, revision: str, output: Path, environment: dict) -> tuple[dict, float]:
+    """`init --detect` at one revision: its proposal, with the configuration and the gate policy draft."""
+    done, seconds = finassist(command, ["init", "--detect", "--repo", str(repo), "--revision", revision, *PROVIDER],
                               output, environment)
     try:
         proposal = json.loads(done.stdout)
-        config, gate = proposal["config"], proposal["gate_policy_draft"]
+        if not isinstance(proposal["config"], dict) or not isinstance(proposal["gate_policy_draft"]["model_review"], dict):
+            raise ValueError
     except (ValueError, KeyError, TypeError):
         raise Incomplete("init --detect") from None
+    return proposal, seconds
+
+
+
+def scenario(command: list[str], label: str, repo: Path, revision: str, changes: int, output: Path,
+             environment: dict) -> tuple[dict, str]:
+    """One repository's counts, and the commit its history was read from."""
+    before = git(repo, "status", "--porcelain")
+    tip, ranges = changes_after_setup(repo, revision, changes)
+    proposal, seconds = detect(command, repo, ranges[0][0], output, environment)
+    config, gate = proposal["config"], proposal["gate_policy_draft"]
     documents = {"config": config, "config+skip": {**config, **SKIP}, "config+leave": {**config, **LEAVE},
                  "config+tests": {**config, **TESTS},
                  "gate": gate, "gate+skip": {**gate, "model_review": {**gate["model_review"], **SKIP}},
@@ -224,8 +248,13 @@ def scenario(command: list[str], label: str, repo: Path, revision: str, changes:
     return result, tip
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+def prepare(argv: list[str] | None, description: str):
+    """Read and check the arguments the measuring scripts share, and create the private output folder.
+
+    Returns the arguments, the output folder, the repositories under their anonymous labels, and the
+    pinned commits or None.
+    """
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument("repositories", nargs="+", type=Path)
     parser.add_argument("--changes", type=int, default=25, help="First-parent changes to check in each repository")
     parser.add_argument("--branch", default="origin/main", help="Branch whose history is used (default: origin/main)")
@@ -263,6 +292,11 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--output must not exist yet")
     labels = {f"repository-{number}": repo for number, repo in enumerate(repositories, 1)}
     write_new(output / "repositories.json", json.dumps({label: str(repo) for label, repo in labels.items()}, indent=1))
+    return args, output, labels, pinned
+
+
+def main(argv: list[str] | None = None) -> int:
+    args, output, labels, pinned = prepare(argv, __doc__.split("\n\n")[0])
     summary, tips, incomplete = {}, [], 0
     for number, (label, repo) in enumerate(labels.items()):
         try:
