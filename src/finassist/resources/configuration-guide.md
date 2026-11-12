@@ -576,3 +576,8 @@ check grants no authority.
 ## Limits
 
 Configuration selects policy; it does not authorize a network request, recipe execution or patch application. Runtime checks remain authoritative after editor validation. Screening cannot prove confidentiality, generated exclusions require independent source/build verification, and local budget admission cannot enforce provider billing. See the [threat model](threat-model.md).
+
+The CI policy editor schema references the configuration schema by its stable $id.
+Register both exported files with an offline validator or editor; the URN is an
+identifier, not a URL to fetch. Runtime CI loading uses the configuration reader
+to preserve field-specific errors and check min_version before newer options.

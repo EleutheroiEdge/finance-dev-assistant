@@ -10,8 +10,6 @@ import re
 import jsonschema
 
 from .config import Config
-from .config_schema import configuration_schema
-from .document_contracts import fullmatch_pattern
 from .errors import AssistantError
 from .scope import read_entry, REVISION_PATTERN
 from .security import check_path, check_text, digest, pinned_image, regular_path
@@ -20,14 +18,14 @@ from .workflow import parse_template
 
 _REPOSITORY = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
 _SHA = re.compile(REVISION_PATTERN)
+BRANCH_PATTERN = r"[A-Za-z0-9][A-Za-z0-9_./-]{0,255}"
 _SCHEMA = {
     "type": "object", "additionalProperties": False,
     "required": ["schema_version", "repository", "events", "base_branches", "forks", "backend",
                  "review", "guard_paths", "max_steps", "max_check_seconds", "config", "workflow"],
     "properties": {
         "schema_version": {"type": "integer", "const": 1},
-        "repository": {"type": "string", "pattern": fullmatch_pattern(_REPOSITORY.pattern),
-                       "not": {"pattern": r"^(?:\.{1,2}/|[^/]+/\.{1,2}$)"}},
+        "repository": {"type": "string", "maxLength": 201},
         "events": {"const": ["pull_request"]},
         "base_branches": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True,
                           "items": {"type": "string", "minLength": 1, "maxLength": 256}},
@@ -37,11 +35,10 @@ _SCHEMA = {
                         "items": {"type": "string", "minLength": 1, "maxLength": 512}},
         "max_steps": {"type": "integer", "minimum": 1, "maximum": 64},
         "max_check_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
-        "config": {"$ref": "#/$defs/config"},
+        "config": {"type": "object"},
         "workflow": {"type": "object", "description": "Workflow template structure is validated by the workflow loader; a complete workflow schema is a separate follow-up."},
         **FIXTURE_PROPERTIES,
     },
-    "$defs": {"config": configuration_schema()},
 }
 
 
@@ -131,16 +128,12 @@ def load_ci_policy(repo: Path, base: str, path: str, approved_sha256: str) -> CI
     try:
         jsonschema.Draft202012Validator(_SCHEMA).validate(document)
     except jsonschema.ValidationError as exc:
-        if list(exc.absolute_path)[:1] == ["config"] and isinstance(document.get("config"), dict):
-            _check_config_capabilities(document["config"])  # Retain the existing capability refusal.
-        if list(exc.absolute_path) == ["repository"]:
-            raise AssistantError("ci_repository_invalid") from exc
         raise AssistantError("ci_policy_invalid") from exc
     if any(type(document[key]) is not int for key in ("schema_version", "max_steps", "max_check_seconds")):
         raise AssistantError("ci_policy_invalid")
     repository_name(document["repository"])
     for branch in document["base_branches"]:
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,255}", branch) or ".." in branch:
+        if not re.fullmatch(BRANCH_PATTERN, branch) or ".." in branch:
             raise AssistantError("ci_policy_invalid")
     for guarded in document["guard_paths"]:
         check_path(guarded.removesuffix("/"), source_only=False)

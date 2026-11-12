@@ -57,6 +57,17 @@ def document_schema(kind: str = "config") -> dict:
     # In particular, review_schema is serialized into provider request hashes. Editor
     # metadata belongs to this export, never to the live request or submitted document.
     schema = deepcopy(schema)
+    if kind == "ci-policy":
+        from .ci_policy import BRANCH_PATTERN, _REPOSITORY
+        from .document_contracts import fullmatch_pattern
+        # Editors register the separately published config schema by its stable ID.
+        # Runtime config validation retains its specific codes and min_version order.
+        schema["properties"]["config"] = {"$ref": SCHEMA_ID}
+        schema["properties"]["repository"].update(
+            pattern=fullmatch_pattern(_REPOSITORY.pattern),
+            **{"not": {"pattern": r"^(?:\.{1,2}/|[^/]+/\.{1,2}$)"}})
+        schema["properties"]["base_branches"]["items"].update(
+            pattern=fullmatch_pattern(BRANCH_PATTERN), **{"not": {"pattern": r"\.\."}})
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     schema["$id"] = SCHEMA_IDS[kind]
     return schema

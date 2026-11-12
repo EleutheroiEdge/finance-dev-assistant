@@ -31,9 +31,10 @@ def _file_schema(version: int) -> dict:
     text = {"type": ["string", "null"]}
     sha = {"type": ["string", "null"], "pattern": fullmatch_pattern(SHA256_PATTERN)}
     properties = {"path": {"type": "string"}, "status": {"enum": list(FILE_STATUSES)},
-                  "before": text, "after": text, "before_hash": sha, "after_hash": sha}
+                  "before": text, "after": text}
     if version == 2:
         properties.update({side + "_mode": {"enum": [None, *BLOB_MODES]} for side in ("before", "after")})
+    properties.update(before_hash=sha, after_hash=sha)
     result = object_schema(properties)
     result["not"] = {"properties": {"before": {"type": "null"}, "after": {"type": "null"}}}
     result["allOf"] = []
@@ -41,8 +42,8 @@ def _file_schema(version: int) -> dict:
         nulls = {side + "_hash": {"type": "null"}}
         present = {side + "_hash": {"type": "string"}}
         if version == 2:
-            nulls[side + "_mode"] = {"type": "null"}
-            present[side + "_mode"] = {"enum": list(BLOB_MODES)}
+            nulls = {side + "_mode": {"type": "null"}, **nulls}
+            present = {side + "_mode": {"enum": list(BLOB_MODES)}, **present}
         result["allOf"].append({"if": {"properties": {side: {"type": "null"}}},
                                 "then": {"properties": nulls}, "else": {"properties": present}})
     return result

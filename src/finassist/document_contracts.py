@@ -109,6 +109,8 @@ def _raise_shape_error(kind, exc):
             raise AssistantError("invalid_eval_case")
         if path[2] in {"id", "expected_defect"}:
             raise AssistantError("invalid_eval_identity")
+        if path[2] == "path" and exc.instance == "":
+            raise AssistantError("unsafe_path")
         if path[2] in {"before", "after"}:
             raise AssistantError("invalid_eval_source")
         raise AssistantError("invalid_eval_case")
@@ -129,6 +131,9 @@ def _raise_shape_error(kind, exc):
             if field == "base_sha" and "allOf" in exc.absolute_schema_path:
                 raise AssistantError("history_policy_commit_invalid")
             raise AssistantError("ci_revision_invalid")
+        if ((field == "expected" and len(path) > 4 and path[4] == "paths"
+             or field == "policy" and path[3:] == ["path"]) and exc.instance == ""):
+            raise AssistantError("unsafe_path")
         if field in {"negative_control", "expected"}:
             raise AssistantError("history_identity_invalid" if len(path) > 4 and path[4] == "label" else "history_expected_invalid")
         if field == "policy":
@@ -139,7 +144,11 @@ def _raise_shape_error(kind, exc):
             raise AssistantError("history_policy_invalid")
     if kind == "packet" and path:
         if path[0] == "changed_paths":
+            if len(path) == 1 and exc.validator == "type":
+                raise AssistantError("packet_schema_invalid")
             raise AssistantError("packet_file_count_limit" if exc.validator == "maxItems" else "packet_coverage_invalid")
+        if path[0] in {"allow_paths", "generated_paths", "profile"}:
+            raise AssistantError("packet_" + path[0] + "_mismatch")
         if path[0] == "files" and len(path) > 2:
             if path[2].endswith("_mode"):
                 raise AssistantError("packet_mode_invalid")
@@ -147,7 +156,7 @@ def _raise_shape_error(kind, exc):
                 raise AssistantError("file_integrity_failed")
         if path[0] == "packet_hash":
             raise AssistantError("packet_integrity_failed")
-        if path[0] == "related" and path[1:] != ["rule_version"]:
+        if path[0] == "related" and not (path[1:] == ["rule_version"] and exc.instance is True):
             raise AssistantError("packet_related_invalid")
 
 def validate_document_shape(document: dict, kind: str, error: str) -> None:

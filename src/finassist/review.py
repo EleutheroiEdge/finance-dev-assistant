@@ -324,6 +324,8 @@ def review_packet(
         **({"withheld": packet["withheld"]} if "withheld" in packet else {}),
         "qualification": "Source-bound advisory findings. Reproductions have not been executed.",
     }
+    # The receipt hash is added by the ledger only after the report shape passes.
+    validate_document_shape({**report, "receipt": "0" * 64}, "review-report", "review_schema_invalid")
     with Ledger(ledger_path) as ledger:
         report["receipt"] = ledger.append(
             {
@@ -337,5 +339,4 @@ def review_packet(
                 },
             }
         )
-    validate_document_shape(report, "review-report", "review_schema_invalid")
     return report

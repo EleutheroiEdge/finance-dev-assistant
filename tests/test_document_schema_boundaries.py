@@ -21,6 +21,7 @@ from finassist.review import review_packet
 from finassist.scope import WITHHELD_REASON, build_packet, verify_packet
 from finassist.security import canonical, digest
 from test_providers_review import envelope, response
+from test_document_schemas import exported_validator
 
 ROOT = Path(__file__).parents[1]
 
@@ -362,8 +363,16 @@ def test_saved_report_required_fields_and_runtime_invocation(repository, tmp_pat
     monkeypatch.setattr(builder, "review_report_schema",
                         lambda: {"allOf": [original(), {"required": ["contract_enforcement_probe"]}]})
     contracts._validator.cache_clear()
+    from finassist.ledger import Ledger
+    events = []
+    append = Ledger.append
+    def record(ledger, event):
+        events.append(event["event"])
+        return append(ledger, event)
+    monkeypatch.setattr(Ledger, "append", record)
     with pytest.raises(AssistantError, match="review_schema_invalid"):
         run()  # Fails if either report producer stops applying the shared contract.
+    assert "review_completed" not in events
 
 
 @pytest.mark.parametrize("kind,factory,build_name", [
@@ -431,7 +440,7 @@ def test_ci_schema_repository_and_config_constraints():
     from importlib.resources import files
     from finassist.ci_policy import repository_name
     document = json.loads(files("finassist").joinpath("resources/github-ci-policy.json").read_text())
-    schema = Draft202012Validator(document_schema("ci-policy"))
+    schema = exported_validator("ci-policy")
     schema.validate(document)
     for repository in ["owner", "owner/repo/extra", "./repo", "owner/..", "a" * 101 + "/repo", "owner/repo\n"]:
         invalid = {**deepcopy(document), "repository": repository}
@@ -447,7 +456,7 @@ def test_ci_schema_repository_and_config_constraints():
         invalid["config"].update(changes)
         with pytest.raises(ValidationError):
             schema.validate(invalid)
-    assert document_schema("ci-policy")["properties"]["config"]["$ref"] == "#/$defs/config"
+    assert document_schema("ci-policy")["properties"]["config"]["$ref"] == SCHEMA_IDS["config"]
     assert "separate follow-up" in document_schema("ci-policy")["properties"]["workflow"]["description"]
 
 

@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx
 import pytest
 from jsonschema import Draft202012Validator, ValidationError
+from referencing import Registry, Resource
 
 from finassist import ci_policy, model_policy
 from finassist.cli import main
@@ -24,6 +25,12 @@ from test_history_suite import history_suite
 from test_providers_review import envelope, response
 
 ROOT = Path(__file__).parents[1]
+
+
+def exported_validator(kind):
+    config = document_schema("config")
+    registry = Registry().with_resource(config["$id"], Resource.from_contents(config))
+    return Draft202012Validator(document_schema(kind), registry=registry)
 
 
 def sample(kind):
@@ -78,11 +85,11 @@ def test_export_does_not_mutate_policy_or_provider_schema():
                                          ("ci-policy", "github-ci-policy.json")])
 def test_policy_examples_match_runtime_schema(kind, resource):
     document = json.loads(files("finassist").joinpath("resources/" + resource).read_text(encoding="utf-8"))
-    Draft202012Validator(document_schema(kind)).validate(document)
+    exported_validator(kind).validate(document)
     malformed = deepcopy(document)
     malformed["schema_version"] = 99
     with pytest.raises(ValidationError):
-        Draft202012Validator(document_schema(kind)).validate(malformed)
+        exported_validator(kind).validate(malformed)
 
 
 @pytest.mark.parametrize("version", [1, 2])
@@ -142,7 +149,7 @@ def test_suite_aliases_validate_without_normalizing_input(kind, spelling):
     if spelling == "schema_version":
         del document["version"]
     original = canonical(document)
-    Draft202012Validator(document_schema(kind)).validate(document)
+    exported_validator(kind).validate(document)
     if kind == "evaluation-suite":
         validate_suite(document)
     else:
@@ -193,7 +200,7 @@ def test_schema_does_not_replace_path_screening(kind):
         document["cases"][0]["path"] = ".env"
     else:
         document["cases"][0]["expected"][0]["paths"] = [".env"]
-    Draft202012Validator(document_schema(kind)).validate(document)
+    exported_validator(kind).validate(document)
     with pytest.raises(AssistantError):
         (validate_suite if kind == "evaluation-suite" else validate_history_suite)(document)
 

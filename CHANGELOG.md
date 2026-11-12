@@ -27,6 +27,19 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   each time must reach `ready`.
 
 ### Changed
+- Acceptance changes: synthetic suite versions `true` and `1.0` are refused as
+  `invalid_eval_suite`; both suite types accept agreeing integer `version` and/or
+  `schema_version` aliases without rewriting their approval bytes. A packet's
+  related `rule_version: true` is now `packet_schema_invalid` (exit 2 instead of
+  acceptance); a nonobject synthetic case is `invalid_eval_case` instead of
+  `invalid_input` (still exit 2). Structural packet/report refusals use
+  `packet_schema_invalid`/`review_schema_invalid`. Source screening, coverage,
+  hashes, approvals and byte limits remain additional runtime checks.
+  Malformed packet path/status values and suite structures that previously raised
+  Python exceptions now report packet_schema_invalid, invalid_eval_case or the
+  corresponding history_*_invalid code; malformed packet modes report
+  packet_mode_invalid. Existing field-specific refusals (including related version,
+  coverage, configuration mismatch and unsafe empty paths) retain their codes.
 - Plain `init` detects the committed project layout; `--template` retains the fixed layout.
   An explicit detected write can refine the exact untouched plain-init output once, with
   recovery bytes kept locally; every other existing output remains refused. Setup reports
@@ -44,14 +57,6 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   exported contract and enforcing-module limits, with boundary and runtime-call
   regressions. CI policy schemas now constrain configuration and repository names;
   complete workflow-template schemas remain a separate follow-up.
-- Acceptance changes: synthetic suite versions `true` and `1.0` are refused as
-  `invalid_eval_suite`; both suite types accept agreeing integer `version` and/or
-  `schema_version` aliases without rewriting their approval bytes. A packet's
-  related `rule_version: true` is now `packet_schema_invalid` (exit 2 instead of
-  acceptance); a nonobject synthetic case is `invalid_eval_case` instead of
-  `invalid_input` (still exit 2). Structural packet/report refusals use
-  `packet_schema_invalid`/`review_schema_invalid`. Source screening, coverage,
-  hashes, approvals and byte limits remain additional runtime checks.
 - Plain init outside a Git repository reports `init_repository_required` with repository/template remedies; corrupt Git configuration keeps its read error.
 - **The gate named a setting it does not have.** A change whose packet is over the gate's packet
   limit, the larger of 2,000,000 bytes and `max_request_bytes`, was refused as
