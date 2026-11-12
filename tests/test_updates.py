@@ -193,7 +193,7 @@ def fake_install(monkeypatch, tmp_path, *, installer="pip", editable=False, mark
     def read_text(name):
         return installer if name == "INSTALLER" else json.dumps({"dir_info": {"editable": editable}})
     monkeypatch.setattr(updater.metadata, "distribution", lambda name: SimpleNamespace(read_text=read_text, version="0.5.0"))
-    monkeypatch.setattr(updater.shutil, "which", lambda name: str(tmp_path / (name + ".exe")))
+    monkeypatch.setattr(updater, "locate_tool", lambda name: str(tmp_path / (name + ".exe")))
     monkeypatch.setattr(updater.util, "find_spec", lambda name: object())
 
 
@@ -230,7 +230,7 @@ def test_unrecognized_editable_and_batch_installers_refuse_execution(tmp_path, m
                  installer="system-manager" if kind == "unknown" else "pip",
                  marker="pipx_metadata.json" if kind == "batch" else None)
     if kind == "batch":
-        monkeypatch.setattr(updater.shutil, "which", lambda name: str(tmp_path / "tool.cmd"))
+        monkeypatch.setattr(updater, "locate_tool", lambda name: str(tmp_path / "tool.cmd"))
     assert not updater.installation()["can_upgrade"]
     with pytest.raises(AssistantError, match="upgrade_installation_not_supported"):
         updater.run_upgrade(confirmed=True)

@@ -120,7 +120,7 @@ def test_public_github_tokens_never_reach_other_cloud_tenants(monkeypatch):
         assert "GH_TOKEN" not in kwargs["env"] and "GITHUB_TOKEN" not in kwargs["env"]
         raise OSError("stop after inspecting the environment")
 
-    monkeypatch.setattr("finassist.platform_support.shutil.which", lambda _: "gh")
+    monkeypatch.setattr("finassist.platform_support.locate_tool", lambda _: "gh")
     monkeypatch.setattr("finassist.github_audit.subprocess.run", run)
     with pytest.raises(AssistantError, match="github_metadata_unavailable"):
         inspect_github(
