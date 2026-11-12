@@ -4,6 +4,14 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ## Unreleased
 
+### Upgrading
+- **The state folder can move to the repository root.** If you ran `review`, `propose`,
+  `evaluate`, `evidence`, `audit`, `reconcile-budget`, `doctor` or `init` from a subfolder, or with
+  a `--config` kept elsewhere, their spending ledger is in that folder's `.finassist`. Such a
+  command now stops with `state_location_moved` before writing anything, and
+  `finassist state status` names both folders. Pass `--state-dir` naming the folder to keep, or
+  move the other aside. An explicit `--state-dir` or `--audit-dir` works as before.
+
 ### Added
 - **`finassist state status`: what the tool keeps on this machine, read-only.** Each store in the state
   folder (the audit chain, the evidence stores, patches, workflow runs and locks, history, configuration
@@ -52,6 +60,13 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   each time must reach `ready`.
 
 ### Changed
+- **One state folder for every command (#120).** Without `--state-dir` or `--audit-dir`, every
+  command keeps its private state in the `.finassist` folder of the repository holding `--config`
+  (outside a repository, of the folder holding it), or without `--config`, of the repository
+  holding `--repo` or the working directory. Before, `review`, `propose`, `evaluate`, `evidence`,
+  `audit` and `reconcile-budget` used the working directory, so running them from two places split
+  the spending ledger in two, each half enforcing the budget alone. `state status` reports which
+  rule chose the folder, and `doctor` warns about a ledger left at the old place.
 - Doctor accepts --config alongside --policy or --policy-file for additional diagnostics;
   the gate still uses only the selected policy. This combination previously exited 2
   with doctor_policy_options_conflict and now returns the selected preflight's 0/1 status.
@@ -95,6 +110,11 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   Gate acceptance, screening, provider approval and budget rules are unchanged.
 
 ### Fixed
+- **The configuration preflight said `ready` for a review that would stop at once (#134).** It
+  never checked the state folder its suggested `review` would use. It now finds that folder by
+  the same rule as the review, and blocks when the folder cannot be written
+  (`doctor_directory_unusable`) or when a ledger left at the old place would make the review
+  refuse (`state_location_moved`).
 - With no home folder for the user (no `HOME` and no entry for the user, as in a minimal
   container), plain `doctor` ended in a traceback. The user folders now report
   `user_directory_unavailable`, `doctor` lists them as unusable and exits as it does for its

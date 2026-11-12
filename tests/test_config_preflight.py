@@ -8,6 +8,7 @@ key variable. Every name and value here is synthetic.
 
 from dataclasses import replace
 import json
+import os
 
 import pytest
 
@@ -253,3 +254,79 @@ def test_the_packet_limit_error_says_by_how_much(repository, tmp_path, capsys):
                  "--base", base, "--head", head, "--output", str(tmp_path / "plan.json")]) == 2
     record = json.loads(capsys.readouterr().err)
     assert record["code"] == "packet_limit_exceeded" and record["limit"] == 100 and record["bytes"] > 100
+
+
+@pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                    reason="POSIX permissions, which an administrator bypasses")
+def test_a_review_that_could_not_keep_its_ledger_is_not_ready(repository, tmp_path, capsys):
+    # #134: the suggested review would stop at once, so the preflight must not say ready.
+    repo, base, head = repository
+    work = tmp_path / "read-only"
+    work.mkdir()
+    config = work / "finassist.json"
+    save_config(config, Config())
+    work.chmod(0o555)
+    try:
+        code, report = doctor(capsys, "--config", str(config), "doctor", "--repo", str(repo), "--base", base,
+                              "--head", head)
+    finally:
+        work.chmod(0o755)
+    assert code == 1 and report["status"] == "blocked"
+    unusable = [entry for entry in report["blockers"] if entry["code"] == "doctor_directory_unusable"]
+    assert [entry["path_role"] for entry in unusable] == ["state"] and unusable[0]["hint"]
+    assert not (work / ".finassist").exists()
+
+
+def test_a_review_that_would_refuse_a_moved_ledger_is_not_ready(repository, tmp_path, capsys, monkeypatch):
+    repo, base, head = repository
+    project = tmp_path / "project"
+    project.mkdir()
+    config = project / "finassist.json"
+    save_config(config, Config())
+    here = tmp_path / "here"
+    (here / ".finassist").mkdir(parents=True)
+    (here / ".finassist" / "audit.sqlite").write_bytes(b"synthetic")
+    monkeypatch.chdir(here)
+    code, report = doctor(capsys, "--config", str(config), "doctor", "--repo", str(repo), "--base", base,
+                          "--head", head)
+    assert code == 1 and report["status"] == "blocked"
+    moved = [entry for entry in report["blockers"] if entry["code"] == "state_location_moved"]
+    assert [(entry["previous"], entry["selected"]) for entry in moved] == [("working_directory", "config")]
+    assert not (project / ".finassist").exists()
+
+
+def test_a_ready_preflight_names_the_state_folder_of_its_review(repository, tmp_path, capsys, monkeypatch):
+    repo, base, head = repository
+    config = tmp_path / "finassist.json"
+    save_config(config, Config())
+    monkeypatch.chdir(tmp_path)
+    code, report = doctor(capsys, "--config", str(config), "doctor", "--repo", str(repo), "--base", base,
+                          "--head", head)
+    assert code == 0 and report["status"] == "ready"
+    assert report["environment"]["paths"]["state"]["path"].endswith(".finassist")
+
+
+def test_the_suggested_commands_use_the_state_folder_the_preflight_checked(repository, tmp_path, capsys,
+                                                                           monkeypatch):
+    # Codex on #143: with --audit-dir, the preflight checked that folder, so the commands it suggests must use it too.
+    from finassist.cli_parser import parser
+    from finassist.state_location import state_location
+
+    repo, base, head = repository
+    project = tmp_path / "project"
+    project.mkdir()
+    config = project / "finassist.json"
+    save_config(config, Config())
+    here = tmp_path / "here"
+    (here / ".finassist").mkdir(parents=True)
+    (here / ".finassist" / "audit.sqlite").write_bytes(b"synthetic")
+    kept = tmp_path / "kept-state"
+    monkeypatch.chdir(here)
+    code, report = doctor(capsys, "--config", str(config), "--audit-dir", str(kept), "doctor", "--repo", str(repo),
+                          "--base", base, "--head", head)
+    assert code == 0 and report["status"] == "ready"
+    checked = report["environment"]["paths"]["state"]["path"]
+    for argv in report["next_step"]["commands"]:
+        selected, origin = state_location(parser().parse_args(argv[1:]), refuse=False)
+        assert (str(selected), origin) == (checked, "audit_dir"), argv
+    assert not kept.exists()

@@ -171,7 +171,8 @@ def test_cli_timeline_ignores_config_and_performs_no_actions(execution_case, tmp
     monkeypatch.setattr("finassist.cli.command_audit", refuse)
     monkeypatch.setattr("finassist.workflow_execution.run_recipe", refuse)
     monkeypatch.setattr("finassist.providers.invoke", refuse)
-    args = ["--config", str(tmp_path / "broken.json"), "workflow", "timeline", "--repo", str(repo), "--run-id", identifier]
+    args = ["--config", str(tmp_path / "broken.json"), "workflow", "timeline", "--repo", str(repo),
+            "--state-dir", str(path.parent), "--run-id", identifier]
     assert main(args) == 0
     assert json.loads(capsys.readouterr().out)["recorded_status"] == "pending"
     output = tmp_path / "timeline.json"

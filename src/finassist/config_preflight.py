@@ -40,9 +40,10 @@ def _hint(code: str) -> str:
 
 
 class _ConfigPreflight:
-    def __init__(self, repo: Path, base: str, head: str, config: Config, config_path: Path | None, environment):
+    def __init__(self, repo: Path, base: str, head: str, config: Config, config_path: Path | None, environment,
+                 audit_dir: Path | None = None):
         self.repo, self.base_ref, self.head_ref = repo, base, head
-        self.config, self.config_path = config, config_path
+        self.config, self.config_path, self.audit_dir = config, config_path, audit_dir
         self.environment = environment
         self.report = {
             "schema_version": 1, "mode": "config-preflight", "status": "blocked", "base": None, "head": None,
@@ -258,6 +259,9 @@ class _ConfigPreflight:
     def _commands(self) -> dict:
         """The next commands, with placeholders where the person chooses or inspects something."""
         chosen = [] if self.config_path is None else ["--config", _shown_argument(str(self.config_path), "<configuration>")]
+        if self.audit_dir is not None:
+            # The state folder this preflight checked. Without it, the suggested commands would choose another one.
+            chosen += ["--audit-dir", _shown_argument(str(self.audit_dir), "<private state directory>")]
         plan = ["finassist", *chosen, "plan", "--repo", _shown_argument(str(self.repo)), "--base", self.report["base"],
                 "--head", self.report["head"], "--output", "<new packet file>"]
         review = ["finassist", *chosen, "review", "--packet", "<packet file>", "--approve-packet",
@@ -267,10 +271,10 @@ class _ConfigPreflight:
 
 
 def config_preflight(repo: Path, base: str, head: str, config: Config, config_path: Path | None = None,
-                     *, environment=None) -> dict:
+                     *, environment=None, audit_dir: Path | None = None) -> dict:
     """Every plan and review blocker for one range, in one local run."""
     return _ConfigPreflight(Path(repo), base, head, config, config_path,
-                            os.environ if environment is None else environment).run()
+                            os.environ if environment is None else environment, audit_dir).run()
 
 
 def run_config_doctor(args, config: Config) -> int:
@@ -279,14 +283,39 @@ def run_config_doctor(args, config: Config) -> int:
         raise AssistantError("doctor_config_preflight_conflict")
     if not args.repo or not args.base or not args.head:
         raise AssistantError("doctor_policy_range_required")
-    from .doctor_environment import attach_environment, environment_report
+    from types import SimpleNamespace
 
-    report = config_preflight(args.repo, args.base, args.head, config, args.config)
-    attach_environment(report, environment_report(config, config_path=args.config, route="configuration"))
+    from .doctor_environment import attach_environment, environment_report
+    from .state_location import state_location
+
+    report = config_preflight(args.repo, args.base, args.head, config, args.config, audit_dir=args.audit_dir)
+    # The suggested review, run from here with the same configuration, keeps its ledger where the shared rule puts it.
+    review = SimpleNamespace(audit_dir=args.audit_dir, state_dir=None, config=args.config, repo=Path.cwd(),
+                             command="review")
+    state, origin = state_location(review, refuse=False)
+    environment = environment_report(config, config_path=args.config, state_dir=state, route="configuration")
+    _block_unusable_state(environment, review, state, origin)
+    attach_environment(report, environment)
     from .text_view import doctor_output
 
     print(doctor_output(report, args))
     return 0 if report["status"] == "ready" else 1
+
+
+def _block_unusable_state(environment: dict, review, state: Path, origin: str) -> None:
+    """A review that could not keep its ledger would stop at once, so on this route these block instead of warning."""
+    from .doctor_environment import _shown_path
+    from .state_location import moved_from, previous_rule
+
+    environment["warnings"] = [entry for entry in environment["warnings"]
+                               if not (entry["code"] == "doctor_directory_unusable" and entry.get("path_role") == "state")]
+    if "code" in environment["paths"]["state"]:
+        environment["blockers"].append({"code": "doctor_directory_unusable", "path_role": "state",
+                                        **error_fields("doctor_directory_unusable")})
+    if (previous := moved_from(review, state, origin)) is not None:
+        environment["paths"]["previous_state"] = {"path": _shown_path(str(previous)), "holds_ledger": True}
+        environment["blockers"].append({"code": "state_location_moved", "previous": previous_rule(review),
+                                        "selected": origin, **error_fields("state_location_moved")})
 
 
 # What the hash of a packet adds to it. The packet limit is checked before the hash is added, and the
