@@ -49,6 +49,7 @@ cleanup is verified separately. `doctor` checks binary presence, not daemon acce
 ## Reporting vulnerabilities
 
 For a suspected vulnerability, do not post credentials, client records or a
-working private-data payload to a public issue. Use a minimal synthetic
-reproducer and the repository's available private security-reporting channel.
-If private reporting is unavailable, request contact without posting the payload.
+working private-data payload to a public issue. Report it privately through
+[GitHub private vulnerability reporting](https://github.com/EleutheroiEdge/finance-dev-assistant/security/advisories/new),
+with a minimal synthetic reproducer. If private reporting is unavailable, request
+contact without posting the payload. A fork names its own reporting channel here.

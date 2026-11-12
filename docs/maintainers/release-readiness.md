@@ -73,7 +73,7 @@ since the first measurement at `5c1af62` are marked so.
 | D1 to D6 | Not measured. 133 labelled cases (64 defects, 69 controls) are bound to pinned policies and pass the live run's preflight offline; the run waits for the owner's provider, model and budget, and D1 needs 36 more defects | No |
 | E1 | The release workflow attests every file. The README does not give the verifying command yet | No |
 | E2 | `scripts/action_lock.py --check` passes | Yes |
-| E3 | Not read for this page | Open |
+| E3 | 6.2 on main at `edf4439` (Scorecard 5.6.0, read on 12 November). The checks at 0: no approved reviews, a repository under 90 days old, GitHub releases without signed files or provenance, no fuzzing, no best-practices badge, and contributors from one organization. Branch protection was not readable by the workflow's token, so it is not scored. Two uv advisories (Vulnerabilities 8) are fixed by #140, and the private-reporting link now in SECURITY.md should lift Security-Policy from 4 to 10: about 6.7 with both | No |
 
 B6 is wall-clock time and moves with the machine's load. On a busy shared machine the slowest run took up to
 18.6 s, on the published 0.10.0 code as on 0.11.0; this measurement ran at a load of about 3. The bar should be
@@ -181,7 +181,7 @@ Left, in this order:
      policies and pass the live run's own preflight: 64 defects, 69 controls.
    - **Needs the owner:** a public stratum to reach 100 defects (cloning public repositories), and the
      provider, model and budget. One trial of every case is about 18.5 million input tokens.
-5. **Provenance:** gates E1 to E3. For E1 a maintainer verifies the attestations of a published release with `gh attestation verify`, then adds that exact command to the README.
+5. **Provenance:** gates E1 to E3. For E1 a maintainer verifies the attestations of a published release with `gh attestation verify`, then adds that exact command to the README. E3 needs more than this repository can change by itself: signed files or provenance on the GitHub releases, approved reviews on changes (an owner's decision for a repository with one maintainer), and the repository's 90th day.
 6. **The candidate:** gates C1 to C4 on the wheel the release workflow builds, before the owner approves
    publishing.
 
