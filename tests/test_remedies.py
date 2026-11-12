@@ -32,6 +32,14 @@ SCENARIOS = {
     "a denied file type in the range": ({"src/report.pdf": "%PDF-1.4\n"}, {}, {},
                                         "private_or_binary_path", "private_or_binary_path"),
     "a file outside the scope": ({"tools/extra.py": "y = 2\n"}, {}, {}, "scope_incomplete", "gate_path_not_allowed"),
+    # The next five were dead ends on real changes: a blocker, a setting that clears it, and no remedy naming it.
+    "a file of a type that is not reviewed": ({"src/layout.xyz": "plain text\n"}, {}, {},
+                                              "unsupported_file_type", "unsupported_file_type"),
+    "a notebook in the range": ({"src/notes.ipynb": "{}\n"}, {}, {}, "unsupported_file_type", "unsupported_file_type"),
+    "a file with a private name": ({"src/.env.example": "A=1\n"}, {}, {}, "private_path", "private_path"),
+    "an image in the range": ({"src/logo.png": "not really an image\n"}, {}, {},
+                              "scope_incomplete", "private_or_binary_path"),
+    "a drawing in the range": ({"src/logo.svg": "<svg/>\n"}, {}, {}, "scope_incomplete", "unsupported_file_type"),
     "a change over the size limit": ({"src/more.py": "z = 3\n" * 2_000}, {"max_packet_bytes": 5_000},
                                      {"max_request_bytes": 5_000}, "packet_limit_exceeded",
                                      "gate_request_bytes_exceeded"),
@@ -111,6 +119,12 @@ def _apply(route: str, document: dict, option: dict) -> dict:
     settings = _settings(route, changed)
     for change in option["changes"]:
         name = change["setting"]
+        # The pointer alone must lead a program to the same place: no knowledge of the document's layout needed.
+        *parents, last = change["pointer"].split("/")[1:]
+        target = changed
+        for part in parents:
+            target = target[part]
+        assert target is settings and last == name, change
         if "value" in change:
             settings[name] = change["value"]
         elif "at_least" in change:
@@ -118,7 +132,7 @@ def _apply(route: str, document: dict, option: dict) -> dict:
         elif "add" in change:
             settings[name] = [*settings.get(name, []), *change["add"]]
         else:
-            assert change == {"setting": name, "needs_value": True}
+            assert change == {"setting": name, "needs_value": True, "pointer": change["pointer"]}
             settings[name] = 1.0
     return changed
 
@@ -172,15 +186,80 @@ def test_the_gate_names_its_own_setting_for_a_packet_over_its_floor(drafted, dra
     assert blocker["code"] == "packet_limit_exceeded" and blocker["limit"] == 2_000_000
     assert "max_request_bytes" in blocker["hint"] and "max_packet_bytes" not in blocker["hint"]
     assert report["remedies"][0]["options"] == [{"document": "gate policy", "effect": "sends_more", "changes": [
-        {"setting": "max_request_bytes", "at_least": blocker["bytes"]}]}]
+        {"setting": "max_request_bytes", "at_least": blocker["bytes"], "pointer": "/model_review/max_request_bytes"}]}]
 
 
 def test_the_first_option_never_sends_or_spends_more_when_another_does_not(drafted, draft, tmp_path):
-    revisions = _change(drafted, SCENARIOS["a file over the per-file limit"][0])
+    for name in ("a file over the per-file limit", "a file outside the scope"):
+        revisions = _change(drafted, SCENARIOS[name][0])
+        for route in ("configuration", "gate"):
+            report = _preflight(route, revisions, _start(route, draft, name), tmp_path)
+            effects = [option["effect"] for option in report["remedies"][0]["options"]]
+            assert effects == ["leaves_files_out", "sends_more"], (name, route)
+
+
+def test_an_incomplete_scope_is_cleared_by_leaving_the_files_out_whatever_the_reason():
+    def options(*paths):
+        report = _report([{"code": "scope_incomplete"}], list(paths))
+        attach_remedies(report, "configuration")
+        return [(option["effect"], [change["setting"] for change in option["changes"]])
+                for remedy in report["remedies"] for option in remedy["options"]]
+
+    generated = {"path": "src/app.gen.py", "status": "omitted", "reason": "generated_artifact_excluded"}
+    image = {"path": "src/logo.png", "status": "omitted", "reason": "binary_asset_excluded"}
+    outside = {"path": "tools/extra.py", "status": "omitted", "reason": "outside_allowlist"}
+    accept, widen = ("leaves_files_out", ["unreviewable_paths"]), ("sends_more", ["allow_paths"])
+    assert options(KEPT, image) == [accept]
+    # A generated file is outside the scope: it is never what makes the scope incomplete.
+    assert options(KEPT, generated) == [] and options(KEPT, generated, image) == [accept]
+    assert options(KEPT, outside) == [accept, widen]
+    # A file that no scope would take in rules out widening it.
+    assert options(KEPT, outside, image) == [accept]
+    # With nothing left to review, accepting the omission would only move the refusal.
+    assert options(outside) == [widen] and options(image) == [] and options(outside, image) == []
+
+
+def test_no_remedy_grants_a_capability_that_ci_policies_refuse():
+    # allow_network, allow_partial_review and allow_local_readiness are capabilities: a CI policy or a workflow pack
+    # refuses a configuration that sets them, and only a person grants them. No remedy may propose one.
+    capabilities = {"allow_network", "allow_partial_review", "allow_local_readiness"}
+    rows = [KEPT, {"path": "src/logo.png", "status": "omitted", "reason": "binary_asset_excluded"},
+            {"path": "tools/a.py", "status": "omitted", "reason": "outside_allowlist"}]
+    for route, code in (("configuration", "scope_incomplete"), ("configuration", "network_not_approved"),
+                        ("gate", "gate_path_not_allowed"), ("gate", "network_not_approved")):
+        report = _report([{"code": code}], rows)
+        attach_remedies(report, route)
+        proposed = {change["setting"] for remedy in report["remedies"] for option in remedy["options"]
+                    for change in option["changes"]}
+        assert not proposed & capabilities, (route, code)
+
+
+def test_a_configured_generated_file_is_outside_the_scope_as_the_review_counts_it(drafted, draft, tmp_path):
+    # The review and triage treat a file under generated_paths as outside the scope, not as missing coverage.
+    # doctor said the range was blocked, and incomplete, where the review would have gone ahead.
+    revisions = _change(drafted, {"src/generated/model.py": "x = 1\n"})
+    document = {**copy.deepcopy(draft[0]), "generated_paths": ["src/generated/"]}
+    report = _preflight("configuration", revisions, document, tmp_path)
+    assert report["status"] == "ready" and report["coverage_complete"] is True, _codes(report)
+    assert {"path": "src/generated/model.py", "status": "omitted", "reason": "generated_artifact_excluded"} in report["paths"]
+
+
+def test_a_remedy_exists_exactly_where_a_setting_withholds_or_leaves_out():
+    from finassist.scope import UNREVIEWABLE_REASONS, WITHHELD_CODES
+
     for route in ("configuration", "gate"):
-        report = _preflight(route, revisions, _start(route, draft, "a file over the per-file limit"), tmp_path)
-        effects = [option["effect"] for option in report["remedies"][0]["options"]]
-        assert effects == ["leaves_files_out", "sends_more"]
+        for code in sorted(WITHHELD_CODES | set(UNREVIEWABLE_REASONS) - {"file_limit_exceeded"}):
+            refused = {"path": "src/a.bin", "status": "refused", "code": code}
+            report = _report([{"code": code}], [KEPT, refused])
+            attach_remedies(report, route)
+            first = report["remedies"][0]["options"][0]
+            setting = "private_paths" if code in WITHHELD_CODES else "unreviewable_paths"
+            assert (first["effect"], first["changes"][0]["setting"], first["changes"][0]["value"]) == (
+                "leaves_files_out", setting, "skip-and-report"), (route, code)
+            alone = _report([{"code": code}], [refused])
+            attach_remedies(alone, route)
+            assert not any(option["effect"] == "leaves_files_out" for remedy in alone["remedies"]
+                           for option in remedy["options"]), (route, code)
 
 
 def test_missing_prices_name_the_settings_and_propose_no_value(drafted, draft, tmp_path):
@@ -190,8 +269,9 @@ def test_missing_prices_name_the_settings_and_propose_no_value(drafted, draft, t
     assert _codes(report) == ["provider_prices_required"]
     option = report["remedies"][0]["options"][0]
     assert option["effect"] == "none"
-    assert option["changes"] == [{"setting": "input_usd_per_million", "needs_value": True},
-                                 {"setting": "output_usd_per_million", "needs_value": True}]
+    assert option["changes"] == [
+        {"setting": "input_usd_per_million", "needs_value": True, "pointer": "/input_usd_per_million"},
+        {"setting": "output_usd_per_million", "needs_value": True, "pointer": "/output_usd_per_million"}]
     after = _preflight("configuration", revisions, _apply("configuration", document, option), tmp_path)
     assert after["status"] == "ready"
 
@@ -222,8 +302,8 @@ def test_no_setting_is_proposed_past_its_ceiling():
     assert too_large["remedies"] == []
     at_ceiling = _report([{"code": "gate_request_bytes_exceeded", "bytes": MAX_PACKET_BYTES, "limit": 5}])
     attach_remedies(at_ceiling, "gate")
-    assert at_ceiling["remedies"][0]["options"][0]["changes"] == [{"setting": "max_request_bytes",
-                                                                   "at_least": MAX_PACKET_BYTES}]
+    assert at_ceiling["remedies"][0]["options"][0]["changes"] == [
+        {"setting": "max_request_bytes", "at_least": MAX_PACKET_BYTES, "pointer": "/model_review/max_request_bytes"}]
     huge = _report([{"code": "file_limit_exceeded", "count": 1}],
                    [KEPT, {"path": "a.py", "status": "refused", "code": "file_limit_exceeded", "bytes": 10}])
     attach_remedies(huge, "gate", sizes={"a.py": MAX_FILE_BYTES + 1})
@@ -255,7 +335,8 @@ def test_a_file_limit_is_proposed_only_when_both_versions_of_every_refused_file_
     # The row reports 600 bytes, the first version met. The larger version decides.
     known = _refused("a.py", "b.py")
     attach_remedies(known, "configuration", sizes={"a.py": 1_200, "b.py": 700})
-    assert known["remedies"][0]["options"][1]["changes"] == [{"setting": "max_file_bytes", "at_least": 1_200}]
+    assert known["remedies"][0]["options"][1]["changes"] == [
+        {"setting": "max_file_bytes", "at_least": 1_200, "pointer": "/max_file_bytes"}]
     for sizes in (None, {}, {"a.py": 1_200}):
         unknown = _refused("a.py", "b.py")
         attach_remedies(unknown, "configuration", sizes=sizes)
@@ -283,8 +364,8 @@ def test_a_path_the_route_would_refuse_as_an_entry_is_not_proposed():
     assert refused["remedies"] == []
     accepted = _report([{"code": "gate_path_not_allowed", "count": 2}], rows)
     attach_remedies(accepted, "gate", valid_path=lambda path: True)
-    assert accepted["remedies"][0]["options"][0]["changes"] == [{"setting": "allow_paths",
-                                                                 "add": ["tools/a.py", "tools/b[1].py"]}]
+    assert accepted["remedies"][0]["options"][0]["changes"] == [
+        {"setting": "allow_paths", "add": ["tools/a.py", "tools/b[1].py"], "pointer": "/model_review/allow_paths"}]
 
 
 def test_an_option_that_would_leave_the_document_invalid_is_not_offered():
@@ -295,7 +376,8 @@ def test_an_option_that_would_leave_the_document_invalid_is_not_offered():
     seen = []
     attach_remedies(report, "gate", valid_option=lambda option: seen.append(option) or True)
     assert [remedy["code"] for remedy in report["remedies"]] == ["private_or_binary_path"]
-    assert seen == [{"effect": "leaves_files_out", "changes": [{"setting": "private_paths", "value": "skip-and-report"}]}]
+    assert seen == [{"effect": "leaves_files_out", "changes": [
+        {"setting": "private_paths", "value": "skip-and-report", "pointer": "/model_review/private_paths"}]}]
 
 
 @pytest.mark.parametrize("entries,offered", [(127, True), (128, False)])
@@ -308,9 +390,12 @@ def test_a_scope_entry_is_offered_only_while_the_gate_list_has_room(drafted, dra
     assert len(listed) == entries
     report = _preflight("gate", revisions, document, tmp_path)
     assert _codes(report) == ["gate_path_not_allowed"]
-    assert bool(report["remedies"]) is offered
-    for remedy in report["remedies"]:
-        after = _preflight("gate", revisions, _apply("gate", document, remedy["options"][0]), tmp_path)
+    options = report["remedies"][0]["options"]
+    settings = [change["setting"] for option in options for change in option["changes"]]
+    # Leaving the file out needs no entry, so it is offered either way; widening the scope needs room.
+    assert settings == (["unreviewable_paths", "allow_paths"] if offered else ["unreviewable_paths"])
+    for option in options:
+        after = _preflight("gate", revisions, _apply("gate", document, option), tmp_path)
         assert after["status"] == "ready"
 
 
@@ -318,7 +403,8 @@ def test_a_path_with_brackets_gets_a_scope_remedy_only_where_it_is_a_valid_entry
     # A gate policy's prefixes may not hold brackets, so listing this path would make the policy invalid.
     revisions = _change(drafted, {"tools/a[b].py": "y = 2\n"})
     gate = _preflight("gate", revisions, copy.deepcopy(draft[1]), tmp_path)
-    assert _codes(gate) == ["gate_path_not_allowed"] and gate["remedies"] == []
+    assert _codes(gate) == ["gate_path_not_allowed"]
+    assert [option["effect"] for option in gate["remedies"][0]["options"]] == ["leaves_files_out"]
     document = copy.deepcopy(draft[0])
     report = _preflight("configuration", revisions, document, tmp_path)
     assert _codes(report) == ["scope_incomplete"]
@@ -353,4 +439,4 @@ def test_a_budget_is_rounded_up_to_a_cent_and_a_bad_amount_proposes_nothing():
     attach_remedies(report, "configuration")
     assert report["remedies"] == [{"code": "daily_budget_exceeded", "options": [
         {"document": "configuration", "effect": "spends_more",
-         "changes": [{"setting": "daily_budget_usd", "at_least": 1.37}]}]}]
+         "changes": [{"setting": "daily_budget_usd", "at_least": 1.37, "pointer": "/daily_budget_usd"}]}]}]

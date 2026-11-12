@@ -17,7 +17,6 @@ from . import installed_version
 from .auditing import command_audit
 from .config import Config, config_hash, load_config, PACKET_FILE_BYTES
 from .demo import run_demo
-from .health import doctor_report
 from .errors import AssistantError, error_record
 from .error_hints import add_explain_command, error_fields, explain_arguments, explain_parser, run_explain
 from .evaluation import evaluate, score
@@ -363,19 +362,11 @@ def execute(args, config: Config | None = None) -> int:
 
         return run_init(args, config)
     elif args.command == "doctor":
-        from .update_check import check_once
+        from .doctor_commands import doctor_result
 
-        checked = check_once(network_allowed=config.allow_network) if args.check_updates else None
-        from .doctor_environment import environment_report
-
-        state = args.audit_dir or args.state_dir or Path(".finassist")
-        report = doctor_report(config, update_check=checked, config_path=args.config, state_dir=state, include_key_read=True)
-        report["environment"] = environment_report(config, config_path=args.config, state_dir=state)
-        from .doctor_package import add_package_details
-
-        add_package_details(report)
+        report, exit_code = doctor_result(args, config)
         _emit(report)
-        return 1 if report["environment"]["blockers"] else 0
+        return exit_code
     elif args.command == "demo":
         result = run_demo()
         _emit(result, args.output)
@@ -763,12 +754,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "evidence" and args.dry_run and args.action != "migrate":
             raise AssistantError("evidence_dry_run_requires_migrate")
         if args.command == "doctor" and args.fix:
-            from .maintenance import fix_local_state
+            from .doctor_commands import fix_doctor
 
-            path = args.config
-            if path is None and Path("finassist.json").exists():
-                path = Path("finassist.json")
-            _emit(fix_local_state(path, audit_directory(args)))
+            _emit(fix_doctor(args, audit_directory(args)))
             return 0
         if args.command == "config":
             from .config_compat import apply_config_migration, preview_config_migration

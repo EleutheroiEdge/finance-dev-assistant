@@ -69,6 +69,7 @@ same tree gave the same test results and the same totals from the wheel's own fi
 | B6 | `doctor`: median 0.46 s, slowest 12.7 s over 1,800 runs. The dense-number test passes | Yes |
 | B7 | The configuration tests pass. `scripts/upgrade_smoke.py` needs the candidate wheel | Partly |
 | B8 | Added since that measurement. 15 of 15 wrong setups, seven on the configuration route and eight on the gate route, give one named blocker; every remedy offered clears it; the first options reach `ready` | Yes |
+| B9 | Added since that measurement. On the 225 changes (reference set 471b2dfe27d4dc2a), following the remedies sets up 189 on the configuration route (84%; 140 as drafted) and 185 on the gate route (82%; 133 as drafted). No remedy fails or loops, every change a hand-set skip variant reviews is reached, and none grants a capability. The 36 and 40 changes left need a person: mostly a credential-like value in a test file (32 and 28), then a change to the review rules, a size over its ceiling, a hidden character, or a range with nothing left once the unreadable files are out | Yes |
 | C1 to C4 | No candidate wheel yet | No |
 | D1 to D6 | Not measured. The spending decision is open | No |
 | E1 | The release workflow attests every file. The README does not give the verifying command yet | No |
@@ -123,6 +124,7 @@ measurement is not passed.
 | B6. Speed | `doctor` median under 2 seconds and worst case under 15 on the reference changes; 1.6 MB of dense numbers screened in under 20 seconds | the script; `tests/test_figure_matrix.py` |
 | B7. Upgrade | A 0.10.0 configuration and policy load unchanged, and an unchanged configuration keeps its hash | `tests/test_config_figure_screen.py`, `scripts/upgrade_smoke.py` |
 | B8. Wrong setups | Each scenario of the misconfiguration matrix (a file over the limit, a file over it at both versions, a private file, a denied file type, a path outside the scope, a change too large, a budget under the reserve, on both routes, and a change over the gate's packet floor) gives exactly one named blocker with a hint. Every remedy `doctor` offers for it clears that blocker when applied, and following the first option each time reaches `ready` within four runs | `pytest tests/test_remedies.py` |
+| B9. Remedies on real changes | Following the first option of every remedy on the 225 reference changes, on both routes: no remedy fails or never settles, every change that a hand-set skip variant reviews is reached, and no remedy grants a capability. Every change left needing a decision is blocked only by a code B4 allows, or has nothing left to review once the files a setting would leave out are out | `scripts/remedy_scenarios.py`, with the same `--tips` as B1 to B4 |
 
 ### C. Claims match the product
 
@@ -192,9 +194,13 @@ python scripts/first_run_scenarios.py --changes 25 --output /private/new-folder 
 python scripts/first_run_scenarios.py --changes 25 --tips /private/new-folder/tips.txt \
     --output /private/another-folder REPO [REPO ...]
 python scripts/seeded_figure_screen.py --changes 25 --tips /private/new-folder/tips.txt REPO [REPO ...]
+
+# B9, on the same changes
+python scripts/remedy_scenarios.py --changes 25 --tips /private/new-folder/tips.txt \
+    --output /private/a-third-folder REPO [REPO ...]
 ```
 
-Both scripts print codes, counts and timings only, under an anonymous number for each
+The scripts print codes, setting names, counts and timings only, under an anonymous number for each
 repository: never a number, a line, a file name or a path.
 
 - **The same changes, or no comparison.** The repositories keep moving, so the last 25 changes are
