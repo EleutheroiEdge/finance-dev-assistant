@@ -25,7 +25,7 @@ from .evidence_store import EvidenceStore
 from .finance import cash_check, observation_check, tax_estimate, weights_check
 from .ledger import Ledger
 from .integrations import export_kit
-from .guides import guide_index, guide_text
+from .guides import guide_index, guide_listing, guide_text
 from .github_audit import inspect_github
 from .patching import apply_patch_artifact, rollback_patch
 from .proposal import propose
@@ -72,7 +72,8 @@ def _emit(value, output: str | None = None) -> None:
 
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
-        prog="finassist", description="Evidence-first developer assistance for finance software"
+        prog="finassist", description="Start here: demo -> init -> doctor -> plan -> review. "
+        "Run finassist guide first-run for the offline walkthrough."
     )
     root.add_argument("--version", action="version", version=installed_version())
     root.add_argument("--config", type=Path, help="Explicit reviewed JSON configuration; default is offline")
@@ -83,7 +84,8 @@ def parser() -> argparse.ArgumentParser:
     )
     commands = root.add_subparsers(dest="command", required=True)
     guide = commands.add_parser("guide", help="List or print bundled guides offline")
-    guide.add_argument("topic", nargs="?", help="Topic from the guide index; omit to list topics as JSON")
+    guide.add_argument("topic", nargs="?", help="Topic from the guide index; omit to list topics")
+    guide.add_argument("--json", action="store_true", help="Print the topic index as JSON")
     config_command = commands.add_parser("config", help="Preview or explicitly apply reversible configuration migrations")
     config_actions = config_command.add_subparsers(dest="config_action", required=True)
     migrate = config_actions.add_parser("migrate", help="Keep exact backup bytes before applying reviewed key renames")
@@ -790,7 +792,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
         if args.command == "guide":
             if args.topic is None:
-                _emit(guide_index())
+                _emit(guide_index()) if args.json else print(guide_listing(), end="")
             else:
                 text = guide_text(args.topic)
                 stream = getattr(sys.stdout, "buffer", None)

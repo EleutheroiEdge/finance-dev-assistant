@@ -123,7 +123,7 @@ def test_a_past_range_checks_against_a_policy_file_without_authorizing_a_run(ado
 def test_init_warns_about_a_suffix_that_has_no_effect(adopter, tmp_path, capsys):
     offline = tmp_path / "offline.json"
     save_config(offline, replace(Config(), text_suffixes=(*Config().text_suffixes, ".csv")))
-    assert main(["--config", str(offline), "init", "--output", str(tmp_path / "written.json")]) == 0
+    assert main(["--config", str(offline), "init", "--template", "--output", str(tmp_path / "written.json")]) == 0
     written = json.loads(capsys.readouterr().out)
     assert [item["code"] for item in written["config_warnings"]] == ["text_suffix_always_denied"]
     assert main(["--config", str(offline), "init", "--detect", "--repo", str(adopter["repo"])]) == 0

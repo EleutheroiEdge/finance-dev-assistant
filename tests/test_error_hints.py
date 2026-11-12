@@ -113,6 +113,7 @@ PASSED_ON = {
     ("onboarding.py", "block_path", "row['code']"): "_classify rows carry caught AssistantError codes",
     ("onboarding.py", "{code}", "code"): "block() and warn() build records from their own parameter",
     ("onboarding.py", "{code}", "exc.code"): "_classify records a caught AssistantError",
+    ("remedies.py", "{code}", "blocker['code']"): "attach_remedies repeats the code of a blocker already in the report",
     ("scope.py", "AssistantError", "first.code"): "_refused_names raises the first caught name refusal again",
     ("scope.py", "{code}", "exc.code"): "_refused_names groups caught name refusals by code",
 }

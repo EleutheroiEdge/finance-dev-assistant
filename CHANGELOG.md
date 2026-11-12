@@ -6,6 +6,20 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ### Added
 - Doctor lists Git capabilities, local configuration/state/settings/cache paths, writable-directory estimates and a deduplicated key-use table with separate host permissions and limits for configuration and supplied gate policy. Proxy/custom-CA variables are named without values; no connection or write probe runs.
+- **`doctor` lists remedies a program can read.** For a range, each blocker with a mechanical fix
+  now has an entry in `remedies`: the document to edit, the setting, and the value, bound or paths
+  that clear this instance, with what else the change does (`sends_more`, `spends_more` or
+  `leaves_files_out`). A script or a coding agent can propose the fix without parsing a hint.
+  `doctor` still edits nothing, and an option that sends or spends more is never listed before one
+  that does not. A blocker that needs a decision, such as a credential in the change or approval
+  to use the network, has no remedy. An option is listed only when it is known to clear its
+  blocker. A higher file limit is proposed only when Git's metadata gives the size of both
+  versions of every refused file, because the refusal reports only the first version it met. A
+  file under a gate fixture root gets no file-limit remedy: it has a limit of its own. A path is
+  proposed for `allow_paths` only if it is a valid entry there. Leaving files out is offered only
+  when another file stays in the review. A new test sets up wrong configurations and policies one
+  at a time and applies every option: each must clear its blocker, and following the first option
+  each time must reach `ready`.
 
 ### Changed
 - Doctor's key_variable_set keeps its existence meaning (true even for an empty value).
@@ -24,15 +38,65 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   for connection/protocol failures and provider_http_server_error for HTTP5xx, instead
   of generic provider_transport_failed/provider_http_error. Gate reports preserve the code and safe numeric HTTP
   status in optional reason_details. Unknown charges remain reserved, with no retries.
+- Plain `init` detects the committed project layout; `--template` retains the fixed layout.
+  An explicit detected write can refine the exact untouched plain-init output once, with
+  recovery bytes kept locally; every other existing output remains refused. Setup reports
+  a local `.finassist/` Git exclusion or the manual rule to add. Empty repositories get
+  an empty source allow list. Help and the readable guide index show a starting path;
+  `guide --json` retains the structured index. The quick start uses one-line commands.
+  Gate acceptance, screening, provider approval and budget rules are unchanged.
 
 ### Fixed
 - Doctor terminates when a missing drive or root has no existing ancestor; unexpandable
   tilde-user paths report doctor_directory_unusable instead of crashing.
 - Empty selected key variables now block both range preflights. Only presence and emptiness are inspected; no key value is reported. HTTP failures retain numeric status, with distinct 401/403/404/429 codes and hints; response bodies remain suppressed and unknown spend stays reserved.
-- When file-size refusals are the only path blockers, both routes of doctor now
-  warn if the sum of both committed file versions already exceeds the request or
-  packet limit. The advisory reads Git object sizes only, excludes omitted and
-  withheld files, and leaves every blocker and gate acceptance rule unchanged.
+- Plain init outside a Git repository reports `init_repository_required` with repository/template remedies; corrupt Git configuration keeps its read error.
+- **The gate named a setting it does not have.** A change whose packet is over the gate's packet
+  limit, the larger of 2,000,000 bytes and `max_request_bytes`, was refused as
+  `packet_limit_exceeded` with the configuration route's hint: raise `max_packet_bytes`. A gate
+  policy has no such setting. On the gate route the hint now names `max_request_bytes`, and so
+  does the remedy. Found by following the remedies on a real 45-file change.
+
+## 0.11.0 - 2026-11-12
+
+### Upgrading
+
+**Upgrade now if you run finledgerpoli on Windows.** Every release up to 0.10.0 looked for Git,
+GitHub CLI, Docker and Podman in the directory the command runs in before `PATH`. Run inside a
+checkout that held a file named `git.exe`, it ran that file. 0.11.0 takes these tools only from
+the absolute entries of `PATH`. A tool that was reachable only through the current directory, or
+through an empty or relative `PATH` entry, is now reported missing: name its directory in full in
+`PATH`. On other systems this matters only where `PATH` holds an empty or relative entry.
+
+No evidence-store migration is needed, and gate reports keep schema version 2. Upgrades never edit
+project configuration or evidence. A 0.10.0 configuration and gate policy load unchanged, and an
+unchanged configuration keeps its hash, so reviews, saved check records and workflow plans
+recorded by 0.10.0 still count. The settings added in this release are left out of the hash while
+they have their defaults. If you are coming from 0.9.0 or earlier, the notes below still apply.
+
+Behaviour that scripts may depend on, each described in full under Security, Changed and Fixed:
+
+- **More is refused.** Ten more credential formats are refused wherever they stand. Text a
+  reviewer cannot see is refused on every route as `hidden_characters`. More names are private:
+  a private name behind a dot, and files where tools keep a login. When a configuration lists
+  confidential figures, `plan`, `review` and `propose` now screen for them, as the gate did.
+- **Less is refused.** A credential-named field that is given a reference, such as a variable, a
+  call or an environment lookup, is no longer refused as a credential. A literal still is.
+- **Model replies.** A reply that is wider than JSON, or gives a key twice in one object, is
+  refused as invalid JSON on every route: `review_json_invalid` from a review and a gate,
+  `proposal_schema_invalid` from a proposal, and `provider_transport_failed` for a provider's
+  envelope.
+- **Gate.** A range that changed only withheld files used to stop with
+  `gate_ignore_check_unavailable`. It now reports `review_scope_entirely_withheld`.
+- **`doctor`.** A credential refusal names the rule and the lines. A range blocked only by a
+  file's size also gets the warning `request_lower_bound_exceeded` when the change is already
+  over the request or packet limit.
+- **`init --detect`.** The budgets it drafts cover one request at the packet limit it proposes,
+  hidden directories are listed in `allow_paths`, and the gate policy it drafts is one the gate
+  accepts.
+
+This release makes no claim about review accuracy: a PASS means that no blocking finding was
+reported, not that the change is free of defects.
 
 ### Security
 - **A program in the current directory is never run as Git, GitHub CLI, Docker or Podman.** These
@@ -201,6 +265,11 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 Nothing else about what a gate accepts, authorizes or spends has changed.
 
 ### Fixed
+- **`doctor` says in the same run when a size-blocked change is also too large as a whole.** When
+  file-size refusals are the only path blockers, both routes of `doctor` now warn if the sum of
+  both committed file versions already exceeds the request or packet limit. The advisory reads Git
+  object sizes only, excludes omitted and withheld files, and leaves every blocker and gate
+  acceptance rule unchanged.
 - **A hidden character is the last refusal of a configuration.** A hidden character in a profile
   checklist or in the endpoint was reported before a later fault of the same configuration: a
   match of the project's own patterns, a field that is not valid. Whatever else is wrong is now

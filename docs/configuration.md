@@ -60,9 +60,12 @@ Saved records bind actions to source and configuration hashes. Readiness means s
 
 ## Start from your repository's layout
 
-`finassist init --detect` reads the files committed at `HEAD` (or `--revision`) and prints a
+Plain `finassist init` detects and writes an offline configuration; `--template` writes the
+fixed template explicitly. `finassist init --detect` reads the files committed at `HEAD` (or `--revision`) and prints a
 proposed configuration, with the file and rule behind each setting. It writes nothing unless
-you add `--write`, and it never overwrites an existing file.
+you add `--write`. A write may refine the exact untouched file recorded by plain
+`init` once, using the same local state directory; an edited, template, or unrelated
+output still refuses with `output_exists`. Choose a new `--output` path in that case.
 
 ```sh
 finassist init --detect --purpose quant

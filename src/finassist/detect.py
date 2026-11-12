@@ -14,19 +14,18 @@ import configparser
 from decimal import ROUND_CEILING, Decimal
 import json
 from pathlib import PurePosixPath
-from pathlib import Path
 import re
 import shlex
 import subprocess
 import tomllib
 from urllib.parse import urlsplit
 
-from .config import MAX_PACKET_BYTES, Config, config_document, save_config
+from .config import MAX_PACKET_BYTES, Config
 from .errors import AssistantError, prices_required
-from .model_policy import check_draft, missing_fields
+from .model_policy import missing_fields
 from .review import ENVELOPE_ALLOWANCE, reserved_usd
 from .scope import git, git_command, git_environment, resolve
-from .security import _check_model_private, TEXT_SUFFIXES, canonical, check_path, check_text, local_name
+from .security import _check_model_private, TEXT_SUFFIXES, check_path, check_text, local_name
 
 PURPOSES = {"quant": "quant-review", "accounting": "finance-saas", "research": "investment-research",
             "general": "general"}
@@ -851,62 +850,6 @@ def _provider_fields(configured: Config, model: dict) -> dict:
 
 
 def run_init(args, config: Config) -> int:
-    from dataclasses import replace
+    from .initialization import run_init as initialize
 
-    if not args.detect and any(getattr(args, name) not in (None, False) for name in _DETECT_ONLY):
-        raise AssistantError("init_option_requires_detect")
-    configured = _configured(args, config)
-    from .config_preflight import budgets_for_the_packet_limit
-    from .health import config_warnings
-
-    if not args.detect:
-        save_config(Path(args.output), configured)
-        warnings = config_warnings(configured, file_selected=True)  # Copied from --config, for example.
-        print(canonical({"created": args.output, "network_enabled": False,
-                         **({"config_warnings": warnings} if warnings else {})}).decode())
-        return 0
-    # A profile the person chose, by option or in the configuration passed, is kept as stated.
-    stated = None if args.purpose or configured.profile == Config().profile and not args.profile else configured.profile
-    proposal = detect(Path(args.detect_repo or "."), revision=args.revision or "HEAD", purpose=args.purpose,
-                      profile=stated)
-    detected = proposal["config"]
-    packet = max(configured.max_packet_bytes, detected["max_packet_bytes"])
-    proposed = replace(configured, allow_paths=tuple(detected["allow_paths"]),
-                       generated_paths=tuple(detected["generated_paths"]),
-                       protected_paths=tuple(detected["protected_paths"]),
-                       max_file_bytes=detected["max_file_bytes"], max_packet_bytes=packet, profile=detected["profile"])
-    budgets = budgets_for_the_packet_limit(proposed)
-    proposed = replace(proposed, **budgets)
-    proposed.validate()  # The proposal is checked by the same rules as a saved configuration.
-    if warnings := config_warnings(proposed, file_selected=True):
-        proposal["config_warnings"] = warnings
-    document = config_document(proposed)
-    proposal["config"] = {key: document[key] for key in (
-        "provider", "model", "profile", "allow_paths", "generated_paths", "protected_paths", "max_file_bytes",
-        "max_packet_bytes", "input_usd_per_million", "output_usd_per_million", *budgets)}
-    for name, value in budgets.items():
-        proposal["evidence"].setdefault(name, []).append(
-            {"value": value, "rule": "one_packet_at_the_limit", "document": "config"})
-    if budgets:
-        # A draft that proposes to spend more than the default says so, with the amounts.
-        proposal["warnings"].append({"code": "budget_raised_for_packet_limit", **budgets})
-    model = proposal["gate_policy_draft"]["model_review"]
-    model.update(_provider_fields(configured, model))
-    proposal["gate_policy_missing"] = missing_fields(proposal["gate_policy_draft"])
-    if "max_run_usd" in model:
-        proposal["evidence"].setdefault("max_run_usd", []).append(
-            {"value": model["max_run_usd"], "rule": "one_request_at_the_limit"})
-    if not proposal["gate_policy_missing"]:
-        try:
-            check_draft(proposal["gate_policy_draft"])
-        except AssistantError:
-            # For example more than 128 allow_paths entries. The proposal still prints; the gate
-            # preflight names each field when the draft is checked with `doctor --policy-file`.
-            proposal["warnings"].append({"code": "gate_policy_invalid"})
-    if args.write:
-        if not proposal["source_detected"]:
-            raise AssistantError("detect_no_source_to_write")
-        save_config(Path(args.output), proposed)
-        proposal.update(written=True, created=args.output)
-    print(canonical(proposal).decode())
-    return 0
+    return initialize(args, config)

@@ -30,9 +30,10 @@ from .model_policy import (_PROPERTIES, _SCHEMA, ModelGatePolicy, _prefix, _prof
 from .policy_fixtures import fixture_settings, load_policy_config
 from .policy_ignores import screen_ignores
 from .providers import request_payload
-from .preflight_size import size_warning
+from .preflight_size import largest_versions, size_warning
 from .review import review_schema, spend_estimate
 from .error_hints import error_fields
+from .remedies import applied, attach_remedies
 from .scope import WITHHELD_REASON, git, omission_for, read_entry, read_sides, require_regular, resolve
 from .hidden_text import Waiting
 from .security import (TEXT_FIXTURE_SUFFIXES, canonical, local_name, check_fixture_private, check_name,
@@ -82,6 +83,9 @@ HINTS = {
     "forbidden_token_source_invalid": "Each figure source must be a delimited text file outside every checkout "
                                       "of the repository, with at least one numeric cell.",
     "gate_request_bytes_exceeded": "Raise max_request_bytes (up to 8,000,000) or review a smaller range.",
+    # The gate has no max_packet_bytes: its packet limit is the larger of 2,000,000 and max_request_bytes.
+    "packet_limit_exceeded": "Raise max_request_bytes (up to 8,000,000) or review a smaller range. The gate's "
+                             "packet limit is the larger of 2,000,000 bytes and max_request_bytes.",
     "run_budget_exceeded": "Raise max_run_usd above the reserved estimate, or review a smaller range.",
     "daily_budget_exceeded": "Raise daily_budget_usd above the reserved estimate.",
     "path_name_not_utf8": "Rename the changed files whose names are not UTF-8 text; the gate can't read them.",
@@ -222,6 +226,9 @@ class _Preflight:
             "next_step": None,
         }
         self._seen: set[bytes] = set()
+        # For remedies: the larger version of each file refused for size, and the policy's fixture roots.
+        self._largest, self._fixture_roots = None, ()
+        self._document: dict | None = None  # The policy as read, to check that a remedy leaves it valid.
         # Path refusals are grouped by code and hint: a count plus a few example names,
         # so the report stays bounded whatever the size of the range.
         self._grouped: dict[tuple[str, str], dict] = {}
@@ -247,6 +254,21 @@ class _Preflight:
     def warn(self, code: str, **details) -> None:
         self.report["warnings"].append({"code": code, **details, "hint": WARNINGS[code]})
 
+    def _allowed(self, path: str) -> bool:
+        """Whether a path may be listed in the policy's allow_paths, by the gate's own rule for a prefix."""
+        try:
+            _prefix(path, self._fixture_roots)
+        except AssistantError:
+            return False
+        return True
+
+    def _fits(self, option: dict) -> bool:
+        """Whether the policy is still a valid document with one remedy option applied."""
+        if self._document is None:
+            return False
+        document = {**self._document, "model_review": applied(self._document["model_review"], option)}
+        return jsonschema.Draft202012Validator(_SCHEMA).is_valid(document)
+
     def run(self) -> dict:
         try:
             self._run()
@@ -266,6 +288,8 @@ class _Preflight:
                 policy=self.report["policy"], environment=self.environment, route="gate policy")
             attach_environment(self.report, environment)
         self.report["blockers"].extend(self._grouped.values())
+        attach_remedies(self.report, "gate", sizes=self._largest, fixture_roots=self._fixture_roots,
+                        valid_path=self._allowed, valid_option=self._fits)
         ready = not self.report["blockers"]
         self.report["status"] = "ready" if ready else "blocked"
         if ready and self.policy_file is not None:
@@ -295,6 +319,7 @@ class _Preflight:
         if policy is None:
             return None
         self.diagnostic_policy = policy
+        self._document = policy.document
         self._prefix_warnings(repo, head, policy.document["model_review"])
         self._paths(repo, base, head, policy)
         # The gate's own loader and source builder run only once nothing else blocks.
@@ -542,11 +567,16 @@ class _Preflight:
         for row in rows:
             if row["status"] == "refused" and row["code"] != "gate_ignored_path":  # Ignored paths are named above.
                 self.block_path(row["code"], row["path"], row.get("hint"))
+        self._fixture_roots = tuple(model.get("fixture_roots", ()))
         if stopped is None and {code for code, _hint in self._grouped} == {"file_limit_exceeded"}:
             warning = size_warning(repo, (ancestor, head), paths, rows,
                                    model["max_request_bytes"], "max_request_bytes")
             if warning is not None:
                 self.report["warnings"].append(warning)
+            # For the remedy, and whether or not the warning ran: both versions of each refused file.
+            over = [path for path, row in zip(paths, rows, strict=False)
+                    if row["status"] == "refused" and row.get("code") == "file_limit_exceeded"]
+            self._largest = largest_versions(repo, (ancestor, head), over, read=git)
         return None
 
     def _classify(self, repo: Path, revisions: tuple[str, str], path: str, model: dict, config, guard,
