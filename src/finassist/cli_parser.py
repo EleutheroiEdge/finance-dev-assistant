@@ -12,6 +12,20 @@ from pathlib import Path
 from . import installed_version
 from .error_hints import add_explain_command
 
+
+def _at_least(least: int):
+    """argparse type: an integer greater than or equal to `least`."""
+
+    def parse(text: str) -> int:
+        number = int(text)
+        if number < least:
+            raise argparse.ArgumentTypeError("at least " + str(least))
+        return number
+
+    parse.__name__ = "integer"
+    return parse
+
+
 WORKFLOW_STATE_ACTIONS = {
     "run": "Execute approved checks in dependency order with durable checkpoints",
     "resume": "Resume remaining checks; hold uncertain attempts for reconciliation",
@@ -36,7 +50,8 @@ def parser() -> argparse.ArgumentParser:
         help="Private command audit directory; default is the operation state directory",
     )
     commands = root.add_subparsers(dest="command", required=True)
-    state = commands.add_parser("state", help="Inspect what the tool keeps on this machine; changes nothing")
+    state = commands.add_parser(
+        "state", help="Inspect the state folder, or remove old backups and temporary leftovers")
     state_actions = state.add_subparsers(dest="state_action", required=True)
     status = state_actions.add_parser(
         "status", help="List each store in the state folder with its size, row counts and oldest and newest entry")
@@ -44,6 +59,15 @@ def parser() -> argparse.ArgumentParser:
                         help="State folder to inspect")
     status.add_argument("--no-user", action="store_true",
                         help="Leave out the per-user configuration and cache folders")
+    clean = state_actions.add_parser(
+        "clean", help="Remove old configuration backups and temporary leftovers; dry-run unless --apply")
+    clean.add_argument("--state-dir", type=Path, default=None, help="State folder to clean")
+    clean.add_argument("--apply", action="store_true", help="Remove exactly what a dry run lists")
+    clean.add_argument("--keep-backups", type=_at_least(1), default=10,
+                       help="Newest configuration backups to keep of each kind (default 10)")
+    clean.add_argument("--older-than", type=_at_least(1), default=24,
+                       help="Remove temporary leftovers older than this many hours (default 24)")
+    clean.add_argument("--no-temp", action="store_true", help="Leave temporary leftovers in place")
     guide = commands.add_parser("guide", help="List or print bundled guides offline")
     guide.add_argument("topic", nargs="?", help="Topic from the guide index; omit to list topics")
     guide.add_argument("--json", action="store_true", help="Print the topic index as JSON")
