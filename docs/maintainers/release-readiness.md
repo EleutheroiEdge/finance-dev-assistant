@@ -73,7 +73,7 @@ since the first measurement at `5c1af62` are marked so.
 | D1 to D6 | Not measured. 133 labelled cases (64 defects, 69 controls) are bound to pinned policies and pass the live run's preflight offline; the run waits for the owner's provider, model and budget, and D1 needs 36 more defects | No |
 | E1 | The release workflow attests every file. The README does not give the verifying command yet | No |
 | E2 | `scripts/action_lock.py --check` passes | Yes |
-| E3 | 6.2 on main at `edf4439` (Scorecard 5.6.0, read on 12 November). The checks at 0: no approved reviews, a repository under 90 days old, GitHub releases without signed files or provenance, no fuzzing, no best-practices badge, and contributors from one organization. Branch protection was not readable by the workflow's token, so it is not scored. Two uv advisories (Vulnerabilities 8) are fixed by #140, and the private-reporting link now in SECURITY.md should lift Security-Policy from 4 to 10: about 6.7 with both | No |
+| E3 | 6.2 on main at `edf4439` (Scorecard 5.6.0, read on 12 November). The checks at 0: no approved reviews, a repository under 90 days old, GitHub releases without signed files or provenance, no fuzzing, no best-practices badge, and no contributing company or organization detected. Branch protection was not readable by the workflow's token, so it is not scored. Two uv advisories (Vulnerabilities 8) are fixed by #140, and the private-reporting link now in SECURITY.md should lift Security-Policy from 4 to 10: about 6.7 with both | No |
 
 B6 is wall-clock time and moves with the machine's load. On a busy shared machine the slowest run took up to
 18.6 s, on the published 0.10.0 code as on 0.11.0; this measurement ran at a load of about 3. The bar should be
@@ -164,9 +164,11 @@ Landed since 0.10.0, each with the gates it serves:
 - Tools found only through absolute `PATH` entries on Windows (the 0.11.0 security release).
 - `doctor` lists remedies a program can apply, checked on fifteen wrong setups (B8) and on the 225
   reference changes (B9).
-- Versioned JSON schemas for every document a user writes or reads, shipped in the package and exported offline
-  (#130); `doctor` checking its own installation, which key variable each command reads, and provider failures
-  by code (#127).
+- Versioned JSON schemas, shipped in the package and exported offline, for the configuration, the gate and CI
+  policies, packets, gate and review reports, review responses, and evaluation and history suites (#130). The
+  workflow template (#141), workflow packs, evidence, evaluation results and triage documents are not covered yet.
+- `doctor` checking its own installation, which key variable each command reads, and provider failures by code
+  (#127).
 - The command-line parser in its own module, which leaves `cli.py` room to grow (#137).
 - `state status`, which shows what the tool keeps on the machine without writing anything, and
   `doctor --format text`, the same report for a person at a terminal; the JSON stays the contract (#138).
