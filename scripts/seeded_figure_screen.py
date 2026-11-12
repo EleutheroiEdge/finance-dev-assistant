@@ -14,9 +14,13 @@ Run it with the interpreter that has the finassist under test installed:
 
     python scripts/seeded_figure_screen.py --changes 25 REPO [REPO ...]
 
+With --tips, each history is read from the commit that file names for the repository, not from
+--branch. Give the tips.txt that scripts/first_run_scenarios.py wrote, with the repositories in
+the same order, to measure the same changes: both scripts then print the same fingerprint.
+
 Exit status: 0 complete with no miss and no false alarm; 1 a miss or a false alarm; 2 incomplete
-(a repository, branch or Git read failed, a history holds fewer changes than asked for, or a
-collision made a control unusable).
+(a repository, branch or Git read failed, a repository holds a grafts file, a history holds fewer
+changes than asked for, or a collision made a control unusable).
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ import argparse
 import collections
 import hashlib
 import html
+import os
 from pathlib import Path, PurePosixPath
 import random
 import re
@@ -39,6 +44,21 @@ MAX_FILE_BYTES = 400_000
 _NUMBER = re.compile(r"(?<![\w.])\d[\d_,]*(?:\.\d[\d_]*)?(?![\w.])")
 _GROUPED = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?")
 _ESCAPE = re.compile(r"\\U([0-9a-fA-F]{8})|\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})")
+_COMMIT = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
+# A measurement only reads, and reads the objects as they are. Without the first setting,
+# `git status` may rewrite a repository's index and hold its lock for a moment, which another Git
+# command in that checkout would then trip over. Without the second, a replacement ref would put
+# another commit in the place of a pinned one, and the same tips would name other changes.
+READ_ONLY_GIT = {"GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS": "1"}
+
+
+def git_environment() -> dict:
+    """The environment of every Git command of a measurement.
+
+    None of the caller's own Git settings come along: one of them could point a command at
+    another repository, another index or another object store than the one that was named.
+    """
+    return {**{name: value for name, value in os.environ.items() if not name.startswith("GIT_")}, **READ_ONLY_GIT}
 
 
 class Incomplete(Exception):
@@ -46,10 +66,43 @@ class Incomplete(Exception):
 
 
 def git(repo: Path, *args: str) -> bytes:
-    done = subprocess.run(["git", "-C", str(repo), "--literal-pathspecs", *args], capture_output=True, check=False)
+    done = subprocess.run(["git", "-C", str(repo), "--literal-pathspecs", *args], capture_output=True, check=False,
+                          env=git_environment())
     if done.returncode:
         raise Incomplete("git " + args[0])
     return done.stdout
+
+
+def ancestry_as_written(repo: Path) -> None:
+    """Refuse a repository whose history is not the one its commits were written with.
+
+    A legacy grafts file gives commits other parents, whatever the environment says, so the same
+    tips would name other changes there. Such a repository is not measured.
+    """
+    listed = git(repo, "rev-parse", "--git-path", "info/grafts")
+    path = Path(listed.decode().strip() if isinstance(listed, bytes) else listed)
+    try:
+        lines = (path if path.is_absolute() else repo / path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except FileNotFoundError:
+        return
+    except OSError:
+        raise Incomplete("the grafts file cannot be read") from None
+    if any(line.strip() and not line.lstrip().startswith("#") for line in lines):
+        raise Incomplete("the repository holds a grafts file")
+
+
+def read_tips(path: Path, count: int) -> list[str] | None:
+    """The commits an earlier run wrote, one for each repository in order. None when the file is not that."""
+    try:
+        tips = path.read_text(encoding="utf-8").split()
+    except (OSError, UnicodeError):
+        return None
+    return tips if len(tips) == count and all(_COMMIT.fullmatch(tip) for tip in tips) else None
+
+
+def fingerprint(tips: list[str], changes: int) -> str:
+    """Names a set of changes without naming a commit: the same tips, order and count give the same one."""
+    return hashlib.sha256(("%d\n%s\n" % (changes, "\n".join(tips))).encode()).hexdigest()[:16]
 
 
 def listing(values) -> TokenSnapshot:
@@ -164,9 +217,8 @@ def added_numbers(repo: Path, base: str, head: str, path: str) -> set[str]:
     return found
 
 
-def seeded(repo: Path, branch: str, changes: int, decoys: TokenSnapshot, decoy_digits: frozenset[str]) -> collections.Counter:
+def seeded(repo: Path, tip: str, changes: int, decoys: TokenSnapshot, decoy_digits: frozenset[str]) -> collections.Counter:
     row = collections.Counter()
-    tip = git(repo, "rev-parse", "--verify", "--quiet", branch + "^{commit}").decode().strip()
     commits = git(repo, "rev-list", "--first-parent", "-n", str(changes), tip).decode().split()
     for commit in commits:
         parents = git(repo, "rev-list", "--parents", "-n", "1", commit).decode().split()[1:]
@@ -212,16 +264,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("repositories", nargs="+", type=Path)
     parser.add_argument("--changes", type=int, default=25, help="First-parent changes to use in each repository")
     parser.add_argument("--branch", default="origin/main")
+    parser.add_argument("--tips", type=Path,
+                        help="tips.txt written by scripts/first_run_scenarios.py: read each history from the commit it "
+                             "names for that repository, in the order given, not from --branch")
     parser.add_argument("--seed", type=int, default=20261110, help="Seed for the 1,000 control figures")
     args = parser.parse_args(argv)
     if args.changes < 1:
         parser.error("--changes must be at least 1")
+    pinned = None
+    if args.tips is not None:
+        pinned = read_tips(args.tips, len(args.repositories))
+        if pinned is None:
+            parser.error("--tips must hold one full commit for each repository, in the order given")
     figures = control_figures(args.seed)
     decoys, decoy_digits = listing(figures), frozenset(figure.replace(".", "") for figure in figures)
-    total, incomplete = collections.Counter(), 0
+    total, tips, incomplete = collections.Counter(), [], 0
     for number, repo in enumerate(args.repositories, 1):
         try:
-            row = seeded(repo.resolve(), args.branch, args.changes, decoys, decoy_digits)
+            ancestry_as_written(repo.resolve())
+            revision = pinned[number - 1] if pinned else args.branch
+            tip = git(repo.resolve(), "rev-parse", "--verify", "--quiet", revision + "^{commit}").decode().strip()
+            row = seeded(repo.resolve(), tip, args.changes, decoys, decoy_digits)
+            tips.append(tip)
         except Incomplete as failure:
             incomplete += 1
             print(f"== repository {number}: INCOMPLETE ({failure})", flush=True)
@@ -229,6 +293,8 @@ def main(argv: list[str] | None = None) -> int:
         total.update(row)
         print(f"== repository {number}: {dict(sorted(row.items()))}", flush=True)
     print(f"ALL {dict(sorted(total.items()))} | repositories incomplete: {incomplete}")
+    if not incomplete:
+        print(f"reference set: {fingerprint(tips, args.changes)} ({len(tips)} repositories, {args.changes} changes each)")
     if incomplete or total["control_collisions"]:
         return 2
     return 1 if total["seeded_missed"] or total["false_alarms"] else 0

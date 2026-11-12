@@ -2,6 +2,7 @@
 
 import importlib.util
 from pathlib import Path
+import re
 
 import pytest
 
@@ -34,7 +35,11 @@ def test_added_numbers_are_listed_one_at_a_time_and_only_counts_are_printed(repo
     assert code == 0 and "'seeded_refused': 2" in shown and "seeded_missed" not in shown
     assert "'file_versions': 2" in shown and "'changes': 1" in shown and "false_alarms" not in shown
     assert "repository 1" in shown and str(repo) not in shown
-    assert not any(part in shown for part in ("48", "729", "cash.py"))
+    # The last line names the set of changes by a fingerprint of sixteen hexadecimal digits and nothing else.
+    # Every other line holds counts: no digits of a figure, and no file name.
+    *counts, fingerprint = shown.splitlines()
+    assert re.fullmatch(r"reference set: [0-9a-f]{16} \(1 repositories, 1 changes each\)", fingerprint)
+    assert not any(part in line for line in counts for part in ("48", "729", "cash.py"))
 
 
 def test_a_number_added_to_two_files_is_counted_in_each(repository, capsys, monkeypatch):
@@ -202,3 +207,102 @@ def test_a_file_that_cannot_be_decoded_makes_the_measurement_incomplete(reposito
     # Not a collision that was proved, and never a false alarm or a clean run.
     assert code == 2 and "INCOMPLETE (a file could not be decoded for the collision check)" in shown
     assert "false_alarms" not in shown and "repositories incomplete: 1" in shown
+
+
+def test_the_tips_of_a_scenario_run_name_the_same_changes_here(repository, tmp_path, capsys):
+    repo, _base, _head = repository
+    _change(repo, {"src/cash.py": "OPENING = 48_213.57\n"})
+    tip = command(repo, "rev-parse", "HEAD")
+    tips = tmp_path / "tips.txt"
+    tips.write_text(tip + "\n", encoding="utf-8")
+    _change(repo, {"src/fees.py": "FEE = 6729102.50\nRATE = 31415.926\n"})  # the repository moves on
+    code, moved = _run(capsys, repo)
+    assert code == 0 and "'seeded_refused': 2" in moved
+    code, pinned = _run(capsys, repo, "--tips", str(tips))
+    assert code == 0 and "'seeded_refused': 1" in pinned and tip not in pinned
+    # The other script names this set of changes the same way.
+    expected = "reference set: %s (1 repositories, 1 changes each)" % seeded.fingerprint([tip], 1)
+    assert expected in pinned and expected not in moved and "reference set: " in moved
+    spec = importlib.util.spec_from_file_location("first_run_scenarios", ROOT / "scripts/first_run_scenarios.py")
+    scenarios = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(scenarios)
+    assert scenarios.fingerprint([tip], 1) == seeded.fingerprint([tip], 1)
+    assert scenarios.read_tips(tips, 1) == seeded.read_tips(tips, 1) == [tip]
+
+
+@pytest.mark.parametrize("content", ["", "HEAD\n", "0" * 39 + "\n", "0" * 40 + "\n" + "1" * 40 + "\n"])
+def test_tips_that_are_not_one_full_commit_for_each_repository_are_refused(repository, tmp_path, capsys, content):
+    repo, _base, _head = repository
+    tips = tmp_path / "tips.txt"
+    tips.write_text(content, encoding="utf-8")
+    with pytest.raises(SystemExit) as stopped:
+        _run(capsys, repo, "--tips", str(tips))
+    assert stopped.value.code == 2
+
+
+def test_a_tip_the_repository_does_not_hold_is_incomplete(repository, tmp_path, capsys):
+    repo, _base, _head = repository
+    tips = tmp_path / "tips.txt"
+    tips.write_text("0" * 40 + "\n", encoding="utf-8")
+    code, shown = _run(capsys, repo, "--tips", str(tips))
+    assert code == 2 and "INCOMPLETE" in shown and "reference set:" not in shown
+
+
+def test_no_git_command_here_may_take_the_optional_lock(repository, capsys, monkeypatch):
+    repo, _base, _head = repository
+    _change(repo, {"src/cash.py": "OPENING = 48_213.57\n"})
+    real_run, seen = seeded.subprocess.run, set()
+
+    def run(command, **options):
+        environment = options.get("env", {"GIT_": "inherited"})
+        seen.add(tuple(sorted((name, value) for name, value in environment.items() if name.startswith("GIT_"))))
+        return real_run(command, **options)
+
+    monkeypatch.setattr(seeded.subprocess, "run", run)
+    # The caller's own Git settings do not come along: not one that points elsewhere, not one that undoes ours.
+    monkeypatch.setenv("GIT_DIR", str(repo / "elsewhere"))
+    monkeypatch.setenv("GIT_NO_REPLACE_OBJECTS", "0")
+    code, _shown = _run(capsys, repo)
+    assert code == 0 and seen == {(("GIT_NO_REPLACE_OBJECTS", "1"), ("GIT_OPTIONAL_LOCKS", "0"))}
+
+
+def test_a_replacement_ref_does_not_change_what_a_pinned_commit_adds(repository, tmp_path, capsys):
+    """Codex P114-1: a replacement for the saved commit changed the count under the same fingerprint."""
+    repo, _base, _head = repository
+    _change(repo, {"src/cash.py": "OPENING = 48_213.57\n"})
+    tip = command(repo, "rev-parse", "HEAD")
+    tips = tmp_path / "tips.txt"
+    tips.write_text(tip + "\n", encoding="utf-8")
+    code, before = _run(capsys, repo, "--tips", str(tips))
+    assert code == 0 and "'seeded_refused': 1" in before
+    # A sibling of the pinned commit that adds two more numbers, put in its place by a replacement ref.
+    (repo / "src/fees.py").write_text("FEE = 6729102.50\nRATE = 31415.926\n", encoding="utf-8", newline="\n")
+    command(repo, "add", "-f", "src/fees.py")
+    tree = command(repo, "write-tree")
+    command(repo, "reset", "-q", "--hard", tip)
+    sibling = command(repo, "commit-tree", tree, "-p", tip + "^", "-m", "Synthetic sibling")
+    command(repo, "replace", tip, sibling)
+    code, after = _run(capsys, repo, "--tips", str(tips))
+    assert code == 0 and "'seeded_refused': 1" in after and "'seeded_refused': 3" not in after
+    assert after == before
+
+
+def test_a_repository_with_a_grafts_file_is_not_measured_here_either(repository, tmp_path, capsys):
+    """Codex P114-2: a graft from the pinned commit to an earlier parent changed the count from 1 to 3."""
+    repo, _base, _head = repository
+    _change(repo, {"src/fees.py": "FEE = 6729102.50\nRATE = 31415.926\n"})
+    _change(repo, {"src/cash.py": "OPENING = 48_213.57\n"})
+    tip = command(repo, "rev-parse", "HEAD")
+    tips = tmp_path / "tips.txt"
+    tips.write_text(tip + "\n", encoding="utf-8")
+    code, before = _run(capsys, repo, "--tips", str(tips))
+    assert code == 0 and "'seeded_refused': 1" in before
+    grafts = repo / ".git/info/grafts"
+    grafts.parent.mkdir(exist_ok=True)
+    grafts.write_text("%s %s\n" % (tip, command(repo, "rev-parse", tip + "~2")), encoding="utf-8")
+    code, shown = _run(capsys, repo, "--tips", str(tips))
+    assert code == 2 and "INCOMPLETE (the repository holds a grafts file)" in shown
+    assert "seeded_refused" not in shown and "reference set:" not in shown
+    grafts.write_text("# no grafts\n", encoding="utf-8")
+    code, after = _run(capsys, repo, "--tips", str(tips))
+    assert code == 0 and after == before

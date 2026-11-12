@@ -3,6 +3,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -161,3 +162,149 @@ def test_a_content_refusal_is_counted_by_its_rule_and_suffix_and_never_by_name()
     assert scenarios.outcome({**refused, "path": "notes.client-name-2026"}) == "refused:sensitive_content:credential_label:"
     assert scenarios.outcome({"path": "src/cash.py", "status": "included"}) == "included:"
     assert scenarios.outcome({"path": "data/x.csv", "status": "withheld", "reason": "private"}) == "withheld:private"
+
+
+# --- The same changes on a later day ----------------------------------------
+
+def _fingerprint(shown: str) -> str:
+    return re.search(r"^reference set: ([0-9a-f]{16}) \(1 repositories, \d+ changes each\)$", shown, re.M).group(1)
+
+
+def _counts(folder: Path) -> dict:
+    variants = json.loads((folder / "summary.json").read_text(encoding="utf-8"))["repository-1"]["variants"]
+    return {name: {key: item[key] for key in ("ready", "blockers", "paths")} for name, item in variants.items()}
+
+
+def test_a_later_run_reads_the_same_changes_from_the_tips_of_an_earlier_one(repository, tmp_path, capsys):
+    repo, _base, _head = repository
+    _history(repo)
+    first, moved, again = tmp_path / "first", tmp_path / "moved", tmp_path / "again"
+    assert _main(str(repo), "--changes", "2", "--branch", "main", "--output", str(first)) == 0
+    earlier = capsys.readouterr().out
+    tip = command(repo, "rev-parse", "main")
+    # The commit is written to the private folder and never printed.
+    assert (first / "tips.txt").read_text(encoding="utf-8") == tip + "\n" and tip not in earlier and tip[:7] not in earlier
+    # The repository moves on. Its last two changes are now other changes: the newest is a private file alone.
+    (repo / "data/prices.csv").write_text("symbol,price\nSYNTHETIC,2\n", encoding="utf-8", newline="\n")
+    command(repo, "add", "-f", "data/prices.csv")
+    command(repo, "commit", "-q", "-m", "Synthetic change after the measurement")
+    assert _main(str(repo), "--changes", "2", "--branch", "main", "--output", str(moved)) == 0
+    later = capsys.readouterr().out
+    assert _main(str(repo), "--changes", "2", "--branch", "main", "--tips", str(first / "tips.txt"),
+                 "--output", str(again)) == 0
+    repeated = capsys.readouterr().out
+    assert _fingerprint(repeated) == _fingerprint(earlier) != _fingerprint(later)
+    assert _counts(again) == _counts(first) != _counts(moved)
+    assert (again / "tips.txt").read_text(encoding="utf-8") == tip + "\n"
+    # The count of changes is part of what is named.
+    assert _main(str(repo), "--changes", "3", "--tips", str(first / "tips.txt"), "--output", str(tmp_path / "three")) == 0
+    assert _fingerprint(capsys.readouterr().out) != _fingerprint(earlier)
+
+
+@pytest.mark.parametrize("content", ["", "main\n", "0" * 39 + "\n", "0" * 40 + "\n" + "1" * 40 + "\n", "A" * 40 + "\n"])
+def test_tips_must_hold_one_full_commit_for_each_repository(repository, tmp_path, content):
+    repo, _base, _head = repository
+    tips = tmp_path / "tips.txt"
+    tips.write_text(content, encoding="utf-8")
+    output = tmp_path / "out"
+    assert _main(str(repo), "--tips", str(tips), "--output", str(output)) == 2 and not output.exists()
+    assert _main(str(repo), "--tips", str(tmp_path / "missing.txt"), "--output", str(output)) == 2 and not output.exists()
+
+
+def test_a_tip_a_repository_does_not_hold_is_incomplete_and_pins_nothing(repository, tmp_path, capsys):
+    repo, _base, _head = repository
+    tips = tmp_path / "tips.txt"
+    tips.write_text("0" * 40 + "\n", encoding="utf-8")
+    output = tmp_path / "out"
+    assert _main(str(repo), "--tips", str(tips), "--output", str(output)) == 2
+    shown = capsys.readouterr().out
+    assert "INCOMPLETE" in shown and "reference set:" not in shown and not (output / "tips.txt").exists()
+
+
+def test_no_git_command_of_a_measurement_may_take_the_optional_lock(repository, tmp_path, monkeypatch):
+    repo, _base, _head = repository
+    _history(repo)
+    real_run, real_finassist, seen = subprocess.run, scenarios.finassist, []
+
+    def settings(environment):
+        return tuple(sorted((name, value) for name, value in environment.items() if name.startswith("GIT_")))
+
+    def run(command, **options):
+        if command[0] == "git":
+            seen.append(("git", settings(options.get("env", {"GIT_": "inherited"}))))
+        return real_run(command, **options)
+
+    def finassist(command, arguments, cwd, environment):
+        seen.append(("finassist", settings(environment)))
+        return real_finassist(command, arguments, cwd, environment)
+
+    monkeypatch.setattr(scenarios.subprocess, "run", run)
+    monkeypatch.setattr(scenarios, "finassist", finassist)
+    # The caller's own Git settings: one that would point every command at another repository, and
+    # two that would undo what a measurement sets.
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "elsewhere"))
+    monkeypatch.setenv("GIT_OPTIONAL_LOCKS", "1")
+    monkeypatch.setenv("GIT_NO_REPLACE_OBJECTS", "0")
+    assert _main(str(repo), "--changes", "2", "--branch", "main", "--output", str(tmp_path / "out")) == 0
+    kinds = {kind for kind, _value in seen}
+    # The script's own Git reads, and every run of the product, which reads the repository with Git too.
+    assert kinds == {"git", "finassist"}
+    assert {value for _kind, value in seen} == {(("GIT_NO_REPLACE_OBJECTS", "1"), ("GIT_OPTIONAL_LOCKS", "0"))}
+
+
+def _sibling_with_another_private_file(repo, tip):
+    """A commit with the tip's parent and the tip's change plus one more private file. Not on any branch."""
+    (repo / "data/prices.csv").write_text("symbol,price\nSYNTHETIC,2\n", encoding="utf-8", newline="\n")
+    command(repo, "add", "-f", "data/prices.csv")
+    tree = command(repo, "write-tree")
+    command(repo, "reset", "-q", "--hard", tip)
+    return command(repo, "commit-tree", tree, "-p", tip + "^", "-m", "Synthetic sibling")
+
+
+def test_a_replacement_ref_cannot_put_other_changes_in_the_place_of_the_pinned_ones(repository, tmp_path, capsys):
+    """Codex P114-1: with a replacement for the saved commit, a run read other changes under the same fingerprint."""
+    repo, _base, _head = repository
+    _history(repo)
+    first, again = tmp_path / "first", tmp_path / "again"
+    assert _main(str(repo), "--changes", "2", "--branch", "main", "--output", str(first)) == 0
+    earlier = capsys.readouterr().out
+    tip = command(repo, "rev-parse", "main")
+    sibling = _sibling_with_another_private_file(repo, tip)
+    command(repo, "replace", tip, sibling)
+    # Git itself now shows the sibling's tree for the saved commit, unless it is told to read objects as they are.
+    # It is told so by the variable being set at all, so this control reads without it.
+    plain = {name: value for name, value in scenarios.git_environment().items() if name != "GIT_NO_REPLACE_OBJECTS"}
+    shown = subprocess.run(["git", "-C", str(repo), "rev-parse", tip + "^{tree}"], capture_output=True, text=True,
+                           check=True, env=plain).stdout.strip()
+    assert shown == command(repo, "rev-parse", sibling + "^{tree}") != scenarios.git(repo, "rev-parse", tip + "^{tree}")
+    assert _main(str(repo), "--changes", "2", "--branch", "main", "--tips", str(first / "tips.txt"),
+                 "--output", str(again)) == 0
+    assert _fingerprint(capsys.readouterr().out) == _fingerprint(earlier)
+    assert _counts(again) == _counts(first)
+
+
+def test_a_repository_with_a_grafts_file_is_not_measured(repository, tmp_path, capsys):
+    """Codex P114-2: a graft gave the pinned commit another parent, under the same tips and fingerprint."""
+    repo, _base, _head = repository
+    _history(repo)
+    first = tmp_path / "first"
+    assert _main(str(repo), "--changes", "2", "--branch", "main", "--output", str(first)) == 0
+    capsys.readouterr()
+    tip = command(repo, "rev-parse", "main")
+    grafts = repo / ".git/info/grafts"
+    grafts.parent.mkdir(exist_ok=True)
+    # The pinned commit is given its grandparent for a parent. Its own object still names its parent.
+    parent, grandparent = command(repo, "rev-parse", tip + "~1"), command(repo, "rev-parse", tip + "~2")
+    grafts.write_text("%s %s\n" % (tip, grandparent), encoding="utf-8")
+    assert scenarios.git(repo, "rev-list", "--parents", "-n", "1", tip).split()[1] == grandparent
+    assert ("parent " + parent) in scenarios.git(repo, "cat-file", "commit", tip)
+    grafted = tmp_path / "grafted"
+    assert _main(str(repo), "--changes", "2", "--tips", str(first / "tips.txt"), "--output", str(grafted)) == 2
+    shown = capsys.readouterr().out
+    assert "INCOMPLETE (the repository holds a grafts file)" in shown and "reference set:" not in shown
+    assert not (grafted / "tips.txt").exists()
+    # A grafts file that says nothing changes nothing.
+    grafts.write_text("# no grafts\n\n", encoding="utf-8")
+    again = tmp_path / "again"
+    assert _main(str(repo), "--changes", "2", "--tips", str(first / "tips.txt"), "--output", str(again)) == 0
+    assert _counts(again) == _counts(first)
