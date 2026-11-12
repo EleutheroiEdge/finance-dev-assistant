@@ -109,6 +109,11 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   Gate acceptance, screening, provider approval and budget rules are unchanged.
 
 ### Fixed
+- **The configuration preflight said `ready` for a review that would stop at once (#134).** It
+  never checked the state folder its suggested `review` would use. It now finds that folder by
+  the same rule as the review, and blocks when the folder cannot be written
+  (`doctor_directory_unusable`) or when a ledger left at the old place would make the review
+  refuse (`state_location_moved`).
 - With no home folder for the user (no `HOME` and no entry for the user, as in a minimal
   container), plain `doctor` ended in a traceback. The user folders now report
   `user_directory_unavailable`, `doctor` lists them as unusable and exits as it does for its

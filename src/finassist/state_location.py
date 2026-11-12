@@ -25,7 +25,7 @@ def state_location(args, *, refuse: bool = True) -> tuple[Path, str]:
     chosen, origin = _choose(args)
     if refuse and (previous := moved_from(args, chosen, origin)) is not None:
         # The rules by name are public; the two paths are for this machine only.
-        error = AssistantError("state_location_moved", {"previous": _previous_rule(args), "selected": origin})
+        error = AssistantError("state_location_moved", {"previous": previous_rule(args), "selected": origin})
         error.local_details.update(previous=str(previous), selected=str(chosen.expanduser().absolute()))
         raise error
     return chosen, origin
@@ -74,14 +74,15 @@ def _repository_root(start: Path) -> Path | None:
     return None
 
 
-def _previous_rule(args) -> str:
+def previous_rule(args) -> str:
+    """The rule by which this command chose its folder before the shared rule."""
     if getattr(args, "command", None) in _WORKING_DIRECTORY_COMMANDS or getattr(args, "repo", None) is None:
         return "working_directory"
     return "repo_option"
 
 
 def _previous_directory(args) -> Path:
-    if _previous_rule(args) == "repo_option":
+    if previous_rule(args) == "repo_option":
         return Path(args.repo) / ".finassist"
     return Path.cwd() / ".finassist"
 

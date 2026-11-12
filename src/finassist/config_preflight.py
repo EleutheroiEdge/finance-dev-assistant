@@ -279,14 +279,39 @@ def run_config_doctor(args, config: Config) -> int:
         raise AssistantError("doctor_config_preflight_conflict")
     if not args.repo or not args.base or not args.head:
         raise AssistantError("doctor_policy_range_required")
+    from types import SimpleNamespace
+
     from .doctor_environment import attach_environment, environment_report
+    from .state_location import state_location
 
     report = config_preflight(args.repo, args.base, args.head, config, args.config)
-    attach_environment(report, environment_report(config, config_path=args.config, route="configuration"))
+    # The suggested review, run from here with the same configuration, keeps its ledger where the shared rule puts it.
+    review = SimpleNamespace(audit_dir=args.audit_dir, state_dir=None, config=args.config, repo=Path.cwd(),
+                             command="review")
+    state, origin = state_location(review, refuse=False)
+    environment = environment_report(config, config_path=args.config, state_dir=state, route="configuration")
+    _block_unusable_state(environment, review, state, origin)
+    attach_environment(report, environment)
     from .text_view import doctor_output
 
     print(doctor_output(report, args))
     return 0 if report["status"] == "ready" else 1
+
+
+def _block_unusable_state(environment: dict, review, state: Path, origin: str) -> None:
+    """A review that could not keep its ledger would stop at once, so on this route these block instead of warning."""
+    from .doctor_environment import _shown_path
+    from .state_location import moved_from, previous_rule
+
+    environment["warnings"] = [entry for entry in environment["warnings"]
+                               if not (entry["code"] == "doctor_directory_unusable" and entry.get("path_role") == "state")]
+    if "code" in environment["paths"]["state"]:
+        environment["blockers"].append({"code": "doctor_directory_unusable", "path_role": "state",
+                                        **error_fields("doctor_directory_unusable")})
+    if (previous := moved_from(review, state, origin)) is not None:
+        environment["paths"]["previous_state"] = {"path": _shown_path(str(previous)), "holds_ledger": True}
+        environment["blockers"].append({"code": "state_location_moved", "previous": previous_rule(review),
+                                        "selected": origin, **error_fields("state_location_moved")})
 
 
 # What the hash of a packet adds to it. The packet limit is checked before the hash is added, and the
