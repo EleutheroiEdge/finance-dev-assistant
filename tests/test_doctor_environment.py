@@ -10,6 +10,7 @@ from finassist.onboarding import policy_preflight
 
 from collections.abc import Mapping
 import os
+from pathlib import Path
 from types import SimpleNamespace
 import httpx
 
@@ -212,6 +213,30 @@ def test_plain_doctor_environment_is_cli_only(local_environment, capsys, monkeyp
     report = json.loads(capsys.readouterr().out)
     assert report["environment"]["paths"]["state"]["path"] == str(local_environment / ".finassist")
     assert not (local_environment / ".finassist").exists()
+
+
+def test_plain_doctor_without_a_home_folder_warns_instead_of_failing(tmp_path, capsys, monkeypatch):
+    # A minimal container: no HOME and no entry for the user, so Path.home() raises RuntimeError (#134).
+    from finassist.update_settings import user_directory
+
+    for name in ("XDG_CONFIG_HOME", "XDG_CACHE_HOME", "APPDATA", "LOCALAPPDATA", "HOME", "USERPROFILE"):
+        monkeypatch.delenv(name, raising=False)
+
+    def no_home(cls):
+        raise RuntimeError("Could not determine home directory.")
+
+    monkeypatch.setattr(Path, "home", classmethod(no_home))
+    monkeypatch.setattr(diagnostic, "git_status", lambda: {"blockers": [], "warnings": []})
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(AssistantError) as caught:
+        user_directory("config")
+    assert caught.value.code == "user_directory_unavailable"
+    # Like an unwritable home: both user folders are reported unusable, and doctor exits as with other warnings.
+    assert main(["doctor"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    unusable = {warning.get("path_role") for warning in report["environment"]["warnings"]
+                if warning["code"] == "doctor_directory_unusable"}
+    assert unusable == {"user_config", "user_cache"}
 
 
 @pytest.mark.parametrize("status,code", [(401, "provider_http_unauthorized"), (403, "provider_http_forbidden"),

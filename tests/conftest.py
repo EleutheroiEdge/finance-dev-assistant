@@ -7,6 +7,17 @@ from finassist.platform_support import find_tool
 from finassist.scope import git_environment
 
 
+@pytest.fixture(autouse=True)
+def _no_state_folder_left_in_the_working_directory():
+    # A test leaves the checkout as it found it: its state goes under tmp_path or an explicit --state-dir (#134).
+    # Test groups run side by side in one checkout, so the test named may be one running alongside the culprit.
+    state = Path.cwd() / ".finassist"
+    existed = state.exists()
+    yield
+    if not existed and state.exists():
+        pytest.fail("a .finassist folder appeared in the working directory during this test")
+
+
 def command(repo: Path, *args: str) -> str:
     return subprocess.check_output(
         [
