@@ -1,0 +1,277 @@
+{
+  "$id": "urn:finledgerpoli:schema:gate-policy:2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "model_review": {
+      "additionalProperties": false,
+      "dependentRequired": {
+        "profile_path": [
+          "profile_sha256"
+        ],
+        "profile_sha256": [
+          "profile_path"
+        ]
+      },
+      "not": {
+        "required": [
+          "profile_text",
+          "profile_path"
+        ]
+      },
+      "properties": {
+        "allow_paths": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 128,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "allowed_host": {
+          "pattern": "^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$",
+          "type": "string"
+        },
+        "api_key_env": {
+          "pattern": "^[A-Z][A-Z0-9_]{0,127}$",
+          "type": "string"
+        },
+        "blocking_severities": {
+          "items": {
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low",
+              "info"
+            ]
+          },
+          "maxItems": 5,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "daily_budget_usd": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "number"
+        },
+        "deny_paths": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 128,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "enabled": {
+          "const": true
+        },
+        "endpoint": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "fixture_max_file_bytes": {
+          "maximum": 2000000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "fixture_roots": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 128,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "forbidden_token_file": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "forbidden_token_hashes": {
+          "items": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "maxItems": 1024,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "forbidden_token_match": {
+          "enum": [
+            "value",
+            "digits"
+          ]
+        },
+        "forbidden_token_min_digits": {
+          "maximum": 18,
+          "minimum": 4,
+          "type": "integer"
+        },
+        "forbidden_token_sources": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "input_usd_per_million": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "number"
+        },
+        "max_file_bytes": {
+          "maximum": 2000000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_files": {
+          "maximum": 2000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_output_tokens": {
+          "maximum": 2000000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_request_bytes": {
+          "maximum": 8000000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_run_usd": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "number"
+        },
+        "model": {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "output_usd_per_million": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "number"
+        },
+        "placeholder_credential_paths": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "private_paths": {
+          "enum": [
+            "refuse",
+            "skip-and-report"
+          ]
+        },
+        "profile": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "profile_path": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "profile_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "profile_text": {
+          "items": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "pattern": "^[^\\r\\n]+$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "provider": {
+          "enum": [
+            "openai",
+            "anthropic",
+            "google",
+            "compatible",
+            "ollama"
+          ]
+        },
+        "related_context": {
+          "enum": [
+            "none",
+            "related"
+          ]
+        },
+        "related_max_bytes": {
+          "maximum": 400000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "timeout_seconds": {
+          "maximum": 300,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "unreviewable_paths": {
+          "enum": [
+            "refuse",
+            "skip-and-report"
+          ]
+        }
+      },
+      "required": [
+        "enabled",
+        "provider",
+        "model",
+        "endpoint",
+        "allowed_host",
+        "api_key_env",
+        "allow_paths",
+        "deny_paths",
+        "max_request_bytes",
+        "max_file_bytes",
+        "max_files",
+        "profile",
+        "max_output_tokens",
+        "timeout_seconds",
+        "max_run_usd",
+        "daily_budget_usd",
+        "input_usd_per_million",
+        "output_usd_per_million",
+        "blocking_severities"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 2,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "model_review"
+  ],
+  "type": "object"
+}

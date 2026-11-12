@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 
 from .config import Config
+from .document_contracts import validate_document_shape
 from .platform_support import find_tool
 from .errors import AssistantError
 from .review import review_packet
@@ -16,33 +17,29 @@ from .scope import build_packet, config_token_guard
 from .security import canonical, check_context_document, check_credentials, digest
 
 
+SUITE_VERSION = 1
+MAX_CASES = 50
+MAX_SOURCE_BYTES = 48_000
+
+
 def validate_suite(
     suite: dict, *, extra_patterns: tuple[str, ...] = (), config: Config | None = None
 ) -> None:
-    placeholders = config.placeholder_credential_paths if config else ()
-    if set(suite) != {"version", "cases"} or suite["version"] != 1:
+    validate_document_shape(suite, "evaluation-suite", "invalid_eval_suite")
+    # JSON Schema's integer includes 1.0; the wire-version spelling remains strict.
+    if any(type(suite[key]) is not int for key in ("version", "schema_version") if key in suite):
         raise AssistantError("invalid_eval_suite")
-    if not isinstance(suite["cases"], list) or not 1 <= len(suite["cases"]) <= 50:
-        raise AssistantError("invalid_eval_cases")
+    placeholders = config.placeholder_credential_paths if config else ()
     identifiers = set()
     for case in suite["cases"]:
-        if set(case) != {"id", "path", "before", "after", "expected_defect"}:
-            raise AssistantError("invalid_eval_case")
-        if (
-            not isinstance(case["id"], str)
-            or not case["id"]
-            or case["id"] in identifiers
-            or type(case["expected_defect"]) is not bool
-        ):
+        if case["id"] in identifiers:
             raise AssistantError("invalid_eval_identity")
         identifiers.add(case["id"])
         (config or Config()).check_path(case["path"])
         for side in ("before", "after"):
-            if not isinstance(case[side], str) or not case[side] or len(case[side].encode()) > 48_000:
+            if len(case[side].encode()) > MAX_SOURCE_BYTES:
                 raise AssistantError("invalid_eval_source")
-            # A credential is reported here, case by case, as it always was. A hidden character waits
-            # for the screen of the whole suite below, so that one in an earlier case never comes
-            # before a credential in a later one.
+            # Hidden characters wait until every case has passed credential checks.
             check_credentials(case[side], extra_patterns=extra_patterns, source_path=case["path"],
                               placeholders=placeholders)
 

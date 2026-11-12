@@ -15,6 +15,7 @@ import jsonschema
 
 from .config import Config, config_hash
 from .errors import AssistantError, network_not_approved, prices_required
+from .document_contracts import validate_document_shape
 from .forbidden_tokens import screen_review_output, token_file_audit
 from .hidden_text import Waiting
 from .ledger import Ledger
@@ -39,6 +40,12 @@ class PolicyRequestApproval:
 
 
 ENVELOPE_ALLOWANCE = 16_384  # Input units reserved beyond the bytes sent, for the provider's own framing.
+
+
+OFFLINE_STATUS = "offline-analysis"
+PARTIAL_STATUS = "partial-review"
+FINDINGS_STATUS = "findings"
+NO_FINDINGS_STATUS = "no-findings-reported"
 
 
 def reserved_usd(input_units: int, output_tokens: int, price_in, price_out) -> Decimal:
@@ -266,8 +273,8 @@ def review_packet(
         raise AssistantError("empty_review_scope")
     if config.provider == "offline":
         waiting.release()  # With a provider, the function that calls it releases its own list, last.
-        return {
-            "status": "offline-analysis",
+        report = {
+            "status": OFFLINE_STATUS,
             "packet_hash": packet["packet_hash"],
             "head": packet["head"],
             "provider": "offline",
@@ -277,6 +284,8 @@ def review_packet(
             "qualification": "No model review or test execution performed.",
             "merge_authority": False,
         }
+        validate_document_shape(report, "review-report", "review_schema_invalid")
+        return report
     result, reservation = call_model(
         packet,
         config,
@@ -298,9 +307,9 @@ def review_packet(
         screen_review_output(data, token_guard.snapshot)
     unseen.release()
     report = {
-        "status": "partial-review"
+        "status": PARTIAL_STATUS
         if review_omissions(packet)
-        else ("findings" if data["findings"] else "no-findings-reported"),
+        else (FINDINGS_STATUS if data["findings"] else NO_FINDINGS_STATUS),
         "packet_hash": packet["packet_hash"],
         "head": packet["head"],
         "base": packet["base"],
@@ -315,6 +324,8 @@ def review_packet(
         **({"withheld": packet["withheld"]} if "withheld" in packet else {}),
         "qualification": "Source-bound advisory findings. Reproductions have not been executed.",
     }
+    # The receipt hash is added by the ledger only after the report shape passes.
+    validate_document_shape({**report, "receipt": "0" * 64}, "review-report", "review_schema_invalid")
     with Ledger(ledger_path) as ledger:
         report["receipt"] = ledger.append(
             {

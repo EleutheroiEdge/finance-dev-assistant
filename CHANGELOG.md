@@ -5,6 +5,12 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 ## Unreleased
 
 ### Added
+- Published document-contract schemas and offline `finassist config schema --kind NAME`
+  exports for configuration, policies, packets, model gate/review reports and evaluation
+  suites. Runtime screening, integrity checks and approvals remain required.
+- Evaluation and history suites also accept `schema_version: 1`, preserving the
+  original canonical document for approval hashes. Conflicting aliases and non-integer
+  version values are refused; existing integer `version: 1` inputs keep their hashes.
 - **Remedies measured on real changes, and each change says where its setting is.**
   `scripts/remedy_scenarios.py` sets up each reference repository once and then follows the first
   option of every remedy on each later change, on both routes, until nothing but authorization is
@@ -33,6 +39,19 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   each time must reach `ready`.
 
 ### Changed
+- Acceptance changes: synthetic suite versions `true` and `1.0` are refused as
+  `invalid_eval_suite`; both suite types accept agreeing integer `version` and/or
+  `schema_version` aliases without rewriting their approval bytes. A packet's
+  related `rule_version: true` is now `packet_schema_invalid` (exit 2 instead of
+  acceptance); a nonobject synthetic case is `invalid_eval_case` instead of
+  `invalid_input` (still exit 2). Structural packet/report refusals use
+  `packet_schema_invalid`/`review_schema_invalid`. Source screening, coverage,
+  hashes, approvals and byte limits remain additional runtime checks.
+  Malformed packet path/status values and suite structures that previously raised
+  Python exceptions now report packet_schema_invalid, invalid_eval_case or the
+  corresponding history_*_invalid code; malformed packet modes report
+  packet_mode_invalid. Existing field-specific refusals (including related version,
+  coverage, configuration mismatch and unsafe empty paths) retain their codes.
 - Plain `init` detects the committed project layout; `--template` retains the fixed layout.
   An explicit detected write can refine the exact untouched plain-init output once, with
   recovery bytes kept locally; every other existing output remains refused. Setup reports
@@ -42,6 +61,14 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   Gate acceptance, screening, provider approval and budget rules are unchanged.
 
 ### Fixed
+- Document schemas now use stable contract URNs rather than package release URLs,
+  including the configuration schema's `$id`. The schema CLI reads installed
+  resources; `export-kit` includes every canonical schema and the generator has
+  a read-only `--check` mode.
+- Evaluation, history, packet and saved-review structural validation shares the
+  exported contract and enforcing-module limits, with boundary and runtime-call
+  regressions. CI policy schemas now constrain configuration and repository names;
+  complete workflow-template schemas remain a separate follow-up.
 - **`doctor` blocked a range for a file under `generated_paths`.** The configuration preflight
   refused it as `scope_incomplete` and reported the coverage as incomplete, while the review and
   triage count a configured generated file as outside the scope and go ahead. `doctor` now agrees

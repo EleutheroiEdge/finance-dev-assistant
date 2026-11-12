@@ -24,7 +24,7 @@ from .providers import request_payload
 from .preflight_size import largest_versions, size_warning
 from .review import ENVELOPE_ALLOWANCE, reserved_usd, review_schema, spend_estimate
 from .forbidden_tokens import screen_source
-from .scope import (_private_name, build_packet, config_token_guard, git, omission_for, omission_reason, read_sides,
+from .scope import (MAX_CHANGED_PATHS, _private_name, build_packet, config_token_guard, git, omission_for, omission_reason, read_sides,
                     resolve)
 from .hidden_text import Waiting
 from .security import canonical, check_name, local_name, refusal_location, regular_path
@@ -143,8 +143,8 @@ class _ConfigPreflight:
             self.block("path_name_not_utf8")
             return []
         names = [tokens[pos + 1] for pos in range(0, len(tokens) - 1, 2)]
-        if len(names) > 2000:
-            self.block("packet_file_count_limit", files=len(names), limit=2000)
+        if len(names) > MAX_CHANGED_PATHS:
+            self.block("packet_file_count_limit", files=len(names), limit=MAX_CHANGED_PATHS)
             return []
         if not names:
             self.block("empty_review_scope")

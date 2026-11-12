@@ -1,0 +1,72 @@
+{
+  "$id": "urn:finledgerpoli:schema:evaluation-suite:1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "anyOf": [
+    {
+      "required": [
+        "version"
+      ]
+    },
+    {
+      "required": [
+        "schema_version"
+      ]
+    }
+  ],
+  "properties": {
+    "cases": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "description": "Character bound only; runtime additionally caps UTF-8 encoded bytes at this limit.",
+            "maxLength": 48000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "before": {
+            "description": "Character bound only; runtime additionally caps UTF-8 encoded bytes at this limit.",
+            "maxLength": 48000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "expected_defect": {
+            "type": "boolean"
+          },
+          "id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "path": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "after",
+          "before",
+          "expected_defect",
+          "id",
+          "path"
+        ],
+        "type": "object"
+      },
+      "maxItems": 50,
+      "minItems": 1,
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "version": {
+      "const": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "cases"
+  ],
+  "type": "object"
+}

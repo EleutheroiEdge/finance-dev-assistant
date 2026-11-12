@@ -11,13 +11,14 @@ import jsonschema
 
 from .config import Config
 from .errors import AssistantError
-from .scope import read_entry
+from .scope import read_entry, REVISION_PATTERN
 from .security import check_path, check_text, digest, pinned_image, regular_path
 from .policy_fixtures import FIXTURE_PROPERTIES, fixture_settings, load_policy_config
 from .workflow import parse_template
 
 _REPOSITORY = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
-_SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+_SHA = re.compile(REVISION_PATTERN)
+BRANCH_PATTERN = r"[A-Za-z0-9][A-Za-z0-9_./-]{0,255}"
 _SCHEMA = {
     "type": "object", "additionalProperties": False,
     "required": ["schema_version", "repository", "events", "base_branches", "forks", "backend",
@@ -34,7 +35,8 @@ _SCHEMA = {
                         "items": {"type": "string", "minLength": 1, "maxLength": 512}},
         "max_steps": {"type": "integer", "minimum": 1, "maximum": 64},
         "max_check_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
-        "config": {"type": "object"}, "workflow": {"type": "object"},
+        "config": {"type": "object"},
+        "workflow": {"type": "object", "description": "Workflow template structure is validated by the workflow loader; a complete workflow schema is a separate follow-up."},
         **FIXTURE_PROPERTIES,
     },
 }
@@ -102,6 +104,16 @@ class CIPolicy:
                                     *self.document["guard_paths"], *getattr(self.config, "fixture_markers", {}))))
 
 
+def _check_config_capabilities(value: dict) -> None:
+    if value.get("profile_files"):
+        raise AssistantError("ci_external_profiles_forbidden")
+    if value.get("provider", "offline") != "offline" or any(
+        value.get(key, False) is not False
+        for key in ("allow_network", "allow_partial_review", "allow_local_readiness")
+    ):
+        raise AssistantError("ci_policy_capability_forbidden")
+
+
 def load_ci_policy(repo: Path, base: str, path: str, approved_sha256: str) -> CIPolicy:
     revision(base)
     path = check_path(path, source_only=False)
@@ -121,18 +133,12 @@ def load_ci_policy(repo: Path, base: str, path: str, approved_sha256: str) -> CI
         raise AssistantError("ci_policy_invalid")
     repository_name(document["repository"])
     for branch in document["base_branches"]:
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,255}", branch) or ".." in branch:
+        if not re.fullmatch(BRANCH_PATTERN, branch) or ".." in branch:
             raise AssistantError("ci_policy_invalid")
     for guarded in document["guard_paths"]:
         check_path(guarded.removesuffix("/"), source_only=False)
     check_text(raw.decode())
-    if document["config"].get("profile_files"):
-        raise AssistantError("ci_external_profiles_forbidden")
-    if document["config"].get("provider", "offline") != "offline" or any(
-        document["config"].get(key, False) is not False
-        for key in ("allow_network", "allow_partial_review", "allow_local_readiness")
-    ):
-        raise AssistantError("ci_policy_capability_forbidden")
+    _check_config_capabilities(document["config"])
     config = load_policy_config(document["config"], fixture_settings(repo, base, document))
     if config.provider != "offline" or config.allow_network or config.allow_partial_review or config.allow_local_readiness:
         raise AssistantError("ci_policy_capability_forbidden")
