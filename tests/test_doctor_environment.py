@@ -156,7 +156,7 @@ def test_shared_key_keeps_distinct_hosts_models_limits_and_permissions(local_env
     config = replace(Config(), provider="openai", model="review-model", api_key_env="SHARED_KEY",
                      max_run_usd=2, monthly_budget_usd=9, allow_network=False)
     gate = replace(config, provider="compatible", model="gate-model", endpoint="https://gate.example/v1",
-                   allowed_hosts=("gate.example",), allow_network=True, max_run_usd=7)
+                   allowed_hosts=("gate.example",), allow_network=True, max_run_usd=7, monthly_budget_usd=1_000_000)
     model = {"max_request_bytes": 54321, "max_run_usd": 7, "daily_budget_usd": 11}
     report = diagnostic.environment_report(config, gate_config=gate, gate_model=model,
                                            policy={"source": "working-tree"}, environment={"SHARED_KEY": "synthetic"})
@@ -166,10 +166,12 @@ def test_shared_key_keeps_distinct_hosts_models_limits_and_permissions(local_env
     first, second = row["uses"]
     assert (first["host"], second["host"]) == ("api.openai.com", "gate.example")
     assert first["model"] == "review-model" and second["model"] == "gate-model"
-    assert first["limits"]["monthly_budget_usd"] == 9 and second["limits"]["monthly_budget_usd"] is None
+    assert first["limits"]["monthly_budget_usd"] == 9 and second["limits"]["monthly_budget_usd"] == 1_000_000
     assert first["limits"]["max_run_usd"] == 2 and second["limits"]["max_run_usd"] == 7
     assert not first["network_enabled"] and second["network_enabled"]
     assert second["policy"]["source"] == "working-tree"
+    assert second["limits"]["monthly_budget_source"].startswith("Fixed gate adapter guard")
+    assert not second["authorization_granted"]
 
 
 def test_default_key_custom_host_warning_and_dedicated_key_remedy(local_environment):
@@ -193,6 +195,9 @@ def test_cli_combined_config_and_policy_is_diagnostic_only(gate_case, tmp_path, 
     assert report["policy"]["sha256"] == gate_case["pin"]
     assert report["environment"]["paths"]["configuration"]["path"] == str(path)
     assert report["environment"]["paths"]["state"]["path"] is None
+    gate_use = next(use for use in report["environment"]["keys"][0]["uses"] if use["source"] == "gate policy")
+    assert gate_use["limits"]["monthly_budget_usd"] == 1_000_000
+    assert not gate_use["authorization_granted"]
 
 
 def test_plain_doctor_environment_is_cli_only(local_environment, capsys, monkeypatch):
@@ -221,3 +226,8 @@ def test_http_status_has_hint_and_never_response_body_or_retry(monkeypatch, stat
     record = error_record(caught.value, "review", error_fields(code))
     assert record["hint"] and len(calls) == 1
     assert "never-output" not in canonical(record).decode()
+
+
+@pytest.mark.parametrize("character", ["\u2028", "\ufeff", "\ue000"])
+def test_local_environment_paths_redact_hidden_display_characters(character):
+    assert diagnostic._shown_path("/synthetic/" + character + "name") == "[redacted]"

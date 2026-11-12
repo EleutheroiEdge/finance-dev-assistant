@@ -77,7 +77,7 @@ The key-use table has these fields:
 | `uses[].provider`, `model`, `host` | The configured provider/model and destination hostname. |
 | `uses[].host_permission`, `network_permission` | The setting allowing this host and the approval still required. Configuration alone never authorizes a request. |
 | `uses[].sends` | Screened packet and instructions plus the required response schema. The key authenticates this request; other environment values and local files are not sent. |
-| `uses[].limits` | Each use's packet/request, output-token and run/day/month limits. Configuration packet size excludes instructions and protocol framing. The gate policy has a request cap and run/day reservations, with no policy monthly cap. |
+| `uses[].limits` | Each use's packet/request, output-token and run/day/month limits. Configuration packet size excludes instructions and protocol framing. The gate policy has a request cap and run/day reservations; its adapter also applies a fixed US$1,000,000 monthly ledger guard, shown separately from configurable policy limits. |
 
 For both configuration and policy uses in one report, run
 `finassist --config finassist.json doctor --repo . --base BASE --head HEAD --policy gate-policy.json --policy-sha256 HASH`.

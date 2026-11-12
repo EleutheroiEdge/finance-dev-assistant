@@ -17,7 +17,7 @@ from .update_settings import user_directory
 def _shown_path(value: str) -> str:
     # Absolute paths are intentional here, unlike repository-relative packet names.
     try:
-        if any(unicodedata.category(char) in {"Cc", "Cf"} for char in value):
+        if any(unicodedata.category(char) in {"Cc", "Cf", "Co", "Cs", "Zl", "Zp"} for char in value):
             return "[redacted]"
         check_text(value)
     except AssistantError:
@@ -101,8 +101,8 @@ def _use(config: Config, *, model: dict | None = None, policy: dict | None = Non
     host = urlsplit(config.resolved_endpoint).hostname
     gate = model is not None
     limits = ({"max_request_bytes": model["max_request_bytes"], "max_run_usd": model["max_run_usd"],
-               "daily_budget_usd": model["daily_budget_usd"], "monthly_budget_usd": None,
-               "monthly_budget": "No policy monthly limit; gate uses its per-run and per-day reservations."}
+               "daily_budget_usd": model["daily_budget_usd"], "monthly_budget_usd": config.monthly_budget_usd,
+               "monthly_budget_source": "Fixed gate adapter guard, not a configurable policy field."}
               if gate else {"max_packet_bytes": config.max_packet_bytes, "max_request_bytes": None,
                             "request_limit": "Packet limit excludes instructions and protocol envelope.",
                             "max_run_usd": config.max_run_usd, "daily_budget_usd": config.daily_budget_usd,
