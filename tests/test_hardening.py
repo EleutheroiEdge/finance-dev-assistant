@@ -136,7 +136,7 @@ def test_approved_evidence_is_directly_usable_by_the_oracle(tmp_path):
 
 def test_command_audit_records_denial_and_exports_only_metadata(tmp_path, capsys):
     state, output, exported = tmp_path / "state", tmp_path / "private-label.json", tmp_path / "events.jsonl"
-    arguments = ["--audit-dir", str(state), "init", "--output", str(output)]
+    arguments = ["--audit-dir", str(state), "init", "--template", "--output", str(output)]
     assert main(arguments) == 0
     capsys.readouterr()
     assert main(arguments) == 2
@@ -159,7 +159,7 @@ def test_corrupt_audit_prevents_the_action(tmp_path, capsys):
     with Ledger(state / "audit.sqlite") as ledger:
         ledger.append({"event": "synthetic"})
         ledger.db.execute("UPDATE events SET payload='{}'")
-    assert main(["--audit-dir", str(state), "init", "--output", str(output)]) == 2
+    assert main(["--audit-dir", str(state), "init", "--template", "--output", str(output)]) == 2
     assert not output.exists()
     assert "audit_integrity_failed" in capsys.readouterr().err
 
