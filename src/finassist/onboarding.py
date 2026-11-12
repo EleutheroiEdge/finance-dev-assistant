@@ -31,7 +31,7 @@ from .providers import request_payload
 from .preflight_size import largest_versions, size_warning
 from .review import review_schema, spend_estimate
 from .error_hints import error_fields
-from .remedies import attach_remedies
+from .remedies import applied, attach_remedies
 from .scope import WITHHELD_REASON, git, omission_for, read_entry, read_sides, require_regular, resolve
 from .hidden_text import Waiting
 from .security import (TEXT_FIXTURE_SUFFIXES, canonical, local_name, check_fixture_private, check_name,
@@ -225,6 +225,7 @@ class _Preflight:
         self._seen: set[bytes] = set()
         # For remedies: the larger version of each file refused for size, and the policy's fixture roots.
         self._largest, self._fixture_roots = None, ()
+        self._document: dict | None = None  # The policy as read, to check that a remedy leaves it valid.
         # Path refusals are grouped by code and hint: a count plus a few example names,
         # so the report stays bounded whatever the size of the range.
         self._grouped: dict[tuple[str, str], dict] = {}
@@ -258,6 +259,13 @@ class _Preflight:
             return False
         return True
 
+    def _fits(self, option: dict) -> bool:
+        """Whether the policy is still a valid document with one remedy option applied."""
+        if self._document is None:
+            return False
+        document = {**self._document, "model_review": applied(self._document["model_review"], option)}
+        return jsonschema.Draft202012Validator(_SCHEMA).is_valid(document)
+
     def run(self) -> dict:
         try:
             self._run()
@@ -268,7 +276,7 @@ class _Preflight:
             self.block("preflight_check_failed", kind=type(exc).__name__)
         self.report["blockers"].extend(self._grouped.values())
         attach_remedies(self.report, "gate", sizes=self._largest, fixture_roots=self._fixture_roots,
-                        valid_path=self._allowed)
+                        valid_path=self._allowed, valid_option=self._fits)
         ready = not self.report["blockers"]
         self.report["status"] = "ready" if ready else "blocked"
         if ready and self.policy_file is not None:
@@ -297,6 +305,7 @@ class _Preflight:
         policy = self._policy(repo, base)
         if policy is None:
             return None
+        self._document = policy.document
         self._prefix_warnings(repo, head, policy.document["model_review"])
         self._paths(repo, base, head, policy)
         # The gate's own loader and source builder run only once nothing else blocks.

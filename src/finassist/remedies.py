@@ -127,19 +127,37 @@ def _options(blocker: dict, rows: list[dict], route: tuple, left_out: frozenset,
     return []
 
 
+def applied(settings: dict, option: dict) -> dict:
+    """A copy of a document's settings with one option's changes made. A change that needs a value from the
+    user is left as it is."""
+    changed = dict(settings)
+    for change in option["changes"]:
+        name = change["setting"]
+        if "value" in change:
+            changed[name] = change["value"]
+        elif "at_least" in change:
+            changed[name] = change["at_least"]
+        elif "add" in change:
+            changed[name] = [*changed.get(name, ()), *change["add"]]
+    return changed
+
+
 def attach_remedies(report: dict, route: str, left_out: frozenset = frozenset(), *, sizes: dict | None = None,
-                    fixture_roots: tuple = (), valid_path=None) -> None:
+                    fixture_roots: tuple = (), valid_path=None, valid_option=None) -> None:
     """Add ``remedies`` to a preflight report: one entry per blocker that has at least one option.
 
     ``sizes`` maps each file refused for size to the size of its larger version, or is None when that is not
     known. ``fixture_roots`` are the gate policy's fixture prefixes. ``valid_path`` says whether a path may be
-    listed in the route's ``allow_paths``.
+    listed in the route's ``allow_paths``. ``valid_option`` says whether the route's document is still valid
+    with an option applied: a list that is already full, for one, cannot take another entry.
     """
     names = _ROUTES[route]
     rows = report.get("paths") or []
     found = []
     for blocker in report["blockers"]:
         options = _options(blocker, rows, names, left_out, sizes, tuple(fixture_roots), valid_path)
+        if valid_option is not None:
+            options = [option for option in options if valid_option(option)]
         if options:
             found.append({"code": blocker["code"],
                           "options": [{"document": names[0], **option} for option in options]})

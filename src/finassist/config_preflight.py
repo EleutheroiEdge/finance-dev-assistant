@@ -10,12 +10,13 @@ plan builds this range's packet and review accepts it up to the provider call.
 """
 
 from decimal import ROUND_CEILING, Decimal
+from dataclasses import replace
 import os
 from pathlib import Path
 
 from .config import Config, config_hash
 from .error_hints import error_fields
-from .remedies import attach_remedies
+from .remedies import applied, attach_remedies
 from .errors import AssistantError
 from .health import config_warnings
 from .onboarding import _shown_argument
@@ -68,11 +69,16 @@ class _ConfigPreflight:
         if len(group["paths"]) < _EXAMPLES:
             group["paths"].append(path)
 
-    def _allowed(self, path: str) -> bool:
-        """Whether a path may be listed in allow_paths, by the configuration's own rule for an entry."""
+    def _fits(self, option: dict) -> bool:
+        """Whether the configuration is still valid with one remedy option applied."""
+        names = {change["setting"] for change in option["changes"]}
         try:
-            self.config.check_path(path.rstrip("/"), source_only=False)
-        except AssistantError:
+            before = {name: getattr(self.config, name) for name in names}
+            after = applied({name: list(value) if isinstance(value, tuple) else value
+                             for name, value in before.items()}, option)
+            replace(self.config, **{name: tuple(value) if isinstance(before[name], tuple) else value
+                                    for name, value in after.items()}).validate()
+        except (AssistantError, AttributeError, TypeError, ValueError):
             return False
         return True
 
@@ -85,7 +91,7 @@ class _ConfigPreflight:
             # Keep the report: name the failing step's class, never its message.
             self.block("preflight_check_failed", kind=type(exc).__name__)
         self.report["blockers"].extend(self._grouped.values())
-        attach_remedies(self.report, "configuration", _LEFT_OUT, sizes=self._largest, valid_path=self._allowed)
+        attach_remedies(self.report, "configuration", _LEFT_OUT, sizes=self._largest, valid_option=self._fits)
         ready = not self.report["blockers"]
         self.report["status"] = "ready" if ready else "blocked"
         self.report["next_step"] = (self._commands() if ready

@@ -286,6 +286,33 @@ def test_a_path_the_route_would_refuse_as_an_entry_is_not_proposed():
                                                                  "add": ["tools/a.py", "tools/b[1].py"]}]
 
 
+def test_an_option_that_would_leave_the_document_invalid_is_not_offered():
+    report = _report([{"code": "private_or_binary_path", "count": 1}],
+                     [KEPT, {"path": "x.csv", "status": "refused", "code": "private_or_binary_path"}])
+    attach_remedies(report, "gate", valid_option=lambda option: False)
+    assert report["remedies"] == []
+    seen = []
+    attach_remedies(report, "gate", valid_option=lambda option: seen.append(option) or True)
+    assert [remedy["code"] for remedy in report["remedies"]] == ["private_or_binary_path"]
+    assert seen == [{"effect": "leaves_files_out", "changes": [{"setting": "private_paths", "value": "skip-and-report"}]}]
+
+
+@pytest.mark.parametrize("entries,offered", [(127, True), (128, False)])
+def test_a_scope_entry_is_offered_only_while_the_gate_list_has_room(drafted, draft, tmp_path, entries, offered):
+    # A gate policy holds at most 128 scope entries. One more makes the policy itself invalid.
+    revisions = _change(drafted, {"tools/extra.py": "y = 2\n"})
+    document = copy.deepcopy(draft[1])
+    listed = document["model_review"]["allow_paths"]
+    listed.extend("unused%03d/" % number for number in range(entries - len(listed)))
+    assert len(listed) == entries
+    report = _preflight("gate", revisions, document, tmp_path)
+    assert _codes(report) == ["gate_path_not_allowed"]
+    assert bool(report["remedies"]) is offered
+    for remedy in report["remedies"]:
+        after = _preflight("gate", revisions, _apply("gate", document, remedy["options"][0]), tmp_path)
+        assert after["status"] == "ready"
+
+
 def test_a_path_with_brackets_gets_a_scope_remedy_only_where_it_is_a_valid_entry(drafted, draft, tmp_path):
     # A gate policy's prefixes may not hold brackets, so listing this path would make the policy invalid.
     revisions = _change(drafted, {"tools/a[b].py": "y = 2\n"})
