@@ -36,6 +36,14 @@ The repositories keep moving, so a later run counts later changes. The two rows 
 changes were measured again after the script was corrected to count an added line that starts
 with `++`; the other rows are from the first run.
 
+## What 0.11.0 is
+
+0.11.0 is a security release. Every release up to 0.10.0 could run a program from the current
+directory on Windows (see the changelog), so the owner decided to publish the fix ahead of the
+gates below that are still open. It holds everything merged up to that fix. It makes no claim
+about review accuracy, gates D1 to D6 are not measured, and no adopter is told to rely on it for
+that. The bar on this page still stands for the release that does make such a claim.
+
 ## Where the next release stands
 
 Measured on the source tree of main at `5c1af62`, offline, with no model call. The reference set
