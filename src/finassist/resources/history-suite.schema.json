@@ -1,0 +1,194 @@
+{
+  "$id": "urn:finledgerpoli:schema:history-suite:1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "anyOf": [
+    {
+      "required": [
+        "version"
+      ]
+    },
+    {
+      "required": [
+        "schema_version"
+      ]
+    }
+  ],
+  "properties": {
+    "cases": {
+      "items": {
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "else": {
+              "properties": {
+                "expected": {
+                  "minItems": 1
+                }
+              }
+            },
+            "if": {
+              "properties": {
+                "negative_control": {
+                  "const": true
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "expected": {
+                  "maxItems": 0
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "policy": {
+                  "not": {
+                    "required": [
+                      "commit"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "policy"
+              ]
+            },
+            "then": {
+              "properties": {
+                "base_sha": {
+                  "pattern": "^(?:[0-9a-f]{40})$(?![\\s\\S])"
+                }
+              }
+            }
+          }
+        ],
+        "properties": {
+          "base_sha": {
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$(?![\\s\\S])",
+            "type": "string"
+          },
+          "expected": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "label": {
+                  "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,79})$(?![\\s\\S])",
+                  "type": "string"
+                },
+                "paths": {
+                  "items": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 50,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "severity": {
+                  "enum": [
+                    "critical",
+                    "high",
+                    "medium",
+                    "low",
+                    "info"
+                  ]
+                }
+              },
+              "required": [
+                "label",
+                "paths",
+                "severity"
+              ],
+              "type": "object"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "head_sha": {
+            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$(?![\\s\\S])",
+            "type": "string"
+          },
+          "id": {
+            "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,79})$(?![\\s\\S])",
+            "type": "string"
+          },
+          "negative_control": {
+            "type": "boolean"
+          },
+          "policy": {
+            "additionalProperties": false,
+            "properties": {
+              "commit": {
+                "pattern": "^(?:[0-9a-f]{40})$(?![\\s\\S])",
+                "type": "string"
+              },
+              "path": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "repo_path": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "not": {
+                  "pattern": "://"
+                },
+                "type": "string"
+              },
+              "sha256": {
+                "pattern": "^(?:[0-9a-f]{64})$(?![\\s\\S])",
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "type": "object"
+          },
+          "profile": {
+            "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,79})$(?![\\s\\S])",
+            "type": "string"
+          },
+          "repo_path": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "not": {
+              "pattern": "://"
+            },
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_sha",
+          "expected",
+          "head_sha",
+          "id",
+          "negative_control",
+          "profile",
+          "repo_path"
+        ],
+        "type": "object"
+      },
+      "maxItems": 50,
+      "minItems": 1,
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "version": {
+      "const": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "cases"
+  ],
+  "type": "object"
+}

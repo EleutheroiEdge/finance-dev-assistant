@@ -242,7 +242,7 @@ It reports every blocker `plan` and `review` would hit for that range in one run
   value), the prices, and the request's reserved spend against `max_run_usd`,
   `daily_budget_usd` and `monthly_budget_usd`. Spend already recorded is not read.
 
-It makes no network call, reads no key value, opens no ledger and writes nothing. Path names
+It makes no network call, checks only selected key presence and emptiness, never reports its value, opens no ledger and writes nothing. Path names
 appear only in its local output, as `[redacted]` when a name fails screening. A `ready`
 report lists the `plan` and `review` commands to run next. Without `--config` it checks the
 defaults. For a gate range, use `doctor --policy` instead (see the pre-merge gate guide).
@@ -507,6 +507,77 @@ approval, profile files and cross-field policy. Schema validation alone is not
 approval to send source or run a recipe. Forks can use a local schema copy and
 change its `$id` when publishing their own version.
 
+
+Print the schema from the installed package without loading project configuration
+or creating audit state (one JSON object on stdout):
+
+```sh
+finassist config schema
+finassist config schema --kind gate-policy
+```
+
+The default kind is `config`. Schema IDs identify the document contract and its
+revision, for example `urn:finledgerpoli:schema:packet:2`, independently of package
+releases. The packet contract also accepts legacy version-1 packets. Unversioned
+review documents have their own schema revision. URNs are identifiers, not
+download locations: save the CLI output or use the files in `schemas/` for your
+editor. The CLI reads the installed packaged schema and never fetches an ID.
+`export-kit` includes the same canonical schema files.
+
+| Kind | Document |
+|---|---|
+| `config` | Configuration |
+| `gate-policy` | Version-2 model gate policy |
+| `ci-policy` | Version-1 deterministic CI policy |
+| `packet` | Version-1 or version-2 source packet |
+| `gate-report` | Current version-2 model gate report |
+| `gate-report-v1` | Legacy version-1 model gate report |
+| `review-report` | Saved offline or model review report, retaining its existing unversioned envelope |
+| `review-response` | Raw provider response nested inside a model review report |
+| `evaluation-suite` | Synthetic evaluation input |
+| `history-suite` | Frozen-history evaluation input |
+
+Regenerate every public and packaged export with
+`python scripts/generate_document_schemas.py`. Use `--check` to detect drift without
+writing, or `--kind NAME` to limit either operation. The configuration generator
+delegates to this same command with `--kind config`. CI compares the generated,
+public and packaged contracts and tests runtime boundaries. The canonical gate
+report filenames remain `model-gate-report.schema.json` and
+`model-gate-report-v1.schema.json`. Review-response metadata is added only to the
+exported copy; the provider request schema and existing request approvals stay
+unchanged.
+
+Evaluation suites, history suites, packets and saved review reports apply these
+shared structural contracts at runtime. Structural limits come from the modules
+that enforce or produce the document. The CI policy references the configuration
+contract and checks repository-name syntax. Its `workflow` field remains only an
+object in the exported schema; the workflow loader still validates that template.
+A complete workflow-template schema is a separate follow-up, along with the
+workflow-pack, evidence, evaluation-result and triage document families.
+
+Runtime validation additionally enforces private paths/content, unique case
+identities, packet coverage and hashes, Git/configuration bindings and approvals.
+JSON Schema `maxLength` counts characters, not UTF-8 bytes: evaluation source is
+also capped at 48,000 encoded bytes per side, history suites at 1,000,000 serialized
+bytes, and each related snippet at 4,000 serialized bytes. Related aggregate
+budgets and source/request byte limits are additional runtime checks.
+
+JSON Schema's integer type accepts integral numeric values such as `1.0`.
+Evaluation/history suite versions, packet versions and CI policy version/limits
+require actual integers at runtime; the existing gate-report validator still
+accepts an integral version such as `2.0`. A related block's `rule_version: true`
+is now refused as `packet_schema_invalid` (CLI exit 2), whereas its numeric
+`rule_version: 1` is valid. A nonobject synthetic case now reports
+`invalid_eval_case` instead of `invalid_input` (still exit 2). Malformed packet
+structure can report `packet_schema_invalid`; an internally generated saved
+report that fails its contract reports `review_schema_invalid`. Passing an editor
+check grants no authority.
+
 ## Limits
 
 Configuration selects policy; it does not authorize a network request, recipe execution or patch application. Runtime checks remain authoritative after editor validation. Screening cannot prove confidentiality, generated exclusions require independent source/build verification, and local budget admission cannot enforce provider billing. See the [threat model](threat-model.md).
+
+The CI policy editor schema references the configuration schema by its stable $id.
+Register both exported files with an offline validator or editor; the URN is an
+identifier, not a URL to fetch. Runtime CI loading uses the configuration reader
+to preserve field-specific errors and check min_version before newer options.

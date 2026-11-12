@@ -6,8 +6,9 @@ metadata:
   requires: finassist Python CLI; every step is offline and needs no provider key
 ---
 
-Every step below is offline. Nothing in the repository is executed, and no key value is
-read. Work from the repository's root on a feature branch, never the default branch.
+Every step below is offline. Nothing in the repository is executed. Doctor inspects only
+selected key presence and emptiness; no key value is reported. Work from the repository's
+root on a feature branch, never the default branch.
 
 ## 1. Check the installation
 
@@ -135,8 +136,10 @@ merge, release, deployment or trade.
 
 ## Never
 
-- Read, print or copy `.env` files, keys or credentials. `key_variable_set` says only
-  whether the variable exists.
+- Open, print or copy `.env` files, keys or credentials. Doctor alone may inspect selected
+  process key variables for emptiness. key_variable_set means the variable exists;
+  key_state is missing/empty/set and key_value_read reports whether emptiness was inspected.
+  Values and lengths must never appear.
 - Make a network call, call a provider or spend budget during setup.
 - Run the detected test commands, or install hooks or workflows the person did not ask
   for.

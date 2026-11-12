@@ -95,7 +95,7 @@ def test_both_versions_and_included_files_form_a_strict_lower_bound(change, rout
         patch.setattr(route.module, "size_warning", lambda *a: None)
         assert without_lower(report) == route(case, limit=limit)
     assert report["request"] is None
-    assert not report["network_used"] and not report["key_value_read"] and not report["ledger_opened"]
+    assert not report["network_used"] and not report["key_values_returned"] and not report["ledger_opened"]
 
 
 @pytest.mark.parametrize("before,after,total", [

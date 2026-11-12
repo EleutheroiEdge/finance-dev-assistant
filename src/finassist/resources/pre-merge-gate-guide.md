@@ -295,10 +295,10 @@ It reports every blocker the gate would hit for that range in one run, each with
   Spend already recorded in a state directory is not read.
 - **The policy's sha256 at base,** to pass as `--policy-sha256`. The full commit hashes
   `gate run` needs are given too.
-- **Whether the key variable is set.** The preflight checks that it is set, never its value.
+- **Whether the key variable is set.** The preflight checks presence and emptiness, never reports the value.
 - **Settings that have no effect,** such as a prefix that matches no file.
 
-The preflight makes no network call, reads no key value, opens no ledger and spends
+The preflight makes no network call, checks only selected key presence and emptiness, never reports its value, opens no ledger and spends
 nothing. Path names appear only in its local output, and a name that fails
 screening is shown as `[redacted]`. They never enter a packet, gate report or audit
 row.

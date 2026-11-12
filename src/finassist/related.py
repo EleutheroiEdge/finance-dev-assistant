@@ -24,6 +24,8 @@ RELATIONS = ("callee", "caller", "test", "base")
 MAX_SNIPPETS = 40
 MAX_SNIPPET_BYTES = 4_000
 MAX_SKIPPED = 50
+MAX_SKIPPED_COUNT = 1_000_000
+CODE_PATTERN = r"[a-z][a-z0-9_]{0,80}"
 MAX_CALL_LINES = 5
 MAX_PER_TARGET = 3  # Callers, and tests, shown per changed definition; the rest are listed by name.
 _PARSE_LIMIT = 500  # Files read for callers, at most; the rest are listed as related_search_limit.
@@ -385,11 +387,6 @@ def related_block(ranked: list, skipped: list, budget: int) -> dict:
             "skipped": skipped[:MAX_SKIPPED], "skipped_count": len(skipped)}
 
 
-_BLOCK_KEYS = {"rule_version", "budget_bytes", "snippets", "skipped", "skipped_count"}
-_SNIPPET_KEYS = {"path", "symbol", "relation", "reference", "lines", "sha256"}
-_CODE = re.compile(r"[a-z][a-z0-9_]{0,80}")
-
-
 def verify_related(block, changed: list[str], config: Config, private, waiting: Waiting | None = None) -> None:
     """Re-check a packet's related block as strictly as the builder made it.
 
@@ -397,25 +394,19 @@ def verify_related(block, changed: list[str], config: Config, private, waiting: 
     A snippet is lines of a file, never the start of one, so it may not begin with a byte order
     mark. With ``waiting``, a hidden-character refusal is left there for the caller to release.
     """
+    from .document_contracts import validate_document_shape
+
+    validate_document_shape(block, "related", "packet_related_invalid")
     held = waiting if waiting is not None else Waiting()
     def refuse():
         raise AssistantError("packet_related_invalid")
 
-    if (not isinstance(block, dict) or set(block) != _BLOCK_KEYS or block["rule_version"] != RULE_VERSION
-            or type(block["budget_bytes"]) is not int or not 0 <= block["budget_bytes"] <= config.related_max_bytes
-            or not isinstance(block["snippets"], list) or len(block["snippets"]) > MAX_SNIPPETS
-            or not isinstance(block["skipped"], list) or len(block["skipped"]) > MAX_SKIPPED
-            or type(block["skipped_count"]) is not int
-            or not len(block["skipped"]) <= block["skipped_count"] <= 1_000_000):
+    if (type(block["budget_bytes"]) is not int or block["budget_bytes"] > config.related_max_bytes
+            or type(block["skipped_count"]) is not int or block["skipped_count"] < len(block["skipped"])):
         refuse()
     extras = config.extra_sensitive_patterns
     used, seen = 0, set()
     for item in block["snippets"]:
-        if (not isinstance(item, dict) or set(item) != _SNIPPET_KEYS or item["relation"] not in RELATIONS
-                or not isinstance(item["path"], str) or not isinstance(item["symbol"], str)
-                or not isinstance(item["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", item["sha256"])
-                or not isinstance(item["lines"], list) or not item["lines"]):
-            refuse()
         try:
             path = config.check_path(item["path"])  # The same path rules as a changed file.
         except AssistantError:
@@ -425,16 +416,12 @@ def verify_related(block, changed: list[str], config: Config, private, waiting: 
             refuse()
         seen.add((path, item["symbol"]))
         reference = item["reference"]
-        if (not isinstance(reference, dict) or not isinstance(reference.get("path"), str)
-                or reference["path"] not in changed
-                or not (set(reference) == {"path", "line"} and type(reference["line"]) is int
-                        and reference["line"] >= 1
-                        or set(reference) == {"path", "symbol"} and isinstance(reference["symbol"], str))):
+        if (reference["path"] not in changed
+                or "line" in reference and type(reference["line"]) is not int):
             refuse()
         previous = 0
         for entry in item["lines"]:
-            if (not isinstance(entry, list) or len(entry) != 2 or type(entry[0]) is not int
-                    or entry[0] <= previous or not isinstance(entry[1], str) or _NEWLINE.search(entry[1])):
+            if type(entry[0]) is not int or entry[0] <= previous or _NEWLINE.search(entry[1]):
                 refuse()
             previous = entry[0]
         lines = "\n".join(line for _number, line in item["lines"])
@@ -449,11 +436,6 @@ def verify_related(block, changed: list[str], config: Config, private, waiting: 
     if used > block["budget_bytes"]:
         refuse()
     for item in block["skipped"]:
-        if (not isinstance(item, dict) or set(item) != {"path", "symbol", "reason"}
-                or not isinstance(item["path"], str) or not isinstance(item["reason"], str)
-                or not _CODE.fullmatch(item["reason"])
-                or not (item["symbol"] is None or isinstance(item["symbol"], str))):
-            refuse()
         try:
             name = config.check_path(item["path"], source_only=False, metadata_only=True)
         except AssistantError:

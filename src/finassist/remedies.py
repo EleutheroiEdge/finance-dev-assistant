@@ -13,6 +13,7 @@ preflight has in hand, the option is left out and the hint stands alone.
 from decimal import ROUND_UP, Decimal, InvalidOperation
 
 from .config import MAX_PACKET_BYTES
+from .scope import UNREVIEWABLE_REASONS, WITHHELD_CODES
 
 MAX_FILE_BYTES = 2_000_000  # The ceiling of max_file_bytes: above it no setting clears a file refusal.
 MAX_LISTED_PATHS = 50  # A longer list is a scope question for a person, not a remedy.
@@ -29,6 +30,8 @@ _ROUTES = {
     "gate": ("gate policy", ("gate_request_bytes_exceeded", "packet_limit_exceeded"), "max_request_bytes",
              "gate_path_not_allowed"),
 }
+# Where a document keeps the settings a remedy names, as the start of a JSON Pointer.
+_SECTION = {"configuration": "", "gate policy": "/model_review"}
 
 
 def _option(effect: str, *changes: dict) -> dict:
@@ -70,22 +73,24 @@ def _file_limit(rows: list[dict], sizes: dict | None, fixture_roots: tuple) -> l
     return options
 
 
-def _outside_scope(rows: list[dict], left_out: frozenset, valid_path) -> list[dict]:
-    """The configuration route: every left-out file must be one a setting can account for."""
-    omitted = [row for row in rows if row.get("status") == "omitted"]
-    outside = [row.get("path") for row in omitted if row.get("reason") == "outside_allowlist"]
-    unreadable = [row for row in omitted if row.get("reason") in left_out]
-    if not omitted or len(outside) + len(unreadable) != len(omitted):
+def _outside_scope(rows: list[dict], valid_path) -> list[dict]:
+    """The configuration route refuses a model review that would leave a changed file out: an image, a file
+    outside ``allow_paths``, a file it cannot read. ``unreviewable_paths: skip-and-report`` is the choice to
+    review without them, and clears the refusal for every reason, as long as another file stays in the review.
+    (``allow_partial_review`` would too, but it is a capability that CI policies and workflow packs refuse.)
+    Widening the scope clears it only when every file left out is outside ``allow_paths``, and it sends more, so
+    it is listed second. A file under ``generated_paths`` is outside the scope and never reaches here."""
+    omitted = [row for row in rows if row.get("status") == "omitted" and row.get("reason") != "generated_artifact_excluded"]
+    if not omitted:
         return []
-    if unreadable and not outside and not any(row.get("status") == "included" for row in rows):
-        return []  # Leaving the unreadable files out would leave nothing to review.
-    changes = [{"setting": "unreviewable_paths", "value": _SKIP}] if unreadable else []
-    if outside:
-        names = _listed(outside, valid_path)
-        if names is None:
-            return []
-        changes.append({"setting": "allow_paths", "add": names})
-    return [_option("sends_more" if outside else "leaves_files_out", *changes)]
+    options = []
+    if any(row.get("status") == "included" for row in rows):
+        options.append(_option("leaves_files_out", {"setting": "unreviewable_paths", "value": _SKIP}))
+    if all(row.get("reason") == "outside_allowlist" for row in omitted):
+        names = _listed([row.get("path") for row in omitted], valid_path)
+        if names is not None:
+            options.append(_option("sends_more", {"setting": "allow_paths", "add": names}))
+    return options
 
 
 def _budget(blocker: dict, setting: str) -> list[dict]:
@@ -99,13 +104,12 @@ def _budget(blocker: dict, setting: str) -> list[dict]:
     return [_option("spends_more", {"setting": setting, "at_least": needed})]
 
 
-def _options(blocker: dict, rows: list[dict], route: tuple, left_out: frozenset, sizes, fixture_roots,
-             valid_path) -> list[dict]:
+def _options(blocker: dict, rows: list[dict], route: tuple, sizes, fixture_roots, valid_path) -> list[dict]:
     _document, too_large, total_setting, outside = route
     code = blocker.get("code")
     if code == "file_limit_exceeded":
         return _file_limit(rows, sizes, fixture_roots)
-    if code == "private_or_binary_path":
+    if code in WITHHELD_CODES:  # What private_paths: skip-and-report withholds, on every route.
         return _leave_out(rows, "private_paths")
     if code in too_large:
         size = blocker.get("bytes")
@@ -113,11 +117,14 @@ def _options(blocker: dict, rows: list[dict], route: tuple, left_out: frozenset,
             return [_option("sends_more", {"setting": total_setting, "at_least": size})]
         return []
     if code == outside == "scope_incomplete":
-        return _outside_scope(rows, left_out, valid_path)
-    if code == outside:
+        return _outside_scope(rows, valid_path)
+    if code == outside:  # The gate refuses the path itself: leave it out, or widen the scope.
         names = _listed([row.get("path") for row in rows if row.get("status") == "refused" and row.get("code") == code],
                         valid_path)
-        return [] if names is None else [_option("sends_more", {"setting": "allow_paths", "add": names})]
+        widen = [] if names is None else [_option("sends_more", {"setting": "allow_paths", "add": names})]
+        return [*_leave_out(rows, "unreviewable_paths"), *widen]
+    if code in UNREVIEWABLE_REASONS:  # What unreviewable_paths: skip-and-report leaves out, on every route.
+        return _leave_out(rows, "unreviewable_paths")
     if code in _BUDGETS:
         return _budget(blocker, _BUDGETS[code])
     if code == "provider_prices_required":
@@ -142,20 +149,26 @@ def applied(settings: dict, option: dict) -> dict:
     return changed
 
 
-def attach_remedies(report: dict, route: str, left_out: frozenset = frozenset(), *, sizes: dict | None = None,
-                    fixture_roots: tuple = (), valid_path=None, valid_option=None) -> None:
+def attach_remedies(report: dict, route: str, *, sizes: dict | None = None, fixture_roots: tuple = (),
+                    valid_path=None, valid_option=None) -> None:
     """Add ``remedies`` to a preflight report: one entry per blocker that has at least one option.
 
     ``sizes`` maps each file refused for size to the size of its larger version, or is None when that is not
     known. ``fixture_roots`` are the gate policy's fixture prefixes. ``valid_path`` says whether a path may be
     listed in the route's ``allow_paths``. ``valid_option`` says whether the route's document is still valid
     with an option applied: a list that is already full, for one, cannot take another entry.
+
+    Each change carries a ``pointer``: the place of its setting in the document, as a JSON Pointer, so that a
+    program need not know that a gate policy keeps these settings under ``model_review``.
     """
     names = _ROUTES[route]
     rows = report.get("paths") or []
     found = []
     for blocker in report["blockers"]:
-        options = _options(blocker, rows, names, left_out, sizes, tuple(fixture_roots), valid_path)
+        options = _options(blocker, rows, names, sizes, tuple(fixture_roots), valid_path)
+        for option in options:
+            for change in option["changes"]:
+                change["pointer"] = _SECTION[names[0]] + "/" + change["setting"]
         if valid_option is not None:
             options = [option for option in options if valid_option(option)]
         if options:

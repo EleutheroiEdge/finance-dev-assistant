@@ -61,8 +61,8 @@ def _valid(code, entry) -> bool:
 def hints() -> dict[str, dict]:
     """Every packaged hint, merged across areas. A damaged table raises ValueError."""
     merged: dict[str, dict] = {}
-    for area in AREAS:
-        text = files("finassist").joinpath(f"resources/hints-{area}.json").read_text(encoding="utf-8")
+    for resource, area in [(name, name) for name in AREAS] + [("providers", "review")]:
+        text = files("finassist").joinpath(f"resources/hints-{resource}.json").read_text(encoding="utf-8")
         try:
             table = json.loads(text, object_pairs_hook=_unique)
         except RecursionError as exc:  # Deeply nested text is damage too, not a crash.

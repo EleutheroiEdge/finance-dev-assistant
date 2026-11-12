@@ -18,7 +18,7 @@ from .hidden_text import Waiting
 from .github_context import pull_request_context, verify_origin
 from .ledger import Ledger
 from .model_policy import load_model_policy
-from .providers import reply_json, request_identity, request_shape
+from .providers import HTTP_ERROR_CODES, reply_json, request_identity, request_shape
 from .review import PolicyRequestApproval, call_model, review_schema, validate_review
 from .scope import (WITHHELD_CODES, build_packet, checkout_roots, git, left_out, omission_reason, require_regular,
                     resolve)
@@ -54,6 +54,9 @@ def validate_model_report(report: dict) -> None:
                 report["policy_sha256"], report["request_sha256"], report["usage"]["input_tokens"],
                 report["usage"]["output_tokens"], report["spend"]["actual_usd"],
             ))) or (report["verdict"] != "PASS" and not report["reasons"])):
+        raise AssistantError("gate_report_invalid")
+
+    if any(detail["code"] not in report["reasons"] for detail in report.get("reason_details", [])):
         raise AssistantError("gate_report_invalid")
 
     if report["schema_version"] == 2:
@@ -320,6 +323,9 @@ def _evaluate_model_gate(repo: Path, base: str, head: str, policy_loader, state_
     except AssistantError as exc:
         code = exc.code if re.fullmatch(r"[a-z][a-z0-9_]{0,80}", exc.code) else "gate_failed"
         report["reasons"] = [code]
+        status = exc.public_details.get("http_status")
+        if code in HTTP_ERROR_CODES.values() and type(status) is int and 100 <= status <= 599:
+            report["reason_details"] = [{"code": code, "http_status": status}]
     except Exception:
         # A malformed input, provider transport, audit or output failure never
         # returns success or exposes exception strings/paths/source/credentials.
@@ -337,6 +343,8 @@ def _evaluate_model_gate(repo: Path, base: str, head: str, policy_loader, state_
                     report.update(verdict="BLOCKED", reasons=sorted(set(report["reasons"] + ["unreconciled_model_usage"])), findings=[])
         except Exception:
             report.update(verdict="BLOCKED", reasons=["gate_audit_unavailable"], findings=[])
+    if "reason_details" in report and report["reason_details"][0]["code"] not in report["reasons"]:
+        del report["reason_details"]
     report["report_hash"] = digest(canonical(report))
     validate_model_report(report)
     return report

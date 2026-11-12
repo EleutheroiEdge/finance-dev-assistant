@@ -33,7 +33,7 @@ def preflight(case, **kwargs):
     report = policy_preflight(case["repo"], case["base"], case["head"], "gate-policy.json",
                               kwargs.pop("pin", case["pin"]), **kwargs)
     assert KEY_VALUE not in canonical(report).decode()
-    assert not report["network_used"] and not report["key_value_read"] and not report["ledger_opened"]
+    assert not report["network_used"] and not report["key_values_returned"] and not report["ledger_opened"]
     return report
 
 
@@ -41,7 +41,7 @@ def codes(report) -> list[str]:
     return [entry["code"] for entry in report["blockers"]]
 
 
-def test_ready_range_matches_the_gate_without_reading_the_key(gate_case, monkeypatch):
+def test_ready_range_matches_the_gate_without_shaping_a_keyed_request(gate_case, monkeypatch):
     def refuse(*args, **kwargs):
         raise AssertionError("the preflight must not shape a keyed request")
 
@@ -277,26 +277,27 @@ def test_offline_provider_has_no_request_payload():
         providers.request_payload(Config(), "synthetic system", {"files": []}, {})
 
 
-class NamesOnly(Mapping):
-    """An environment that lists names but fails if any value is looked up."""
+class SelectedKeyOnly(Mapping):
+    """Only the selected key can be inspected; unrelated values must stay untouched."""
 
-    def __init__(self, names):
-        self.names = tuple(names)
+    def __init__(self, values):
+        self.values = values
 
     def __iter__(self):
-        return iter(self.names)
+        return iter(self.values)
 
     def __len__(self):
-        return len(self.names)
+        return len(self.values)
 
     def __getitem__(self, name):
-        raise AssertionError("an environment value was looked up")
+        assert name == "REVIEW_PROVIDER_KEY"
+        return self.values[name]
 
 
-def test_key_presence_is_checked_by_name_without_any_value_lookup(gate_case):
-    report = preflight(gate_case, environment=NamesOnly(["PATH", "REVIEW_PROVIDER_KEY"]))
-    assert report["status"] == "ready" and report["provider"]["key_variable_set"]
-    assert codes(preflight(gate_case, environment=NamesOnly(["PATH"]))) == ["provider_key_missing"]
+def test_only_the_selected_key_is_checked_for_emptiness(gate_case):
+    report = preflight(gate_case, environment=SelectedKeyOnly({"PATH": "never read", "REVIEW_PROVIDER_KEY": KEY_VALUE}))
+    assert report["status"] == "ready" and report["provider"]["key_variable_set"] and report["key_value_read"]
+    assert codes(preflight(gate_case, environment=SelectedKeyOnly({"PATH": "never read"}))) == ["provider_key_missing"]
 
 
 def refuse(*args, **kwargs):

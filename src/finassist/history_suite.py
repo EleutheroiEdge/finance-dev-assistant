@@ -4,89 +4,62 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 import re
 
-from .ci_policy import revision
 from .config import Config
+from .document_contracts import validate_document_shape
 from .errors import AssistantError
 from .model_gate import _scope_path, _screen_ignores, prepare_model_source
 from .model_policy import load_model_policy
 from .scope import build_packet, git, resolve
 from .security import canonical, check_text, digest, regular_path
 
+SUITE_VERSION = 1
+MAX_CASES = 50
+MAX_EXPECTED = 50
+MAX_EXPECTED_PATHS = 50
+MAX_REPOSITORY_LENGTH = 4096
+MAX_TRIALS = 20
+MAX_SUITE_BYTES = 1_000_000
+IDENTIFIER_PATTERN = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}"
+POLICY_COMMIT_PATTERN = r"[0-9a-f]{40}"
 SEVERITY_WEIGHTS = {"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1}
-_CASE_FIELDS = {"id", "repo_path", "base_sha", "head_sha", "profile", "expected", "negative_control"}
 
 
 def identifier(value) -> str:
-    if not isinstance(value, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}", value) is None:
+    if not isinstance(value, str) or re.fullmatch(IDENTIFIER_PATTERN, value) is None:
         raise AssistantError("history_identity_invalid")
     return value
 
 
 def validate_expected(expected, negative_control) -> None:
-    if (type(negative_control) is not bool or not isinstance(expected, list) or len(expected) > 50
-            or negative_control != (len(expected) == 0)):
-        raise AssistantError("history_expected_invalid")
+    validate_document_shape({"expected": expected, "negative_control": negative_control},
+                            "history-expected", "history_expected_invalid")
     labels = set()
     for item in expected:
-        if not isinstance(item, dict) or set(item) != {"label", "paths", "severity"}:
+        if item["label"] in labels:
             raise AssistantError("history_expected_invalid")
-        label = identifier(item["label"])
-        if (label in labels or not isinstance(item["severity"], str)
-                or item["severity"] not in SEVERITY_WEIGHTS):
-            raise AssistantError("history_expected_invalid")
-        labels.add(label)
-        paths = item["paths"]
-        if (not isinstance(paths, list) or not 1 <= len(paths) <= 50
-                or any(not isinstance(path, str) for path in paths) or len(set(paths)) != len(paths)):
-            raise AssistantError("history_expected_invalid")
-        for path in paths:
+        labels.add(item["label"])
+        for path in item["paths"]:
             _scope_path(path)
 
 
 def validate_history_suite(suite: dict, *, trials: int = 1) -> str:
     """Validate the entire input before looking at repositories, keys or networks."""
-    if (not isinstance(suite, dict) or set(suite) != {"version", "cases"}
-            or type(suite["version"]) is not int or suite["version"] != 1
-            or type(trials) is not int or not 1 <= trials <= 20):
+    validate_document_shape(suite, "history-suite", "history_suite_invalid")
+    if (any(type(suite[key]) is not int for key in ("version", "schema_version") if key in suite)
+            or type(trials) is not int or not 1 <= trials <= MAX_TRIALS):
         raise AssistantError("history_suite_invalid")
     raw = canonical(suite)
-    if len(raw) > 1_000_000:
+    if len(raw) > MAX_SUITE_BYTES:
         raise AssistantError("history_suite_too_large")
     check_text(raw.decode())
-    cases = suite["cases"]
-    if not isinstance(cases, list) or not 1 <= len(cases) <= 50:
-        raise AssistantError("history_cases_invalid")
     seen = set()
-    for case in cases:
-        if (not isinstance(case, dict) or not _CASE_FIELDS <= set(case)
-                or set(case) - _CASE_FIELDS - {"policy"}):
-            raise AssistantError("history_case_invalid")
-        name = identifier(case["id"])
-        if name in seen:
+    for case in suite["cases"]:
+        if case["id"] in seen:
             raise AssistantError("history_identity_invalid")
-        seen.add(name)
-        if (not isinstance(case["repo_path"], str) or not case["repo_path"]
-                or len(case["repo_path"]) > 4096 or "://" in case["repo_path"]):
-            raise AssistantError("history_repository_invalid")
-        revision(case["base_sha"])
-        revision(case["head_sha"])
-        identifier(case["profile"])
+        seen.add(case["id"])
         validate_expected(case["expected"], case["negative_control"])
         if "policy" in case:
-            policy = case["policy"]
-            if (not isinstance(policy, dict) or not {"path", "sha256"} <= set(policy)
-                    or set(policy) - {"repo_path", "commit", "path", "sha256"}
-                    or not isinstance(policy["path"], str) or not isinstance(policy["sha256"], str)
-                    or re.fullmatch(r"[0-9a-f]{64}", policy["sha256"]) is None):
-                raise AssistantError("history_policy_invalid")
-            _scope_path(policy["path"])
-            if "repo_path" in policy and (not isinstance(policy["repo_path"], str)
-                    or not policy["repo_path"] or len(policy["repo_path"]) > 4096
-                    or "://" in policy["repo_path"]):
-                raise AssistantError("history_policy_repository_invalid")
-            commit = policy.get("commit", case["base_sha"])
-            if not isinstance(commit, str) or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
-                raise AssistantError("history_policy_commit_invalid")
+            _scope_path(case["policy"]["path"])
     return digest(raw)
 
 

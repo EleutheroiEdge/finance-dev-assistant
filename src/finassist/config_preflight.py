@@ -3,8 +3,8 @@
 It lists every blocker plan and review would hit for one range, in one run: refused,
 withheld and omitted paths, file and packet limits, settings with no effect, the network
 setting, the key variable, prices and the reserved spend. It reads Git objects and the
-configuration. It never reads a key value, uses the network, opens the ledger or writes
-a packet. Path names appear only in this local report, as "[redacted]" when a name fails
+configuration. It checks only a selected key's presence and emptiness, never outputs it,
+and never uses the network, opens the ledger or writes a packet. Path names appear only in this local report, as "[redacted]" when a name fails
 screening. Once its own checks pass it runs the real packet builder, so "ready" means
 plan builds this range's packet and review accepts it up to the provider call.
 """
@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .config import Config, config_hash
 from .error_hints import error_fields
+from .doctor_environment import key_diagnostic
 from .remedies import applied, attach_remedies
 from .errors import AssistantError
 from .health import config_warnings
@@ -24,7 +25,7 @@ from .providers import request_payload
 from .preflight_size import largest_versions, size_warning
 from .review import ENVELOPE_ALLOWANCE, reserved_usd, review_schema, spend_estimate
 from .forbidden_tokens import screen_source
-from .scope import (_private_name, build_packet, config_token_guard, git, omission_for, omission_reason, read_sides,
+from .scope import (MAX_CHANGED_PATHS, _private_name, build_packet, config_token_guard, git, omission_for, omission_reason, read_sides,
                     resolve)
 from .hidden_text import Waiting
 from .security import canonical, check_name, local_name, refusal_location, regular_path
@@ -42,8 +43,7 @@ class _ConfigPreflight:
     def __init__(self, repo: Path, base: str, head: str, config: Config, config_path: Path | None, environment):
         self.repo, self.base_ref, self.head_ref = repo, base, head
         self.config, self.config_path = config, config_path
-        # Names only: iterating an environment mapping never reads a value.
-        self.environment_names = frozenset(iter(environment))
+        self.environment = environment
         self.report = {
             "schema_version": 1, "mode": "config-preflight", "status": "blocked", "base": None, "head": None,
             "config": {"source": "defaults" if config_path is None else "file",
@@ -52,7 +52,7 @@ class _ConfigPreflight:
             # Whether a list of confidential figures is configured, and how many entries it holds.
             "figure_screen": {"configured": False, "listed": 0, "match": config.forbidden_token_match,
                               "digit_forms": 0},
-            "request": None, "provider": None, "network_used": False, "key_value_read": False,
+            "request": None, "provider": None, "network_used": False, "key_value_read": False, "key_values_returned": False,
             "ledger_opened": False, "next_step": None,
         }
         # Path blockers are grouped by code: a count plus a few example names.
@@ -91,7 +91,7 @@ class _ConfigPreflight:
             # Keep the report: name the failing step's class, never its message.
             self.block("preflight_check_failed", kind=type(exc).__name__)
         self.report["blockers"].extend(self._grouped.values())
-        attach_remedies(self.report, "configuration", _LEFT_OUT, sizes=self._largest, valid_option=self._fits)
+        attach_remedies(self.report, "configuration", sizes=self._largest, valid_option=self._fits)
         ready = not self.report["blockers"]
         self.report["status"] = "ready" if ready else "blocked"
         self.report["next_step"] = (self._commands() if ready
@@ -143,20 +143,22 @@ class _ConfigPreflight:
             self.block("path_name_not_utf8")
             return []
         names = [tokens[pos + 1] for pos in range(0, len(tokens) - 1, 2)]
-        if len(names) > 2000:
-            self.block("packet_file_count_limit", files=len(names), limit=2000)
+        if len(names) > MAX_CHANGED_PATHS:
+            self.block("packet_file_count_limit", files=len(names), limit=MAX_CHANGED_PATHS)
             return []
         if not names:
             self.block("empty_review_scope")
             return []
         rows = [self._classify(repo, (ancestor, head), name) for name in names]
         self.report["paths"] = rows
-        self.report["coverage_complete"] = all(row["status"] == "included" for row in rows)
+        # A file under generated_paths is outside the scope, as the review and triage count it: listed, not missing.
+        counted = [row for row in rows if row.get("reason") != "generated_artifact_excluded"]
+        self.report["coverage_complete"] = all(row["status"] == "included" for row in counted)
         # Only a model call refuses omissions or an empty context: offline review answers before those checks.
         # unreviewable_paths: skip-and-report is the choice to review without the files it names.
         model = config.provider != "offline"
         partial = config.allow_partial_review or config.unreviewable_paths == "skip-and-report"
-        for row in rows:
+        for row in counted:
             if row["status"] == "refused":
                 self.block_path(row["code"], row["path"])
             elif row["status"] == "omitted" and model and not partial:
@@ -229,15 +231,17 @@ class _ConfigPreflight:
         priced = config.provider == "ollama" or all(value > 0 for value in prices.values())
         self.report["provider"] = {
             "provider": config.provider, "model_configured": bool(config.model),
-            "network_enabled": config.allow_network, "key_variable": key or None,
-            "key_variable_set": bool(key) and key in self.environment_names, "prices_configured": priced,
+            "network_enabled": config.allow_network,
+            **key_diagnostic(key, self.environment), "prices_configured": priced,
         }
         if not config.allow_network:
             self.block("network_not_approved", allow_network=False)
         if not priced:
             self.block("provider_prices_required", missing=sorted(name for name, value in prices.items() if value <= 0))
-        if key and key not in self.environment_names:
-            self.block("provider_key_missing", variable=key)
+        self.report["key_value_read"] = bool(key) and self.report["provider"]["key_state"] != "missing"
+        if key and self.report["provider"]["key_state"] != "set":
+            self.block("provider_key_empty" if self.report["provider"]["key_state"] == "empty" else "provider_key_missing",
+                       variable=key)
         if packet is None or not priced:
             return
         system = config.instructions()
@@ -275,7 +279,10 @@ def run_config_doctor(args, config: Config) -> int:
         raise AssistantError("doctor_config_preflight_conflict")
     if not args.repo or not args.base or not args.head:
         raise AssistantError("doctor_policy_range_required")
+    from .doctor_environment import attach_environment, environment_report
+
     report = config_preflight(args.repo, args.base, args.head, config, args.config)
+    attach_environment(report, environment_report(config, config_path=args.config, route="configuration"))
     print(canonical(report).decode())
     return 0 if report["status"] == "ready" else 1
 

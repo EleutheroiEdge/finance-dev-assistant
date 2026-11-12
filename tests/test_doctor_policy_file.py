@@ -32,7 +32,7 @@ def from_file(case, pin=None, file=None):
     report = policy_preflight(case["repo"], case["base"], case["head"], "", pin,
                               policy_file=str(file or case["file"]))
     assert KEY_VALUE not in canonical(report).decode()
-    assert not report["network_used"] and not report["key_value_read"] and not report["ledger_opened"]
+    assert not report["network_used"] and not report["key_values_returned"] and not report["ledger_opened"]
     return report
 
 
