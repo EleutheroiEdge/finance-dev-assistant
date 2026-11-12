@@ -51,3 +51,9 @@ def guide_text(topic: str) -> str:
         raise AssistantError("unknown_guide")
     resource = GUIDES[topic][2]
     return files("finassist").joinpath("resources/" + resource).read_text(encoding="utf-8")
+
+
+def guide_listing() -> str:
+    return "Start with: finassist guide first-run\n\n" + "\n".join(
+        f"  {topic:22} {title}" for topic, (title, _source, _resource) in GUIDES.items()
+    ) + "\n"

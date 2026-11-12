@@ -232,7 +232,7 @@ def test_a_repository_with_no_source_gets_a_warning_and_writes_nothing(tmp_path,
 ])
 def test_a_paid_provider_needs_both_prices_before_anything_is_written(argv, missing, tmp_path, capsys):
     output = tmp_path / "finassist.json"
-    assert main(["--audit-dir", str(tmp_path / "audit"), "init", "--output", str(output), *argv]) == 2
+    assert main(["--audit-dir", str(tmp_path / "audit"), "init", "--template", "--output", str(output), *argv]) == 2
     record = json.loads(capsys.readouterr().err)
     assert record["code"] == "provider_prices_required" and record["missing"] == missing
     assert not output.exists()
@@ -240,7 +240,7 @@ def test_a_paid_provider_needs_both_prices_before_anything_is_written(argv, miss
 
 def test_a_paid_provider_with_prices_and_a_key_name_is_written(tmp_path, capsys):
     output = tmp_path / "finassist.json"
-    assert main(["--audit-dir", str(tmp_path / "audit"), "init", "--output", str(output), "--provider", "openai",
+    assert main(["--audit-dir", str(tmp_path / "audit"), "init", "--template", "--output", str(output), "--provider", "openai",
                  "--model", "synthetic-model", "--input-usd-per-million", "1.25", "--output-usd-per-million", "10",
                  "--api-key-env", "SYNTHETIC_REVIEW_KEY"]) == 0
     saved = load_config(output)
@@ -249,8 +249,8 @@ def test_a_paid_provider_with_prices_and_a_key_name_is_written(tmp_path, capsys)
 
 
 @pytest.mark.parametrize("argv, code", [
-    (["init", "--write"], "init_option_requires_detect"),
-    (["init", "--repo", "."], "init_option_requires_detect"),
+    (["init", "--template", "--write"], "init_option_requires_detect"),
+    (["init", "--template", "--repo", "."], "init_option_requires_detect"),
     (["init", "--profile", "general", "--purpose", "quant"], "init_profile_and_purpose_conflict"),
 ])
 def test_init_option_conflicts_are_refused(argv, code, tmp_path, capsys):
@@ -262,7 +262,7 @@ def test_init_option_conflicts_are_refused(argv, code, tmp_path, capsys):
                                               ("research", "investment-research"), ("general", "general")])
 def test_purpose_chooses_the_review_profile(purpose, profile, tmp_path, capsys):
     output = tmp_path / "finassist.json"
-    assert main(["--audit-dir", str(tmp_path / "audit"), "init", "--output", str(output), "--purpose", purpose]) == 0
+    assert main(["--audit-dir", str(tmp_path / "audit"), "init", "--template", "--output", str(output), "--purpose", purpose]) == 0
     assert load_config(output).profile == profile and profile in Config().profiles
 
 
@@ -316,7 +316,7 @@ def test_init_keeps_its_audit_state_out_of_the_repository_it_reads(quant_repo, t
     _proposal(capsys, ["init", "--detect", "--repo", str(quant_repo), "--write", "--output", "finassist.json"])
     assert (work / "finassist.json").is_file() and (work / ".finassist").is_dir()
     assert not (quant_repo / ".finassist").exists()
-    assert main(["init", "--output", "plain.json"]) == 0
+    assert main(["init", "--template", "--output", "plain.json"]) == 0
     assert (work / "plain.json").is_file()
 
 
