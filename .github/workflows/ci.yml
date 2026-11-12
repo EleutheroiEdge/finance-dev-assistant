@@ -23,8 +23,9 @@ jobs:
           persist-credentials: false
       # pip's cache of downloads and locally built wheels is kept between runs, keyed on the
       # runner's system, the Python version and the hash of the lock. After the lock changes,
-      # the action starts from the last cache for the same system and Python. Either way every
-      # install still verifies each file against the lock: the cache changes speed, not results.
+      # the action starts from the last cache for the same system and Python. Every download is
+      # still verified against the lock. A wheel that pip built locally from a verified source
+      # archive (comrak on Windows) is reused from the cache without being checked again.
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.13'
