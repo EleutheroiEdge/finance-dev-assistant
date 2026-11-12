@@ -187,7 +187,8 @@ def test_journal_marks_inflight_attempt_before_dispatch(gate_case, monkeypatch):
     validate_history_evaluation(json.loads(journal.read_bytes()))
 
 
-def test_offline_history_cli_is_deterministic_and_makes_no_reservations(repository, tmp_path, capsys):
+def test_offline_history_cli_is_deterministic_and_makes_no_reservations(repository, tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # Its state stays out of the checkout.
     repo, _, _ = repository
     suite_file = repo.parent / "history.json"
     suite_file.write_bytes(canonical(history_suite(repository)))
@@ -211,6 +212,7 @@ def test_offline_history_cli_is_deterministic_and_makes_no_reservations(reposito
 
 
 def test_existing_output_prevents_live_execution(gate_case, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # Its state stays out of the checkout.
     suite_file = tmp_path / "suite.json"
     suite_file.write_bytes(canonical(model_suite(gate_case)))
     output = tmp_path / "existing.json"
@@ -220,9 +222,10 @@ def test_existing_output_prevents_live_execution(gate_case, tmp_path, monkeypatc
     assert output.read_text() == "preserve\n"
 
 
-def test_large_valid_history_evaluation_can_be_scored_by_the_cli(tmp_path):
+def test_large_valid_history_evaluation_can_be_scored_by_the_cli(tmp_path, monkeypatch):
     # One hundred trials with fifty findings and long safe paths exceed the old 2MB
     # input limit. This is a valid bounded external envelope, not model output.
+    monkeypatch.chdir(tmp_path)  # Its state stays out of the checkout.
     from finassist.security import digest
     path = "src/" + "long-path-component/" * 20 + "cash.py"
     cases, judgments = [], []
