@@ -27,22 +27,16 @@ def _path_batches(paths: list[str]) -> list[list[str]]:
     return batches
 
 
-def size_warning(repo: Path, revisions: tuple[str, str], paths: list[str], rows: list[dict],
-                 limit: int, limit_setting: str) -> dict | None:
-    """Sum both versions only when at least one size refusal is the sole path blocker.
+def _version_sizes(repo: Path, revisions: tuple[str, str], selected: list[str],
+                   read=None) -> dict[bytes, list[int]] | None:
+    """Blob sizes for each literal name, one per revision that holds it.
 
-    Omitted/withheld files never contribute. This is not a request estimate or a
-    screening result: unread content may still refuse after a file limit is raised.
-    Failed metadata reads suppress the advisory; they must not change blockers.
+    None when the metadata cannot be trusted: a repeated name, a name that was not asked for, an entry that
+    is not a regular file, a path absent at both revisions, or a failed read.
     """
-    refused = [row for row in rows if row["status"] == "refused"]
-    if (not refused or any(row["code"] != "file_limit_exceeded" for row in refused)
-            or any(row["status"] == "unchecked" for row in rows)):
-        return None
-    total, seen = 0, set()
+    read = git if read is None else read
+    sizes: dict[bytes, list[int]] = {}
     try:
-        selected = [path for path, row in zip(paths, rows, strict=True)
-                    if row["status"] in {"included", "refused"}]
         expected = {path.encode("utf-8") for path in selected}
         if len(expected) != len(selected):
             return None
@@ -50,7 +44,7 @@ def size_warning(repo: Path, revisions: tuple[str, str], paths: list[str], rows:
         for revision in revisions:
             for batch in batches:
                 wanted, found = {path.encode("utf-8") for path in batch}, set()
-                raw = git(repo, "--literal-pathspecs", "ls-tree", "-l", "-z", revision, "--", *batch, binary=True)
+                raw = read(repo, "--literal-pathspecs", "ls-tree", "-l", "-z", revision, "--", *batch, binary=True)
                 if raw and not raw.endswith(b"\0"):
                     return None
                 # Git returns tree order, not argument order. Match the literal
@@ -65,15 +59,53 @@ def size_warning(repo: Path, revisions: tuple[str, str], paths: list[str], rows:
                     count = int(size)
                     if count < 0:
                         return None
-                    total += count
+                    sizes.setdefault(name, []).append(count)
                     found.add(name)
-                seen.update(found)
         # Added/deleted files may be absent at one revision, never at both.
-        if seen != expected:
+        if set(sizes) != expected:
             return None
     except (AssistantError, OSError, ValueError, LookupError):
         return None
+    return sizes
+
+
+def size_warning(repo: Path, revisions: tuple[str, str], paths: list[str], rows: list[dict],
+                 limit: int, limit_setting: str) -> dict | None:
+    """Sum both versions only when at least one size refusal is the sole path blocker.
+
+    Omitted/withheld files never contribute. This is not a request estimate or a
+    screening result: unread content may still refuse after a file limit is raised.
+    Failed metadata reads suppress the advisory; they must not change blockers.
+    """
+    refused = [row for row in rows if row["status"] == "refused"]
+    if (not refused or any(row["code"] != "file_limit_exceeded" for row in refused)
+            or any(row["status"] == "unchecked" for row in rows)):
+        return None
+    try:
+        selected = [path for path, row in zip(paths, rows, strict=True)
+                    if row["status"] in {"included", "refused"}]
+    except ValueError:
+        return None
+    sizes = _version_sizes(repo, revisions, selected)
+    if sizes is None:
+        return None
+    total = sum(sum(values) for values in sizes.values())
     if total <= limit:
         return None
     return {"code": "request_lower_bound_exceeded", "lower_bound_bytes": total, "limit": limit, "limit_setting": limit_setting,
             **error_fields("request_lower_bound_exceeded")}
+
+
+def largest_versions(repo: Path, revisions: tuple[str, str], paths: list[str], *, read=None) -> dict[str, int] | None:
+    """The size of the larger version of each path, from Git's metadata alone.
+
+    A refusal for size reports the first version it met, and the other may be larger. A proposed file limit
+    has to cover both. None when the sizes cannot be established for every path. ``read`` is the caller's own
+    Git reader, so that this read is the same whether or not the size warning runs.
+    """
+    if not paths:
+        return None
+    sizes = _version_sizes(repo, revisions, list(paths), read)
+    if sizes is None:
+        return None
+    return {name.decode("utf-8"): max(values) for name, values in sizes.items()}
