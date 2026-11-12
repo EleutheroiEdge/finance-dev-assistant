@@ -59,7 +59,8 @@ def test_each_change_ends_where_it_should_and_the_repository_is_left_alone(repos
     assert summary["changes"] == 4 and set(summary["routes"]) == set(remedies.ROUTES)
     for route, counts in summary["routes"].items():
         outcomes = counts["outcomes"]
-        assert outcomes == {"ready": 1, "remedied": 2, "needs_decision": 1, "failed": 0, "looped": 0}, route
+        assert outcomes == {"ready": 1, "remedied": 2, "needs_decision": 1, "unexplained": 0, "failed": 0,
+                            "looped": 0}, route
         assert counts["set_up"] == 3 and counts["defects"] == {}
         assert counts["decisions"] == {"sensitive_content": 1}
         # The careful path: both remedies taken leave a file out, and neither sends or spends more.
@@ -103,22 +104,52 @@ def test_a_change_is_made_where_its_pointer_says_and_an_option_a_program_cannot_
             remedies.apply("configuration", document, {"document": "configuration", "changes": [change]})
 
 
-def test_a_remedy_that_comes_back_is_reported_as_failed_and_one_that_never_ends_as_looped(tmp_path, monkeypatch):
-    option = {"document": "configuration", "effect": "leaves_files_out",
-              "changes": [{"setting": "unreviewable_paths", "value": "skip-and-report", "pointer": "/unreviewable_paths"}]}
-    blocked = {"status": "blocked", "blockers": ["file_limit_exceeded"], "left_out": 1, "seconds": 0.1,
-               "remedies": [{"code": "file_limit_exceeded", "options": [option]}]}
-    monkeypatch.setattr(remedies, "preflight", lambda *_arguments: dict(blocked))
-    row = remedies.follow(["finassist"], "configuration", {}, tmp_path, "base", "head", tmp_path / "failed", {})
+OPTION = {"document": "configuration", "effect": "leaves_files_out",
+          "changes": [{"setting": "unreviewable_paths", "value": "skip-and-report", "pointer": "/unreviewable_paths"}]}
+
+
+def _blocked(*codes, remedies_listed=()):
+    return {"status": "blocked", "blockers": list(codes), "left_out": 1, "seconds": 0.1, "remedies": list(remedies_listed)}
+
+
+def _run(monkeypatch, tmp_path, name, reports):
+    """follow() against a scripted doctor: one report per run, the last one repeated."""
+    reports = list(reports)
+    monkeypatch.setattr(remedies, "preflight", lambda *_arguments: dict(reports.pop(0) if len(reports) > 1 else reports[0]))
+    return remedies.follow(["finassist"], "configuration", {}, tmp_path, "base", "head", tmp_path / name, {})
+
+
+def test_a_blocker_still_there_after_its_remedy_is_failed_whether_or_not_it_is_offered_again(tmp_path, monkeypatch):
+    offered = _blocked("file_limit_exceeded", remedies_listed=[{"code": "file_limit_exceeded", "options": [OPTION]}])
+    # The same option offered again.
+    row = _run(monkeypatch, tmp_path, "again", [offered])
     assert (row["outcome"], row["rounds"], row["codes"]) == ("failed", 2, ["file_limit_exceeded"])
     assert row["applied"] == [{"code": "file_limit_exceeded", "effect": "leaves_files_out", "settings": ["unreviewable_paths"]}]
+    # The blocker comes back with no option at all: still the remedy's failure, not a person's decision.
+    row = _run(monkeypatch, tmp_path, "silent", [offered, _blocked("file_limit_exceeded")])
+    assert (row["outcome"], row["rounds"], row["codes"]) == ("failed", 2, ["file_limit_exceeded"])
 
+
+def test_a_blocker_with_no_remedy_is_a_decision_only_if_it_is_a_known_decision(tmp_path, monkeypatch):
+    row = _run(monkeypatch, tmp_path, "decision", [_blocked("sensitive_content")])
+    assert (row["outcome"], row["codes"]) == ("needs_decision", ["sensitive_content"])
+    row = _run(monkeypatch, tmp_path, "unknown", [_blocked("sensitive_content", "a_new_code")])
+    assert (row["outcome"], row["codes"]) == ("unexplained", ["a_new_code"])
+    counts = remedies.summarize([row])
+    assert counts["defects"] == {"unexplained:a_new_code": 1} and counts["outcomes"]["unexplained"] == 1
+
+
+def test_a_doctor_run_that_failed_makes_the_measurement_incomplete(tmp_path, monkeypatch):
+    with pytest.raises(remedies.Incomplete, match="preflight_check_failed"):
+        _run(monkeypatch, tmp_path, "broken", [_blocked("preflight_check_failed")])
+
+
+def test_remedies_that_keep_finding_new_blockers_are_reported_as_looped(tmp_path, monkeypatch):
     counter = iter(range(1, 100))
 
     def moving(*_arguments):
-        bound = {"setting": "max_file_bytes", "at_least": next(counter), "pointer": "/max_file_bytes"}
-        return {**blocked, "remedies": [{"code": "file_limit_exceeded", "options": [
-            {"document": "configuration", "effect": "sends_more", "changes": [bound]}]}]}
+        code = "blocker_%d" % next(counter)  # A new blocker each run: none survives, none settles.
+        return _blocked(code, remedies_listed=[{"code": code, "options": [OPTION]}])
 
     monkeypatch.setattr(remedies, "preflight", moving)
     row = remedies.follow(["finassist"], "configuration", {}, tmp_path, "base", "head", tmp_path / "looped", {})

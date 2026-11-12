@@ -12,13 +12,17 @@ Each change, on each route, ends as one of:
     ready            as drafted, nothing stood in the way but authorization: network approval, a
                      key, prices
     remedied         the same, after following remedies; the runs it took are counted
-    needs_decision   still blocked, and no blocker left has an option a program can apply
-    failed           an option was applied and `doctor` proposed that same option for that same
-                     blocker again
+    needs_decision   still blocked, no blocker left has an option a program can apply, and every
+                     blocker left is one only a person can settle (DECISIONS below)
+    unexplained      still blocked by a code that is not in DECISIONS, with no option to apply
+    failed           a blocker an applied option targeted is still there on the next run
     looped           still blocked, with remedies still listed, after the limit of rounds
 
-`failed` and `looped` are defects in the product: a remedy is listed only when it is known to
-clear its blocker. The other three measure the setup.
+`unexplained`, `failed` and `looped` are defects to look at: a remedy is listed only when it is
+known to clear its blocker, and a blocker with no remedy should be one a person must settle. A
+code is a decision only by being listed below, so a new code is never counted as one unseen. A
+`doctor` run that fails (`preflight_check_failed`, or no report at all) makes the repository's
+measurement incomplete, as in first_run_scenarios.py. The other three outcomes measure the setup.
 
 Nothing is sent anywhere: `doctor` is offline and the key variable holds a placeholder. Nothing
 is written inside a repository, and its objects are read as first_run_scenarios.py reads them.
@@ -53,8 +57,25 @@ _SPEC.loader.exec_module(first_run)
 Incomplete = first_run.Incomplete
 # A route is named as a remedy names its document; the value is that document's field in the proposal.
 ROUTES = {"configuration": "config", "gate policy": "gate_policy_draft"}
-OUTCOMES = ("ready", "remedied", "needs_decision", "failed", "looped")
+OUTCOMES = ("ready", "remedied", "needs_decision", "unexplained", "failed", "looped")
+DEFECTS = ("unexplained", "failed", "looped")
 MAX_ROUNDS = 6
+# Blockers only a person can settle, as release gate B4 lists them: content that must not be sent (a credential,
+# a hidden character, a listed figure), a change to the review's own rules, a private or binary file, a size or a
+# cost over a stated limit, and a range left with nothing to review once the files a setting leaves out are out.
+# A code that is not here, and has no remedy, is reported as unexplained.
+DECISIONS = frozenset({
+    "sensitive_content", "hidden_characters", "forbidden_token_present", "forbidden_publication_text",
+    "gate_ignore_change_requires_review", "gate_policy_change_requires_review", "gate_profile_change_requires_review",
+    "gate_fixture_marker_change_requires_review", "gate_ignored_path",
+    "private_path", "private_or_binary_path", "private_profile_path", "gate_private_path",
+    "unsupported_file_type", "file_limit_exceeded", "non_text_blob", "scope_incomplete", "gate_path_not_allowed",
+    "packet_limit_exceeded", "gate_request_bytes_exceeded", "gate_file_count_exceeded", "packet_file_count_limit",
+    "run_budget_exceeded", "daily_budget_exceeded", "monthly_budget_exceeded",
+    "empty_review_scope", "empty_model_context", "review_scope_entirely_withheld",
+})
+# A doctor run that failed is not a measurement of the setup.
+EXECUTION_FAILURES = frozenset({"preflight_check_failed"})
 
 
 def apply(route: str, document: dict, option: dict) -> dict | None:
@@ -113,9 +134,16 @@ def follow(command: list[str], route: str, document: dict, repo: Path, base: str
         result = preflight(command, [*route_arguments, "--repo", str(repo), "--base", base, "--head", head],
                            folder, environment)
         seconds.append(result["seconds"])
+        if EXECUTION_FAILURES & set(result["blockers"]):
+            raise Incomplete("doctor failed on a range: " + ", ".join(sorted(EXECUTION_FAILURES & set(result["blockers"]))))
         open_codes = [code for code in result["blockers"] if code not in first_run.AUTHORIZATION]
         if not open_codes:
             return _ended("ready" if number == 1 else "remedied", number, applied, [], result, seconds)
+        # An option is listed only when it is known to clear its blocker: one still there after it was applied is a
+        # defect, whether doctor proposes the same option again, another option, or none.
+        survived = sorted(set(last) & set(open_codes))
+        if survived:
+            return _ended("failed", number, applied, survived, result, seconds)
         steps = {}
         for remedy in result["remedies"]:
             for option in remedy["options"]:
@@ -124,10 +152,10 @@ def follow(command: list[str], route: str, document: dict, repo: Path, base: str
                     steps[remedy["code"]], document = option, changed
                     break
         if not steps:
+            unexplained = sorted(set(open_codes) - DECISIONS)
+            if unexplained:
+                return _ended("unexplained", number, applied, unexplained, result, seconds)
             return _ended("needs_decision", number, applied, open_codes, result, seconds)
-        repeated = sorted(code for code, option in steps.items() if last.get(code) == option)
-        if repeated:
-            return _ended("failed", number, applied, repeated, result, seconds)
         applied.extend({"code": code, "effect": option.get("effect"),
                         "settings": sorted(change["setting"] for change in option["changes"])}
                        for code, option in steps.items())
@@ -148,7 +176,7 @@ def summarize(rows: list[dict]) -> dict:
         "settings": dict(collections.Counter(name for step in steps for name in step["settings"])),
         "decisions": dict(collections.Counter(code for row in rows if row["outcome"] == "needs_decision"
                                               for code in row["codes"])),
-        "defects": dict(collections.Counter(code for row in rows if row["outcome"] in ("failed", "looped")
+        "defects": dict(collections.Counter(f"{row['outcome']}:{code}" for row in rows if row["outcome"] in DEFECTS
                                             for code in row["codes"])),
         "left_out_when_set_up": sum(row["left_out"] for row in rows if row["outcome"] in ("ready", "remedied")),
     }
@@ -171,8 +199,8 @@ def combine(parts: list[dict]) -> dict:
 def shown(route: str, counts: dict, changes: int, prefix: str = "  ") -> str:
     outcomes, runs = counts["outcomes"], counts["runs_to_set_up"]
     lines = [f"{prefix} {route:13} ready {outcomes.get('ready', 0)}/{changes} | remedied {outcomes.get('remedied', 0)} "
-             f"| needs a decision {outcomes.get('needs_decision', 0)} | failed {outcomes.get('failed', 0)} "
-             f"| looped {outcomes.get('looped', 0)} | set up {counts['set_up']}/{changes} "
+             f"| needs a decision {outcomes.get('needs_decision', 0)} | unexplained {outcomes.get('unexplained', 0)} "
+             f"| failed {outcomes.get('failed', 0)} | looped {outcomes.get('looped', 0)} | set up {counts['set_up']}/{changes} "
              f"({100 * counts['set_up'] / changes:.0f}%)",
              f"{prefix} {'':13} applied {counts['effects']} | settings {counts['settings']}",
              f"{prefix} {'':13} decisions {counts['decisions']} | defects {counts['defects']} | runs to set up: "
