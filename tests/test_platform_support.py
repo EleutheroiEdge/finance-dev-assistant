@@ -40,12 +40,12 @@ def test_utf8_crlf_config_and_source_hashes(repository, tmp_path):
 
 @pytest.mark.parametrize("tool", ["git", "gh", "docker", "podman"])
 def test_tool_discovery_is_native_and_batch_shims_are_refused(monkeypatch, tool):
-    monkeypatch.setattr("finassist.platform_support.shutil.which", lambda _: f"tools/{tool}.exe")
+    monkeypatch.setattr("finassist.platform_support.locate_tool", lambda _: f"tools/{tool}.exe")
     assert find_tool(tool).endswith(".exe")
-    monkeypatch.setattr("finassist.platform_support.shutil.which", lambda _: f"tools/{tool}.cmd")
+    monkeypatch.setattr("finassist.platform_support.locate_tool", lambda _: f"tools/{tool}.cmd")
     with pytest.raises(AssistantError, match="batch_tool_not_supported"):
         find_tool(tool)
-    monkeypatch.setattr("finassist.platform_support.shutil.which", lambda _: None)
+    monkeypatch.setattr("finassist.platform_support.locate_tool", lambda _: None)
     with pytest.raises(AssistantError, match=tool + "_executable_missing"):
         find_tool(tool)
 
@@ -121,7 +121,7 @@ def test_no_subprocess_call_uses_a_shell_and_ci_covers_native_platforms():
 def test_docker_desktop_mount_uses_forward_slashes_and_a_literal_argument(tmp_path, monkeypatch):
     # Native Path.as_posix provides this representation on Windows.
     assert PureWindowsPath("C:/project with spaces/source").as_posix() == "C:/project with spaces/source"
-    monkeypatch.setattr("finassist.platform_support.shutil.which", lambda _: "docker")
+    monkeypatch.setattr("finassist.platform_support.locate_tool", lambda _: "docker")
 
     def supervise(argv, **kwargs):
         mount = argv[argv.index("--mount") + 1]

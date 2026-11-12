@@ -2,7 +2,6 @@
 
 import os
 from pathlib import Path
-import shutil
 import sys
 
 from .errors import AssistantError
@@ -18,10 +17,38 @@ _MISSING = {
 }
 
 
+_WINDOWS_SUFFIXES = (".COM", ".EXE", ".BAT", ".CMD")
+
+
+def locate_tool(name: str, environment=None, *, windows: bool | None = None) -> str | None:
+    """The first absolute PATH entry that holds the program, or None.
+
+    The current directory is searched only if PATH names it in full. An empty or relative entry is
+    skipped, and so is the search of the current directory that Windows, and ``shutil.which`` on
+    Windows, add by themselves. A checkout under review can hold a file named like a tool: it must
+    never be the program that reads that checkout.
+    """
+    environment = os.environ if environment is None else environment
+    windows = os.name == "nt" if windows is None else windows
+    suffixes = [""]
+    if windows:
+        suffixes = [item for item in environment.get("PATHEXT", "").split(";") if item] or list(_WINDOWS_SUFFIXES)
+    for entry in environment.get("PATH", os.defpath).split(";" if windows else os.pathsep):
+        directory = Path(entry.strip('"') if windows else entry)
+        if not entry or not directory.is_absolute():
+            continue
+        for suffix in suffixes:
+            candidate = directory / (name + suffix)
+            # Windows has no executable bit: the suffix is what makes a file a program there.
+            if candidate.is_file() and (windows or os.access(candidate, os.X_OK)):
+                return str(candidate)
+    return None
+
+
 def find_tool(name: str) -> str:
     if name not in _MISSING:
         raise AssistantError("unsupported_tool")
-    executable = shutil.which(name)
+    executable = locate_tool(name)
     if executable is None:
         raise AssistantError(_MISSING[name])
     # Batch shims can invoke a command interpreter despite shell=False.

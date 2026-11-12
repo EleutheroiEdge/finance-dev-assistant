@@ -364,7 +364,7 @@ def test_new_crlf_source_keeps_carriage_returns_without_whitespace_errors(reposi
 def test_doctor_refuses_batch_tool_shims(monkeypatch, capsys):
     import json
 
-    monkeypatch.setattr("finassist.platform_support.shutil.which", lambda name: name + ".cmd")
+    monkeypatch.setattr("finassist.platform_support.locate_tool", lambda name: name + ".cmd")
     assert main(["doctor"]) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["docker_binary_present"] is False and report["podman_binary_present"] is False
