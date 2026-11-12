@@ -35,6 +35,14 @@ _TABLES = (
     "AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name"
 )
 
+def run_state(args) -> int:
+    """`finassist state status`: print the inventory as one JSON line. Reads only."""
+    from .security import canonical
+
+    print(canonical(state_report(args.state_dir, user_directories=not args.no_user)).decode())
+    return 0
+
+
 def state_report(state_dir: Path, *, user_directories: bool = True) -> dict:
     """A read-only inventory of the state folder: what is there, how large, how old. Never writes."""
     report = {

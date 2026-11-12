@@ -5,6 +5,16 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 ## Unreleased
 
 ### Added
+- **`finassist state status`: what the tool keeps on this machine, read-only.** Each store in the state
+  folder (the audit chain, the evidence stores, patches, workflow runs and locks, history, configuration
+  backups, setup) with its size, its tables' row counts or its file count, and its oldest and newest entry;
+  any other name in the folder, so nothing goes unseen; and the per-user configuration and cache folders. It
+  writes nothing at all, not even an audit entry: a database with a journal or write-ahead file is read from a
+  private copy. The first part of #120; archiving and cleaning come next.
+- **`doctor --format text`: the report for a person at a terminal.** The verdict first, each blocker by its
+  code with its hint and its remedies, what each remedy changes and what else it does, and the next command.
+  It works on the health report and on both range preflights, and prints only fields it knows, so no key
+  value or file content can reach it. JSON stays the default and the contract; the exit codes are the same.
 - Doctor lists Git capabilities, local configuration/state/settings/cache paths, writable-directory estimates and a deduplicated key-use table with separate host permissions and limits for configuration and supplied gate policy. Proxy/custom-CA variables are named without values; no connection or write probe runs.
 - Published document-contract schemas and offline `finassist config schema --kind NAME`
   exports for configuration, policies, packets, model gate/review reports and evaluation

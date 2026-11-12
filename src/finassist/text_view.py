@@ -21,6 +21,17 @@ _STATUS_WORDS = (("included", "included"), ("refused", "refused"), ("withheld", 
 _MAX_PATHS = 3  # Example paths shown per blocker; the JSON lists up to twenty.
 
 
+def doctor_output(report: dict, args) -> str:
+    """What `doctor` prints: its JSON report, or with `--format text` this view of it, fitted to the terminal."""
+    if getattr(args, "format", "json") != "text":
+        from .security import canonical
+
+        return canonical(report).decode()
+    import shutil
+
+    return render(report, width=min(max(shutil.get_terminal_size((80, 24)).columns, 60), 120))
+
+
 def render(report: dict, *, width: int = 80, color: bool = False) -> str:
     """The human view of a doctor report. Never raises on a missing or unknown field."""
     pen = _Pen(width, color)
