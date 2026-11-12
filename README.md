@@ -96,10 +96,10 @@ after updating. `finassist update status --json` shows cached update information
 `finassist update --dry-run` prints the detected command, and `--yes` explicitly
 runs it for a supported installation. Notices are off by default. Teams can pin
 a reviewed version, for example
-`pipx install finledgerpoli==0.10.0`, and roll back with
+`pipx install finledgerpoli==0.11.0`, and roll back with
 `pipx install finledgerpoli==0.4.0 --force`. With uv use
-`uv tool install finledgerpoli==0.10.0`; with pip use
-`python -m pip install finledgerpoli==0.10.0` in the intended environment.
+`uv tool install finledgerpoli==0.11.0`; with pip use
+`python -m pip install finledgerpoli==0.11.0` in the intended environment.
 
 For a release that includes a `finledgerpoli-<VERSION>-requirements.txt` asset,
 replace `<VERSION>` with the reviewed release number and use the intended Python

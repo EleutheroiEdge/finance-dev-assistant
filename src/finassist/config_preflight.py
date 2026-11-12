@@ -10,15 +10,18 @@ plan builds this range's packet and review accepts it up to the provider call.
 """
 
 from decimal import ROUND_CEILING, Decimal
+from dataclasses import replace
 import os
 from pathlib import Path
 
 from .config import Config, config_hash
 from .error_hints import error_fields
+from .remedies import applied, attach_remedies
 from .errors import AssistantError
 from .health import config_warnings
 from .onboarding import _shown_argument
 from .providers import request_payload
+from .preflight_size import largest_versions, size_warning
 from .review import ENVELOPE_ALLOWANCE, reserved_usd, review_schema, spend_estimate
 from .forbidden_tokens import screen_source
 from .scope import (_private_name, build_packet, config_token_guard, git, omission_for, omission_reason, read_sides,
@@ -55,6 +58,7 @@ class _ConfigPreflight:
         # Path blockers are grouped by code: a count plus a few example names.
         self._grouped: dict[str, dict] = {}
         self.guard = None
+        self._largest = None  # The larger version of each file refused for size.
 
     def block(self, code: str, **details) -> None:
         self.report["blockers"].append({"code": code, **details, "hint": _hint(code)})
@@ -65,6 +69,19 @@ class _ConfigPreflight:
         if len(group["paths"]) < _EXAMPLES:
             group["paths"].append(path)
 
+    def _fits(self, option: dict) -> bool:
+        """Whether the configuration is still valid with one remedy option applied."""
+        names = {change["setting"] for change in option["changes"]}
+        try:
+            before = {name: getattr(self.config, name) for name in names}
+            after = applied({name: list(value) if isinstance(value, tuple) else value
+                             for name, value in before.items()}, option)
+            replace(self.config, **{name: tuple(value) if isinstance(before[name], tuple) else value
+                                    for name, value in after.items()}).validate()
+        except (AssistantError, AttributeError, TypeError, ValueError):
+            return False
+        return True
+
     def run(self) -> dict:
         try:
             self._run()
@@ -74,6 +91,7 @@ class _ConfigPreflight:
             # Keep the report: name the failing step's class, never its message.
             self.block("preflight_check_failed", kind=type(exc).__name__)
         self.report["blockers"].extend(self._grouped.values())
+        attach_remedies(self.report, "configuration", _LEFT_OUT, sizes=self._largest, valid_option=self._fits)
         ready = not self.report["blockers"]
         self.report["status"] = "ready" if ready else "blocked"
         self.report["next_step"] = (self._commands() if ready
@@ -159,6 +177,14 @@ class _ConfigPreflight:
             self.block("review_scope_entirely_withheld")
         elif model and not any(row["status"] == "included" for row in rows) and not self._grouped:
             self.block("empty_model_context")
+        if set(self._grouped) == {"file_limit_exceeded"}:
+            warning = size_warning(repo, (ancestor, head), names, rows, config.max_packet_bytes, "max_packet_bytes")
+            if warning is not None:
+                self.report["warnings"].append(warning)
+            # For the remedy, and whether or not the warning ran: both versions of each refused file.
+            over = [name for name, row in zip(names, rows, strict=False)
+                    if row["status"] == "refused" and row.get("code") == "file_limit_exceeded"]
+            self._largest = largest_versions(repo, (ancestor, head), over, read=git)
         return rows
 
     def _classify(self, repo: Path, revisions: tuple[str, str], path: str) -> dict:
