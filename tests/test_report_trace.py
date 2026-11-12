@@ -85,7 +85,8 @@ def test_duplicate_json_keys_are_rejected(tmp_path):
         read_trace_input(path)
 
 
-def test_trace_and_score_cli_are_offline_and_preserve_existing_outputs(report, tmp_path, capsys):
+def test_trace_and_score_cli_are_offline_and_preserve_existing_outputs(report, tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # Its state stays out of the checkout.
     source, labels, output, scored = (tmp_path / name for name in ("report.json", "labels.json", "trace.md", "score.json"))
     source.write_bytes(canonical(report))
     labels.write_bytes(canonical(judgment(report)))
