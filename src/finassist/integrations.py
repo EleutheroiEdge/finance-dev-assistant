@@ -5,6 +5,7 @@ from importlib.resources import files
 from pathlib import Path
 
 from .config import Config
+from .document_schemas import SCHEMA_FILES
 from .errors import AssistantError
 from .guides import GUIDES
 from .security import canonical, regular_path, write_private
@@ -39,6 +40,7 @@ def export_kit(destination: Path) -> dict:
         "examples/profiles/engineering.json": "engineering-profile.json",
         "docs/maintainers/branch-protection-proposal.json": "branch-protection-proposal.json",
     }
+    mapping.update({"schemas/" + name: name for name in SCHEMA_FILES.values()})
     mapping.update({source: resource for _, source, resource in GUIDES.values()})
     for target, resource in mapping.items():
         content = files("finassist").joinpath("resources/" + resource).read_bytes()

@@ -36,7 +36,10 @@ def test_cli_version_uses_renamed_installed_metadata(installed_metadata, capsys)
 
 def test_doctor_uses_renamed_installed_metadata(installed_metadata, capsys):
     assert main(["doctor"]) == 0
-    assert json.loads(capsys.readouterr().out)["version"] == "9.8.7"
+    report = json.loads(capsys.readouterr().out)
+    assert report["version"] == finassist.__version__
+    assert report["package"]["metadata_version"] == "9.8.7"
+    assert "doctor_version_mismatch" in {row["code"] for row in report["environment"]["warnings"]}
     assert installed_metadata and set(installed_metadata) == {"finledgerpoli"}
 
 

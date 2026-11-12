@@ -17,7 +17,6 @@ from . import installed_version
 from .auditing import command_audit
 from .config import Config, config_hash, load_config, PACKET_FILE_BYTES
 from .demo import run_demo
-from .health import doctor_report
 from .errors import AssistantError, error_record
 from .error_hints import add_explain_command, error_fields, explain_arguments, explain_parser, run_explain
 from .evaluation import evaluate, score
@@ -86,8 +85,10 @@ def parser() -> argparse.ArgumentParser:
     guide = commands.add_parser("guide", help="List or print bundled guides offline")
     guide.add_argument("topic", nargs="?", help="Topic from the guide index; omit to list topics")
     guide.add_argument("--json", action="store_true", help="Print the topic index as JSON")
-    config_command = commands.add_parser("config", help="Preview or explicitly apply reversible configuration migrations")
+    config_command = commands.add_parser("config", help="Print schemas or preview and apply reversible configuration migrations")
     config_actions = config_command.add_subparsers(dest="config_action", required=True)
+    from .document_schemas import add_schema_command
+    add_schema_command(config_actions)
     migrate = config_actions.add_parser("migrate", help="Keep exact backup bytes before applying reviewed key renames")
     migrate.add_argument("--path", type=Path, help="Configuration file; otherwise --config or finassist.json")
     migrate.add_argument("--dry-run", action="store_true")
@@ -363,11 +364,11 @@ def execute(args, config: Config | None = None) -> int:
 
         return run_init(args, config)
     elif args.command == "doctor":
-        from .update_check import check_once
+        from .doctor_commands import doctor_result
 
-        checked = check_once(network_allowed=config.allow_network) if args.check_updates else None
-        _emit(doctor_report(config, update_check=checked, config_path=args.config,
-                            state_dir=args.audit_dir or args.state_dir or Path(".finassist")))
+        report, exit_code = doctor_result(args, config)
+        _emit(report)
+        return exit_code
     elif args.command == "demo":
         result = run_demo()
         _emit(result, args.output)
@@ -755,12 +756,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "evidence" and args.dry_run and args.action != "migrate":
             raise AssistantError("evidence_dry_run_requires_migrate")
         if args.command == "doctor" and args.fix:
-            from .maintenance import fix_local_state
+            from .doctor_commands import fix_doctor
 
-            path = args.config
-            if path is None and Path("finassist.json").exists():
-                path = Path("finassist.json")
-            _emit(fix_local_state(path, audit_directory(args)))
+            _emit(fix_doctor(args, audit_directory(args)))
+            return 0
+        if args.command == "config" and args.config_action == "schema":
+            from .document_schemas import installed_document_schema
+
+            _emit(installed_document_schema(args.kind))
             return 0
         if args.command == "config":
             from .config_compat import apply_config_migration, preview_config_migration

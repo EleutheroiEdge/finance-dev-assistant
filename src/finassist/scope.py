@@ -18,6 +18,14 @@ from .security import (PUBLIC_ASSETS, canonical, check_credentials, check_name, 
                        digest, local_name)
 
 
+MAX_CHANGED_PATHS = 2000
+PACKET_VERSIONS = (1, 2)
+FILE_STATUSES = ("A", "D", "M", "T")
+BLOB_MODES = ("100644", "100755")
+REVISION_PATTERN = r"[0-9a-f]{40}|[0-9a-f]{64}"
+SHA256_PATTERN = r"[0-9a-f]{64}"
+
+
 def git_environment() -> dict[str, str]:
     environment = {
         **clean_environment(),
@@ -485,7 +493,7 @@ def build_packet(
     )
     tokens = raw.decode("utf-8", errors="strict").split("\0")
     # Every later command refuses a packet over 2,000 changed paths, so none is built.
-    if len(tokens) // 2 > 2000:
+    if len(tokens) // 2 > MAX_CHANGED_PATHS:
         raise AssistantError("packet_file_count_limit")
     files, omitted, changed = [], [], []
     withheld = 0
@@ -600,53 +608,21 @@ def plan_packet(repo: Path, base: str, head: str, config: Config, config_path: P
 
 
 def verify_packet(packet: dict, config: Config | None = None, *, waiting: Waiting | None = None) -> None:
+    from .document_contracts import validate_document_shape
+
+    validate_document_shape(packet, "packet", "packet_schema_invalid")
     active_config = config is not None
     config = (config or Config()).validate()
-    held = waiting if waiting is not None else Waiting()  # Hidden characters wait for every other check below.
-    keys = {
-        "schema_version",
-        "base",
-        "head",
-        "merge_base",
-        "profile",
-        "changed_paths",
-        "files",
-        "omitted",
-        "data_class",
-        "classification_limit",
-        "generated_paths",
-        "packet_hash",
-    }
-    if isinstance(packet, dict) and "allow_paths" in packet:
-        keys.add("allow_paths")
-    if isinstance(packet, dict) and "withheld" in packet:
-        keys.add("withheld")
-    if isinstance(packet, dict) and "related" in packet:
-        keys.add("related")
-    if (
-        not isinstance(packet, dict)
-        or set(packet) != keys
-        or type(packet["schema_version"]) is not int
-        or packet["schema_version"] not in {1, 2}
-    ):
+    held = waiting if waiting is not None else Waiting()
+    if type(packet["schema_version"]) is not int:
         raise AssistantError("packet_schema_invalid")
-    for key in ("base", "head", "merge_base"):
-        if not isinstance(packet[key], str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", packet[key]):
-            raise AssistantError("packet_schema_invalid")
-    if not all(isinstance(packet[k], list) for k in ("files", "omitted", "changed_paths")):
-        raise AssistantError("packet_schema_invalid")
-    if len(packet["changed_paths"]) > 2000:
-        raise AssistantError("packet_file_count_limit")
     changed = packet["changed_paths"]
-    if any(not isinstance(path, str) for path in changed) or len(set(changed)) != len(changed):
-        raise AssistantError("packet_coverage_invalid")
     if "withheld" in packet:
         withheld = packet["withheld"]
         if config.private_paths != "skip-and-report":
             raise AssistantError("packet_withheld_not_allowed")
-        if (not isinstance(withheld, dict) or set(withheld) != {"count", "reason"}
-                or type(withheld["count"]) is not int or not 1 <= withheld["count"] <= 2000 - len(changed)
-                or withheld["reason"] != WITHHELD_REASON):
+        if (type(withheld["count"]) is not int
+                or withheld["count"] > MAX_CHANGED_PATHS - len(changed)):
             raise AssistantError("packet_schema_invalid")
     if "related" in packet:
         if config.related_context != "related":
@@ -669,37 +645,15 @@ def verify_packet(packet: dict, config: Config | None = None, *, waiting: Waitin
         check_credentials(name, extra_patterns=config.extra_sensitive_patterns)
     accounted = []
     for item in packet["omitted"]:
-        if (
-            not isinstance(item, dict)
-            or set(item) != {"path", "reason"}
-            or not isinstance(item["reason"], str)
-        ):
-            raise AssistantError("packet_schema_invalid")
-        if item["reason"] == WITHHELD_REASON:  # Reserved for the count-only withheld record.
-            raise AssistantError("packet_schema_invalid")
         accounted.append(config.check_path(item["path"], source_only=False, metadata_only=True))
         if item["reason"] == "generated_artifact_excluded" and not config.generated(item["path"]):
             raise AssistantError("generated_omission_invalid")
     for item in packet["files"]:
-        file_keys = {"path", "status", "before", "after", "before_hash", "after_hash"}
-        if packet["schema_version"] == 2:
-            file_keys |= {"before_mode", "after_mode"}
-        if not isinstance(item, dict) or set(item) != file_keys or item["status"] not in {"A", "D", "M", "T"}:
-            raise AssistantError("packet_schema_invalid")
         accounted.append(config.check_path(item["path"]))
         if not config.allows(item["path"]):
             raise AssistantError("packet_outside_allowlist")
         if config.generated(item["path"]):
             raise AssistantError("generated_source_in_packet")
-        if item["before"] is None and item["after"] is None:
-            raise AssistantError("packet_schema_invalid")
-        for side in ("before", "after"):
-            if item[side] is not None and not isinstance(item[side], str):
-                raise AssistantError("packet_schema_invalid")
-            if packet["schema_version"] == 2:
-                expected_modes = {None} if item[side] is None else {"100644", "100755"}
-                if item[side + "_mode"] not in expected_modes:
-                    raise AssistantError("packet_mode_invalid")
     if len(set(accounted)) != len(accounted) or set(accounted) != set(changed):
         raise AssistantError("packet_coverage_invalid")
     expected = packet.get("packet_hash")

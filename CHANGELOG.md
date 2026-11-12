@@ -5,6 +5,13 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 ## Unreleased
 
 ### Added
+- Doctor lists Git capabilities, local configuration/state/settings/cache paths, writable-directory estimates and a deduplicated key-use table with separate host permissions and limits for configuration and supplied gate policy. Proxy/custom-CA variables are named without values; no connection or write probe runs.
+- Published document-contract schemas and offline `finassist config schema --kind NAME`
+  exports for configuration, policies, packets, model gate/review reports and evaluation
+  suites. Runtime screening, integrity checks and approvals remain required.
+- Evaluation and history suites also accept `schema_version: 1`, preserving the
+  original canonical document for approval hashes. Conflicting aliases and non-integer
+  version values are refused; existing integer `version: 1` inputs keep their hashes.
 - **Remedies measured on real changes, and each change says where its setting is.**
   `scripts/remedy_scenarios.py` sets up each reference repository once and then follows the first
   option of every remedy on each later change, on both routes, until nothing but authorization is
@@ -33,6 +40,40 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   each time must reach `ready`.
 
 ### Changed
+- Doctor accepts --config alongside --policy or --policy-file for additional diagnostics;
+  the gate still uses only the selected policy. This combination previously exited 2
+  with doctor_policy_options_conflict and now returns the selected preflight's 0/1 status.
+- Doctor's key_variable_set keeps its existence meaning (true even for an empty value).
+  key_state distinguishes missing/empty/set. Preflight key_value_read changes from false
+  to true when any selected value is inspected for emptiness, including diagnostic config
+  keys beside a policy key and an offline configuration's explicitly named key; no value
+  or length is emitted. Empty keys that previously
+  reported ready now block with provider_key_empty; runtime requests use the same codes
+  before reserving spend. Absent keys use provider_key_missing.
+- Plain doctor now exits 1 for missing/unusable Git; keys, directory writability and
+  package problems are installation warnings and retain exit 0. Range preflights include
+  all environment blockers for their selected route in top-level blockers/status and
+  return 1 when blocked. Other-route diagnostics remain warnings.
+- Doctor reports the running code version, interpreter/tool paths, and package resource
+  checks. Metadata mismatch or missing/malformed hints, guides or schemas warns locally.
+  Windows writability is null (ACLs unchecked); POSIX uses os.access without a write probe.
+- Provider failures use provider_timeout for timeout/HTTP408, provider_connection_failed
+  for connection/protocol failures and provider_http_server_error for HTTP5xx, instead
+  of generic provider_transport_failed/provider_http_error. Gate reports preserve the code and safe numeric HTTP
+  status in optional reason_details. Unknown charges remain reserved, with no retries.
+- Acceptance changes: synthetic suite versions `true` and `1.0` are refused as
+  `invalid_eval_suite`; both suite types accept agreeing integer `version` and/or
+  `schema_version` aliases without rewriting their approval bytes. A packet's
+  related `rule_version: true` is now `packet_schema_invalid` (exit 2 instead of
+  acceptance); a nonobject synthetic case is `invalid_eval_case` instead of
+  `invalid_input` (still exit 2). Structural packet/report refusals use
+  `packet_schema_invalid`/`review_schema_invalid`. Source screening, coverage,
+  hashes, approvals and byte limits remain additional runtime checks.
+  Malformed packet path/status values and suite structures that previously raised
+  Python exceptions now report packet_schema_invalid, invalid_eval_case or the
+  corresponding history_*_invalid code; malformed packet modes report
+  packet_mode_invalid. Existing field-specific refusals (including related version,
+  coverage, configuration mismatch and unsafe empty paths) retain their codes.
 - Plain `init` detects the committed project layout; `--template` retains the fixed layout.
   An explicit detected write can refine the exact untouched plain-init output once, with
   recovery bytes kept locally; every other existing output remains refused. Setup reports
@@ -42,6 +83,17 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   Gate acceptance, screening, provider approval and budget rules are unchanged.
 
 ### Fixed
+- Doctor terminates when a missing drive or root has no existing ancestor; unexpandable
+  tilde-user paths report doctor_directory_unusable instead of crashing.
+- Empty selected key variables now block both range preflights. Only presence and emptiness are inspected; no key value is reported. HTTP failures retain numeric status, with distinct 401/403/404/429 codes and hints; response bodies remain suppressed and unknown spend stays reserved.
+- Document schemas now use stable contract URNs rather than package release URLs,
+  including the configuration schema's `$id`. The schema CLI reads installed
+  resources; `export-kit` includes every canonical schema and the generator has
+  a read-only `--check` mode.
+- Evaluation, history, packet and saved-review structural validation shares the
+  exported contract and enforcing-module limits, with boundary and runtime-call
+  regressions. CI policy schemas now constrain configuration and repository names;
+  complete workflow-template schemas remain a separate follow-up.
 - **`doctor` blocked a range for a file under `generated_paths`.** The configuration preflight
   refused it as `scope_incomplete` and reported the coverage as incomplete, while the review and
   triage count a configured generated file as outside the scope and go ahead. `doctor` now agrees

@@ -1,0 +1,114 @@
+{
+  "$id": "urn:finledgerpoli:schema:ci-policy:1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "backend": {
+      "enum": [
+        "docker",
+        "podman"
+      ]
+    },
+    "base_branches": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "not": {
+          "pattern": "\\.\\."
+        },
+        "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9_./-]{0,255})$(?![\\s\\S])",
+        "type": "string"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "config": {
+      "$ref": "urn:finledgerpoli:schema:config:1"
+    },
+    "events": {
+      "const": [
+        "pull_request"
+      ]
+    },
+    "fixture_max_file_bytes": {
+      "maximum": 2000000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "fixture_roots": {
+      "items": {
+        "maxLength": 512,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 128,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "forks": {
+      "enum": [
+        "deny",
+        "checks-only"
+      ]
+    },
+    "guard_paths": {
+      "items": {
+        "maxLength": 512,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "max_check_seconds": {
+      "maximum": 3600,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "max_steps": {
+      "maximum": 64,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "repository": {
+      "maxLength": 201,
+      "not": {
+        "pattern": "^(?:\\.{1,2}/|[^/]+/\\.{1,2}$)"
+      },
+      "pattern": "^(?:[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100})$(?![\\s\\S])",
+      "type": "string"
+    },
+    "review": {
+      "enum": [
+        "not-requested",
+        "required"
+      ]
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "workflow": {
+      "description": "Workflow template structure is validated by the workflow loader; a complete workflow schema is a separate follow-up.",
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "repository",
+    "events",
+    "base_branches",
+    "forks",
+    "backend",
+    "review",
+    "guard_paths",
+    "max_steps",
+    "max_check_seconds",
+    "config",
+    "workflow"
+  ],
+  "type": "object"
+}
