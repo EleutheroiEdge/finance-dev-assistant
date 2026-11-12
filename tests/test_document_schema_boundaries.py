@@ -296,6 +296,21 @@ def test_packet_and_related_required_fields(repository):
                    lambda p: verify_packet(p, Config()))
     missing_fields("packet", packet, "path status before after before_hash after_hash before_mode after_mode",
                    lambda p: verify_packet(p, Config()), ("files", 0))
+    legacy = deepcopy(packet)
+    legacy["schema_version"] = 1
+    for item in legacy["files"]:
+        del item["before_mode"]
+        del item["after_mode"]
+    missing_fields("packet", rehash(legacy), "path status before after before_hash after_hash",
+                   lambda p: verify_packet(p, Config()), ("files", 0))
+    counted = deepcopy(packet)
+    counted["withheld"] = {"count": 1, "reason": WITHHELD_REASON}
+    missing_fields("packet", rehash(counted), "count reason",
+                   lambda p: verify_packet(p, replace(Config(), private_paths="skip-and-report")), ("withheld",))
+    omitted = deepcopy(packet)
+    omitted["files"] = []
+    omitted["omitted"] = [{"path": name, "reason": "synthetic_omission"} for name in omitted["changed_paths"]]
+    missing_fields("packet", rehash(omitted), "path reason", lambda p: verify_packet(p, Config()), ("omitted", 0))
     config = replace(Config(), related_context="related")
     packet["related"] = related()
     packet["related"]["snippets"] = [snippet()]
@@ -309,6 +324,8 @@ def test_packet_and_related_required_fields(repository):
                          ("path line", ("related", "snippets", 0, "reference")),
                          ("path symbol reason", ("related", "skipped", 0))]:
         missing_fields("packet", packet, fields, runtime, path)
+    packet["related"]["snippets"][0]["reference"] = {"path": "src/cash.py", "symbol": "changed"}
+    missing_fields("packet", rehash(packet), "path symbol", runtime, ("related", "snippets", 0, "reference"))
 
 
 @pytest.mark.parametrize("provider", ["offline", "openai"])
@@ -335,6 +352,12 @@ def test_saved_report_required_fields_and_runtime_invocation(repository, tmp_pat
                    runtime, ("triage",))
     if provider != "offline":
         missing_fields("review-report", report, "head summary reviewed_paths findings", runtime, ("review",))
+        missing_fields("review-report", report, "severity path line claim impact reproduction evidence",
+                       runtime, ("review", "findings", 0))
+        missing_fields("review-report", report, "path side line sha256",
+                       runtime, ("review", "findings", 0, "evidence", 0))
+    report["withheld"] = {"count": 1, "reason": WITHHELD_REASON}
+    missing_fields("review-report", report, "count reason", runtime, ("withheld",))
     original = builder.review_report_schema
     monkeypatch.setattr(builder, "review_report_schema",
                         lambda: {"allOf": [original(), {"required": ["contract_enforcement_probe"]}]})
