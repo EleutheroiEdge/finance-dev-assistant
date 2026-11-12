@@ -163,6 +163,11 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 Nothing else about what a gate accepts, authorizes or spends has changed.
 
 ### Fixed
+- **A hidden character is the last refusal of a configuration.** A hidden character in a profile
+  checklist or in the endpoint was reported before a later fault of the same configuration: a
+  match of the project's own patterns, a field that is not valid. Whatever else is wrong is now
+  reported first, as it was before the hidden-character screen existed. A configuration with a
+  hidden character and nothing else wrong is refused as before.
 - **The configuration that `init --detect` drafts can pay for the packet limit it proposes.** The
   draft raises `max_packet_bytes` to fit the largest recent change, and it kept the default budget
   of USD 1 a run. With prices stated, a change near that limit was then refused with
