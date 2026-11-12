@@ -9,16 +9,23 @@ from .errors import AssistantError
 from .security import regular_path
 
 
+def _home() -> Path:
+    try:
+        return Path.home()
+    except RuntimeError as exc:  # No HOME and no entry for this user, as in a minimal container.
+        raise AssistantError("user_directory_unavailable") from exc
+
+
 def user_directory(kind: str) -> Path:
     if kind not in {"config", "cache"}:
         raise AssistantError("invalid_user_directory_kind")
     if sys.platform == "win32":
         variable = "APPDATA" if kind == "config" else "LOCALAPPDATA"
-        base = Path(os.environ.get(variable) or Path.home() / "AppData" / ("Roaming" if kind == "config" else "Local"))
+        base = Path(os.environ.get(variable) or _home() / "AppData" / ("Roaming" if kind == "config" else "Local"))
     elif sys.platform == "darwin":
-        base = Path.home() / "Library" / ("Application Support" if kind == "config" else "Caches")
+        base = _home() / "Library" / ("Application Support" if kind == "config" else "Caches")
     else:
-        base = Path(os.environ.get("XDG_" + kind.upper() + "_HOME") or Path.home() / ("." + kind))
+        base = Path(os.environ.get("XDG_" + kind.upper() + "_HOME") or _home() / ("." + kind))
     if not base.is_absolute():
         raise AssistantError("user_directory_must_be_absolute")
     return regular_path(base / "finledgerpoli")

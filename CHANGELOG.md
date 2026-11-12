@@ -95,6 +95,13 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   Gate acceptance, screening, provider approval and budget rules are unchanged.
 
 ### Fixed
+- With no home folder for the user (no `HOME` and no entry for the user, as in a minimal
+  container), plain `doctor` ended in a traceback. The user folders now report
+  `user_directory_unavailable`, `doctor` lists them as unusable and exits as it does for its
+  other installation warnings (#134).
+- Sixteen tests left a `.finassist` folder in the directory the suite runs from. Each now runs
+  in its own temporary folder, and a guard in `tests/conftest.py` fails any test that leaves
+  one behind (#134).
 - Doctor terminates when a missing drive or root has no existing ancestor; unexpandable
   tilde-user paths report doctor_directory_unusable instead of crashing.
 - Empty selected key variables now block both range preflights. Only presence and emptiness are inspected; no key value is reported. HTTP failures retain numeric status, with distinct 401/403/404/429 codes and hints; response bodies remain suppressed and unknown spend stays reserved.

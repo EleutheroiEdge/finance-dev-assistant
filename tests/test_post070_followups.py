@@ -105,7 +105,8 @@ def test_rendered_gh_number_references_cannot_form_autolink_tokens(reference):
     assert reference not in rendered and "\u200b" in rendered
 
 
-def test_evaluation_labels_and_adjudications_fail_with_mode_conflict(tmp_path, capsys):
+def test_evaluation_labels_and_adjudications_fail_with_mode_conflict(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # Its state stays out of the checkout.
     output = tmp_path / "output.json"
     result = main(["score", "--evaluation", "missing.json", "--labels", "missing-labels.json",
                    "--adjudications", "missing-judgments.json", "--output", str(output)])

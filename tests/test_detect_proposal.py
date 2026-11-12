@@ -72,8 +72,9 @@ def test_root_text_files_and_other_text_directories_are_proposed(tmp_path):
     assert rules["ROADMAP.md"] == "root_text_file" and rules["ops/"] == "text_files"
 
 
-def test_a_roadmap_change_is_covered_by_the_proposed_paths(tmp_path, capsys):
+def test_a_roadmap_change_is_covered_by_the_proposed_paths(tmp_path, capsys, monkeypatch):
     """The stop a first adopter hit: every pull request also edits a root roadmap file."""
+    monkeypatch.chdir(tmp_path)  # Its state stays out of the checkout.
     repo = _repo(tmp_path, LAYOUT)
     config = tmp_path / "finassist.json"
     _proposal(capsys, ["init", "--detect", "--repo", str(repo), "--write", "--output", str(config)])
@@ -201,6 +202,7 @@ def _doctor(capsys, path, repo, base, head) -> dict:
 
 def test_the_drafted_configuration_can_pay_for_a_request_near_its_own_packet_limit(tmp_path, capsys, monkeypatch):
     """Prices high enough that the default budget of 1 is too small for the packet limit the draft proposes."""
+    monkeypatch.chdir(tmp_path)  # Its state stays out of the checkout.
     monkeypatch.setenv("REVIEW_PROVIDER_KEY", "fictional-provider-value")
     repo, base, head = _near_the_limit(tmp_path)
     pricey = [*PROVIDER[:-4], "--input-usd-per-million", "100", "--output-usd-per-million", "2"]
@@ -262,6 +264,7 @@ def test_a_month_cannot_hold_less_than_a_day_of_the_drafted_budget(tmp_path, cap
 def test_a_day_or_a_month_too_small_for_one_request_is_raised_on_its_own(tmp_path, capsys, monkeypatch, stated, raised,
                                                                         refused):
     """Codex P109-1: a run budget that is enough does not excuse the other two."""
+    monkeypatch.chdir(tmp_path)  # Its state stays out of the checkout.
     monkeypatch.setenv("REVIEW_PROVIDER_KEY", "fictional-provider-value")
     repo, base, head = _near_the_limit(tmp_path)
     pricey = [*PROVIDER[:-4], "--input-usd-per-million", "100", "--output-usd-per-million", "2"]
@@ -352,7 +355,8 @@ def _history(tmp_path, changes: int = 3, files: int = 6, size: int = 40_000):
     return repo, heads
 
 
-def test_limits_fit_the_largest_recent_change_not_only_the_largest_file(tmp_path, capsys):
+def test_limits_fit_the_largest_recent_change_not_only_the_largest_file(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # Its state stays out of the checkout.
     repo, heads = _history(tmp_path)
     proposal = detect_module.detect(repo)
     one_file = 2 * 40_000  # What a single file's change needs, before escaping.
