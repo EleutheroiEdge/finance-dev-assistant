@@ -69,7 +69,7 @@ since the first measurement at `5c1af62` are marked so.
 | B7 | The configuration tests pass, and the installed upgrade from 0.3.1 and 0.4.0 passed on the 0.11.0 candidate wheel in its release build | Yes |
 | B8 | 15 of 15 wrong setups, seven on the configuration route and eight on the gate route, give one named blocker; every remedy offered clears it; the first options reach `ready` | Yes |
 | B9 | Following the remedies sets up 189 changes on the configuration route (84%) and 185 on the gate route (82%). No remedy fails, loops or is unexplained, every change a hand-set skip variant reviews is reached, and none grants a capability. The 36 and 40 left need a person: mostly a credential-like value in a test file (32 and 28) | Yes |
-| C1 | Met for 0.11.0: its wheel's 147 package files equal the tagged tree, and A2, B2, B3 and B4 gave the same results on the wheel. It repeats for every candidate | For 0.11.0 |
+| C1 | Partly, for 0.11.0. On the workflow's wheel: its 147 package files equal the tagged tree, the screen, first-run and credential measurements (A2, B2, B3, B4, B6) repeated main's, and the upgrade check (B7) passed in the build. A7, D1 to D6, E1 and E3 were not run on it: 0.11.0 is a security release that the owner chose to publish ahead of those gates (see "What 0.11.0 is"). The full gate applies to every later candidate | Partly |
 | D1 to D6 | Not measured. 133 labelled cases (64 defects, 69 controls) are bound to pinned policies and pass the live run's preflight offline; the run waits for the owner's provider, model and budget, and D1 needs 36 more defects | No |
 | E1 | The release workflow attests every file. The README does not give the verifying command yet | No |
 | E2 | `scripts/action_lock.py --check` passes | Yes |
@@ -181,7 +181,7 @@ Left, in this order:
      policies and pass the live run's own preflight: 64 defects, 69 controls.
    - **Needs the owner:** a public stratum to reach 100 defects (cloning public repositories), and the
      provider, model and budget. One trial of every case is about 18.5 million input tokens.
-5. **Provenance:** gates E1 to E3. E1 needs a maintainer to run the README's attestation command.
+5. **Provenance:** gates E1 to E3. For E1 a maintainer verifies the attestations of a published release with `gh attestation verify`, then adds that exact command to the README.
 6. **The candidate:** gates C1 to C4 on the wheel the release workflow builds, before the owner approves
    publishing.
 
