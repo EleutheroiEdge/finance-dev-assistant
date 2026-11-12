@@ -93,11 +93,22 @@ def _num(value):
     return f"{value:,}" if isinstance(value, (int, float)) and not isinstance(value, bool) else str(value)
 
 
+def _count(number, word):
+    return f"{number} {word}" + ("s" if number != 1 else "")
+
+
 def _health(report, pen):
-    warnings = [w for w in _list(report, "config_warnings") if isinstance(w, dict)]
+    # The installation checks (Git, folders, key variables) are in the environment section; its blockers set the
+    # exit status, so they set the verdict here too.
+    environment = report.get("environment") if isinstance(report.get("environment"), dict) else {}
+    blockers = [b for b in _list(environment, "blockers") if isinstance(b, dict)]
+    warnings = [w for w in _list(report, "config_warnings") + _list(environment, "warnings") if isinstance(w, dict)]
     pen.add(pen.paint("finassist doctor - installation health", "1"))
-    count = f"{len(warnings)} configuration warning" + ("s" if len(warnings) != 1 else "")
-    pen.add("Status: " + pen.paint("healthy" if not warnings else count, "32" if not warnings else "33"))
+    if blockers:
+        status = pen.paint("BLOCKED - " + _count(len(blockers), "blocker"), "31")
+    else:
+        status = pen.paint(_count(len(warnings), "warning") if warnings else "healthy", "33" if warnings else "32")
+    pen.add("Status: " + status)
     pen.add()
     pen.add(f"finassist {report.get('version', '?')} on Python {report.get('python', '?')}"
             f" ({report.get('platform', '?')})")
@@ -119,10 +130,18 @@ def _health(report, pen):
     deprecated = _list(report, "deprecated_config_options")
     if deprecated:
         pen.add("Deprecated configuration options: " + ", ".join(str(d) for d in deprecated))
+    if blockers:
+        pen.add()
+        _blockers(blockers, {}, pen)
     if warnings:
         pen.add()
         _warnings(warnings, pen)
-    _next_step(report.get("next_step"), pen)
+    if blockers:
+        # The health report's own next step assumes an installation that works.
+        pen.add()
+        pen.add("Next step: fix every blocker listed, then run finassist doctor again.", hang=2)
+    else:
+        _next_step(report.get("next_step"), pen)
 
 
 def _preflight(report, mode, pen):
@@ -159,15 +178,11 @@ def _preflight(report, mode, pen):
         pen.add("This run used no network, read no key value and opened no ledger.")
     if blockers:
         pen.add()
-        pen.add(pen.paint("Blockers", "1"))
         remedies = {}
         for remedy in _list(report, "remedies"):
             if isinstance(remedy, dict) and isinstance(remedy.get("options"), list):
                 remedies.setdefault(str(remedy.get("code")), []).extend(remedy["options"])
-        for index, blocker in enumerate(blockers, 1):
-            if index > 1:
-                pen.add()
-            _entry(blocker, index, remedies.get(str(blocker.get("code")), []), pen)
+        _blockers(blockers, remedies, pen)
     if warnings:
         pen.add()
         _warnings(warnings, pen)
@@ -216,6 +231,14 @@ def _provider(provider, pen):
                 + {"missing": "not set", "empty": "set but empty", "set": "set"}[state])
 
 
+def _blockers(blockers, remedies, pen):
+    pen.add(pen.paint("Blockers", "1"))
+    for index, blocker in enumerate(blockers, 1):
+        if index > 1:
+            pen.add()
+        _entry(blocker, index, remedies.get(str(blocker.get("code")), []), pen)
+
+
 def _entry(entry, index, remedies, pen):
     pen.add(f"{index}. {entry.get('code', 'unknown_code')}")
     _details(entry, pen)
@@ -246,8 +269,17 @@ def _details(entry, pen):
             pen.add(line, indent=2)
             break
     if isinstance(entry.get("variable"), str):
-        empty = entry.get("code") == "provider_key_empty"
-        pen.add(f"key variable {entry['variable']} is " + ("set but empty" if empty else "not set"), indent=2)
+        state = entry.get("state")
+        if state not in ("missing", "empty", "set"):  # A report without the state: the code says it.
+            state = {"provider_key_empty": "empty", "provider_key_missing": "missing"}.get(entry.get("code"))
+        line = f"key variable {entry['variable']}" + {"missing": " is not set", "empty": " is set but empty",
+                                                      "set": " is set"}.get(state, "")
+        if isinstance(entry.get("host"), str):
+            line += f"; configured for {entry['host']}"
+        pen.add(line, indent=2)
+    names = [str(name) for name in _list(entry, "variables") if isinstance(name, str)]
+    if names:
+        pen.add("variables: " + ", ".join(names), indent=2, hang=4)
     if isinstance(entry.get("missing"), list) and entry["missing"]:
         pen.add("missing: " + ", ".join(str(m) for m in entry["missing"]), indent=2)
     if entry.get("reserved_usd") is not None:
@@ -255,7 +287,8 @@ def _details(entry, pen):
         if entry.get("limit_usd") is not None:
             line += f"; limit ${entry['limit_usd']}"
         pen.add(line, indent=2)
-    for key, template in (("field", "field {}"), ("kind", "check failed with {}")):
+    for key, template in (("field", "field {}"), ("kind", "check failed with {}"), ("feature", "Git feature {}"),
+                          ("path_role", "the {} folder")):
         if isinstance(entry.get(key), str):
             pen.add(template.format(entry[key]), indent=2)
 

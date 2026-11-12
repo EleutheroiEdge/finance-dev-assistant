@@ -415,3 +415,44 @@ def test_rows_waiting_in_a_write_ahead_file_are_counted_and_nothing_is_left_besi
     assert store.get("error") is None, store
     assert {table["name"]: table["rows"] for table in store["tables"]} == {"entries": 5}
     assert (store["oldest"][:10], store["newest"][:10]) == ("2026-11-01", "2026-11-05")
+
+
+def test_a_folder_that_cannot_be_listed_is_unreadable_not_empty(tmp_path, monkeypatch):
+    state = tmp_path / ".finassist"
+    (state / "patches" / "deep").mkdir(parents=True)
+    (state / "patches" / "one.json").write_text("{}", encoding="utf-8")
+    (state / "patches" / "deep" / "two.json").write_text("{}", encoding="utf-8")
+    (state / "history").mkdir()
+    (state / "history" / "kept.json").write_text("{}", encoding="utf-8")
+    (state / "notes").mkdir()
+    (state / "notes" / "note.txt").write_text("n", encoding="utf-8")
+    real = os.scandir
+    for denied, name in ((state / "patches", "patches"), (state / "patches" / "deep", "patches"),
+                         (state / "notes", "notes")):
+        def scandir(path=".", denied=denied):
+            if Path(path) == denied:
+                raise PermissionError(13, "Permission denied")
+            return real(path)
+
+        monkeypatch.setattr(os, "scandir", scandir)
+        report = state_report(state, user_directories=False)
+        entries = {entry["name"]: entry for entry in report["stores"] + report["unknown"]}
+        # A store whose folder, or a folder inside it, cannot be listed is an error, never a smaller count.
+        assert entries[name]["error"] == "PermissionError" and "files" not in entries[name], denied
+        assert entries["history"]["files"] == 1 and "error" not in entries["history"]
+
+
+def test_an_unknown_home_folder_is_reported_and_the_local_stores_still_listed(tmp_path, monkeypatch):
+    import finassist.state_report as module
+
+    def no_home(kind):
+        raise RuntimeError("Could not determine home directory.")
+
+    monkeypatch.setattr(module, "user_directory", no_home)
+    state = tmp_path / ".finassist"
+    (state / "patches").mkdir(parents=True)
+    (state / "patches" / "one.json").write_text("{}", encoding="utf-8")
+    report = module.state_report(state)
+    assert {kind: entry.get("error") for kind, entry in report["user"].items()} == {
+        "config": "RuntimeError", "cache": "RuntimeError"}
+    assert [store["name"] for store in report["stores"]] == ["patches"] and report["stores"][0]["files"] == 1

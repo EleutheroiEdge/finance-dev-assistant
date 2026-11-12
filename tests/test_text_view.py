@@ -482,3 +482,26 @@ def test_real_doctor_reports_render_within_the_width(tmp_path):
             assert "\x1b" not in text
     blocked = render(reports[1])
     assert "file_limit_exceeded" in blocked and base[:12] in blocked and base not in blocked
+
+
+def test_health_view_shows_the_environment_blockers_and_warnings():
+    warnings = [
+        {"code": "provider_proxy_not_used", "variables": ["HTTPS_PROXY"], "hint": "Unset it."},
+        {"code": "doctor_directory_unusable", "path_role": "user_cache", "hint": "Make it writable."},
+        {"code": "provider_key_host_mismatch", "variable": "EXAMPLE_KEY", "host": "api.example.invalid",
+         "hint": "Use one host."},
+    ]
+    report = {"version": "0.0.0", "python": "3.13", "platform": "linux", "config_warnings": [],
+              "next_step": "Inspect a packet next.",
+              "environment": {"blockers": [{"code": "git_executable_missing", "hint": "Install Git."}],
+                              "warnings": warnings}}
+    text = render(report)
+    assert "Status: BLOCKED - 1 blocker" in text and "healthy" not in text
+    assert "1. git_executable_missing" in text and "Fix: Install Git." in text
+    assert "variables: HTTPS_PROXY" in text and "the user_cache folder" in text
+    assert "key variable EXAMPLE_KEY; configured for api.example.invalid" in text and "is not set" not in text
+    # A blocked installation is not told to go on to its next step.
+    assert "Inspect a packet next." not in text and "fix every blocker listed" in text
+    warned = render({**report, "environment": {"blockers": [], "warnings": warnings[:1]}})
+    assert "Status: 1 warning" in warned and "Inspect a packet next." in warned
+    assert render({**report, "environment": {}}).count("healthy") == 1

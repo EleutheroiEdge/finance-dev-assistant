@@ -29,7 +29,8 @@ _TIME_TEXT = re.compile(
     r"[0-9]{4}-[0-9]{2}-[0-9]{2}"
     r"(?:[T ][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})?)?"
 )
-_READ_ERRORS = (AssistantError, OSError, sqlite3.Error, ValueError, TypeError)
+# RuntimeError: Path.home() raises it when no home folder can be found, as in a minimal container.
+_READ_ERRORS = (AssistantError, OSError, sqlite3.Error, ValueError, TypeError, RuntimeError)
 _TABLES = (
     "SELECT name FROM sqlite_master WHERE type = 'table' "
     "AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name"
@@ -255,9 +256,14 @@ def _quote(name: object) -> str:
         raise ValueError("invalid identifier")
     return '"' + name.replace('"', '""') + '"'
 
+def _raise(error: OSError) -> None:
+    raise error
+
+
 def _measure_tree(path: Path) -> tuple[int, int, int | None, int | None]:
+    # os.walk skips a folder it cannot list unless told otherwise; a partial count must not pass for a full one.
     total, count, oldest, newest = 0, 0, None, None
-    for directory, dirnames, filenames in os.walk(path, followlinks=False):
+    for directory, dirnames, filenames in os.walk(path, followlinks=False, onerror=_raise):
         current = regular_path(Path(directory))
         for dirname in dirnames:
             regular_path(current / dirname)
