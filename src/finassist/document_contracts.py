@@ -147,8 +147,12 @@ def _raise_shape_error(kind, exc):
             if len(path) == 1 and exc.validator == "type":
                 raise AssistantError("packet_schema_invalid")
             raise AssistantError("packet_file_count_limit" if exc.validator == "maxItems" else "packet_coverage_invalid")
-        if path[0] in {"allow_paths", "generated_paths", "profile"}:
-            raise AssistantError("packet_" + path[0] + "_mismatch")
+        if path[0] == "allow_paths":
+            raise AssistantError("packet_allow_paths_mismatch")
+        if path[0] == "generated_paths":
+            raise AssistantError("packet_generated_paths_mismatch")
+        if path[0] == "profile":
+            raise AssistantError("packet_profile_mismatch")
         if path[0] == "files" and len(path) > 2:
             if path[2].endswith("_mode"):
                 raise AssistantError("packet_mode_invalid")
