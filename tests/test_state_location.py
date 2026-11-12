@@ -63,6 +63,21 @@ def test_config_directory_wins_over_the_repository(tmp_path, monkeypatch):
     assert (folder, origin) == (project / ".finassist", "config")
 
 
+def test_a_configuration_inside_a_repository_uses_the_repository_root(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    (root / ".github").mkdir(parents=True)
+    (root / ".git").mkdir()
+    config = root / ".github" / "finassist.json"
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    with_config = state_location(Namespace(audit_dir=None, state_dir=None, config=config, command="audit"))
+    without = state_location(Namespace(audit_dir=None, state_dir=None, config=None, repo=root, command="plan"))
+    # The same folder whether or not the configuration is named: one ledger.
+    assert with_config == (root / ".finassist", "config")
+    assert without == (root / ".finassist", "repository")
+
+
 def test_repository_root_is_the_nearest_ancestor_with_git(tmp_path):
     root = tmp_path / "repo"
     nested = root / "a" / "b"
@@ -135,7 +150,9 @@ def test_an_old_working_directory_ledger_is_not_replaced(tmp_path, monkeypatch, 
     assert code == 2
     record = json.loads(captured.err)
     assert record["code"] == "state_location_moved"
-    assert "--state-dir" in record["hint"] and "move that folder" in record["hint"]
+    assert "--state-dir" in record["hint"] and "state status" in record["hint"]
+    # The rules are named in public; the paths are not.
+    assert (record["previous"], record["selected"]) == ("working_directory", "repository")
     assert all(str(tmp_path) not in text for text in _texts(record))
     assert _listing(root) == before
     assert not (root / ".finassist").exists()
@@ -170,6 +187,7 @@ def test_state_status_reports_the_folder_the_rule_chose(tmp_path, monkeypatch, c
     assert code == 0, captured.err
     report = json.loads(captured.out)
     assert report["state_dir"] == str(root / ".finassist")
+    assert report["state_dir_source"] == "repository" and "moved_from" not in report
     assert report["exists"] is False
     assert not (root / ".finassist").exists()
 
@@ -185,4 +203,50 @@ def test_doctor_reports_the_repository_state_folder(tmp_path, monkeypatch, capsy
     assert code == 0, captured.err
     report = json.loads(captured.out)
     assert report["environment"]["paths"]["state"]["path"] == str(root / ".finassist")
+    assert not (root / ".finassist").exists()
+
+
+def _moved_ledger(tmp_path):
+    root = tmp_path / "repo"
+    nested = root / "src"
+    nested.mkdir(parents=True)
+    (root / ".git").mkdir()
+    old = nested / ".finassist"
+    old.mkdir()
+    (old / "audit.sqlite").write_bytes(b"synthetic")
+    return root, nested
+
+
+def test_two_ledgers_are_refused_until_one_is_chosen(tmp_path, monkeypatch, capsys):
+    root, nested = _moved_ledger(tmp_path)
+    (root / ".finassist").mkdir()
+    (root / ".finassist" / "audit.sqlite").write_bytes(b"synthetic")
+    monkeypatch.chdir(nested)
+    # Both ledgers already exist and each would enforce the budget alone, so neither is chosen silently.
+    assert main(["audit"]) == 2
+    assert json.loads(capsys.readouterr().err)["code"] == "state_location_moved"
+    for folder in (nested, root):
+        assert (folder / ".finassist" / "audit.sqlite").read_bytes() == b"synthetic"
+
+
+def test_state_status_reports_a_moved_ledger_and_does_not_refuse(tmp_path, monkeypatch, capsys):
+    root, nested = _moved_ledger(tmp_path)
+    monkeypatch.chdir(nested)
+    before = _listing(root)
+    assert main(["state", "status", "--no-user"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert (report["state_dir"], report["state_dir_source"]) == (str(root / ".finassist"), "repository")
+    assert report["moved_from"] == str(nested / ".finassist")
+    assert _listing(root) == before
+
+
+def test_doctor_warns_about_a_moved_ledger(tmp_path, monkeypatch, capsys):
+    from finassist.doctor_environment import _shown_path
+
+    root, nested = _moved_ledger(tmp_path)
+    monkeypatch.chdir(nested)
+    assert main(["doctor"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert "state_location_moved" in [warning["code"] for warning in report["environment"]["warnings"]]
+    assert report["environment"]["paths"]["previous_state"]["path"] == _shown_path(str(nested / ".finassist"))
     assert not (root / ".finassist").exists()

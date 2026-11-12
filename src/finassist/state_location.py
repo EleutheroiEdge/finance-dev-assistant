@@ -4,29 +4,41 @@ from pathlib import Path
 
 from .errors import AssistantError
 
-# These commands stored state in the working directory. review and propose do too,
-# even though they accept --repo, because their --state-dir default pointed there.
-# Doctor and init hardcoded the same place. Other commands that accept --repo
-# stored state in <repo>/.finassist.
+# Where each command kept its state before this rule. audit, evaluate, evidence, reconcile-budget, review, propose
+# and state defaulted --state-dir to .finassist in the working directory, and doctor and init used the same place.
+# The other commands with --repo used <repo>/.finassist.
 _WORKING_DIRECTORY_COMMANDS = frozenset({
-    "audit", "doctor", "evaluate", "evidence", "init", "propose", "reconcile-budget",
-    "review", "state",
+    "audit", "doctor", "evaluate", "evidence", "init", "propose", "reconcile-budget", "review", "state",
 })
+_EXPLICIT = frozenset({"audit_dir", "state_dir"})
 
 
-def state_location(args) -> tuple[Path, str]:
-    """Return the state folder and the rule that selected it.
+def state_location(args, *, refuse: bool = True) -> tuple[Path, str]:
+    """The state folder and the rule that chose it: "audit_dir", "state_dir", "config", "repository" or
+    "working_directory".
 
-    Precedence is the global audit directory, the command's state directory,
-    the directory holding --config, the repository root, then the working
-    directory. An inherited folder is refused when the folder this command
-    used to use still holds a spending ledger and the new folder does not.
-    Nothing is created here.
+    Precedence is the global --audit-dir, the command's --state-dir, the repository holding --config (or, outside a
+    repository, its folder), the repository holding --repo or the working directory, then the working directory. Nothing is created here. With refuse, an inherited folder is refused while
+    the folder this command used before holds a spending ledger: two ledgers would each enforce the budget alone.
+    An explicit folder is never refused.
     """
     chosen, origin = _choose(args)
-    if origin not in {"audit_dir", "state_dir"}:
-        _refuse_moved_ledger(args, chosen)
+    if refuse and (previous := moved_from(args, chosen, origin)) is not None:
+        # The rules by name are public; the two paths are for this machine only.
+        error = AssistantError("state_location_moved", {"previous": _previous_rule(args), "selected": origin})
+        error.local_details.update(previous=str(previous), selected=str(chosen.expanduser().absolute()))
+        raise error
     return chosen, origin
+
+
+def moved_from(args, chosen: Path, origin: str) -> Path | None:
+    """The folder this command used before the shared rule, when it holds a ledger and is not the chosen one."""
+    if origin in _EXPLICIT:
+        return None
+    previous = _previous_directory(args).expanduser().absolute()
+    if _same(previous, chosen) or not (previous / "audit.sqlite").is_file():
+        return None
+    return previous
 
 
 def _choose(args) -> tuple[Path, str]:
@@ -35,7 +47,10 @@ def _choose(args) -> tuple[Path, str]:
     if (state_dir := getattr(args, "state_dir", None)) is not None:
         return Path(state_dir), "state_dir"
     if (config := getattr(args, "config", None)) is not None:
-        return Path(config).expanduser().absolute().parent / ".finassist", "config"
+        # The repository that holds the configuration, so a file kept in a subfolder such as .github/ shares the
+        # ledger of commands that name no configuration. Outside a repository: the configuration's own folder.
+        folder = Path(config).expanduser().absolute().parent
+        return (_repository_root(folder) or folder) / ".finassist", "config"
     root = _repository_root(_search_start(args))
     if root is not None:
         return root / ".finassist", "repository"
@@ -44,13 +59,11 @@ def _choose(args) -> tuple[Path, str]:
 
 def _search_start(args) -> Path:
     repo = getattr(args, "repo", None)
-    if repo is not None:
-        return Path(repo)
-    return Path.cwd()
+    return Path(repo) if repo is not None else Path.cwd()
 
 
 def _repository_root(start: Path) -> Path | None:
-    """Nearest ancestor, including start, that contains a .git directory or file."""
+    """The nearest ancestor, start included, holding a .git directory or file. Git itself is not run."""
     current = Path(start).expanduser().absolute()
     if not current.is_dir():
         current = current.parent
@@ -61,28 +74,17 @@ def _repository_root(start: Path) -> Path | None:
     return None
 
 
-def _refuse_moved_ledger(args, chosen: Path) -> None:
-    previous = _previous_directory(args)
-    if _same(previous, chosen) or not _holds_ledger(previous) or _holds_ledger(chosen):
-        return
-    error = AssistantError("state_location_moved")
-    error.local_details["previous"] = str(Path(previous).expanduser().absolute())
-    error.local_details["selected"] = str(Path(chosen).expanduser().absolute())
-    raise error
+def _previous_rule(args) -> str:
+    if getattr(args, "command", None) in _WORKING_DIRECTORY_COMMANDS or getattr(args, "repo", None) is None:
+        return "working_directory"
+    return "repo_option"
 
 
 def _previous_directory(args) -> Path:
-    if getattr(args, "command", None) in _WORKING_DIRECTORY_COMMANDS:
-        return Path.cwd() / ".finassist"
-    repo = getattr(args, "repo", None)
-    if repo is not None:
-        return Path(repo) / ".finassist"
+    if _previous_rule(args) == "repo_option":
+        return Path(args.repo) / ".finassist"
     return Path.cwd() / ".finassist"
 
 
 def _same(left: Path, right: Path) -> bool:
     return Path(left).expanduser().absolute().resolve() == Path(right).expanduser().absolute().resolve()
-
-
-def _holds_ledger(folder: Path) -> bool:
-    return (Path(folder) / "audit.sqlite").is_file()
