@@ -20,6 +20,7 @@ from .errors import AssistantError
 from .health import config_warnings
 from .onboarding import _shown_argument
 from .providers import request_payload
+from .preflight_size import size_warning
 from .review import ENVELOPE_ALLOWANCE, reserved_usd, review_schema, spend_estimate
 from .forbidden_tokens import screen_source
 from .scope import (_private_name, build_packet, config_token_guard, git, omission_for, omission_reason, read_sides,
@@ -161,6 +162,10 @@ class _ConfigPreflight:
             self.block("review_scope_entirely_withheld")
         elif model and not any(row["status"] == "included" for row in rows) and not self._grouped:
             self.block("empty_model_context")
+        if set(self._grouped) == {"file_limit_exceeded"}:
+            warning = size_warning(repo, (ancestor, head), names, rows, config.max_packet_bytes, "max_packet_bytes")
+            if warning is not None:
+                self.report["warnings"].append(warning)
         return rows
 
     def _classify(self, repo: Path, revisions: tuple[str, str], path: str) -> dict:

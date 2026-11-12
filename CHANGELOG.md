@@ -4,6 +4,12 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ## Unreleased
 
+### Fixed
+- When file-size refusals are the only path blockers, both routes of doctor now
+  warn if the sum of both committed file versions already exceeds the request or
+  packet limit. The advisory reads Git object sizes only, excludes omitted and
+  withheld files, and leaves every blocker and gate acceptance rule unchanged.
+
 ### Security
 - **A program in the current directory is never run as Git, GitHub CLI, Docker or Podman.** These
   tools are now taken only from the absolute entries of `PATH`. Before, the lookup went through
