@@ -39,8 +39,10 @@ _TABLES = (
 def run_state(args) -> int:
     """`finassist state status`: print the inventory as one JSON line. Reads only."""
     from .security import canonical
+    from .state_location import state_location
 
-    print(canonical(state_report(args.state_dir, user_directories=not args.no_user)).decode())
+    folder, _origin = state_location(args)
+    print(canonical(state_report(folder, user_directories=not args.no_user)).decode())
     return 0
 
 

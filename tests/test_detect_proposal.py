@@ -263,6 +263,8 @@ def test_a_day_or_a_month_too_small_for_one_request_is_raised_on_its_own(tmp_pat
                                                                         refused):
     """Codex P109-1: a run budget that is enough does not excuse the other two."""
     monkeypatch.setenv("REVIEW_PROVIDER_KEY", "fictional-provider-value")
+    # State follows this configuration, so the command runs from the directory that holds it.
+    monkeypatch.chdir(tmp_path)
     repo, base, head = _near_the_limit(tmp_path)
     pricey = [*PROVIDER[:-4], "--input-usd-per-million", "100", "--output-usd-per-million", "2"]
     given, path = tmp_path / "stated.json", tmp_path / "finassist.json"

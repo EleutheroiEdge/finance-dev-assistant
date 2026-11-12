@@ -4,6 +4,7 @@ from pathlib import Path
 
 from .config import Config
 from .health import doctor_report
+from .state_location import state_location
 
 
 def doctor_result(args, config: Config) -> tuple[dict, int]:
@@ -12,7 +13,7 @@ def doctor_result(args, config: Config) -> tuple[dict, int]:
     from .update_check import check_once
 
     checked = check_once(network_allowed=config.allow_network) if args.check_updates else None
-    state = args.audit_dir or args.state_dir or Path(".finassist")
+    state, _origin = state_location(args)
     report = doctor_report(config, update_check=checked, config_path=args.config,
                            state_dir=state, include_key_read=True)
     report["environment"] = environment_report(config, config_path=args.config, state_dir=state)
