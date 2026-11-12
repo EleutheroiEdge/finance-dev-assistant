@@ -9,6 +9,10 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ### Fixed
 - Empty selected key variables now block both range preflights. Only presence and emptiness are inspected; no key value is reported. HTTP failures retain numeric status, with distinct 401/403/404/429 codes and hints; response bodies remain suppressed and unknown spend stays reserved.
+- When file-size refusals are the only path blockers, both routes of doctor now
+  warn if the sum of both committed file versions already exceeds the request or
+  packet limit. The advisory reads Git object sizes only, excludes omitted and
+  withheld files, and leaves every blocker and gate acceptance rule unchanged.
 
 ### Security
 - **A program in the current directory is never run as Git, GitHub CLI, Docker or Podman.** These

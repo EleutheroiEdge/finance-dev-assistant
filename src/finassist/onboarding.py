@@ -30,6 +30,7 @@ from .model_policy import (_PROPERTIES, _SCHEMA, ModelGatePolicy, _prefix, _prof
 from .policy_fixtures import fixture_settings, load_policy_config
 from .policy_ignores import screen_ignores
 from .providers import request_payload
+from .preflight_size import size_warning
 from .review import review_schema, spend_estimate
 from .error_hints import error_fields
 from .scope import WITHHELD_REASON, git, omission_for, read_entry, read_sides, require_regular, resolve
@@ -539,6 +540,11 @@ class _Preflight:
         for row in rows:
             if row["status"] == "refused" and row["code"] != "gate_ignored_path":  # Ignored paths are named above.
                 self.block_path(row["code"], row["path"], row.get("hint"))
+        if stopped is None and {code for code, _hint in self._grouped} == {"file_limit_exceeded"}:
+            warning = size_warning(repo, (ancestor, head), paths, rows,
+                                   model["max_request_bytes"], "max_request_bytes")
+            if warning is not None:
+                self.report["warnings"].append(warning)
         return None
 
     def _classify(self, repo: Path, revisions: tuple[str, str], path: str, model: dict, config, guard,
