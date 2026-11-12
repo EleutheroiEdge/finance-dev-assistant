@@ -11,6 +11,14 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   withheld files, and leaves every blocker and gate acceptance rule unchanged.
 
 ### Security
+- **A program in the current directory is never run as Git, GitHub CLI, Docker or Podman.** These
+  tools are now taken only from the absolute entries of `PATH`. Before, the lookup went through
+  the standard library's `shutil.which`, which on Windows also searches the directory the command
+  runs in, and on any system follows an empty or relative `PATH` entry. So on Windows, running
+  `finassist` inside a checkout that held a file named `git.exe` ran that file. A checkout under
+  review must never choose the program that reads it. `finassist update` finds `pipx` and `uv`
+  the same way. This affects every release up to 0.10.0 on Windows, and other systems only where
+  `PATH` holds an empty or relative entry.
 - **The credential screen knows ten more formats.** Each has a shape its issuer publishes: Stripe
   live secret and restricted keys, Slack tokens, a Google API key, npm, PyPI and GitLab tokens, a
   SendGrid key, an Azure storage account key, and an encrypted or PGP private key block. A known

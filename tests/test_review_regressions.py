@@ -148,7 +148,7 @@ def test_github_reports_absence_of_formal_approvals_even_when_prs_are_required(m
             value = {"full_name": "example/repository"}
         return subprocess.CompletedProcess(argv, 0, json.dumps(value), "")
 
-    monkeypatch.setattr("finassist.platform_support.shutil.which", lambda _: "/trusted/gh")
+    monkeypatch.setattr("finassist.platform_support.locate_tool", lambda _: "/trusted/gh")
     monkeypatch.setattr("finassist.github_audit.subprocess.run", get)
     report = inspect_github(
         "example/repository", "main", replace(Config(), allow_network=True), network_approved=True
