@@ -178,6 +178,7 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 Nothing else about what a gate accepts, authorizes or spends has changed.
 
 ### Fixed
+- Plain init outside a Git repository reports `init_repository_required` with repository/template remedies; corrupt Git configuration keeps its read error.
 - **A hidden character is the last refusal of a configuration.** A hidden character in a profile
   checklist or in the endpoint was reported before a later fault of the same configuration: a
   match of the project's own patterns, a field that is not valid. Whatever else is wrong is now

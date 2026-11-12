@@ -3,6 +3,8 @@
 This guide takes a repository from nothing to a first review in five steps. Every step
 is offline until you choose a provider, and nothing in your repository is run.
 
+Run repository setup inside your Git checkout. Outside a repository, use `finassist init --template` to write the fixed layout without detection.
+
 ## 1. Check the installation
 ```sh
 finassist demo

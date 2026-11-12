@@ -35,6 +35,18 @@ def _detect_proposal(args, configured):
     try:
         proposal = detect(repo, revision=args.revision or "HEAD", purpose=args.purpose, profile=stated)
     except AssistantError as exc:
+        if exc.code == "git_read_failed":
+            # Name only the known non-repository case. Keep missing tools, corrupt
+            # config, permission failures and other Git reads as their own errors.
+            try:
+                probe = subprocess.run(git_command(repo, "rev-parse", "--is-inside-work-tree"),
+                                       env={**git_environment(), "LC_ALL": "C"},
+                                       capture_output=True, timeout=30, check=False)
+            except (OSError, subprocess.SubprocessError):
+                raise exc from None
+            if probe.returncode == 128 and probe.stderr.startswith(b"fatal: not a git repository"):
+                raise AssistantError("init_repository_required") from None
+            raise
         if exc.code == "detect_empty_repository":
             return _empty_proposal(args, configured, head=resolve(repo, args.revision or "HEAD"))
         if exc.code != "git_commit_unavailable" or args.revision not in (None, "HEAD"):

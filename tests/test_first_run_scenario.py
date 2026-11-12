@@ -237,3 +237,25 @@ def test_invalid_explicit_revision_is_not_empty_setup(tmp_path, monkeypatch, cap
     assert main(["init", "--revision", "missing-synthetic-ref"]) == 2
     assert json.loads(capsys.readouterr().err)["code"] == "git_commit_unavailable"
     assert not (repo / "finassist.json").exists()
+
+
+@pytest.mark.parametrize("args", [["init"], ["init", "--detect"]])
+def test_non_repository_init_names_remedy_and_template_works(tmp_path, monkeypatch, capsys, args):
+    monkeypatch.chdir(tmp_path)
+    assert main(args) == 2
+    error = json.loads(capsys.readouterr().err)
+    assert error["code"] == "init_repository_required"
+    assert "Git repository" in error["hint"] and "init --template" in error["hint"]
+    assert not (tmp_path / "finassist.json").exists()
+    report = run(["init", "--template"], capsys)
+    assert report["created"] == "finassist.json"
+    assert json.loads((tmp_path / "finassist.json").read_text())["profile"] == "finance-saas"
+
+
+def test_broken_repository_config_keeps_git_read_error(tmp_path, monkeypatch, capsys):
+    repo = repository_at(tmp_path / "repo")
+    (repo / ".git/config").write_text("[synthetic broken")
+    monkeypatch.chdir(repo)
+    assert main(["init"]) == 2
+    assert json.loads(capsys.readouterr().err)["code"] == "git_read_failed"
+    assert not (repo / "finassist.json").exists()
