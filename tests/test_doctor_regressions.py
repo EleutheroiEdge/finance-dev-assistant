@@ -32,9 +32,20 @@ def test_missing_drive_root_terminates_without_parent_progress(monkeypatch):
     assert report["code"] == "doctor_directory_unusable"
 
 
-def test_unknown_tilde_user_is_diagnostic(tmp_path, monkeypatch, capsys):
+def test_home_expansion_failure_is_diagnostic(tmp_path, monkeypatch, capsys):
+    # POSIX looks up named users; Windows constructs a sibling home path. Inject the
+    # expansion failure so both hosts exercise the diagnostic, not that OS difference.
+    target = "~finassist-no-such-user-987654321/state"
+    expanduser = Path.expanduser
+
+    def refused_home(path):
+        if path == Path(target):
+            raise RuntimeError("synthetic home lookup failure")
+        return expanduser(path)
+
+    monkeypatch.setattr(Path, "expanduser", refused_home)
     monkeypatch.chdir(tmp_path)
-    assert main(["doctor", "--state-dir", "~finassist-no-such-user-987654321/state"]) == 0
+    assert main(["doctor", "--state-dir", target]) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["environment"]["paths"]["state"]["code"] == "doctor_directory_unusable"
     assert not report["environment"]["blockers"]

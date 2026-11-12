@@ -93,6 +93,10 @@ def test_git_version_failure_never_echoes_process_output(monkeypatch, output):
 
 def test_state_writability_is_nonmutating_and_remedy_clears_blocker(local_environment, monkeypatch):
     target = local_environment / "state" / "not-created"
+    # Exercise the POSIX access estimate on every host; Windows deliberately reports
+    # writability as unknown without using os.access (covered separately).
+    directory_status = diagnostic.directory_status
+    monkeypatch.setattr(diagnostic, "directory_status", lambda path: directory_status(path, windows=False))
     original = os.access
     monkeypatch.setattr(diagnostic.os, "access", lambda *a, **kw: False)
     report = diagnostic.environment_report(Config(), state_dir=target)
