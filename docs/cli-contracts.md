@@ -76,7 +76,7 @@ means other documented/context-specific fields can exist, not a literal JSON val
 
 | Command | JSON/result shape and streams | Normal exits |
 | --- | --- | --- |
-| `config` | `config migrate --dry-run` returns `{changed, source_sha256, diff, written: false, backup: null}` without writes. A non-dry run applies only supported key renames after validation, with exact original bytes in a timestamped backup; unchanged files remain byte-identical. | 0, 2 |
+| `config` | `config schema --kind NAME` prints one installed document schema as a JSON object (default: configuration), without reading configuration, writing state or fetching a schema. `config migrate --dry-run` returns `{changed, source_sha256, diff, written: false, backup: null}` without writes. A non-dry run applies only supported key renames after validation, with exact original bytes in a timestamped backup; unchanged files remain byte-identical. | 0, 2 |
 | `gate` | `gate run` writes a version-1 model component report at required new `--output`; stdout `{verdict, report_hash}`. Explicit v2 pinned base policy and private retained `--state-dir` required. Verdict PASS/FAIL/BLOCKED, reasons, structured advisory findings, source/policy/request hashes, usage and spend. Unknown usage stays reserved. Summary/Action outputs omit raw provider text. See [pre-merge gate](pre-merge-gate.md). | 0 PASS, 1 FAIL, 2 BLOCKED/error |
 | `ci` | `ci gate` returns a version-1 deterministic-check report: status, exact policy/source/plan/configuration hashes, required/completed counts, model-review status and blockers. With `--output`, stdout is `{output, status, report_hash}`. Reads a pinned base policy, not workspace config. See [CI gates](ci-gates.md). | 0, 1, 2 |
 | `guide` | Without a topic: readable topic list; add `--json` for stdout `{topics: [{topic, title}]}`. With a topic: bundled UTF-8 Markdown, not JSON. No config, state writes or network. Unknown topics return `unknown_guide` on stderr. | 0, 2 |
@@ -146,6 +146,13 @@ presence booleans. See [dashboard guide](dashboard.md) for preview/confirmation.
 See [workflow artifacts](workflows.md), [readiness/auditing](readiness-and-auditing.md),
 [configuration](configuration.md) and [provider behavior](providers.md). These
 contracts do not replace the strict validators for saved outgoing requests/proposals.
+
+Shared document-schema checks can refuse malformed packet structure with
+`packet_schema_invalid` and malformed generated review reports with `review_schema_invalid`
+(both exit 2). A related block with `rule_version: true` now refuses instead of
+being accepted. A nonobject synthetic evaluation case reports `invalid_eval_case`
+instead of `invalid_input`; both are exit 2. See the
+[document schemas](configuration.md#editor-schema) for structural and runtime limits.
 
 ## Limits
 

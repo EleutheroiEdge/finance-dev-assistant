@@ -7,7 +7,7 @@ import re
 
 from .errors import AssistantError
 from .ci_policy import revision
-from .history_suite import SEVERITY_WEIGHTS, identifier, validate_expected
+from .history_suite import MAX_CASES, MAX_EXPECTED, MAX_TRIALS, SEVERITY_WEIGHTS, identifier, validate_expected
 from .security import canonical, digest
 
 
@@ -39,11 +39,11 @@ def validate_history_evaluation(evaluation: dict) -> None:
     if (type(evaluation.get("schema_version")) is not int or evaluation["schema_version"] != 2
             or evaluation.get("kind") != "history-evaluation"
             or evaluation.get("mode") not in ("offline", "model", "external")
-            or type(evaluation.get("trials")) is not int or not 1 <= evaluation["trials"] <= 20):
+            or type(evaluation.get("trials")) is not int or not 1 <= evaluation["trials"] <= MAX_TRIALS):
         raise AssistantError("history_evaluation_invalid")
     _hash(evaluation.get("suite_hash"))
     cases = evaluation.get("cases")
-    if not isinstance(cases, list) or not 1 <= len(cases) <= 50:
+    if not isinstance(cases, list) or not 1 <= len(cases) <= MAX_CASES:
         raise AssistantError("history_evaluation_invalid")
     names = set()
     for case in cases:
@@ -70,7 +70,7 @@ def validate_history_evaluation(evaluation: dict) -> None:
                                         or not 0 <= seconds <= 86400):
                 raise AssistantError("history_elapsed_invalid")
             findings = run.get("findings")
-            if not isinstance(findings, list) or len(findings) > 50:
+            if not isinstance(findings, list) or len(findings) > MAX_EXPECTED:
                 raise AssistantError("history_findings_invalid")
             ids = set()
             for finding in findings:
