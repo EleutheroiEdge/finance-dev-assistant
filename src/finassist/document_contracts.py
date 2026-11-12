@@ -131,7 +131,7 @@ def _raise_shape_error(kind, exc):
             if field == "base_sha" and "allOf" in exc.absolute_schema_path:
                 raise AssistantError("history_policy_commit_invalid")
             raise AssistantError("ci_revision_invalid")
-        if ((field == "expected" and len(path) > 4 and path[4] == "paths"
+        if ((field == "expected" and len(path) == 6 and path[4] == "paths"
              or field == "policy" and path[3:] == ["path"]) and exc.instance == ""):
             raise AssistantError("unsafe_path")
         if field in {"negative_control", "expected"}:
