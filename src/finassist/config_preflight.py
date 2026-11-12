@@ -91,7 +91,7 @@ class _ConfigPreflight:
             # Keep the report: name the failing step's class, never its message.
             self.block("preflight_check_failed", kind=type(exc).__name__)
         self.report["blockers"].extend(self._grouped.values())
-        attach_remedies(self.report, "configuration", _LEFT_OUT, sizes=self._largest, valid_option=self._fits)
+        attach_remedies(self.report, "configuration", sizes=self._largest, valid_option=self._fits)
         ready = not self.report["blockers"]
         self.report["status"] = "ready" if ready else "blocked"
         self.report["next_step"] = (self._commands() if ready
@@ -151,12 +151,14 @@ class _ConfigPreflight:
             return []
         rows = [self._classify(repo, (ancestor, head), name) for name in names]
         self.report["paths"] = rows
-        self.report["coverage_complete"] = all(row["status"] == "included" for row in rows)
+        # A file under generated_paths is outside the scope, as the review and triage count it: listed, not missing.
+        counted = [row for row in rows if row.get("reason") != "generated_artifact_excluded"]
+        self.report["coverage_complete"] = all(row["status"] == "included" for row in counted)
         # Only a model call refuses omissions or an empty context: offline review answers before those checks.
         # unreviewable_paths: skip-and-report is the choice to review without the files it names.
         model = config.provider != "offline"
         partial = config.allow_partial_review or config.unreviewable_paths == "skip-and-report"
-        for row in rows:
+        for row in counted:
             if row["status"] == "refused":
                 self.block_path(row["code"], row["path"])
             elif row["status"] == "omitted" and model and not partial:
