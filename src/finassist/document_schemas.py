@@ -9,6 +9,7 @@ SCHEMA_FILES = {
     "config": "finassist.schema.json",
     "gate-policy": "gate-policy.schema.json",
     "ci-policy": "ci-policy.schema.json",
+    "workflow-template": "workflow-template.schema.json",
     "packet": "packet.schema.json",
     "gate-report": "model-gate-report.schema.json",
     "gate-report-v1": "model-gate-report-v1.schema.json",
@@ -24,6 +25,7 @@ SCHEMA_IDS = {
     "config": SCHEMA_ID,
     "gate-policy": "urn:finledgerpoli:schema:gate-policy:2",
     "ci-policy": "urn:finledgerpoli:schema:ci-policy:1",
+    "workflow-template": "urn:finledgerpoli:schema:workflow-template:1",
     "packet": "urn:finledgerpoli:schema:packet:2",
     "gate-report": "urn:finledgerpoli:schema:gate-report:2",
     "gate-report-v1": "urn:finledgerpoli:schema:gate-report:1",
@@ -40,6 +42,9 @@ def document_schema(kind: str = "config") -> dict:
     elif kind in {"gate-policy", "ci-policy"}:
         from . import ci_policy, model_policy
         schema = (model_policy if kind == "gate-policy" else ci_policy)._SCHEMA
+    elif kind == "workflow-template":
+        from .workflow import _TEMPLATE_SCHEMA
+        schema = _TEMPLATE_SCHEMA
     elif kind == "review-report":
         from .review_report_schema import review_report_schema
         schema = review_report_schema()
@@ -60,9 +65,10 @@ def document_schema(kind: str = "config") -> dict:
     if kind == "ci-policy":
         from .ci_policy import BRANCH_PATTERN, _REPOSITORY
         from .document_contracts import fullmatch_pattern
-        # Editors register the separately published config schema by its stable ID.
-        # Runtime config validation retains its specific codes and min_version order.
+        # Editors register the separately published contracts by their stable IDs.
+        # Runtime loaders retain their semantic checks, error codes and check order.
         schema["properties"]["config"] = {"$ref": SCHEMA_ID}
+        schema["properties"]["workflow"] = {"$ref": SCHEMA_IDS["workflow-template"]}
         schema["properties"]["repository"].update(
             pattern=fullmatch_pattern(_REPOSITORY.pattern),
             **{"not": {"pattern": r"^(?:\.{1,2}/|[^/]+/\.{1,2}$)"}})
