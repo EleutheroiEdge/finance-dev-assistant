@@ -105,6 +105,9 @@ def test_cli_key_values_and_lengths_never_appear(route, value, state, gate_case,
                   input_usd_per_million=1, output_usd_per_million=1, allow_network=True)
     path = tmp_path / "config.json"
     save_config(path, cfg)
+    if route == "installation":
+        # Plain doctor reads the folder beside this configuration, so it runs from that directory.
+        monkeypatch.chdir(tmp_path)
     args = ["--config", str(path), "doctor"]
     if route != "installation":
         args += ["--repo", str(gate_case["repo"]), "--base", gate_case["base"], "--head", gate_case["head"]]

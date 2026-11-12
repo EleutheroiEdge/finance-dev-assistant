@@ -263,7 +263,7 @@ def test_local_check_receipt_binds_source_and_image_policy(repository, tmp_path)
     assert document["receipt"]["head"] == head
     assert document["receipt"]["snapshot_hash"] == digest(canonical(document["snapshot"]))
     assert document["receipt"]["runner_image"] is None
-    with Ledger(repo / ".finassist/audit.sqlite") as ledger:
+    with Ledger(tmp_path / ".finassist" / "audit.sqlite") as ledger:
         assert any(row["payload"]["event"] == "check_completed" for row in ledger.events())
 
 

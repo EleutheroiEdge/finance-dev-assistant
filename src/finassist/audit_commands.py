@@ -15,7 +15,7 @@ def add_audit_commands(commands) -> None:
         "audit", help="Verify audit-chain integrity, list unresolved state, or close an unfinished run")
     audit.add_argument("audit_action", nargs="?", choices=["close-run"],
                        help="close-run records that an unfinished command's outcome is unknown, so it stops blocking")
-    audit.add_argument("--state-dir", type=Path, default=Path(".finassist"))
+    audit.add_argument("--state-dir", type=Path, default=None)
     audit.add_argument("--export", help="Export verified metadata events as private JSON Lines")
     audit.add_argument("--after", type=int, default=0)
     audit.add_argument("--limit", type=int, default=1000)
@@ -25,7 +25,7 @@ def add_audit_commands(commands) -> None:
     settle = commands.add_parser(
         "reconcile-budget", help="Record operator-verified spend for one unresolved call"
     )
-    settle.add_argument("--state-dir", type=Path, default=Path(".finassist"))
+    settle.add_argument("--state-dir", type=Path, default=None)
     settle.add_argument("--reservation", required=True)
     settle.add_argument("--actual-usd", required=True)
 

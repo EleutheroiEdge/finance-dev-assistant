@@ -10,6 +10,7 @@ from .model_policy import check_draft, missing_fields
 from .scope import git, git_command, git_environment, resolve
 from .security import canonical
 from .initialization_state import save_initial_config, local_state_exclude
+from .state_location import state_location
 
 
 def _empty_proposal(args, configured, *, head):
@@ -117,7 +118,7 @@ def run_init(args, config: Config) -> int:
     if plain or args.write:
         if args.detect and not proposal["source_detected"] and not proposal.get("empty_repository"):
             raise AssistantError("detect_no_source_to_write")
-        state = Path(args.audit_dir) if args.audit_dir else Path.cwd() / ".finassist"
+        state, _origin = state_location(args)
         replaced = save_initial_config(Path(args.output), proposed, state, remember=plain, replace_initial=args.detect)
         proposal.update(written=True, created=args.output, replaced_initial_config=replaced,
                         local_ignore=local_state_exclude(Path.cwd()))

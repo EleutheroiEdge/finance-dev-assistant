@@ -139,7 +139,7 @@ def test_existing_resolution_destination_has_domain_error(pack_case, tmp_path, c
                  "--bundle", str(tmp_path / "bundle.json"), "--output", str(output)]) == 2
     assert json.loads(capsys.readouterr().err)["code"] == "workflow_resolution_destination_exists"
     assert not list(output.iterdir())
-    with Ledger(repo / ".finassist" / "audit.sqlite") as ledger:
+    with Ledger(tmp_path / ".finassist" / "audit.sqlite") as ledger:
         failed = [json.loads(row[0]) for row in ledger.db.execute("SELECT payload FROM events")
                   if json.loads(row[0])["event"] == "command_failed"]
         assert failed[-1]["code"] == "workflow_resolution_destination_exists"
@@ -335,7 +335,7 @@ def test_cli_resolves_then_binds_provenance_to_existing_version_one_plans(pack_c
                  "--resolution", str(target / "resolution.json"), "--output", str(plan_path)]) == 0
     capsys.readouterr()
     assert json.loads(plan_path.read_text(encoding="utf-8"))["schema_version"] == 1
-    with Ledger(repo / ".finassist/audit.sqlite") as ledger:
+    with Ledger(target / ".finassist" / "audit.sqlite") as ledger:
         events = ledger.events()
     assert any(row["payload"].get("event") == "workflow_plan_bound"
                and row["payload"].get("resolution_hash") == saved["resolution_hash"] for row in events)

@@ -39,8 +39,15 @@ _TABLES = (
 def run_state(args) -> int:
     """`finassist state status`: print the inventory as one JSON line. Reads only."""
     from .security import canonical
+    from .state_location import moved_from, state_location
 
-    print(canonical(state_report(args.state_dir, user_directories=not args.no_user)).decode())
+    # It only reads, so a ledger left behind by the move is reported, not refused.
+    folder, origin = state_location(args, refuse=False)
+    report = state_report(folder, user_directories=not args.no_user)
+    report["state_dir_source"] = origin
+    if (previous := moved_from(args, folder, origin)) is not None:
+        report["moved_from"] = str(previous)
+    print(canonical(report).decode())
     return 0
 
 
