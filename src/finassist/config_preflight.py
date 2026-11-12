@@ -216,8 +216,9 @@ class _ConfigPreflight:
         if not priced:
             self.block("provider_prices_required", missing=sorted(name for name, value in prices.items() if value <= 0))
         self.report["key_value_read"] = bool(key) and self.report["provider"]["key_state"] != "missing"
-        if key and not self.report["provider"]["key_variable_set"]:
-            self.block("provider_key_missing", variable=key)
+        if key and self.report["provider"]["key_state"] != "set":
+            self.block("provider_key_empty" if self.report["provider"]["key_state"] == "empty" else "provider_key_missing",
+                       variable=key)
         if packet is None or not priced:
             return
         system = config.instructions()
@@ -255,10 +256,10 @@ def run_config_doctor(args, config: Config) -> int:
         raise AssistantError("doctor_config_preflight_conflict")
     if not args.repo or not args.base or not args.head:
         raise AssistantError("doctor_policy_range_required")
-    from .doctor_environment import environment_report
+    from .doctor_environment import attach_environment, environment_report
 
     report = config_preflight(args.repo, args.base, args.head, config, args.config)
-    report["environment"] = environment_report(config, config_path=args.config)
+    attach_environment(report, environment_report(config, config_path=args.config, route="configuration"))
     print(canonical(report).decode())
     return 0 if report["status"] == "ready" else 1
 

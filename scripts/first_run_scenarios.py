@@ -6,8 +6,8 @@ with `doctor` on both routes: as drafted, with `private_paths: skip-and-report`,
 `unreviewable_paths: skip-and-report` as well, and with test files listed in
 `placeholder_credential_paths` on top of both.
 
-Nothing is sent anywhere and no key is read: `doctor` is offline and the key variable holds a
-placeholder. Nothing is written inside a repository, Git's optional index lock is never taken
+Nothing is sent anywhere: `doctor` is offline and checks only selected key presence and emptiness.
+The key variable holds a synthetic placeholder; no value or length is reported. Nothing is written inside a repository, Git's optional index lock is never taken
 in one, and its objects are read as they are: replacement refs and the caller's own Git settings
 are left out, and a repository with a grafts file is not measured. Only codes, counts and timings are printed,
 under an anonymous number for each repository, and a content refusal is counted by its rule and

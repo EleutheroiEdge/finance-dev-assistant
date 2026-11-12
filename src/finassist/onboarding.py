@@ -256,14 +256,15 @@ class _Preflight:
             # Keep the report: name the failing step's class, never its message.
             self.block("preflight_check_failed", kind=type(exc).__name__)
         if self.include_environment:
-            from .doctor_environment import environment_report
+            from .doctor_environment import attach_environment, environment_report
 
             selected = self.diagnostic_policy
-            self.report["environment"] = environment_report(
+            environment = environment_report(
                 self.diagnostic_config, config_path=self.diagnostic_config_path,
                 gate_config=selected.config if selected else None,
                 gate_model=selected.document["model_review"] if selected else None,
-                policy=self.report["policy"], environment=self.environment)
+                policy=self.report["policy"], environment=self.environment, route="gate policy")
+            attach_environment(self.report, environment)
         self.report["blockers"].extend(self._grouped.values())
         ready = not self.report["blockers"]
         self.report["status"] = "ready" if ready else "blocked"
@@ -297,8 +298,8 @@ class _Preflight:
         self._prefix_warnings(repo, head, policy.document["model_review"])
         self._paths(repo, base, head, policy)
         # The gate's own loader and source builder run only once nothing else blocks.
-        # A missing key variable is the one exception: it doesn't change the source.
-        if not self._grouped and all(entry["code"] == "provider_key_missing" for entry in self.report["blockers"]):
+        # Missing or empty keys do not change the source; still check it for other blockers.
+        if not self._grouped and all(entry["code"] in {"provider_key_missing", "provider_key_empty"} for entry in self.report["blockers"]):
             self._gate_source(repo, base, head, policy)
         return None
 
@@ -419,8 +420,9 @@ class _Preflight:
             "prices_configured": model["provider"] == "ollama" or all(value > 0 for value in prices.values()),
         }
         self.report["key_value_read"] = bool(key) and self.report["provider"]["key_state"] != "missing"
-        if key and not self.report["provider"]["key_variable_set"]:
-            self.block("provider_key_missing", variable=key)
+        if key and self.report["provider"]["key_state"] != "set":
+            self.block("provider_key_empty" if self.report["provider"]["key_state"] == "empty" else "provider_key_missing",
+                       variable=key)
         return ModelGatePolicy(document, config, path, sha, base, profile_path, repo)
 
     def _prefix_warnings(self, repo: Path, head: str, model: dict) -> None:

@@ -110,7 +110,7 @@ def test_doctor_reports_its_config_source_and_settings_with_no_effect(tmp_path, 
     assert main(["doctor"]) == 0
     report = json.loads(capsys.readouterr().out)
     assert [warning["code"] for warning in report["config_warnings"]] == ["config_file_not_loaded"]
-    assert main(["--config", str(path), "doctor"]) == 1  # The selected provider key is missing.
+    assert main(["--config", str(path), "doctor"]) == 0  # Missing key warns on the installation route.
     report = json.loads(capsys.readouterr().out)
     codes = [warning["code"] for warning in report["config_warnings"]]
     assert report["config_source"] == "file"

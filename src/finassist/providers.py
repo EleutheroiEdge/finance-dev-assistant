@@ -18,6 +18,18 @@ from .errors import AssistantError, network_not_approved
 from .security import canonical, digest
 
 
+# Status classes live in one table; 5 denotes the entire server-error class.
+HTTP_ERROR_CODES = {
+    401: "provider_http_unauthorized",
+    403: "provider_http_forbidden",
+    404: "provider_http_not_found",
+    408: "provider_timeout",
+    429: "provider_http_rate_limited",
+    5: "provider_http_server_error",
+    0: "provider_http_error",
+}
+
+
 @dataclass(frozen=True)
 class ModelResult:
     text: str
@@ -274,15 +286,9 @@ def invoke(
                 if response.status_code != 200:
                     # Never print a provider response body: it may echo credentials or input.
                     details = {"http_status": response.status_code}
-                    if response.status_code == 401:
-                        raise AssistantError("provider_http_unauthorized", details)
-                    if response.status_code == 403:
-                        raise AssistantError("provider_http_forbidden", details)
-                    if response.status_code == 404:
-                        raise AssistantError("provider_http_not_found", details)
-                    if response.status_code == 429:
-                        raise AssistantError("provider_http_rate_limited", details)
-                    raise AssistantError("provider_http_error", details)
+                    status = response.status_code
+                    key = status if status in HTTP_ERROR_CODES else 5 if 500 <= status <= 599 else 0
+                    raise AssistantError(HTTP_ERROR_CODES[key], details)
                 chunks, length = [], 0
                 for block in response.iter_bytes():
                     if time.monotonic() - started > config.timeout_seconds:
@@ -298,5 +304,9 @@ def invoke(
         if not isinstance(result.text, str) or not result.text.strip():
             raise AssistantError("provider_empty_output")
         return result
+    except httpx.TimeoutException as exc:
+        raise AssistantError("provider_timeout") from exc
+    except (httpx.NetworkError, httpx.ProtocolError, httpx.ProxyError) as exc:
+        raise AssistantError("provider_connection_failed") from exc
     except (httpx.HTTPError, ValueError) as exc:
         raise AssistantError("provider_transport_failed") from exc

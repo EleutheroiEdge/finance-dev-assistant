@@ -368,7 +368,7 @@ def test_doctor_refuses_batch_tool_shims(monkeypatch, capsys):
     assert main(["doctor"]) == 1  # A refused Git shim is now an installation blocker.
     report = json.loads(capsys.readouterr().out)
     assert report["docker_binary_present"] is False and report["podman_binary_present"] is False
-    assert report["environment"]["git"]["blockers"][0]["code"] == "git_capability_check_failed"
+    assert report["environment"]["git"]["blockers"][0]["code"] == "batch_tool_not_supported"
 
 
 def test_readonly_replacement_restores_the_attribute_on_windows(tmp_path, monkeypatch):

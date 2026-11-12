@@ -29,7 +29,7 @@ def test_gate_preflight_empty_key_is_not_ready(gate_case, monkeypatch):
     monkeypatch.setenv("REVIEW_PROVIDER_KEY", "")
     report = policy_preflight(gate_case["repo"], gate_case["base"], gate_case["head"],
                               "gate-policy.json", gate_case["pin"])
-    assert "provider_key_missing" in [row["code"] for row in report["blockers"]]
+    assert "provider_key_empty" in [row["code"] for row in report["blockers"]]
     assert report["provider"]["key_state"] == "empty"
     monkeypatch.setenv("REVIEW_PROVIDER_KEY", "synthetic")
     cleared = policy_preflight(gate_case["repo"], gate_case["base"], gate_case["head"],
@@ -42,7 +42,7 @@ def test_config_preflight_empty_key_is_not_ready(repository):
     config = replace(Config(), provider="openai", model="synthetic", allow_network=True,
                      api_key_env="SYNTHETIC_KEY", input_usd_per_million=1, output_usd_per_million=1)
     report = config_preflight(repo, base, head, config, environment={"SYNTHETIC_KEY": ""})
-    assert "provider_key_missing" in [row["code"] for row in report["blockers"]]
+    assert "provider_key_empty" in [row["code"] for row in report["blockers"]]
     assert report["provider"]["key_state"] == "empty"
     cleared = config_preflight(repo, base, head, config, environment={"SYNTHETIC_KEY": "synthetic"})
     assert "provider_key_missing" not in [row["code"] for row in cleared["blockers"]]
@@ -96,17 +96,17 @@ def test_state_writability_is_nonmutating_and_remedy_clears_blocker(local_enviro
     original = os.access
     monkeypatch.setattr(diagnostic.os, "access", lambda *a, **kw: False)
     report = diagnostic.environment_report(Config(), state_dir=target)
-    assert any(row["path_role"] == "state" for row in report["blockers"])
+    assert any(row["path_role"] == "state" for row in report["warnings"])
     assert not target.exists() and report["paths"]["state"]["path"] == str(target)
     monkeypatch.setattr(diagnostic.os, "access", original)
     report = diagnostic.environment_report(Config(), state_dir=target)
     assert not report["blockers"] and not target.parent.exists()
     target.parent.mkdir()
-    target.write_text("a file is not a directory")
+    target.write_text("a file is not a directory", encoding="utf-8", newline="\n")
     assert diagnostic.directory_status(target)["code"] == "doctor_directory_unusable"
 
 
-@pytest.mark.skipif(os.name != "posix", reason="POSIX mode bits; Windows ACL estimate tested through access")
+@pytest.mark.skipif(os.name != "posix" or getattr(os, "geteuid", lambda: -1)() == 0, reason="POSIX access checks for a non-root user")
 def test_read_only_directory_and_symlink_are_refused(tmp_path):
     directory = tmp_path / "private"
     directory.mkdir()
@@ -148,7 +148,8 @@ def test_key_states_and_nonempty_remedy(local_environment, value, state):
     environment = {} if value is None else {"SYNTHETIC_KEY": value}
     report = diagnostic.environment_report(config, environment=environment)
     assert report["keys"][0]["state"] == state
-    assert bool(report["blockers"]) == (state != "set")
+    assert not report["blockers"]
+    assert bool(report["warnings"]) == (state != "set")
     assert not diagnostic.environment_report(config, environment={"SYNTHETIC_KEY": "remedied"})["blockers"]
 
 
@@ -162,7 +163,7 @@ def test_shared_key_keeps_distinct_hosts_models_limits_and_permissions(local_env
                                            policy={"source": "working-tree"}, environment={"SHARED_KEY": "synthetic"})
     assert len(report["keys"]) == 1
     row = report["keys"][0]
-    assert row["used_by"] == ["evaluate", "gate run", "propose", "review"] and len(row["uses"]) == 2
+    assert row["used_by"] == ["GitHub Action model-review mode", "evaluate", "gate run", "propose", "review"] and len(row["uses"]) == 2
     first, second = row["uses"]
     assert (first["host"], second["host"]) == ("api.openai.com", "gate.example")
     assert first["model"] == "review-model" and second["model"] == "gate-model"
@@ -211,14 +212,14 @@ def test_plain_doctor_environment_is_cli_only(local_environment, capsys, monkeyp
 
 @pytest.mark.parametrize("status,code", [(401, "provider_http_unauthorized"), (403, "provider_http_forbidden"),
                                          (404, "provider_http_not_found"), (429, "provider_http_rate_limited"),
-                                         (500, "provider_http_error"), (307, "provider_http_error")])
+                                         (500, "provider_http_server_error"), (503, "provider_http_server_error"), (408, "provider_timeout"), (307, "provider_http_error")])
 def test_http_status_has_hint_and_never_response_body_or_retry(monkeypatch, status, code):
     monkeypatch.setenv("SYNTHETIC_KEY", "never-output-this-key")
     config = replace(Config(), provider="openai", model="synthetic", api_key_env="SYNTHETIC_KEY", allow_network=True)
     calls = []
     def transport(request):
         calls.append(request)
-        return httpx.Response(status, text="never-output-response", headers={"Location": "https://other.example"})
+        return httpx.Response(status, text="never-output-response", headers={"Location": "https://other.example", "X-Diagnostic": "never-output-header"})
     with pytest.raises(AssistantError) as caught:
         providers.invoke(config, "synthetic instructions", {}, {}, network_approved=True,
                          transport=httpx.MockTransport(transport))

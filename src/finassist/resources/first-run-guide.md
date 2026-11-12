@@ -74,7 +74,7 @@ finassist doctor --policy gate-policy.json --repo . --base BASE --head HEAD
 ```
 
 It lists every blocker with a hint, names each refused file in this local output only, and
-shows the policy's sha256 that `gate run` needs. It makes no network call and reads no key.
+shows the policy's sha256 that `gate run` needs. It makes no network call. It checks selected key variables for presence and emptiness, without reporting their values or lengths.
 
 ## 5. When something is refused
 Where to find the code:

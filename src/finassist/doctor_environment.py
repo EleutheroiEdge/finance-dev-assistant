@@ -9,6 +9,8 @@ from urllib.parse import urlsplit
 
 from .config import Config, DEFAULT_ENDPOINTS, DEFAULT_KEYS
 from .errors import AssistantError
+from .error_hints import error_fields
+from .doctor_key_uses import KEY_USES
 from .platform_support import find_tool
 from .security import check_text, regular_path
 from .update_settings import user_directory
@@ -35,7 +37,7 @@ def key_state(name: str, environment=None) -> str:
 
 def key_diagnostic(name: str, environment) -> dict:
     state = key_state(name, environment) if name else None
-    return {"key_variable": name or None, "key_state": state, "key_variable_set": state == "set"}
+    return {"key_variable": name or None, "key_state": state, "key_variable_set": state in {"set", "empty"}}
 
 
 def git_status() -> dict:
@@ -53,47 +55,51 @@ def git_status() -> dict:
             raise AssistantError("git_capability_check_failed")
         version = tuple(int(value or b"0") for value in match.groups())
         result["version"] = ".".join(map(str, version))
-        for name, minimum, feature, hint in [
-            ("init_initial_branch", (2, 28, 0), "evaluate fixture setup",
-             "Upgrade Git to 2.28 or later before building evaluation fixtures."),
-            ("attributes_at_revision", (2, 40, 0), "init layout detection",
-             "Upgrade Git to 2.40 or later, or set generated_paths explicitly."),
+        for name, minimum, feature in [
+            ("init_initial_branch", (2, 28, 0), "evaluate fixture setup"),
+            ("attributes_at_revision", (2, 40, 0), "init layout detection"),
         ]:
             available = version >= minimum
             result["features"].append({"name": name, "minimum_version": ".".join(map(str, minimum)),
-                                       "available_by_version": available, "used_by": feature})
+                                       "available": available, "check": "version", "used_by": feature,
+                                       "fallback": None})
             if not available:
-                result["warnings"].append({"code": "git_feature_unavailable", "feature": name, "hint": hint})
-        lazy = _supports_no_lazy_fetch(executable)  # Backports count; use the actual offline guard's probe.
+                result["warnings"].append({"code": "git_feature_unavailable", "feature": name,
+                                           **error_fields("git_feature_unavailable")})
+        lazy = _supports_no_lazy_fetch(executable)
         result["features"].append({"name": "no_lazy_fetch", "minimum_version": "2.45.0", "available": lazy,
+                                   "check": "probe", "used_by": "offline Git object reads",
                                    "fallback": None if lazy else "Full clones only; partial clones are refused."})
     except (AssistantError, OSError, subprocess.SubprocessError, ValueError) as exc:
-        result["blockers"].append({"code": "git_executable_missing" if isinstance(exc, AssistantError) and exc.code == "git_executable_missing"
-                                  else "git_capability_check_failed", "hint": "Install a native Git executable on an absolute PATH "
-                                  "entry, then run doctor again. No batch shim or network fetch is used."})
+        code = (exc.code if isinstance(exc, AssistantError) and exc.code in
+                {"git_executable_missing", "batch_tool_not_supported"} else "git_capability_check_failed")
+        result["blockers"].append({"code": code, **error_fields(code)})
     return result
 
 
-def directory_status(path: Path) -> dict:
-    """Access estimate only. Do not create even a probe file, and do not follow links."""
-    report = {"path": _shown_path(str(path.absolute())), "exists": False, "writable": False,
-              "writability_check": "metadata and os.access; no file created, ACLs/mounts may still refuse writes"}
+def directory_status(path: Path, *, windows: bool | None = None) -> dict:
+    """Access estimate only. Never create a probe file or follow user symlinks."""
+    windows = os.name == "nt" if windows is None else windows
+    report = {"path": None, "exists": False, "writable": None if windows else False,
+              "writability_check": ("unknown: Windows ACLs are not checked; no file created" if windows else
+                                   "os.access on nearest existing directory; no file created; writes may still fail")}
     try:
         path = regular_path(path)
+        report["path"] = _shown_path(str(path))
         report["exists"] = path.exists()
         ancestor = path
         while not ancestor.exists():
+            if ancestor.parent == ancestor:
+                raise AssistantError("doctor_directory_unusable")
             ancestor = ancestor.parent
         if not ancestor.is_dir():
             raise AssistantError("doctor_directory_unusable")
-        # Mode bits also catch read-only POSIX directories when tests run as root.
-        mode_writable = os.name != "posix" or bool(ancestor.stat().st_mode & 0o222)
-        report["writable"] = mode_writable and os.access(ancestor, os.W_OK | os.X_OK)
-        if not report["writable"]:
-            raise AssistantError("doctor_directory_unusable")
-    except (AssistantError, OSError, ValueError):
-        report.update(code="doctor_directory_unusable",
-                      hint="Choose a private writable directory without symlinks; check its permissions and parent.")
+        if not windows:
+            report["writable"] = os.access(ancestor, os.W_OK | os.X_OK)
+            if not report["writable"]:
+                raise AssistantError("doctor_directory_unusable")
+    except (AssistantError, OSError, ValueError, RuntimeError):
+        report.update(code="doctor_directory_unusable", **error_fields("doctor_directory_unusable"))
     return report
 
 
@@ -118,9 +124,8 @@ def _use(config: Config, *, model: dict | None = None, policy: dict | None = Non
                                if gate else "allow_network=true plus command --allow-network and request approval."),
         "network_enabled": True if gate else config.allow_network, "authorization_granted": False,
         **({"policy": policy} if gate else {}),
-        "used_by": ["gate run"] if gate else ["review", "propose", "evaluate"],
-        "sends": "Screened packet and instructions, with the required response schema; the key authenticates "
-                 "only this request. No other local files or environment values.",
+        "used_by": [row["command"] for row in KEY_USES if row["source"] == ("gate policy" if gate else "configuration")],
+        "sends": KEY_USES[0]["sends"],
         "limits": limits,
     }
 
@@ -145,27 +150,26 @@ def key_uses(config: Config | None, *, gate_config=None, gate_model=None, policy
         if expected and use["host"] != expected:
             warnings.append({"code": "provider_key_host_mismatch", "variable": name, "host": use["host"],
                              "expected_host": expected, "source": use["source"],
-                             "hint": "Confirm this service should receive that key; prefer a dedicated key variable "
-                                     "and explicit host approval. This warning does not authorize sending it."})
+                             **error_fields("provider_key_host_mismatch")})
     return list(rows.values()), warnings
 
 
 def environment_report(config: Config | None, *, config_path: Path | None = None, state_dir: Path | None = None,
-                       gate_config=None, gate_model=None, policy=None, environment=None) -> dict:
+                       gate_config=None, gate_model=None, policy=None, environment=None, route="installation") -> dict:
     """CLI-only local report. Do not place it in packets, the ledger or dashboard health."""
     environment = os.environ if environment is None else environment
     git = git_status()
     paths = {"configuration": {"path": _shown_path(str(Path(config_path).absolute())) if config_path else None,
                                "source": "file" if config_path else "defaults"}}
-    paths["state"] = {"path": None, "source": "Not selected by this preflight; gate run requires --state-dir."}
+    paths["state"] = {"path": None, "source": "Not selected by this preflight."}
     if state_dir is not None:
         paths["state"] = directory_status(Path(state_dir))
     for kind in ("config", "cache"):
         try:
             paths["user_" + kind] = directory_status(user_directory(kind))
-        except (AssistantError, OSError, ValueError):
-            paths["user_" + kind] = {"path": None, "writable": False, "code": "doctor_directory_unusable",
-                                     "hint": "Set an absolute private user directory with no symlink components."}
+        except (AssistantError, OSError, ValueError, RuntimeError):
+            paths["user_" + kind] = {"path": None, "exists": False, "writable": None, "writability_check": "unavailable",
+                                     "code": "doctor_directory_unusable", **error_fields("doctor_directory_unusable")}
     rows, warnings = key_uses(config, gate_config=gate_config, gate_model=gate_model, policy=policy,
                               environment=environment)
     names = frozenset(iter(environment))
@@ -174,22 +178,36 @@ def environment_report(config: Config | None, *, config_path: Path | None = None
     certs = sorted(names & {"SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"})
     if proxies:
         warnings.append({"code": "provider_proxy_not_used", "variables": proxies,
-                         "hint": "Provider requests do not inherit proxies. Use a directly reachable approved endpoint; "
-                                 "remove unused proxy variables to clear this warning."})
+                         **error_fields("provider_proxy_not_used")})
     if certs:
         warnings.append({"code": "provider_custom_ca_not_used", "variables": certs,
-                         "hint": "Provider transport does not support these custom CA settings. Use a certificate "
-                                 "trusted by its default CA bundle; remove unused variables to clear this warning."})
+                         **error_fields("provider_custom_ca_not_used")})
     blockers = list(git["blockers"])
     for role, path in paths.items():
         if "code" in path:
-            blockers.append({"code": "doctor_directory_unusable", "path_role": role, "hint": path["hint"]})
+            warnings.append({"code": "doctor_directory_unusable", "path_role": role, **error_fields("doctor_directory_unusable")})
     for row in rows:
         if row["state"] != "set":
-            blockers.append({"code": "provider_key_missing", "variable": row["variable"], "state": row["state"],
-                             "hint": "Set this variable to a non-empty provider key in your process environment; "
-                                     "never put the value in configuration or share this value."})
+            code = "provider_key_empty" if row["state"] == "empty" else "provider_key_missing"
+            selected = any(use["source"] == route for use in row["uses"])
+            target = blockers if selected else warnings
+            target.append({"code": code, "variable": row["variable"], "state": row["state"], **error_fields(code)})
     return {"git": git, "paths": paths, "keys": rows, "blockers": blockers,
             "warnings": [*git["warnings"], *warnings], "network_used": False, "key_values_returned": False,
+            "key_value_read": any(row["state"] != "missing" for row in rows),
             "proxy_variables_seen": proxies, "custom_ca_variables_seen": certs,
             "provider_proxy_inheritance": False, "provider_custom_ca_supported": False}
+
+
+def attach_environment(report: dict, environment: dict) -> None:
+    """Apply findings for this selected route before deciding its exit/status."""
+    report["environment"] = environment
+    report["key_value_read"] |= environment["key_value_read"]
+    for kind in ("blockers", "warnings"):
+        for entry in environment[kind]:
+            if not any(old["code"] == entry["code"] and old.get("variable") == entry.get("variable")
+                       and old.get("path_role") == entry.get("path_role") for old in report[kind]):
+                report[kind].append(entry)
+    if report["blockers"]:
+        report["status"] = "blocked"
+        report["next_step"] = "Fix every blocker listed, then run this preflight again."

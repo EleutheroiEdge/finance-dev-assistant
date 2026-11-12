@@ -150,3 +150,36 @@ contracts do not replace the strict validators for saved outgoing requests/propo
 ## Limits
 
 Partial output, missing artifacts and unknown outcomes are not success; reconcile state before retrying a mutation or provider call. JSON shape and citations do not establish correctness. Readiness grants no action authority. Private outputs must remain local. See the [threat model](threat-model.md).
+
+
+## Local doctor environment fields
+
+Doctor output may disclose absolute home, working-directory, configuration, state,
+interpreter and tool paths. Keep it private. Screening redacts unsafe path text;
+ordinary absolute paths are intentional diagnostic information.
+
+Plain doctor returns 1 for missing/unusable Git, and 0 when the installation check
+has only warnings. Directory estimates, missing/empty keys and package-resource or
+version mismatches warn on this route. Range preflights return 1 when any finding
+blocks the selected route: those findings appear in top-level blockers and status
+is blocked. Diagnostic-only settings for another route remain warnings.
+
+- version is the running code version. package records code_version, metadata_version,
+  python_executable, resources (hints/guides/schemas: ok or unavailable), and warnings.
+- tools maps docker, podman and gh to an absolute executable path or null. Existing
+  binary-presence booleans remain; no daemon or GitHub login is tested.
+- environment.git.features entries all have name, minimum_version, available,
+  check (version or probe), used_by and fallback (text or null).
+- environment.paths.configuration has path (absolute or null) and source (file/defaults).
+- environment.paths.state is an unselected record with path:null and source, or a
+  directory record. user_config and user_cache are directory records too.
+- A directory record has path (absolute, redacted or null), exists (boolean), writable
+  (boolean on POSIX; null when Windows ACLs or directory lookup are unknown), and
+  writability_check (text). A failed check adds code and a fixed hint when available.
+- key_variable_set means existence, including empty values. key_state is missing,
+  empty or set. key_value_read is true when any selected value was inspected for
+  emptiness; key_values_returned is always false. Key lengths never appear.
+
+Model gate v2 reports may add reason_details: [{code, http_status}] for provider HTTP
+failures. The code also appears in reasons; http_status is an integer from 100 to 599.
+No response headers, body or transport exception text is included.
