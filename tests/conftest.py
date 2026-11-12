@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import re
 import subprocess
 
 import pytest
@@ -16,6 +17,15 @@ def _no_state_folder_left_in_the_working_directory():
     yield
     if not existed and state.exists():
         pytest.fail("a .finassist folder appeared in the working directory during this test")
+
+
+def holds_number(text: str, digits: str) -> bool:
+    """Whether `digits` occur in `text` as a number, not as a run inside a hash, an identifier or a time stamp.
+
+    Reports, requests and audit events carry run identifiers, hashes and time stamps. Seven given digits turn up inside
+    one of them by chance now and then, so a bare substring test can fail although no figure leaked.
+    """
+    return re.search(r"(?<![0-9A-Fa-f])" + re.escape(digits) + r"(?![0-9A-Fa-f])", text) is not None
 
 
 def command(repo: Path, *args: str) -> str:
