@@ -273,7 +273,16 @@ def invoke(
             with client.stream("POST", url, headers=headers, content=body) as response:
                 if response.status_code != 200:
                     # Never print a provider response body: it may echo credentials or input.
-                    raise AssistantError("provider_http_error")
+                    details = {"http_status": response.status_code}
+                    if response.status_code == 401:
+                        raise AssistantError("provider_http_unauthorized", details)
+                    if response.status_code == 403:
+                        raise AssistantError("provider_http_forbidden", details)
+                    if response.status_code == 404:
+                        raise AssistantError("provider_http_not_found", details)
+                    if response.status_code == 429:
+                        raise AssistantError("provider_http_rate_limited", details)
+                    raise AssistantError("provider_http_error", details)
                 chunks, length = [], 0
                 for block in response.iter_bytes():
                     if time.monotonic() - started > config.timeout_seconds:

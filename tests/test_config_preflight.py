@@ -74,7 +74,7 @@ def test_the_configuration_route_reports_every_blocker_in_one_pass(adopter, caps
     code, report = doctor(capsys, "--config", str(adopter["path"]), "doctor", "--repo", str(adopter["repo"]),
                           "--base", adopter["base"], "--head", adopter["head"])
     assert code == 1 and report["mode"] == "config-preflight" and report["status"] == "blocked"
-    assert not report["network_used"] and not report["key_value_read"] and not report["ledger_opened"]
+    assert not report["network_used"] and not report["key_values_returned"] and not report["ledger_opened"]
     grouped = {entry["code"]: entry for entry in report["blockers"] if "paths" in entry}
     single = {entry["code"]: entry for entry in report["blockers"] if "paths" not in entry}
     assert grouped["private_or_binary_path"]["count"] == 13

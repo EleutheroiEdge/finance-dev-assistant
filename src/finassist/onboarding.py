@@ -1,7 +1,8 @@
 """One-run local readiness preflight for a gate range (#64).
 
-It reads Git objects, the pinned policy at base and the operator's token file. It never
-reads a provider key value, uses the network, opens the ledger or spends. Path names
+It reads Git objects, the pinned policy at base and the operator's token file. It checks
+only a selected key's presence and emptiness, never outputs it, and never uses the
+network, opens the ledger or spends. Path names
 appear only in this local report, as "[redacted]" when a name itself fails screening.
 They never enter a packet, gate report or audit row. The checks reuse the gate's own
 functions, and once those pass the real loader and source builder run as well, so the
@@ -20,6 +21,7 @@ import jsonschema
 
 from .ci_policy import decode_document
 from .config import Config
+from .doctor_environment import key_diagnostic
 from .errors import AssistantError
 from .forbidden_tokens import screen_packet, screen_source
 from .model_gate import name_outcome, prepare_model_source, prepare_token_guard
@@ -53,7 +55,7 @@ HINTS = {
                                 "marker at base whose first line is 'synthetic: true'.",
     "gate_endpoint_host_mismatch": "Set allowed_host to the endpoint's host.",
     "provider_prices_required": "Set both prices above zero, in US dollars per million tokens.",
-    "provider_key_missing": "Set the named environment variable before gate run. The preflight checks only that it is set.",
+    "provider_key_missing": "Set the named environment variable to a non-empty key before gate run. Its value is never reported.",
     "gate_profile_missing_at_base": "Commit the profile file on the base branch.",
     "gate_profile_pin_mismatch": "Update profile_sha256 to the profile bytes at base.",
     "empty_review_scope": "The range changes no files.",
@@ -200,21 +202,22 @@ def _names(raw: bytes) -> tuple[list[str], set[bytes]]:
 
 class _Preflight:
     def __init__(self, repo: Path, base: str, head: str, policy_path: str, pin: str | None, environment,
-                 policy_file: str | None = None):
+                 policy_file: str | None = None, *, diagnostic_config: Config | None = None,
+                 diagnostic_config_path: Path | None = None, include_environment: bool = False):
         self.repo, self.base_ref, self.head_ref = repo, base, head
         self.policy_path, self.pin = policy_path, pin
         # A file on this machine instead of the policy at base: same checks, no authority.
         self.policy_file = policy_file
-        # Names only, taken once. Iterating an environment mapping yields names, while
-        # a membership test on os.environ looks up and decodes the value.
-        self.environment_names = frozenset(iter(environment))
+        self.environment = environment
+        self.diagnostic_config, self.diagnostic_config_path = diagnostic_config, diagnostic_config_path
+        self.include_environment, self.diagnostic_policy = include_environment, None
         self.report = {
             "schema_version": 1, "mode": "gate-preflight", "status": "blocked", "base": None, "head": None,
             "policy": {"path": _shown(policy_path) if policy_file is None else _shown_argument(policy_file, "<policy file>"),
                        "source": "base" if policy_file is None else "working-tree", "sha256": None,
                        "pin": "not_supplied" if pin is None else "unchecked"},
             "blockers": [], "warnings": [], "paths": [], "coverage_complete": None, "request": None,
-            "provider": None, "network_used": False, "key_value_read": False, "ledger_opened": False,
+            "provider": None, "network_used": False, "key_value_read": False, "key_values_returned": False, "ledger_opened": False,
             "next_step": None,
         }
         self._seen: set[bytes] = set()
@@ -251,6 +254,15 @@ class _Preflight:
         except (OSError, ValueError, LookupError) as exc:
             # Keep the report: name the failing step's class, never its message.
             self.block("preflight_check_failed", kind=type(exc).__name__)
+        if self.include_environment:
+            from .doctor_environment import environment_report
+
+            selected = self.diagnostic_policy
+            self.report["environment"] = environment_report(
+                self.diagnostic_config, config_path=self.diagnostic_config_path,
+                gate_config=selected.config if selected else None,
+                gate_model=selected.document["model_review"] if selected else None,
+                policy=self.report["policy"], environment=self.environment)
         self.report["blockers"].extend(self._grouped.values())
         ready = not self.report["blockers"]
         self.report["status"] = "ready" if ready else "blocked"
@@ -280,6 +292,7 @@ class _Preflight:
         policy = self._policy(repo, base)
         if policy is None:
             return None
+        self.diagnostic_policy = policy
         self._prefix_warnings(repo, head, policy.document["model_review"])
         self._paths(repo, base, head, policy)
         # The gate's own loader and source builder run only once nothing else blocks.
@@ -399,12 +412,13 @@ class _Preflight:
             return self.failed(exc)
         key = config.key_name
         self.report["provider"] = {
-            "provider": model["provider"], "key_variable": key,
-            "key_variable_set": bool(key) and key in self.environment_names,
+            "provider": model["provider"],
+            **key_diagnostic(key, self.environment),
             "allowed_host": model["allowed_host"],
             "prices_configured": model["provider"] == "ollama" or all(value > 0 for value in prices.values()),
         }
-        if key and key not in self.environment_names:
+        self.report["key_value_read"] = bool(key) and self.report["provider"]["key_state"] != "missing"
+        if key and not self.report["provider"]["key_variable_set"]:
             self.block("provider_key_missing", variable=key)
         return ModelGatePolicy(document, config, path, sha, base, profile_path, repo)
 
@@ -601,14 +615,18 @@ class _Preflight:
 
 
 def policy_preflight(repo: Path, base: str, head: str, policy_path: str, policy_pin: str | None = None,
-                     *, environment=None, policy_file: str | None = None) -> dict:
+                     *, environment=None, policy_file: str | None = None,
+                     diagnostic_config: Config | None = None, diagnostic_config_path: Path | None = None,
+                     include_environment: bool = False) -> dict:
     """Every gate blocker for one range, in one local run.
 
     With policy_file, the policy comes from that file instead of the repository at base. The
     report then says so, and it never offers a gate run command: gate run reads only at base.
     """
     return _Preflight(Path(repo), base, head, policy_path, policy_pin,
-                      os.environ if environment is None else environment, policy_file).run()
+                      os.environ if environment is None else environment, policy_file,
+                      diagnostic_config=diagnostic_config, diagnostic_config_path=diagnostic_config_path,
+                      include_environment=include_environment).run()
 
 
 def run_policy_doctor(args) -> int:
@@ -619,7 +637,7 @@ def run_policy_doctor(args) -> int:
         from .config_preflight import run_config_doctor
 
         return run_config_doctor(args, load_config(args.config))
-    if args.config is not None or args.fix or args.check_updates or args.state_dir is not None:
+    if args.fix or args.check_updates or args.state_dir is not None:
         raise AssistantError("doctor_policy_options_conflict")
     if args.policy and args.policy_file:
         raise AssistantError("doctor_policy_source_conflict")
@@ -628,7 +646,12 @@ def run_policy_doctor(args) -> int:
     # The raw argument is checked: an empty --repo must not become the current directory.
     if not args.repo or not args.base or not args.head:
         raise AssistantError("doctor_policy_range_required")
+    from .config import load_config
+
+    # Configuration is displayed only; it never overrides the policy used by the gate.
+    diagnostic_config = load_config(args.config) if args.config is not None else None
     report = policy_preflight(args.repo, args.base, args.head, args.policy or "", args.policy_sha256,
-                              policy_file=args.policy_file or None)
+                              policy_file=args.policy_file or None, diagnostic_config=diagnostic_config,
+                              diagnostic_config_path=args.config, include_environment=True)
     print(canonical(report).decode())
     return 0 if report["status"] == "ready" else 1

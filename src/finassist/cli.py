@@ -364,8 +364,13 @@ def execute(args, config: Config | None = None) -> int:
         from .update_check import check_once
 
         checked = check_once(network_allowed=config.allow_network) if args.check_updates else None
-        _emit(doctor_report(config, update_check=checked, config_path=args.config,
-                            state_dir=args.audit_dir or args.state_dir or Path(".finassist")))
+        from .doctor_environment import environment_report
+
+        state = args.audit_dir or args.state_dir or Path(".finassist")
+        report = doctor_report(config, update_check=checked, config_path=args.config, state_dir=state)
+        report["environment"] = environment_report(config, config_path=args.config, state_dir=state)
+        _emit(report)
+        return 1 if report["environment"]["blockers"] else 0
     elif args.command == "demo":
         result = run_demo()
         _emit(result, args.output)

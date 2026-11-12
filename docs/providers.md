@@ -55,3 +55,53 @@ No live provider compatibility or comparative-quality result is implied by the
 mocked protocol contract tests. Use a synthetic, reviewed outgoing request for your first live check.
 
 Cached and reasoning token prices may differ from configured rates; reconcile with actual billing. No automatic fallback is selected. See the [threat model](threat-model.md).
+
+## Installation and key diagnostics
+
+Run `finassist --config finassist.json doctor` for a local `environment` section.
+It names the Git executable and version, feature floors (2.28 for evaluation
+fixture creation, 2.40 for revision attributes, 2.45 for native no-lazy-fetch),
+the chosen configuration and state directory, and user settings/cache directories.
+Older Git retains the existing full-clone fallback; missing optional features
+have warnings, while a missing/unusable executable is a blocker. Directory
+writability is estimated from metadata and access checks: doctor creates no probe
+files, and ACLs or mount restrictions can still refuse a later write. Sensitive
+path text is replaced with `[redacted]`. Keep this local report private.
+
+The key-use table has these fields:
+
+| Field | Meaning |
+|---|---|
+| `variable`, `state` | Variable name and `set`, `empty`, or `missing`; only the selected variable's presence and emptiness are inspected. Values never appear. |
+| `used_by` | Configuration uses: review, propose, evaluate. Policy use: gate run. |
+| `uses[].provider`, `model`, `host` | The configured provider/model and destination hostname. |
+| `uses[].host_permission`, `network_permission` | The setting allowing this host and the approval still required. Configuration alone never authorizes a request. |
+| `uses[].sends` | Screened packet and instructions plus the required response schema. The key authenticates this request; other environment values and local files are not sent. |
+| `uses[].limits` | Each use's packet/request, output-token and run/day/month limits. Configuration packet size excludes instructions and protocol framing. The gate policy has a request cap and run/day reservations, with no policy monthly cap. |
+
+For both configuration and policy uses in one report, run
+`finassist --config finassist.json doctor --repo . --base BASE --head HEAD --policy gate-policy.json --policy-sha256 HASH`.
+The configuration is displayed alongside the policy; it does not override gate
+settings. A shared variable appears once with separate `uses` preserving different
+hosts, models and budgets. The range's top-level status describes that route;
+environment diagnostics and any other configuration's blockers remain separate.
+With `--policy-file`, the policy is a local preview and authorizes nothing.
+Preflights do not select a gate state directory: gate run requires `--state-dir`.
+
+An empty or missing selected key blocks a model preflight. A known provider's
+default key name assigned to a different host produces a warning: use a dedicated
+variable and confirm the exact host. This warning grants no permission.
+Proxy and custom-CA environment variable names are reported without their values.
+The provider transport uses `trust_env=False`; inherited proxies and custom CA
+settings are unsupported. No provider connection is tested by doctor.
+
+HTTP failures include `http_status`. HTTP 401, 403, 404 and 429 have distinct
+`provider_http_unauthorized`, `provider_http_forbidden`,
+`provider_http_not_found` and `provider_http_rate_limited` codes and hints.
+Other statuses retain `provider_http_error`. Response bodies and headers are
+never echoed, redirects are not followed, and retries are never automatic.
+Unknown billable reservations stay held until actual cost is reconciled.
+
+Version status remains cached unless you explicitly request `doctor --check-updates`
+with network-enabled configuration, or have opted into update notifications.
+This performs no provider/model probe and changes no release or approval gate.

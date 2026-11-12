@@ -239,7 +239,7 @@ It reports every blocker `plan` and `review` would hit for that range in one run
   value), the prices, and the request's reserved spend against `max_run_usd`,
   `daily_budget_usd` and `monthly_budget_usd`. Spend already recorded is not read.
 
-It makes no network call, reads no key value, opens no ledger and writes nothing. Path names
+It makes no network call, checks only selected key presence and emptiness, never reports its value, opens no ledger and writes nothing. Path names
 appear only in its local output, as `[redacted]` when a name fails screening. A `ready`
 report lists the `plan` and `review` commands to run next. Without `--config` it checks the
 defaults. For a gate range, use `doctor --policy` instead (see the pre-merge gate guide).

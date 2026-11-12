@@ -4,6 +4,12 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ## Unreleased
 
+### Added
+- Doctor lists Git capabilities, local configuration/state/settings/cache paths, writable-directory estimates and a deduplicated key-use table with separate host permissions and limits for configuration and supplied gate policy. Proxy/custom-CA variables are named without values; no connection or write probe runs.
+
+### Fixed
+- Empty selected key variables now block both range preflights. Only presence and emptiness are inspected; no key value is reported. HTTP failures retain numeric status, with distinct 401/403/404/429 codes and hints; response bodies remain suppressed and unknown spend stays reserved.
+
 ### Security
 - **A program in the current directory is never run as Git, GitHub CLI, Docker or Podman.** These
   tools are now taken only from the absolute entries of `PATH`. Before, the lookup went through

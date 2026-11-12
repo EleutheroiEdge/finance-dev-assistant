@@ -6,8 +6,9 @@ metadata:
   requires: finassist Python CLI; every step is offline and needs no provider key
 ---
 
-Every step below is offline. Nothing in the repository is executed, and no key value is
-read. Work from the repository's root on a feature branch, never the default branch.
+Every step below is offline. Nothing in the repository is executed. Doctor inspects only
+selected key presence and emptiness; no key value is reported. Work from the repository's
+root on a feature branch, never the default branch.
 
 ## 1. Check the installation
 
