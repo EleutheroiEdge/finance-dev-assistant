@@ -557,3 +557,40 @@ def test_clean_defaults_and_rejects_values_below_one():
     with pytest.raises(SystemExit) as age:
         parser().parse_args(["state", "clean", "--older-than", "0"])
     assert age.value.code == 2
+
+
+def _old_backups(state, count=12):
+    folder = state / "config-backups"
+    folder.mkdir(parents=True)
+    for n in range(count):
+        path = folder / f"{n:064x}.json"
+        path.write_text("{}", encoding="utf-8")
+        os.utime(path, (1_000_000 + n, 1_000_000 + n))
+    return folder
+
+
+@pytest.mark.parametrize("damage", ["garbage", "link"])
+def test_apply_stops_before_removing_when_the_chain_does_not_verify(tmp_path, monkeypatch, capsys, damage):
+    # The removal must be recordable, so a chain that cannot be verified stops it before anything is removed.
+    from finassist.cli import main
+
+    if damage == "link" and os.name == "nt":
+        pytest.skip("symbolic links need privileges on Windows")
+    state = tmp_path / "state"
+    backups = _old_backups(state)
+    ledger = state / "audit.sqlite"
+    if damage == "garbage":
+        ledger.write_bytes(b"not a database")
+    else:
+        target = tmp_path / "elsewhere.sqlite"
+        target.write_bytes(b"not a database")
+        ledger.symlink_to(target)
+    monkeypatch.setattr("tempfile.tempdir", str(tmp_path / "tmp"))
+    (tmp_path / "tmp").mkdir()
+    before = sorted(path.name for path in backups.iterdir())
+    code = main(["state", "clean", "--state-dir", str(state), "--apply", "--no-temp"])
+    err = capsys.readouterr().err
+    expected = {"garbage": {"audit_unavailable", "audit_integrity_failed"}, "link": {"linked_path"}}[damage]
+    assert code == 2 and json.loads(err.strip().splitlines()[-1])["code"] in expected, err
+    assert sorted(path.name for path in backups.iterdir()) == before
+

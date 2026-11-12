@@ -55,6 +55,9 @@ def run_state_clean(args) -> int:
     _check(args)
     folder, origin = state_location(args, refuse=False)
     removable, kept, problem = _plan(folder, args)
+    if args.apply and removable and _ledger_present(folder):
+        # The removal must be recordable: a chain that does not verify stops it before anything is removed.
+        _verify_ledger(folder)
     removed = _remove_all(removable) if args.apply else []
     report = _document(
         folder, origin, removable, kept, applied=bool(args.apply), removed=removed, problem=problem)
@@ -282,7 +285,7 @@ def _remove_all(items: list[dict]) -> list[dict]:
     for item in items:
         try:
             _remove_entry(Path(item["path"]))
-        except OSError as exc:
+        except (OSError, RecursionError) as exc:  # A tree too deep to walk is a failed removal, not a crash.
             item["error"] = type(exc).__name__
         else:
             removed.append({key: item[key] for key in _KEYS})
@@ -328,7 +331,7 @@ def _grant(path: Path) -> None:
 
 def _audit(state_dir: Path, removed: list[dict], failed_count: int) -> str:
     """Counts and byte totals only. An absent chain is left absent."""
-    if not _ledger_exists(state_dir):
+    if not _ledger_present(state_dir):
         return "no ledger"
     from .auditing import command_audit
     from .config import Config
@@ -348,13 +351,23 @@ def _audit(state_dir: Path, removed: list[dict], failed_count: int) -> str:
     return "recorded"
 
 
-def _ledger_exists(state_dir: Path) -> bool:
-    path = Path(state_dir) / "audit.sqlite"
+def _ledger_present(state_dir: Path) -> bool:
+    """Any entry named audit.sqlite counts, a link or a damaged file included: the ledger then decides."""
+    return os.path.lexists(Path(state_dir) / "audit.sqlite")
+
+
+def _verify_ledger(state_dir: Path) -> None:
+    import sqlite3
+
+    from .ledger import Ledger
+
     try:
-        info = path.lstat()
-    except OSError:
-        return False
-    return stat.S_ISREG(info.st_mode) and not stat.S_ISLNK(info.st_mode)
+        with Ledger(Path(state_dir) / "audit.sqlite", read_only=True) as ledger:
+            ledger.verify()
+    except AssistantError:
+        raise
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        raise AssistantError("audit_unavailable") from exc
 
 
 def _document(state_dir, origin, removable, kept, *, applied, removed, problem) -> dict:

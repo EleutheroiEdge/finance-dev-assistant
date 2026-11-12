@@ -20,6 +20,13 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   writes nothing at all, not even an audit entry: a database with a journal or write-ahead file is read from a
   private copy. A store it cannot read in full is listed with its error, never as a smaller count. The first
   part of #120; archiving and cleaning come next.
+- **`finassist state clean`: remove what is certainly safe, list the rest.** A dry run unless
+  `--apply`. It removes only configuration backups beyond the newest ten of each kind and this
+  tool's own temporary leftovers older than a day, and lists every other store with the reason it
+  is kept: the audit chain and evidence are evidence, patches serve rollback, workflow runs can
+  count for readiness, lock files keep one workflow to one process, and history journals reconcile
+  the budget. `--apply` refuses to remove anything when the audit chain does not verify, and
+  records counts and bytes in it. Part of #120.
 - **`doctor --format text`: the report for a person at a terminal.** The verdict first, each blocker by its
   code with its hint and its remedies, what each remedy changes and what else it does, and the next command.
   It works on the health report and on both range preflights, and prints only fields it knows, so no key
