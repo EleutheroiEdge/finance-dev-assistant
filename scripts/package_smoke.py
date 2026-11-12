@@ -78,10 +78,10 @@ with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
     preview_update = cli("update", "--dry-run")[0]
     assert preview_update["dry_run"] and preview_update["upgrade_argv"][-1] == "finledgerpoli"
     assert cli("doctor", "--check-updates")[0]["updates"]["reason"] == "network-disabled"
-    cli("init", "--output", root / "config.json")
+    cli("init", "--template", "--output", root / "config.json")
     kit = cli("export-kit", "--output", root / "kit")[0]
     assert not kit["installed_into_host"]
-    topics = cli("guide")[0]["topics"]
+    topics = cli("guide", "--json")[0]["topics"]
     assert {row["topic"] for row in topics} == set(GUIDES)
     for topic, (_, source, _) in GUIDES.items():
         result = subprocess.run(

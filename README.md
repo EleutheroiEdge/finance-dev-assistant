@@ -44,12 +44,16 @@ Python 3.11+ is required; Git is needed for source workflows. Install with
 pipx install finledgerpoli
 finassist demo
 finassist init
-finassist dashboard
+finassist doctor
 ```
 
-In your own repository, `finassist init --detect` proposes a configuration from its committed layout,
+In your own repository, `finassist init` writes an offline configuration from its committed layout.
+Use `finassist init --detect` to preview a proposal without writing,
 and [your first run](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/first-run.md)
 walks through a first review in five steps.
+
+Setup adds `.finassist/` to the repository’s local Git exclude file and reports the result.
+Start the optional local dashboard with `finassist dashboard` after setup.
 
 The package is `finledgerpoli`, the command is `finassist` (`finledgerpoli` also works).
 For an existing Python environment, `pip install finledgerpoli` is also supported.
@@ -135,10 +139,8 @@ Start offline from the repository you want to review, after inspecting its confi
 and source policy:
 
 ```sh
-finassist --config finassist.json plan --repo . --base main --head HEAD \
-  --output .finassist/context.json
-finassist --config finassist.json review --packet .finassist/context.json \
-  --output .finassist/offline-review.json
+finassist --config finassist.json plan --repo . --base main --head HEAD --output .finassist/context.json
+finassist --config finassist.json review --packet .finassist/context.json --output .finassist/offline-review.json
 ```
 
 Offline analysis does not claim a model review or test execution. Remote model use

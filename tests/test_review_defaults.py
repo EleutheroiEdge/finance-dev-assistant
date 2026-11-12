@@ -96,7 +96,7 @@ def test_init_materializes_profiles_when_copying_configuration(tmp_path):
     write_json(path, {"profile": "custom", "profile_files": ["profile.json"]})
     target = tmp_path / "copy/config.json"
     assert (
-        main(["--config", str(path), "--audit-dir", str(tmp_path / "state"), "init", "--output", str(target)])
+        main(["--config", str(path), "--audit-dir", str(tmp_path / "state"), "init", "--template", "--output", str(target)])
         == 0
     )
     loaded = load_config(target)

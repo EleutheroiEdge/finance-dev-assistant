@@ -108,6 +108,13 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   `unreviewable_paths_left_out`.
 
 ### Changed
+- Plain `init` detects the committed project layout; `--template` retains the fixed layout.
+  An explicit detected write can refine the exact untouched plain-init output once, with
+  recovery bytes kept locally; every other existing output remains refused. Setup reports
+  a local `.finassist/` Git exclusion or the manual rule to add. Empty repositories get
+  an empty source allow list. Help and the readable guide index show a starting path;
+  `guide --json` retains the structured index. The quick start uses one-line commands.
+  Gate acceptance, screening, provider approval and budget rules are unchanged.
 - **A gate accepts what it refused before: a credential-named field that is given a reference.**
   In TypeScript and JavaScript (`.ts`, `.mts`, `.cts`, `.js`, `.mjs`, `.cjs`), Go, Java, Kotlin
   and SQL files the credential screen now finds the strings and comments first. A string literal
