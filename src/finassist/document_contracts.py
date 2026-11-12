@@ -99,61 +99,60 @@ def _validator(kind: str) -> Draft202012Validator:
     return Draft202012Validator(schema)
 
 
-def _shape_error_code(kind, exc, default):
+def _raise_shape_error(kind, exc):
     """Keep documented field-level errors while the shared schema owns structure."""
     path = list(exc.absolute_path)
     if kind == "evaluation-suite" and path and path[0] == "cases":
         if len(path) == 1:
-            return "invalid_eval_cases"
+            raise AssistantError("invalid_eval_cases")
         if len(path) == 2:
-            return "invalid_eval_case"
+            raise AssistantError("invalid_eval_case")
         if path[2] in {"id", "expected_defect"}:
-            return "invalid_eval_identity"
+            raise AssistantError("invalid_eval_identity")
         if path[2] in {"before", "after"}:
-            return "invalid_eval_source"
-        return "invalid_eval_case"
+            raise AssistantError("invalid_eval_source")
+        raise AssistantError("invalid_eval_case")
     if kind == "history-expected":
         path = ["cases", 0, *path]
         kind = "history-suite"
     if kind == "history-suite" and path and path[0] == "cases":
         if len(path) == 1:
-            return "history_cases_invalid"
+            raise AssistantError("history_cases_invalid")
         if len(path) == 2:
-            return "history_case_invalid"
+            raise AssistantError("history_case_invalid")
         field = path[2]
         if field in {"id", "profile"}:
-            return "history_identity_invalid"
+            raise AssistantError("history_identity_invalid")
         if field == "repo_path":
-            return "history_repository_invalid"
+            raise AssistantError("history_repository_invalid")
         if field in {"base_sha", "head_sha"}:
             if field == "base_sha" and "allOf" in exc.absolute_schema_path:
-                return "history_policy_commit_invalid"
-            return "ci_revision_invalid"
+                raise AssistantError("history_policy_commit_invalid")
+            raise AssistantError("ci_revision_invalid")
         if field in {"negative_control", "expected"}:
-            return "history_identity_invalid" if len(path) > 4 and path[4] == "label" else "history_expected_invalid"
+            raise AssistantError("history_identity_invalid" if len(path) > 4 and path[4] == "label" else "history_expected_invalid")
         if field == "policy":
             if len(path) > 3 and path[3] == "repo_path":
-                return "history_policy_repository_invalid"
+                raise AssistantError("history_policy_repository_invalid")
             if len(path) > 3 and path[3] == "commit":
-                return "history_policy_commit_invalid"
-            return "history_policy_invalid"
+                raise AssistantError("history_policy_commit_invalid")
+            raise AssistantError("history_policy_invalid")
     if kind == "packet" and path:
         if path[0] == "changed_paths":
-            return "packet_file_count_limit" if exc.validator == "maxItems" else "packet_coverage_invalid"
+            raise AssistantError("packet_file_count_limit" if exc.validator == "maxItems" else "packet_coverage_invalid")
         if path[0] == "files" and len(path) > 2:
             if path[2].endswith("_mode"):
-                return "packet_mode_invalid"
+                raise AssistantError("packet_mode_invalid")
             if path[2].endswith("_hash"):
-                return "file_integrity_failed"
+                raise AssistantError("file_integrity_failed")
         if path[0] == "packet_hash":
-            return "packet_integrity_failed"
+            raise AssistantError("packet_integrity_failed")
         if path[0] == "related" and path[1:] != ["rule_version"]:
-            return "packet_related_invalid"
-    return default
-
+            raise AssistantError("packet_related_invalid")
 
 def validate_document_shape(document: dict, kind: str, error: str) -> None:
     try:
         _validator(kind).validate(document)
     except ValidationError as exc:
-        raise AssistantError(_shape_error_code(kind, exc, error)) from exc
+        _raise_shape_error(kind, exc)
+        raise AssistantError(error) from exc
