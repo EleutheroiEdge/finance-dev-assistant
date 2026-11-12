@@ -1,0 +1,105 @@
+{
+  "$id": "https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/v0.10.0/schemas/ci-policy.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "backend": {
+      "enum": [
+        "docker",
+        "podman"
+      ]
+    },
+    "base_branches": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "config": {
+      "type": "object"
+    },
+    "events": {
+      "const": [
+        "pull_request"
+      ]
+    },
+    "fixture_max_file_bytes": {
+      "maximum": 2000000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "fixture_roots": {
+      "items": {
+        "maxLength": 512,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 128,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "forks": {
+      "enum": [
+        "deny",
+        "checks-only"
+      ]
+    },
+    "guard_paths": {
+      "items": {
+        "maxLength": 512,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "max_check_seconds": {
+      "maximum": 3600,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "max_steps": {
+      "maximum": 64,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "repository": {
+      "maxLength": 201,
+      "type": "string"
+    },
+    "review": {
+      "enum": [
+        "not-requested",
+        "required"
+      ]
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "workflow": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "repository",
+    "events",
+    "base_branches",
+    "forks",
+    "backend",
+    "review",
+    "guard_paths",
+    "max_steps",
+    "max_check_seconds",
+    "config",
+    "workflow"
+  ],
+  "type": "object"
+}

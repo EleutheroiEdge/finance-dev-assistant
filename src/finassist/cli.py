@@ -86,6 +86,8 @@ def parser() -> argparse.ArgumentParser:
     guide.add_argument("topic", nargs="?", help="Topic from the guide index; omit to list topics as JSON")
     config_command = commands.add_parser("config", help="Preview or explicitly apply reversible configuration migrations")
     config_actions = config_command.add_subparsers(dest="config_action", required=True)
+    from .document_schemas import add_schema_command
+    add_schema_command(config_actions)
     migrate = config_actions.add_parser("migrate", help="Keep exact backup bytes before applying reviewed key renames")
     migrate.add_argument("--path", type=Path, help="Configuration file; otherwise --config or finassist.json")
     migrate.add_argument("--dry-run", action="store_true")
@@ -759,6 +761,11 @@ def main(argv: list[str] | None = None) -> int:
             if path is None and Path("finassist.json").exists():
                 path = Path("finassist.json")
             _emit(fix_local_state(path, audit_directory(args)))
+            return 0
+        if args.command == "config" and args.config_action == "schema":
+            from .document_schemas import document_schema_text
+
+            print(document_schema_text(args.kind), end="")
             return 0
         if args.command == "config":
             from .config_compat import apply_config_migration, preview_config_migration

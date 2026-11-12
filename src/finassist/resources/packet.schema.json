@@ -1,0 +1,544 @@
+{
+  "$id": "https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/v0.10.0/schemas/packet.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": 1
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "files": {
+            "items": {
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "else": {
+                    "properties": {
+                      "before_hash": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "if": {
+                    "properties": {
+                      "before": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "before_hash": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                },
+                {
+                  "else": {
+                    "properties": {
+                      "after_hash": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "if": {
+                    "properties": {
+                      "after": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "after_hash": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              ],
+              "not": {
+                "properties": {
+                  "after": {
+                    "type": "null"
+                  },
+                  "before": {
+                    "type": "null"
+                  }
+                }
+              },
+              "properties": {
+                "after": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "after_hash": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "before": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "before_hash": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "path": {
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "A",
+                    "D",
+                    "M",
+                    "T"
+                  ]
+                }
+              },
+              "required": [
+                "after",
+                "after_hash",
+                "before",
+                "before_hash",
+                "path",
+                "status"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": 2
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "files": {
+            "items": {
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "else": {
+                    "properties": {
+                      "before_hash": {
+                        "type": "string"
+                      },
+                      "before_mode": {
+                        "enum": [
+                          "100644",
+                          "100755"
+                        ]
+                      }
+                    }
+                  },
+                  "if": {
+                    "properties": {
+                      "before": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "before_hash": {
+                        "type": "null"
+                      },
+                      "before_mode": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                },
+                {
+                  "else": {
+                    "properties": {
+                      "after_hash": {
+                        "type": "string"
+                      },
+                      "after_mode": {
+                        "enum": [
+                          "100644",
+                          "100755"
+                        ]
+                      }
+                    }
+                  },
+                  "if": {
+                    "properties": {
+                      "after": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "after_hash": {
+                        "type": "null"
+                      },
+                      "after_mode": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              ],
+              "not": {
+                "properties": {
+                  "after": {
+                    "type": "null"
+                  },
+                  "before": {
+                    "type": "null"
+                  }
+                }
+              },
+              "properties": {
+                "after": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "after_hash": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "after_mode": {
+                  "enum": [
+                    null,
+                    "100644",
+                    "100755"
+                  ]
+                },
+                "before": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "before_hash": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "before_mode": {
+                  "enum": [
+                    null,
+                    "100644",
+                    "100755"
+                  ]
+                },
+                "path": {
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "A",
+                    "D",
+                    "M",
+                    "T"
+                  ]
+                }
+              },
+              "required": [
+                "after",
+                "after_hash",
+                "after_mode",
+                "before",
+                "before_hash",
+                "before_mode",
+                "path",
+                "status"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "allow_paths": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "base": {
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      "type": "string"
+    },
+    "changed_paths": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 2000,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "classification_limit": {},
+    "data_class": {},
+    "files": {
+      "type": "array"
+    },
+    "generated_paths": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "head": {
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      "type": "string"
+    },
+    "merge_base": {
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      "type": "string"
+    },
+    "omitted": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "reason": {
+            "not": {
+              "const": "private_path_policy"
+            },
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "packet_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "profile": {
+      "type": "string"
+    },
+    "related": {
+      "additionalProperties": false,
+      "properties": {
+        "budget_bytes": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rule_version": {
+          "const": 1
+        },
+        "skipped": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "reason": {
+                "pattern": "^[a-z][a-z0-9_]{0,80}$",
+                "type": "string"
+              },
+              "symbol": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "path",
+              "reason",
+              "symbol"
+            ],
+            "type": "object"
+          },
+          "maxItems": 50,
+          "type": "array"
+        },
+        "skipped_count": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "snippets": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "lines": {
+                "items": {
+                  "items": false,
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "prefixItems": [
+                    {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "type": "array"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "path": {
+                "type": "string"
+              },
+              "reference": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "line": {
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "line",
+                      "path"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "symbol": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "symbol"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
+              "relation": {
+                "enum": [
+                  "callee",
+                  "caller",
+                  "test",
+                  "base"
+                ]
+              },
+              "sha256": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "symbol": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "lines",
+              "path",
+              "reference",
+              "relation",
+              "sha256",
+              "symbol"
+            ],
+            "type": "object"
+          },
+          "maxItems": 40,
+          "type": "array"
+        }
+      },
+      "required": [
+        "budget_bytes",
+        "rule_version",
+        "skipped",
+        "skipped_count",
+        "snippets"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "enum": [
+        1,
+        2
+      ],
+      "type": "integer"
+    },
+    "withheld": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "maximum": 2000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "reason": {
+          "const": "private_path_policy"
+        }
+      },
+      "required": [
+        "count",
+        "reason"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "base",
+    "changed_paths",
+    "classification_limit",
+    "data_class",
+    "files",
+    "generated_paths",
+    "head",
+    "merge_base",
+    "omitted",
+    "packet_hash",
+    "profile",
+    "schema_version"
+  ],
+  "type": "object"
+}

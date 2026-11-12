@@ -504,6 +504,44 @@ approval, profile files and cross-field policy. Schema validation alone is not
 approval to send source or run a recipe. Forks can use a local schema copy and
 change its `$id` when publishing their own version.
 
+
+Print the schema from the installed package without loading project configuration
+or creating audit state:
+
+```sh
+finassist config schema
+finassist config schema --kind gate-policy
+```
+
+The default kind is `config`. All exported schemas have a `$id` containing the
+package version, rather than `main`. An unreleased source checkout can contain
+new schemas before that version's release URL exists; the command and local
+schema files work offline. An identifier does not cause finassist to fetch it.
+
+| Kind | Document |
+|---|---|
+| `config` | Configuration |
+| `gate-policy` | Version-2 model gate policy |
+| `ci-policy` | Version-1 deterministic CI policy |
+| `packet` | Version-1 or version-2 source packet |
+| `gate-report` | Current version-2 model gate report |
+| `gate-report-v1` | Legacy version-1 model gate report |
+| `review-report` | Model review response, retaining its existing unversioned envelope |
+| `evaluation-suite` | Synthetic evaluation input |
+| `history-suite` | Frozen-history evaluation input |
+
+Regenerate every public and packaged export with
+`python scripts/generate_document_schemas.py`. Drift tests compare each export
+with the runtime structural contract. Review-response metadata is added only to
+the exported copy: it does not change the schema sent to providers or existing
+request approvals.
+
+These schemas check structure. Runtime validation still enforces source byte
+limits, private paths and content, unique case identities, packet coverage and
+hashes, Git/configuration bindings, and approvals. JSON Schema's integer type
+also accepts integral numeric values such as `1.0`; runtime version fields
+require an actual JSON integer. Passing an editor check grants no authority.
+
 ## Limits
 
 Configuration selects policy; it does not authorize a network request, recipe execution or patch application. Runtime checks remain authoritative after editor validation. Screening cannot prove confidentiality, generated exclusions require independent source/build verification, and local budget admission cannot enforce provider billing. See the [threat model](threat-model.md).

@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 
 from .config import Config
+from .document_contracts import suite_envelope_valid, validate_document_shape
 from .platform_support import find_tool
 from .errors import AssistantError
 from .review import review_packet
@@ -20,13 +21,13 @@ def validate_suite(
     suite: dict, *, extra_patterns: tuple[str, ...] = (), config: Config | None = None
 ) -> None:
     placeholders = config.placeholder_credential_paths if config else ()
-    if set(suite) != {"version", "cases"} or suite["version"] != 1:
+    if not suite_envelope_valid(suite):
         raise AssistantError("invalid_eval_suite")
     if not isinstance(suite["cases"], list) or not 1 <= len(suite["cases"]) <= 50:
         raise AssistantError("invalid_eval_cases")
     identifiers = set()
     for case in suite["cases"]:
-        if set(case) != {"id", "path", "before", "after", "expected_defect"}:
+        if not isinstance(case, dict) or set(case) != {"id", "path", "before", "after", "expected_defect"}:
             raise AssistantError("invalid_eval_case")
         if (
             not isinstance(case["id"], str)
@@ -46,6 +47,7 @@ def validate_suite(
             check_credentials(case[side], extra_patterns=extra_patterns, source_path=case["path"],
                               placeholders=placeholders)
 
+    validate_document_shape(suite, "evaluation-suite", "invalid_eval_suite")
     check_context_document(suite, extra_patterns=extra_patterns, records_key="cases", placeholders=placeholders)
 
 

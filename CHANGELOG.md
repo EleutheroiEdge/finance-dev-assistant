@@ -66,6 +66,12 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   size already, so the first-run numbers above do not move. See `docs/security-design.md`.
 
 ### Added
+- Published versioned document schemas and offline `finassist config schema --kind NAME`
+  exports for configuration, policies, packets, model gate/review reports and evaluation
+  suites. Runtime screening, integrity checks and approvals remain required.
+- Evaluation and history suites also accept `schema_version: 1`, preserving the
+  original canonical document for approval hashes. Conflicting aliases and non-integer
+  version values are refused; existing integer `version: 1` inputs keep their hashes.
 - **`placeholder_credential_paths`: review test files that hold made-up logins.** A fixture with a
   field named `password` and a value that was never real refused the whole range, because the
   screen cannot tell it from a real one. List such files in the configuration, or in a gate

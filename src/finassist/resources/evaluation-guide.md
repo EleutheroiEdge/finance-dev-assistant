@@ -50,7 +50,20 @@ review; freeze ground truth before seeing the output. A control with no known
 defect is an assumption to check, not proof of correctness. Never place client,
 holdings, credential or licensed vendor data in a suite or source packet.
 
-A history file has `version: 1` and `cases`, each with these fields:
+
+Both evaluation and history suites accept `version: 1` or `schema_version: 1`.
+If both fields are present, both must be integer `1`. Missing, conflicting,
+boolean and floating-point version values are refused. Use
+`finassist config schema --kind evaluation-suite` or `--kind history-suite`
+for the corresponding installed structural schema.
+
+Validation preserves the submitted document. Suite hashes cover its original
+canonical JSON, including the chosen version-field spelling. Existing
+`version` documents keep their hashes; renaming the field or including both
+fields creates a new hash and requires a new approval. History approvals also
+remain bound to the selected trial count.
+
+A history file has a version field and `cases`, each with these fields:
 
 ```json
 {

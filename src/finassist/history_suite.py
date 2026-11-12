@@ -6,6 +6,7 @@ import re
 
 from .ci_policy import revision
 from .config import Config
+from .document_contracts import suite_envelope_valid, validate_document_shape
 from .errors import AssistantError
 from .model_gate import _scope_path, _screen_ignores, prepare_model_source
 from .model_policy import load_model_policy
@@ -45,8 +46,7 @@ def validate_expected(expected, negative_control) -> None:
 
 def validate_history_suite(suite: dict, *, trials: int = 1) -> str:
     """Validate the entire input before looking at repositories, keys or networks."""
-    if (not isinstance(suite, dict) or set(suite) != {"version", "cases"}
-            or type(suite["version"]) is not int or suite["version"] != 1
+    if (not suite_envelope_valid(suite)
             or type(trials) is not int or not 1 <= trials <= 20):
         raise AssistantError("history_suite_invalid")
     raw = canonical(suite)
@@ -87,6 +87,7 @@ def validate_history_suite(suite: dict, *, trials: int = 1) -> str:
             commit = policy.get("commit", case["base_sha"])
             if not isinstance(commit, str) or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
                 raise AssistantError("history_policy_commit_invalid")
+    validate_document_shape(suite, "history-suite", "history_suite_invalid")
     return digest(raw)
 
 

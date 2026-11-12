@@ -1,6 +1,7 @@
 """Exercise the installed wheel from an isolated temporary project, without model calls."""
 
 from importlib import metadata
+from importlib.resources import files
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,7 @@ from triage_smoke import exercise_triage_cli
 import finassist
 from finassist.platform_support import clean_environment, find_tool
 from finassist.guides import GUIDES
+from finassist.document_schemas import SCHEMA_FILES, document_schema_text
 from finassist.scope import git_environment
 from finassist.security import canonical, digest
 
@@ -68,6 +70,14 @@ with tempfile.TemporaryDirectory(prefix="finassist-wheel-smoke-") as directory:
             env=environment,
         )
         assert result.stdout.strip() == distribution.version, command
+    for kind, name in SCHEMA_FILES.items():
+        schema_result = subprocess.run(
+            [sys.executable, "-m", "finassist", "config", "schema", "--kind", kind],
+            cwd=root, capture_output=True, text=True, encoding="utf-8", check=True, env=environment,
+        )
+        assert schema_result.stdout == document_schema_text(kind)
+        assert schema_result.stdout == files("finassist").joinpath("resources/" + name).read_text(encoding="utf-8")
+        assert not schema_result.stderr
     assert cli("demo")[0]["status"] == "PASS"
     exercise_triage_cli(cli, root)
     doctor = cli("doctor")[0]

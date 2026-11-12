@@ -717,6 +717,8 @@ def verify_packet(packet: dict, config: Config | None = None, *, waiting: Waitin
                     raise AssistantError("file_limit_exceeded", {"limit": limit, "bytes": size})
                 check_credentials(data, extra_patterns=config.extra_sensitive_patterns, source_path=file["path"],
                                   placeholders=config.placeholder_credential_paths)
+    from .document_contracts import validate_document_shape
+    validate_document_shape(packet, "packet", "packet_schema_invalid")
     # The hidden-character screen reads every file after every other check of the packet has passed.
     for file in packet["files"]:
         for side in ("before", "after"):
