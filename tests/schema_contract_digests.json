@@ -1,5 +1,5 @@
 {
-  "urn:finledgerpoli:schema:ci-policy:1": "ea195af67dbc9aba7583f332517ec389f5576d57bcb3a5a2ab0d9f7a4c1e873f",
+  "urn:finledgerpoli:schema:ci-policy:1": "55e28a297b5cd667706badaee0033a20932c7e21aaab1fec956af3d30065d279",
   "urn:finledgerpoli:schema:config:1": "73c70ac84ccade93bc7003632920b55b29c631caecbee0f6136a790ea70b6b14",
   "urn:finledgerpoli:schema:evaluation-suite:1": "ab66f2828f7823e2f2e654ea0fbfea88e5975b5fee7cef1d2e3a2893cfbcee63",
   "urn:finledgerpoli:schema:gate-policy:2": "ffec4997fe24bcacb0026ccfadecafd727cfc3172cefa4a52cc4138f12922a13",
@@ -8,5 +8,6 @@
   "urn:finledgerpoli:schema:history-suite:1": "7dc511b4492822e4df36937c86a36900242f374730321c873b848681c67ff019",
   "urn:finledgerpoli:schema:packet:2": "ea5914135d94b8cad12f8ff4da51f55d90ea477ca9e07df843014cac5f3814c7",
   "urn:finledgerpoli:schema:review-report:1": "532e463a0ce2b33b5973b45ffdd500d1567d23ba6189aa924a6f63911a73339e",
-  "urn:finledgerpoli:schema:review-response:1": "df6f16e52664701c4bdc3a0c9b2607718447ede248405e138152aa3e84f6808c"
+  "urn:finledgerpoli:schema:review-response:1": "df6f16e52664701c4bdc3a0c9b2607718447ede248405e138152aa3e84f6808c",
+  "urn:finledgerpoli:schema:workflow-template:1": "f1f33304ce67170100505c1aaafabf136b139040374dc79b72238c71737f1e2f"
 }
