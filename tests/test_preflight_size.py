@@ -129,13 +129,13 @@ def test_metadata_only_excludes_withheld_and_omitted_paths(change, route, monkey
     metadata = []
     def observed(repo, *args, **kwargs):
         assert args[:4] == ("--literal-pathspecs", "ls-tree", "-l", "-z")
-        assert args[-1] in {"src/large.py", "src/small.py"}
+        assert set(args[6:]) == {"src/large.py", "src/small.py"}
         metadata.append(args)
         return real(repo, *args, **kwargs)
     monkeypatch.setattr(preflight_size, "git", observed)
     report = route(case, private_paths="skip-and-report")
     assert lower(report)[0]["lower_bound_bytes"] == 470
-    assert len(metadata) == 4
+    assert len(metadata) == 2
     assert all(r["status"] in {"withheld", "omitted"} for r in report["paths"]
                if r["path"] in {"data/private.csv", "src/image.png"})
 
