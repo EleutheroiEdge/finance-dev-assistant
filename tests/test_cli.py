@@ -4,7 +4,8 @@ from finassist.cli import main
 from finassist.render import report_html
 
 
-def test_demo_doctor_and_configuration(tmp_path, capsys):
+def test_demo_doctor_and_configuration(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # Its state stays out of the checkout.
     assert main(["demo"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "PASS"
     assert main(["doctor"]) == 0
@@ -15,7 +16,8 @@ def test_demo_doctor_and_configuration(tmp_path, capsys):
     assert main(["init", "--template", "--output", str(config)]) == 2
 
 
-def test_plan_and_offline_review_are_distinct_from_test_success(repository, tmp_path, capsys):
+def test_plan_and_offline_review_are_distinct_from_test_success(repository, tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # Its state stays out of the checkout.
     repo, base, head = repository
     packet = tmp_path / "packet.json"
     report = tmp_path / "report.json"

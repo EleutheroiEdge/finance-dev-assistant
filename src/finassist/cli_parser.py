@@ -36,6 +36,14 @@ def parser() -> argparse.ArgumentParser:
         help="Private command audit directory; default is the operation state directory",
     )
     commands = root.add_subparsers(dest="command", required=True)
+    state = commands.add_parser("state", help="Inspect what the tool keeps on this machine; changes nothing")
+    state_actions = state.add_subparsers(dest="state_action", required=True)
+    status = state_actions.add_parser(
+        "status", help="List each store in the state folder with its size, row counts and oldest and newest entry")
+    status.add_argument("--state-dir", type=Path, default=None,
+                        help="State folder to inspect")
+    status.add_argument("--no-user", action="store_true",
+                        help="Leave out the per-user configuration and cache folders")
     guide = commands.add_parser("guide", help="List or print bundled guides offline")
     guide.add_argument("topic", nargs="?", help="Topic from the guide index; omit to list topics")
     guide.add_argument("--json", action="store_true", help="Print the topic index as JSON")
@@ -113,7 +121,7 @@ def parser() -> argparse.ArgumentParser:
                                   "figures, whose list must sit outside it (default: current directory)")
         request.add_argument("--approve-packet")
         request.add_argument("--allow-network", action="store_true")
-        request.add_argument("--state-dir", type=Path, default=Path(".finassist"))
+        request.add_argument("--state-dir", type=Path, default=None)
         request.add_argument("--output", required=True)
     workflow = commands.add_parser("workflow", help="Plan, execute approved checks and reconcile durable workflows")
     actions = workflow.add_subparsers(dest="workflow_action", required=True)
@@ -207,7 +215,7 @@ def parser() -> argparse.ArgumentParser:
     evaluation.add_argument("--trials", type=int, default=1, help="History trials per case (1-20)")
     evaluation.add_argument("--approve-suite")
     evaluation.add_argument("--allow-network", action="store_true")
-    evaluation.add_argument("--state-dir", type=Path, default=Path(".finassist"))
+    evaluation.add_argument("--state-dir", type=Path, default=None)
     evaluation.add_argument("--output", required=True)
     from .report_commands import add_report_commands
     add_report_commands(commands)
@@ -216,7 +224,7 @@ def parser() -> argparse.ArgumentParser:
     )
     evidence.add_argument("action", choices=["add", "approve", "reject", "latest", "verify", "migrate"])
     evidence.add_argument("--dry-run", action="store_true", help="Preview evidence migration without writes")
-    evidence.add_argument("--state-dir", type=Path, default=Path(".finassist"))
+    evidence.add_argument("--state-dir", type=Path, default=None)
     evidence.add_argument("--input")
     evidence.add_argument("--supersedes", type=int)
     evidence.add_argument("--id", type=int)

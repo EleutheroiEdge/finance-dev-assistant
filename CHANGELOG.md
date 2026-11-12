@@ -4,11 +4,31 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 
 ## Unreleased
 
+### Upgrading
+- **The state folder can move to the repository root.** If you ran `review`, `propose`,
+  `evaluate`, `evidence`, `audit`, `reconcile-budget`, `doctor` or `init` from a subfolder, or with
+  a `--config` kept elsewhere, their spending ledger is in that folder's `.finassist`. Such a
+  command now stops with `state_location_moved` before writing anything, and
+  `finassist state status` names both folders. Pass `--state-dir` naming the folder to keep, or
+  move the other aside. An explicit `--state-dir` or `--audit-dir` works as before.
+
 ### Added
+- **`finassist state status`: what the tool keeps on this machine, read-only.** Each store in the state
+  folder (the audit chain, the evidence stores, patches, workflow runs and locks, history, configuration
+  backups, setup) with its size, its tables' row counts or its file count, and its oldest and newest entry;
+  any other name in the folder, so nothing goes unseen; and the per-user configuration and cache folders. It
+  writes nothing at all, not even an audit entry: a database with a journal or write-ahead file is read from a
+  private copy. A store it cannot read in full is listed with its error, never as a smaller count. The first
+  part of #120; archiving and cleaning come next.
+- **`doctor --format text`: the report for a person at a terminal.** The verdict first, each blocker by its
+  code with its hint and its remedies, what each remedy changes and what else it does, and the next command.
+  It works on the health report and on both range preflights, and prints only fields it knows, so no key
+  value or file content can reach it. JSON stays the default and the contract; the exit codes are the same.
 - Doctor lists Git capabilities, local configuration/state/settings/cache paths, writable-directory estimates and a deduplicated key-use table with separate host permissions and limits for configuration and supplied gate policy. Proxy/custom-CA variables are named without values; no connection or write probe runs.
 - Published document-contract schemas and offline `finassist config schema --kind NAME`
-  exports for configuration, policies, packets, model gate/review reports and evaluation
-  suites. Runtime screening, integrity checks and approvals remain required.
+  exports for configuration, policies, workflow templates, packets, model gate/review
+  reports and evaluation suites. Runtime screening, integrity checks and approvals
+  remain required.
 - Evaluation and history suites also accept `schema_version: 1`, preserving the
   original canonical document for approval hashes. Conflicting aliases and non-integer
   version values are refused; existing integer `version: 1` inputs keep their hashes.
@@ -40,6 +60,13 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   each time must reach `ready`.
 
 ### Changed
+- **One state folder for every command (#120).** Without `--state-dir` or `--audit-dir`, every
+  command keeps its private state in the `.finassist` folder of the repository holding `--config`
+  (outside a repository, of the folder holding it), or without `--config`, of the repository
+  holding `--repo` or the working directory. Before, `review`, `propose`, `evaluate`, `evidence`,
+  `audit` and `reconcile-budget` used the working directory, so running them from two places split
+  the spending ledger in two, each half enforcing the budget alone. `state status` reports which
+  rule chose the folder, and `doctor` warns about a ledger left at the old place.
 - Doctor accepts --config alongside --policy or --policy-file for additional diagnostics;
   the gate still uses only the selected policy. This combination previously exited 2
   with doctor_policy_options_conflict and now returns the selected preflight's 0/1 status.
@@ -83,6 +110,18 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   Gate acceptance, screening, provider approval and budget rules are unchanged.
 
 ### Fixed
+- **The configuration preflight said `ready` for a review that would stop at once (#134).** It
+  never checked the state folder its suggested `review` would use. It now finds that folder by
+  the same rule as the review, and blocks when the folder cannot be written
+  (`doctor_directory_unusable`) or when a ledger left at the old place would make the review
+  refuse (`state_location_moved`).
+- With no home folder for the user (no `HOME` and no entry for the user, as in a minimal
+  container), plain `doctor` ended in a traceback. The user folders now report
+  `user_directory_unavailable`, `doctor` lists them as unusable and exits as it does for its
+  other installation warnings (#134).
+- Sixteen tests left a `.finassist` folder in the directory the suite runs from. Each now runs
+  in its own temporary folder, and a guard in `tests/conftest.py` fails any test that leaves
+  one behind (#134).
 - Doctor terminates when a missing drive or root has no existing ancestor; unexpandable
   tilde-user paths report doctor_directory_unusable instead of crashing.
 - Empty selected key variables now block both range preflights. Only presence and emptiness are inspected; no key value is reported. HTTP failures retain numeric status, with distinct 401/403/404/429 codes and hints; response bodies remain suppressed and unknown spend stays reserved.
@@ -92,8 +131,9 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   a read-only `--check` mode.
 - Evaluation, history, packet and saved-review structural validation shares the
   exported contract and enforcing-module limits, with boundary and runtime-call
-  regressions. CI policy schemas now constrain configuration and repository names;
-  complete workflow-template schemas remain a separate follow-up.
+  regressions. CI policy schemas now constrain configuration and repository names,
+  and reference the complete version-1 workflow-template structural schema exported
+  from the existing loader. Runtime template acceptance and approval gates are unchanged.
 - **`doctor` blocked a range for a file under `generated_paths`.** The configuration preflight
   refused it as `scope_incomplete` and reported the coverage as incomplete, while the review and
   triage count a configured generated file as outside the scope and go ahead. `doctor` now agrees

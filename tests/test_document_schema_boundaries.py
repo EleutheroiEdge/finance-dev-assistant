@@ -457,7 +457,7 @@ def test_ci_schema_repository_and_config_constraints():
         with pytest.raises(ValidationError):
             schema.validate(invalid)
     assert document_schema("ci-policy")["properties"]["config"]["$ref"] == SCHEMA_IDS["config"]
-    assert "separate follow-up" in document_schema("ci-policy")["properties"]["workflow"]["description"]
+    assert document_schema("ci-policy")["properties"]["workflow"]["$ref"] == SCHEMA_IDS["workflow-template"]
 
 
 def test_export_kit_carries_every_canonical_installed_schema(tmp_path):

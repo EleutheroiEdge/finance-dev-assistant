@@ -16,6 +16,7 @@ from .auditing import command_audit
 from .config import Config, config_hash, load_config, PACKET_FILE_BYTES
 from .demo import run_demo
 from .errors import AssistantError, error_record
+from .state_location import state_location
 from .error_hints import error_fields, explain_arguments, explain_parser, run_explain
 from .evaluation import evaluate, score
 from .evidence_store import EvidenceStore
@@ -59,11 +60,7 @@ def _emit(value, output: str | None = None) -> None:
 
 
 def audit_directory(args) -> Path:
-    return (
-        args.audit_dir
-        or getattr(args, "state_dir", None)
-        or (getattr(args, "repo", Path.cwd()) / ".finassist")
-    )
+    return state_location(args)[0]
 
 
 def _execute_workflow(args, config: Config) -> int:
@@ -123,7 +120,12 @@ def execute(args, config: Config | None = None) -> int:
         from .doctor_commands import doctor_result
 
         report, exit_code = doctor_result(args, config)
-        _emit(report)
+        if getattr(args, "format", "json") == "text":
+            from .text_view import doctor_output
+
+            print(doctor_output(report, args))
+        else:
+            _emit(report)
         return exit_code
     elif args.command == "demo":
         result = run_demo()
@@ -500,6 +502,11 @@ def main(argv: list[str] | None = None) -> int:
                 _emit(result)
                 outcome["exit_code"] = 0 if result["installer_exit_code"] == 0 else 1
                 return outcome["exit_code"]
+        if args.command == "state":
+            # Read-only: before the configuration, the update notice and the command audit, so nothing is written.
+            from .state_report import run_state
+
+            return run_state(args)
         if args.command == "doctor" and any(
             value is not None
             for value in (args.policy, args.policy_file, args.policy_sha256, args.repo, args.base, args.head)

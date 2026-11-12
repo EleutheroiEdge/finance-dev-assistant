@@ -19,7 +19,8 @@ def add_onboarding_commands(commands) -> None:
     mode = detect.add_mutually_exclusive_group()
     mode.add_argument("--template", action="store_true", help="Write the fixed template instead of detecting this repository")
     mode.add_argument("--detect", action="store_true", help="Print a proposal; write only with --write")
-    # Its own name: other commands audit inside --repo, while init keeps its state where it always has.
+    # Its own name: this selects the checkout init reads. The state folder follows the
+    # shared location rule from the working directory, not from this --repo.
     detect.add_argument("--repo", dest="detect_repo", help="Repository checkout to read (default: current directory)")
     detect.add_argument("--revision", help="Committed revision to read (default: HEAD)")
     detect.add_argument("--write", action="store_true", help="Also write the proposed configuration")
@@ -29,6 +30,8 @@ def add_onboarding_commands(commands) -> None:
     doctor.add_argument("--fix", action="store_true", help="Apply only explicit safe reversible local migrations")
     doctor.add_argument("--state-dir", type=Path)
     doctor.add_argument("--check-updates", action="store_true", help="Check PyPI once when project network use is allowed")
+    doctor.add_argument("--format", choices=("json", "text"), default="json",
+                        help="text prints the report for a person; JSON, the default, is the contract for programs")
     preflight = doctor.add_argument_group(
         "range preflight", "Report every blocker for one range, offline. Selected key values are checked for "
         "emptiness, never returned. With --policy or --policy-file, check the gate; --config adds diagnostics "
