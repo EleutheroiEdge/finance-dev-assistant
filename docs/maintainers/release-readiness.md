@@ -167,22 +167,21 @@ Landed since 0.10.0, each with the gates it serves:
 - Versioned JSON schemas for every document a user writes or reads, shipped in the package and exported offline
   (#130); `doctor` checking its own installation, which key variable each command reads, and provider failures
   by code (#127).
+- The command-line parser in its own module, which leaves `cli.py` room to grow (#137).
+- `state status`, which shows what the tool keeps on the machine without writing anything, and
+  `doctor --format text`, the same report for a person at a terminal; the JSON stays the contract (#138).
 
 Left, in this order:
 
-1. **Split `cli.py`** into a parser module and handlers beside the code they run. One file of 48,000
-   bytes at most now holds every command, and the last two features brought it within a few hundred bytes of that.
-2. **State** (#120): `state status` (built; it waits for the split), then one state location for every
-   command, then `state archive` and `state clean`. The gaps in #134 go with it.
-3. **A human view of `doctor`**: the same report as text, for a person at a terminal on their first day.
-   The JSON stays the contract.
-4. **Accuracy programme:** gates D1 to D6 and A7.
+1. **State** (#120): one state location for every command, then `state archive` and `state clean`, built on
+   `state status`. The gaps in #134 go with it.
+2. **Accuracy programme:** gates D1 to D6 and A7.
    - **Done, offline:** 133 labelled cases from six of the maintainers' repositories are bound to pinned
      policies and pass the live run's own preflight: 64 defects, 69 controls.
    - **Needs the owner:** a public stratum to reach 100 defects (cloning public repositories), and the
      provider, model and budget. One trial of every case is about 18.5 million input tokens.
-5. **Provenance:** gates E1 to E3. For E1 a maintainer verifies the attestations of a published release with `gh attestation verify`, then adds that exact command to the README. E3 needs more than this repository can change by itself: signed files or provenance on the GitHub releases, approved reviews on changes (an owner's decision for a repository with one maintainer), and the repository's 90th day.
-6. **The candidate:** gates C1 to C4 on the wheel the release workflow builds, before the owner approves
+3. **Provenance:** gates E1 to E3. For E1 a maintainer verifies the attestations of a published release with `gh attestation verify`, then adds that exact command to the README. E3 needs more than this repository can change by itself: signed files or provenance on the GitHub releases, approved reviews on changes (an owner's decision for a repository with one maintainer), and the repository's 90th day.
+4. **The candidate:** gates C1 to C4 on the wheel the release workflow builds, before the owner approves
    publishing.
 
 ## Commands
