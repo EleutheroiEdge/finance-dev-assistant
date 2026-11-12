@@ -40,9 +40,10 @@ def _hint(code: str) -> str:
 
 
 class _ConfigPreflight:
-    def __init__(self, repo: Path, base: str, head: str, config: Config, config_path: Path | None, environment):
+    def __init__(self, repo: Path, base: str, head: str, config: Config, config_path: Path | None, environment,
+                 audit_dir: Path | None = None):
         self.repo, self.base_ref, self.head_ref = repo, base, head
-        self.config, self.config_path = config, config_path
+        self.config, self.config_path, self.audit_dir = config, config_path, audit_dir
         self.environment = environment
         self.report = {
             "schema_version": 1, "mode": "config-preflight", "status": "blocked", "base": None, "head": None,
@@ -258,6 +259,9 @@ class _ConfigPreflight:
     def _commands(self) -> dict:
         """The next commands, with placeholders where the person chooses or inspects something."""
         chosen = [] if self.config_path is None else ["--config", _shown_argument(str(self.config_path), "<configuration>")]
+        if self.audit_dir is not None:
+            # The state folder this preflight checked. Without it, the suggested commands would choose another one.
+            chosen += ["--audit-dir", _shown_argument(str(self.audit_dir), "<private state directory>")]
         plan = ["finassist", *chosen, "plan", "--repo", _shown_argument(str(self.repo)), "--base", self.report["base"],
                 "--head", self.report["head"], "--output", "<new packet file>"]
         review = ["finassist", *chosen, "review", "--packet", "<packet file>", "--approve-packet",
@@ -267,10 +271,10 @@ class _ConfigPreflight:
 
 
 def config_preflight(repo: Path, base: str, head: str, config: Config, config_path: Path | None = None,
-                     *, environment=None) -> dict:
+                     *, environment=None, audit_dir: Path | None = None) -> dict:
     """Every plan and review blocker for one range, in one local run."""
     return _ConfigPreflight(Path(repo), base, head, config, config_path,
-                            os.environ if environment is None else environment).run()
+                            os.environ if environment is None else environment, audit_dir).run()
 
 
 def run_config_doctor(args, config: Config) -> int:
@@ -284,7 +288,7 @@ def run_config_doctor(args, config: Config) -> int:
     from .doctor_environment import attach_environment, environment_report
     from .state_location import state_location
 
-    report = config_preflight(args.repo, args.base, args.head, config, args.config)
+    report = config_preflight(args.repo, args.base, args.head, config, args.config, audit_dir=args.audit_dir)
     # The suggested review, run from here with the same configuration, keeps its ledger where the shared rule puts it.
     review = SimpleNamespace(audit_dir=args.audit_dir, state_dir=None, config=args.config, repo=Path.cwd(),
                              command="review")

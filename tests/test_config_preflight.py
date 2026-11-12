@@ -305,3 +305,28 @@ def test_a_ready_preflight_names_the_state_folder_of_its_review(repository, tmp_
     assert code == 0 and report["status"] == "ready"
     assert report["environment"]["paths"]["state"]["path"].endswith(".finassist")
 
+
+def test_the_suggested_commands_use_the_state_folder_the_preflight_checked(repository, tmp_path, capsys,
+                                                                           monkeypatch):
+    # Codex on #143: with --audit-dir, the preflight checked that folder, so the commands it suggests must use it too.
+    from finassist.cli_parser import parser
+    from finassist.state_location import state_location
+
+    repo, base, head = repository
+    project = tmp_path / "project"
+    project.mkdir()
+    config = project / "finassist.json"
+    save_config(config, Config())
+    here = tmp_path / "here"
+    (here / ".finassist").mkdir(parents=True)
+    (here / ".finassist" / "audit.sqlite").write_bytes(b"synthetic")
+    kept = tmp_path / "kept-state"
+    monkeypatch.chdir(here)
+    code, report = doctor(capsys, "--config", str(config), "--audit-dir", str(kept), "doctor", "--repo", str(repo),
+                          "--base", base, "--head", head)
+    assert code == 0 and report["status"] == "ready"
+    checked = report["environment"]["paths"]["state"]["path"]
+    for argv in report["next_step"]["commands"]:
+        selected, origin = state_location(parser().parse_args(argv[1:]), refuse=False)
+        assert (str(selected), origin) == (checked, "audit_dir"), argv
+    assert not kept.exists()
