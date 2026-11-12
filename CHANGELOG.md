@@ -46,9 +46,9 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 - Doctor's key_variable_set keeps its existence meaning (true even for an empty value).
   key_state distinguishes missing/empty/set. Preflight key_value_read changes from false
   to true when any selected value is inspected for emptiness, including diagnostic config
-  keys beside a policy key and an offline configuration's explicitly named key; no value
-  or length is emitted. Empty keys that previously
-  reported ready now block with provider_key_empty; runtime requests use the same codes
+  keys beside a policy key. Plain doctor also reads an offline configuration's explicitly
+  named key and reports that in its new key_value_read field; no value or length is emitted.
+  Empty keys that previously reported ready now block with provider_key_empty; runtime requests use the same codes
   before reserving spend. Absent keys use provider_key_missing.
 - Plain doctor now exits 1 for missing/unusable Git; keys, directory writability and
   package problems are installation warnings and retain exit 0. Range preflights include
