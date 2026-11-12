@@ -353,7 +353,8 @@ What happens then:
 - **A credential-named value in those files is not refused,** quoted or not. This is the
   rule that `doctor` names `credential_label`.
 - **Known formats are refused there as everywhere:** a private key block, a GitHub token,
-  an AWS access key ID, an `sk-` key. So are account and routing numbers, a listed figure,
+  an AWS access key ID, an `sk-` key and the other formats that the security design lists. So
+  are account and routing numbers, a listed figure,
   and anything that matches `extra_sensitive_patterns`.
 - **The files are sent to the provider as they are.** That is the decision this setting
   records: you are saying that no value under these paths is real. Check before you list a
