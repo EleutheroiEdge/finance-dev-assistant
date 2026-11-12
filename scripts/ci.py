@@ -1,14 +1,18 @@
 """Run the checks CI runs, with one command, from any directory.
 
-    python scripts/ci.py lint         Ruff, as the workflow's `lint` job runs it
+    python scripts/ci.py fast         the seconds-long checks of the workflow's `lint` job
     python scripts/ci.py test         the test suite, in parallel groups
     python scripts/ci.py all          every stage, in the order CI runs them
     python scripts/ci.py lint test    any stages, in the order given
 
-The stages are lint, test, demo, scan and wheel. Each is one command, and it is the command
-the `checks` workflow runs on Linux: its `lint` job calls `python scripts/ci.py lint`, and
-tests/test_ci_entry.py fails when a stage here and its step in .github/workflows/ci.yml stop
-being the same command. The first stage that fails stops the run with that stage's exit code.
+The stages are lint, action-lock, dependabot, test, demo, scan and wheel; `fast` stands for
+the first three. Each stage is one command, and it is the command the `checks` workflow runs
+on Linux: its `lint` job calls `python scripts/ci.py fast`, and tests/test_ci_entry.py fails
+when a stage here and its step in .github/workflows/ci.yml stop being the same command. The
+first stage that fails stops the run with that stage's exit code.
+
+Some tests (the self-review ones) read the committed tree, not the working tree, so run the
+stages on a commit: a fix those tests check passes only once it is committed.
 
 Install first, the way CI does, into the interpreter that runs this script. Locally that is
 a virtual environment:
@@ -36,12 +40,18 @@ ROOT = Path(__file__).resolve().parent.parent
 # In CI's order: the lint job first, then the steps of the test job that follow installation.
 STAGES: dict[str, tuple[str, ...]] = {
     "lint": ("ruff", "check", "src", "tests", "scripts", "actions"),
+    # The two derived lock copies; the test suite checks them too, but only after minutes.
+    "action-lock": ("python", "scripts/action_lock.py", "--check"),
+    "dependabot": ("python", "scripts/dependabot_requirements.py", "--check"),
     "test": ("python", "scripts/ci_test.py"),
     "demo": ("finassist", "demo"),
     "scan": ("finassist", "scan", "--repo", "."),
     "wheel": ("python", "scripts/wheel_smoke.py"),
 }
 ALL = "all"
+# The stages of the workflow's `lint` job, which the test matrix waits for.
+FAST = "fast"
+FAST_STAGES = ("lint", "action-lock", "dependabot")
 
 
 def command_line(stage: str) -> str:
@@ -50,10 +60,10 @@ def command_line(stage: str) -> str:
 
 
 def expand(names: list[str]) -> list[str]:
-    """The stages to run, in the order asked for; `all` stands for every stage in CI's order."""
+    """The stages to run, in the order asked for; `all` is every stage in CI's order, `fast` the lint job's."""
     stages: list[str] = []
     for name in names:
-        stages.extend(STAGES if name == ALL else [name])
+        stages.extend(STAGES if name == ALL else FAST_STAGES if name == FAST else [name])
     return stages
 
 
@@ -89,8 +99,9 @@ def run(stages: list[str], root: Path = ROOT) -> int:
 
 def main(argv: list[str] | None = None, root: Path = ROOT) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("stages", nargs="+", choices=[*STAGES, ALL], metavar="stage",
-                        help=f"one or more of {', '.join(STAGES)}, or {ALL} for every one in that order")
+    parser.add_argument("stages", nargs="+", choices=[*STAGES, FAST, ALL], metavar="stage",
+                        help=f"one or more of {', '.join(STAGES)}, {FAST} for {', '.join(FAST_STAGES)}, "
+                             f"or {ALL} for every one in that order")
     return run(expand(parser.parse_args(argv).stages), root)
 
 

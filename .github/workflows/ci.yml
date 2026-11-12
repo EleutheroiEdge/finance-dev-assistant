@@ -12,8 +12,9 @@ concurrency:
   group: checks-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  # The linter runs once, first. The nine test rows wait for it, so a lint error fails in under
-  # a minute instead of after the tests on every row. scripts/ci.py is the same entry locally.
+  # The linter and the two lock-copy checks run once, first. The nine test rows wait for them,
+  # so such an error fails in under a minute instead of after the tests on every row.
+  # scripts/ci.py is the same entry locally.
   lint:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -32,7 +33,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-dev.lock
       - run: python scripts/ci_install.py dependencies
-      - run: python scripts/ci.py lint
+      - run: python scripts/ci.py fast
   test:
     name: ${{ matrix.check_name }}
     needs: lint

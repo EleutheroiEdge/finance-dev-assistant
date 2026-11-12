@@ -24,12 +24,31 @@ def _commands(job: dict) -> list[str]:
 def test_every_stage_is_the_command_the_workflow_runs():
     jobs = _workflow()["jobs"]
     # The lint job goes through the entry script, so the linter's arguments are written once.
-    assert _commands(jobs["lint"]) == ["python scripts/ci_install.py dependencies", "python scripts/ci.py lint"]
+    assert _commands(jobs["lint"]) == ["python scripts/ci_install.py dependencies", "python scripts/ci.py fast"]
     assert ci.command_line("lint") == "ruff check src tests scripts actions"
+    assert ci.expand([ci.FAST]) == ["lint", "action-lock", "dependabot"]
+    assert ci.command_line("action-lock") == "python scripts/action_lock.py --check"
+    assert ci.command_line("dependabot") == "python scripts/dependabot_requirements.py --check"
     # The test job's own steps, after installation, are the remaining stages in the same order.
     after_install = [command for command in _commands(jobs["test"]) if "ci_install.py" not in command]
-    assert after_install == [ci.command_line(stage) for stage in ci.STAGES if stage != "lint"]
-    assert ci.expand([ci.ALL]) == ["lint", "test", "demo", "scan", "wheel"]
+    assert after_install == [ci.command_line(stage) for stage in ci.STAGES if stage not in ci.FAST_STAGES]
+    assert ci.expand([ci.ALL]) == ["lint", "action-lock", "dependabot", "test", "demo", "scan", "wheel"]
+
+
+def test_the_fast_lock_checks_pass_on_the_tree_and_fail_on_drift(tmp_path):
+    # They read the repository they live in, so run copies of them against a copied, drifted tree.
+    for script, copy in (("action_lock.py", "requirements-action.lock"),
+                         ("dependabot_requirements.py", "requirements.txt")):
+        (tmp_path / "scripts").mkdir(exist_ok=True)
+        (tmp_path / "scripts" / script).write_bytes((ROOT / "scripts" / script).read_bytes())
+        for name in ("requirements-dev.lock", copy):
+            (tmp_path / name).write_bytes((ROOT / name).read_bytes())
+        check = [sys.executable, str(tmp_path / "scripts" / script), "--check"]
+        assert subprocess.run(check, capture_output=True, check=False).returncode == 0, script
+        with (tmp_path / copy).open("a", encoding="utf-8") as drifted:
+            drifted.write("# drift\n")
+        failed = subprocess.run(check, capture_output=True, text=True, check=False)
+        assert failed.returncode != 0 and "drifted" in failed.stderr, script
 
 
 def test_the_linter_runs_once_and_the_test_matrix_waits_for_it():
@@ -72,7 +91,10 @@ def test_stages_run_in_the_order_given_from_the_repository_root_and_stop_at_the_
     assert "2 stages passed" in capsys.readouterr().out
     calls.clear()
     assert ci.main(["all"], tmp_path) == 3
-    assert [command[0] for command, _ in calls] == ["resolved-ruff", "resolved-python"]  # Nothing ran after the failure.
+    # The fast stages ran, then the tests failed and nothing ran after them.
+    assert [command[:2] for command, _ in calls] == [
+        ["resolved-ruff", "check"], ["resolved-python", "scripts/action_lock.py"],
+        ["resolved-python", "scripts/dependabot_requirements.py"], ["resolved-python", "scripts/ci_test.py"]]
     assert "[test] FAILED (exit 3)" in capsys.readouterr().out
 
 
