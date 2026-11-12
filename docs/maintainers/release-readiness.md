@@ -172,7 +172,7 @@ Landed since 0.10.0, each with the gates it serves:
   reference changes (B9).
 - Versioned JSON schemas, shipped in the package and exported offline, for the configuration, the gate and CI
   policies, packets, gate and review reports, review responses, and evaluation and history suites (#130). The
-  workflow template (#141), workflow packs, evidence, evaluation results and triage documents are not covered yet.
+  workflow template followed in #141; workflow packs, evidence, evaluation results and triage documents are not covered yet.
 - `doctor` checking its own installation, which key variable each command reads, and provider failures by code
   (#127).
 - The command-line parser in its own module, which leaves `cli.py` room to grow (#137).
