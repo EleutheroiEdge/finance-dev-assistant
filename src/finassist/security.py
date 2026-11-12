@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from fnmatch import fnmatchcase
 from functools import lru_cache
@@ -460,8 +462,50 @@ def check_name(name: str, *, extra_patterns: tuple[str, ...] = ()) -> None:
         raise AssistantError("unsafe_path")
 
 
+# Within one command a text is screened once per set of rules. A preflight reads every changed file to classify it,
+# again to build the packet, and the packet screen reads the included files a third time; on a change of a few
+# hundred files that repeated work was most of doctor's time. The outcome depends only on the arguments, so a cached
+# outcome is the outcome. Outside `screening_cache()` nothing is kept.
+_SCREENED: ContextVar[dict | None] = ContextVar("finassist_screened", default=None)
+_SCREENED_LIMIT = 8192  # Entries hold digests and refusals only; a long-running command stops adding past this.
+
+
+@contextmanager
+def screening_cache():
+    """For the duration of one command: `check_credentials` remembers each outcome by text digest and rules."""
+    token = _SCREENED.set({})
+    try:
+        yield
+    finally:
+        _SCREENED.reset(token)
+
+
 def check_credentials(text: str, *, extra_patterns: tuple[str, ...] = (), source_path: str | None = None,
                       placeholders: tuple[str, ...] = ()) -> None:
+    """The first half of `check_text`, remembered within `screening_cache()`. See `_screen_credentials`."""
+    cache = _SCREENED.get()
+    if cache is None or not isinstance(text, str):
+        _screen_credentials(text, extra_patterns, source_path, placeholders)
+        return
+    key = (hashlib.sha256(text.encode("utf-8", "surrogatepass")).digest(), tuple(extra_patterns), source_path,
+           tuple(placeholders))
+    if key in cache:
+        refusal = cache[key]
+        if refusal is not None:
+            raise deepcopy(refusal)  # A fresh error: details a caller adds to one never reach another.
+        return
+    try:
+        _screen_credentials(text, extra_patterns, source_path, placeholders)
+    except AssistantError as exc:
+        if len(cache) < _SCREENED_LIMIT:
+            cache[key] = deepcopy(exc)
+        raise
+    if len(cache) < _SCREENED_LIMIT:
+        cache[key] = None
+
+
+def _screen_credentials(text: str, extra_patterns: tuple[str, ...], source_path: str | None,
+                        placeholders: tuple[str, ...]) -> None:
     """The first half of `check_text`. Call `check_text` for one text that stands alone.
 
     Two kinds of reader call this instead, and then the hidden-character screen themselves, so
