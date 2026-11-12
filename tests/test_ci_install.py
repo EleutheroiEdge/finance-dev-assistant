@@ -63,7 +63,7 @@ def test_workflows_keep_hash_verification_and_existing_check_identities():
             if "uses" in step:
                 assert re.fullmatch(r"[^@]+@[a-f0-9]{40}", step["uses"].split()[0])
         if name == "ci.yml":
-            assert set(workflow["jobs"]) == {"test", "dashboard", "isolation"}
+            assert set(workflow["jobs"]) == {"lint", "test", "dashboard", "isolation"}
             assert [item["check_name"] for item in workflow["jobs"]["test"]["strategy"]["matrix"]["include"]] == [
                 "test (3.11)", "test (3.12)", "test (3.13)", "platform (Windows, 3.11)",
                 "platform (Windows, 3.12)", "platform (Windows)", "platform (macOS, 3.11)",
