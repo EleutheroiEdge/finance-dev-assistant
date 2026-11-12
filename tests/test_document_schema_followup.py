@@ -170,20 +170,37 @@ def test_schema_identifiers_pin_exact_contract_bytes():
     for kind in SCHEMA_FILES:
         text = document_schema_text(kind)
         actual[json.loads(text)["$id"]] = digest(text.encode())
-    assert actual == pins, "A contract change needs a reviewed identifier revision and digest update."
+    assert actual == pins, (
+        "From the first published release carrying these schemas, a contract change needs a "
+        "reviewed identifier revision and digest update. Before then, review and update the digest."
+    )
 
-@pytest.mark.parametrize("kind", ["evaluation", "history-expected", "history-policy"])
-def test_empty_suite_paths_keep_unsafe_path(kind):
+
+@pytest.mark.parametrize("kind,paths,code", [
+    ("evaluation", None, "unsafe_path"),
+    ("history-expected", [""], "unsafe_path"),
+    ("history-expected", "", "history_expected_invalid"),
+    ("history-scoring", [""], "unsafe_path"),
+    ("history-scoring", "", "history_expected_invalid"),
+    ("history-policy", None, "unsafe_path"),
+])
+def test_empty_suite_paths_keep_unsafe_path(kind, paths, code):
     from finassist.evaluation import validate_suite
     from test_document_schema_boundaries import evaluation as synthetic_suite
+    if kind == "history-scoring":
+        data = evaluation()
+        data["cases"][0]["expected"][0]["paths"] = paths
+        with pytest.raises(AssistantError, match=code):
+            validate_history_evaluation(signed(data))
+        return
     suite = synthetic_suite() if kind == "evaluation" else history()
     if kind == "evaluation":
         suite["cases"][0]["path"] = ""
     elif kind == "history-expected":
-        suite["cases"][0]["expected"][0]["paths"] = [""]
+        suite["cases"][0]["expected"][0]["paths"] = paths
     else:
         suite["cases"][0]["policy"] = {"path": "", "sha256": "a" * 64}
-    with pytest.raises(AssistantError, match="unsafe_path"):
+    with pytest.raises(AssistantError, match=code):
         (validate_suite if kind == "evaluation" else validate_history_suite)(suite)
 
 
