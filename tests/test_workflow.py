@@ -234,7 +234,7 @@ def test_cli_roundtrip_exit_codes_private_outputs_and_metadata_audit(workflow_ca
     paths["packet"].write_bytes(canonical(packet))
     assert main(preflight) == 1
     assert json.loads(capsys.readouterr().out)["status"] == "blocked"
-    with Ledger(repo / ".finassist/audit.sqlite") as ledger:
+    with Ledger(tmp_path / ".finassist" / "audit.sqlite") as ledger:
         ledger.verify()
         events = canonical(ledger.events()).decode()
     assert "workflow_plan_bound" in events and "workflow_preflight_evaluated" in events

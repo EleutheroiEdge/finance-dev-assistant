@@ -16,6 +16,7 @@ from .auditing import command_audit
 from .config import Config, config_hash, load_config, PACKET_FILE_BYTES
 from .demo import run_demo
 from .errors import AssistantError, error_record
+from .state_location import state_location
 from .error_hints import error_fields, explain_arguments, explain_parser, run_explain
 from .evaluation import evaluate, score
 from .evidence_store import EvidenceStore
@@ -59,11 +60,7 @@ def _emit(value, output: str | None = None) -> None:
 
 
 def audit_directory(args) -> Path:
-    return (
-        args.audit_dir
-        or getattr(args, "state_dir", None)
-        or (getattr(args, "repo", Path.cwd()) / ".finassist")
-    )
+    return state_location(args)[0]
 
 
 def _execute_workflow(args, config: Config) -> int:

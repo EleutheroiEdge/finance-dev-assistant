@@ -557,7 +557,7 @@ def test_cli_invalid_step_limit_does_not_leave_an_unfinished_run(execution_case,
     assert not target.exists()
 
 
-def test_cli_state_defaults_to_target_repo_from_another_directory(execution_case, tmp_path, capsys, monkeypatch):
+def test_cli_state_follows_the_configuration_from_another_directory(execution_case, tmp_path, capsys, monkeypatch):
     from finassist.readiness import verify_gate
 
     repo, config, packet, plan = execution_case
@@ -574,7 +574,7 @@ def test_cli_state_defaults_to_target_repo_from_another_directory(execution_case
     created, paused = map(json.loads, capsys.readouterr().out.splitlines())
     assert paused["status"] == "paused"
     assert not (caller / ".finassist").exists()
-    state = repo / ".finassist" / "audit.sqlite"
+    state = tmp_path / ".finassist" / "audit.sqlite"
     assert "unfinished_workflow" in verify_gate(packet, {}, [], config, plan["head"], state)["blocking_reasons"]
     identifier = created["workflow_run_id"]
     assert main([*common, "status", "--repo", str(repo), "--run-id", identifier]) == 0

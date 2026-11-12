@@ -9,9 +9,21 @@ and recipe events share the run ID. Raw source, arguments, provider output,
 environment values and test logs are excluded. Basic guide/demo/doctor/scan/render and audit queries do not add lifecycle events.
 
 The global `--audit-dir PRIVATE_DIRECTORY` selects the state root. It takes
-precedence over command-specific `--state-dir`. Otherwise commands use their
-state directory, or the target repository's `.finassist`. Keep this directory
-outside Git. Patch backups remain in the target repository's `.finassist/patches`.
+precedence over command-specific `--state-dir`. Without either, every command
+uses one rule: the `.finassist` folder of the repository that holds `--config`
+(outside a repository, of the folder that holds it); without `--config`, of the
+repository that holds `--repo`, or the working directory for commands without
+it; outside any repository, the working directory's. A repository is the nearest
+folder upward with a `.git` entry, and Git is not run to find it. Commands run
+from different folders against one configuration therefore share one spending
+ledger. Keep this directory outside Git. Patch backups remain in the target
+repository's `.finassist/patches`.
+
+If the folder a command used before this rule holds a spending ledger and the
+rule selects another, the command stops with `state_location_moved` before it
+writes anything, because two ledgers would each enforce the budget alone.
+`finassist state status` names both folders and `doctor` warns. Pass
+`--state-dir` naming the folder to keep, or move the other one aside.
 Tracked private state is rejected; untracked state does not count as a source edit.
 
 ```sh
