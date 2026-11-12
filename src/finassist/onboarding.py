@@ -28,7 +28,7 @@ from .model_policy import (_PROPERTIES, _SCHEMA, ModelGatePolicy, _prefix, _prof
 from .policy_fixtures import fixture_settings, load_policy_config
 from .policy_ignores import screen_ignores
 from .providers import request_payload
-from .preflight_size import size_warning
+from .preflight_size import largest_versions, size_warning
 from .review import review_schema, spend_estimate
 from .error_hints import error_fields
 from .remedies import attach_remedies
@@ -223,6 +223,8 @@ class _Preflight:
             "next_step": None,
         }
         self._seen: set[bytes] = set()
+        # For remedies: the larger version of each file refused for size, and the policy's fixture roots.
+        self._largest, self._fixture_roots = None, ()
         # Path refusals are grouped by code and hint: a count plus a few example names,
         # so the report stays bounded whatever the size of the range.
         self._grouped: dict[tuple[str, str], dict] = {}
@@ -248,6 +250,14 @@ class _Preflight:
     def warn(self, code: str, **details) -> None:
         self.report["warnings"].append({"code": code, **details, "hint": WARNINGS[code]})
 
+    def _allowed(self, path: str) -> bool:
+        """Whether a path may be listed in the policy's allow_paths, by the gate's own rule for a prefix."""
+        try:
+            _prefix(path, self._fixture_roots)
+        except AssistantError:
+            return False
+        return True
+
     def run(self) -> dict:
         try:
             self._run()
@@ -257,7 +267,8 @@ class _Preflight:
             # Keep the report: name the failing step's class, never its message.
             self.block("preflight_check_failed", kind=type(exc).__name__)
         self.report["blockers"].extend(self._grouped.values())
-        attach_remedies(self.report, "gate")
+        attach_remedies(self.report, "gate", sizes=self._largest, fixture_roots=self._fixture_roots,
+                        valid_path=self._allowed)
         ready = not self.report["blockers"]
         self.report["status"] = "ready" if ready else "blocked"
         if ready and self.policy_file is not None:
@@ -531,11 +542,16 @@ class _Preflight:
         for row in rows:
             if row["status"] == "refused" and row["code"] != "gate_ignored_path":  # Ignored paths are named above.
                 self.block_path(row["code"], row["path"], row.get("hint"))
+        self._fixture_roots = tuple(model.get("fixture_roots", ()))
         if stopped is None and {code for code, _hint in self._grouped} == {"file_limit_exceeded"}:
             warning = size_warning(repo, (ancestor, head), paths, rows,
                                    model["max_request_bytes"], "max_request_bytes")
             if warning is not None:
                 self.report["warnings"].append(warning)
+            # For the remedy, and whether or not the warning ran: both versions of each refused file.
+            over = [path for path, row in zip(paths, rows, strict=False)
+                    if row["status"] == "refused" and row.get("code") == "file_limit_exceeded"]
+            self._largest = largest_versions(repo, (ancestor, head), over, read=git)
         return None
 
     def _classify(self, repo: Path, revisions: tuple[str, str], path: str, model: dict, config, guard,

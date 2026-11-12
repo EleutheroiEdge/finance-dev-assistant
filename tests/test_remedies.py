@@ -22,6 +22,10 @@ SMALL = {"src/ledger.py": "def total(values):\n    return float(sum(values))\n"}
 SCENARIOS = {
     "a file over the per-file limit": ({"src/big.py": "x = 1\n" * 60_000}, {"max_file_bytes": 100_000},
                                        {"max_file_bytes": 100_000}, "file_limit_exceeded", "file_limit_exceeded"),
+    # The refusal reports the first version it meets (44 bytes at base); the head version is larger (51 bytes).
+    # A limit raised only to the reported size would be refused again.
+    "a changed file over the limit at both versions": ({}, {"max_file_bytes": 20}, {"max_file_bytes": 20},
+                                                       "file_limit_exceeded", "file_limit_exceeded"),
     "a private file in the range": ({"src/data/rows.csv": "a,b\n1,2\n"}, {}, {},
                                     "private_or_binary_path", "private_or_binary_path"),
     "a denied file type in the range": ({"src/report.pdf": "%PDF-1.4\n"}, {}, {},
@@ -204,6 +208,9 @@ def test_a_blocker_that_needs_a_decision_has_no_remedy(drafted, draft, tmp_path)
         assert _codes(report) == ["sensitive_content"] and report["remedies"] == []
 
 
+KEPT = {"path": "kept.py", "status": "included"}  # Another file of the range that stays in the review.
+
+
 def _report(blockers: list, paths: list | None = None) -> dict:
     return {"blockers": blockers, "paths": paths or []}
 
@@ -217,9 +224,80 @@ def test_no_setting_is_proposed_past_its_ceiling():
     assert at_ceiling["remedies"][0]["options"][0]["changes"] == [{"setting": "max_request_bytes",
                                                                    "at_least": MAX_PACKET_BYTES}]
     huge = _report([{"code": "file_limit_exceeded", "count": 1}],
-                   [{"path": "a.py", "status": "refused", "code": "file_limit_exceeded", "bytes": MAX_FILE_BYTES + 1}])
-    attach_remedies(huge, "gate")
+                   [KEPT, {"path": "a.py", "status": "refused", "code": "file_limit_exceeded", "bytes": 10}])
+    attach_remedies(huge, "gate", sizes={"a.py": MAX_FILE_BYTES + 1})
     assert [option["effect"] for option in huge["remedies"][0]["options"]] == ["leaves_files_out"]
+
+
+def _refused(*paths: str, kept: bool = True) -> dict:
+    rows = [{"path": path, "status": "refused", "code": "file_limit_exceeded", "bytes": 600} for path in paths]
+    return _report([{"code": "file_limit_exceeded", "count": len(paths)}], [*([KEPT] if kept else []), *rows])
+
+
+def test_leaving_files_out_is_offered_only_when_another_file_stays_in_the_review():
+    # With nothing else in the range, leaving the file out leaves nothing to review, and that has no remedy.
+    alone = _refused("a.py", kept=False)
+    attach_remedies(alone, "configuration", sizes={"a.py": 1_200})
+    assert [option["effect"] for option in alone["remedies"][0]["options"]] == ["sends_more"]
+    unknown = _refused("a.py", kept=False)
+    attach_remedies(unknown, "configuration")
+    assert unknown["remedies"] == []
+    for rows, expected in (([{"path": "x.csv", "status": "refused", "code": "private_or_binary_path"}], []),
+                           ([KEPT, {"path": "x.csv", "status": "refused", "code": "private_or_binary_path"}],
+                            ["leaves_files_out"])):
+        private = _report([{"code": "private_or_binary_path", "count": 1}], rows)
+        attach_remedies(private, "gate")
+        assert [option["effect"] for remedy in private["remedies"] for option in remedy["options"]] == expected
+
+
+def test_a_file_limit_is_proposed_only_when_both_versions_of_every_refused_file_are_known():
+    # The row reports 600 bytes, the first version met. The larger version decides.
+    known = _refused("a.py", "b.py")
+    attach_remedies(known, "configuration", sizes={"a.py": 1_200, "b.py": 700})
+    assert known["remedies"][0]["options"][1]["changes"] == [{"setting": "max_file_bytes", "at_least": 1_200}]
+    for sizes in (None, {}, {"a.py": 1_200}):
+        unknown = _refused("a.py", "b.py")
+        attach_remedies(unknown, "configuration", sizes=sizes)
+        assert [option["effect"] for option in unknown["remedies"][0]["options"]] == ["leaves_files_out"]
+
+
+def test_a_refused_fixture_gets_no_file_limit_remedy():
+    # A fixture has a limit of its own, and the report does not say which limit refused the file.
+    for paths in (("tests/fixtures/example.csv",), ("src/a.py", "tests/fixtures/example.csv"), ("[redacted]",)):
+        report = _refused(*paths)
+        attach_remedies(report, "gate", sizes={path: 404 for path in paths}, fixture_roots=("tests/fixtures/",))
+        assert report["remedies"] == []
+    # Without fixture roots, and for a file outside them, both options stand.
+    for roots in ((), ("tests/fixtures/",)):
+        report = _refused("src/a.py")
+        attach_remedies(report, "gate", sizes={"src/a.py": 404}, fixture_roots=roots)
+        assert [option["effect"] for option in report["remedies"][0]["options"]] == ["leaves_files_out", "sends_more"]
+
+
+def test_a_path_the_route_would_refuse_as_an_entry_is_not_proposed():
+    rows = [{"path": "tools/a.py", "status": "refused", "code": "gate_path_not_allowed"},
+            {"path": "tools/b[1].py", "status": "refused", "code": "gate_path_not_allowed"}]
+    refused = _report([{"code": "gate_path_not_allowed", "count": 2}], rows)
+    attach_remedies(refused, "gate", valid_path=lambda path: "[" not in path)
+    assert refused["remedies"] == []
+    accepted = _report([{"code": "gate_path_not_allowed", "count": 2}], rows)
+    attach_remedies(accepted, "gate", valid_path=lambda path: True)
+    assert accepted["remedies"][0]["options"][0]["changes"] == [{"setting": "allow_paths",
+                                                                 "add": ["tools/a.py", "tools/b[1].py"]}]
+
+
+def test_a_path_with_brackets_gets_a_scope_remedy_only_where_it_is_a_valid_entry(drafted, draft, tmp_path):
+    # A gate policy's prefixes may not hold brackets, so listing this path would make the policy invalid.
+    revisions = _change(drafted, {"tools/a[b].py": "y = 2\n"})
+    gate = _preflight("gate", revisions, copy.deepcopy(draft[1]), tmp_path)
+    assert _codes(gate) == ["gate_path_not_allowed"] and gate["remedies"] == []
+    document = copy.deepcopy(draft[0])
+    report = _preflight("configuration", revisions, document, tmp_path)
+    assert _codes(report) == ["scope_incomplete"]
+    for remedy in report["remedies"]:
+        for option in remedy["options"]:
+            after = _preflight("configuration", revisions, _apply("configuration", document, option), tmp_path)
+            assert "scope_incomplete" not in _codes(after)
 
 
 def test_a_path_that_cannot_be_named_or_a_long_list_gets_no_scope_remedy():
@@ -238,7 +316,12 @@ def test_a_path_that_cannot_be_named_or_a_long_list_gets_no_scope_remedy():
 
 def test_a_budget_is_rounded_up_to_a_cent_and_a_bad_amount_proposes_nothing():
     report = _report([{"code": "daily_budget_exceeded", "reserved_usd": "1.369944", "limit_usd": "1.0"},
-                      {"code": "monthly_budget_exceeded", "reserved_usd": "not a number", "limit_usd": "1.0"}])
+                      {"code": "monthly_budget_exceeded", "reserved_usd": "not a number", "limit_usd": "1.0"},
+                      {"code": "run_budget_exceeded", "reserved_usd": "NaN", "limit_usd": "1.0"},
+                      {"code": "run_budget_exceeded", "reserved_usd": "Infinity", "limit_usd": "1.0"},
+                      {"code": "run_budget_exceeded", "reserved_usd": "-1", "limit_usd": "1.0"},
+                      {"code": "run_budget_exceeded", "reserved_usd": "0", "limit_usd": "1.0"},
+                      {"code": "run_budget_exceeded", "limit_usd": "1.0"}])
     attach_remedies(report, "configuration")
     assert report["remedies"] == [{"code": "daily_budget_exceeded", "options": [
         {"document": "configuration", "effect": "spends_more",

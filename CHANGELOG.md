@@ -72,8 +72,13 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   `leaves_files_out`). A script or a coding agent can propose the fix without parsing a hint.
   `doctor` still edits nothing, and an option that sends or spends more is never listed before one
   that does not. A blocker that needs a decision, such as a credential in the change or approval
-  to use the network, has no remedy. A new test sets up wrong configurations and policies one at
-  a time and applies every option: each must clear its blocker, and following the first option
+  to use the network, has no remedy. An option is listed only when it is known to clear its
+  blocker. A higher file limit is proposed only when Git's metadata gives the size of both
+  versions of every refused file, because the refusal reports only the first version it met. A
+  file under a gate fixture root gets no file-limit remedy: it has a limit of its own. A path is
+  proposed for `allow_paths` only if it is a valid entry there. Leaving files out is offered only
+  when another file stays in the review. A new test sets up wrong configurations and policies one
+  at a time and applies every option: each must clear its blocker, and following the first option
   each time must reach `ready`.
 - **`placeholder_credential_paths`: review test files that hold made-up logins.** A fixture with a
   field named `password` and a value that was never real refused the whole range, because the

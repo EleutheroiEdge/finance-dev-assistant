@@ -20,7 +20,7 @@ from .errors import AssistantError
 from .health import config_warnings
 from .onboarding import _shown_argument
 from .providers import request_payload
-from .preflight_size import size_warning
+from .preflight_size import largest_versions, size_warning
 from .review import ENVELOPE_ALLOWANCE, reserved_usd, review_schema, spend_estimate
 from .forbidden_tokens import screen_source
 from .scope import (_private_name, build_packet, config_token_guard, git, omission_for, omission_reason, read_sides,
@@ -57,6 +57,7 @@ class _ConfigPreflight:
         # Path blockers are grouped by code: a count plus a few example names.
         self._grouped: dict[str, dict] = {}
         self.guard = None
+        self._largest = None  # The larger version of each file refused for size.
 
     def block(self, code: str, **details) -> None:
         self.report["blockers"].append({"code": code, **details, "hint": _hint(code)})
@@ -67,6 +68,14 @@ class _ConfigPreflight:
         if len(group["paths"]) < _EXAMPLES:
             group["paths"].append(path)
 
+    def _allowed(self, path: str) -> bool:
+        """Whether a path may be listed in allow_paths, by the configuration's own rule for an entry."""
+        try:
+            self.config.check_path(path.rstrip("/"), source_only=False)
+        except AssistantError:
+            return False
+        return True
+
     def run(self) -> dict:
         try:
             self._run()
@@ -76,7 +85,7 @@ class _ConfigPreflight:
             # Keep the report: name the failing step's class, never its message.
             self.block("preflight_check_failed", kind=type(exc).__name__)
         self.report["blockers"].extend(self._grouped.values())
-        attach_remedies(self.report, "configuration", _LEFT_OUT)
+        attach_remedies(self.report, "configuration", _LEFT_OUT, sizes=self._largest, valid_path=self._allowed)
         ready = not self.report["blockers"]
         self.report["status"] = "ready" if ready else "blocked"
         self.report["next_step"] = (self._commands() if ready
@@ -166,6 +175,10 @@ class _ConfigPreflight:
             warning = size_warning(repo, (ancestor, head), names, rows, config.max_packet_bytes, "max_packet_bytes")
             if warning is not None:
                 self.report["warnings"].append(warning)
+            # For the remedy, and whether or not the warning ran: both versions of each refused file.
+            over = [name for name, row in zip(names, rows, strict=False)
+                    if row["status"] == "refused" and row.get("code") == "file_limit_exceeded"]
+            self._largest = largest_versions(repo, (ancestor, head), over, read=git)
         return rows
 
     def _classify(self, repo: Path, revisions: tuple[str, str], path: str) -> dict:
