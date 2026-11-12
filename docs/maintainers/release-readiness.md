@@ -46,53 +46,47 @@ that. The bar on this page still stands for the release that does make such a cl
 
 ## Where the next release stands
 
-Measured on the source tree of main at `5c1af62`, offline, with no model call. The reference set
-is 225 changes at pinned commits, with the fingerprint `471b2dfe27d4dc2a` (see Commands). No
-candidate wheel exists yet, so this is not gate C1. A rehearsal on a wheel built locally from the
-same tree gave the same test results and the same totals from the wheel's own files.
+Measured on the source tree of main at `b282da3`, offline, with no model call, on the reference set of 225
+changes at pinned commits with the fingerprint `471b2dfe27d4dc2a` (see Commands). The figures that did not move
+since the first measurement at `5c1af62` are marked so.
 
 | Gate | Result | Met |
 |---|---|---|
 | A1 | The matrix test passes: no miss and no false alarm | Yes |
 | A2 | 1,092 of 1,092 numbers that the reference changes add are refused when listed | Yes |
-| A3 | 0 of 6,020 file versions refused with 1,000 control figures listed, and no collision | Yes |
+| A3 | 0 of 6,020 file versions refused with 1,000 control figures listed, and no collision. Measured at `5c1af62`; no change since touches the screen | Yes |
 | A4 | 0 escapes in 10,000 generated payloads against a baseline guard (`tests/test_figure_digits.py`) | Yes |
 | A5 | The route tests pass: every path to a provider runs the four screens | Yes |
 | A6 | A reply is screened on the review, gate and proposal routes, hidden characters last | Yes |
 | A7 | Not measured. It needs live calls | No |
 | B1 | 9 of 9 drafted policies are accepted by the gate | Yes |
 | B2 | 180 of 225 (80%). The threshold is 180 | Yes, with none to spare |
-| B3 | 185 of 225 (82%) | Yes |
+| B3 | 185 of 225 (82%). As drafted, 140, up from 137: `doctor` no longer blocks a file under `generated_paths` | Yes |
 | B3a | With test paths listed: gate route 195 (87%), configuration route 202 (90%) | Reported |
 | B4 | All 45 distinct lines refused for a credential hold a literal value under a credential label, 40 of them in test files. None is a call, a member expression or an environment lookup | Yes |
 | B5 | The labelled set passes | Yes |
-| B6 | `doctor`: median 0.46 s, slowest 12.7 s over 1,800 runs. The dense-number test passes | Yes |
-| B7 | The configuration tests pass. `scripts/upgrade_smoke.py` needs the candidate wheel | Partly |
-| B8 | Added since that measurement. 15 of 15 wrong setups, seven on the configuration route and eight on the gate route, give one named blocker; every remedy offered clears it; the first options reach `ready` | Yes |
-| B9 | Added since that measurement. On the 225 changes (reference set 471b2dfe27d4dc2a), following the remedies sets up 189 on the configuration route (84%; 140 as drafted) and 185 on the gate route (82%; 133 as drafted). No remedy fails or loops, every change a hand-set skip variant reviews is reached, and none grants a capability. The 36 and 40 changes left need a person: mostly a credential-like value in a test file (32 and 28), then a change to the review rules, a size over its ceiling, a hidden character, or a range with nothing left once the unreadable files are out | Yes |
-| C1 to C4 | No candidate wheel yet | No |
-| D1 to D6 | Not measured. The spending decision is open | No |
+| B6 | `doctor`: median 0.50 s, slowest 11.89 s over 1,800 runs. The dense-number test passes | Yes |
+| B7 | The configuration tests pass, and the installed upgrade from 0.3.1 and 0.4.0 passed on the 0.11.0 candidate wheel in its release build | Yes |
+| B8 | 15 of 15 wrong setups, seven on the configuration route and eight on the gate route, give one named blocker; every remedy offered clears it; the first options reach `ready` | Yes |
+| B9 | Following the remedies sets up 189 changes on the configuration route (84%) and 185 on the gate route (82%). No remedy fails, loops or is unexplained, every change a hand-set skip variant reviews is reached, and none grants a capability. The 36 and 40 left need a person: mostly a credential-like value in a test file (32 and 28) | Yes |
+| C1 | Met for 0.11.0: its wheel's 147 package files equal the tagged tree, and A2, B2, B3 and B4 gave the same results on the wheel. It repeats for every candidate | For 0.11.0 |
+| D1 to D6 | Not measured. 133 labelled cases (64 defects, 69 controls) are bound to pinned policies and pass the live run's preflight offline; the run waits for the owner's provider, model and budget, and D1 needs 36 more defects | No |
 | E1 | The release workflow attests every file. The README does not give the verifying command yet | No |
 | E2 | `scripts/action_lock.py --check` passes | Yes |
 | E3 | Not read for this page | Open |
 
-What the gate route still blocks, by number of changes: credential content 28, a change to an
-ignore file 7, a request over the size limit 5, the run budget 3, the packet limit 1, a hidden
-character 1, the file count 1, a range of private files only 1, and nothing to review 1. Some
-changes have more than one.
+B6 is wall-clock time and moves with the machine's load. On a busy shared machine the slowest run took up to
+18.6 s, on the published 0.10.0 code as on 0.11.0; this measurement ran at a load of about 3. The bar should be
+read on a quiet machine, and the slowest change profiled.
 
-What is left before a release, in order:
+What the gate route still blocks, by number of changes: credential content 28, a change to an ignore file 7, a
+request over the size limit 5, the run budget 3, the packet limit 1, a hidden character 1, the file count 1, a
+range of private files only 1, and nothing to review 1. Some changes have more than one.
 
-1. **E1:** add the verifying command to the README, after it has been run once against the
-   published 0.10.0 files.
-2. **C1:** build the candidate with the release workflow and run every gate above on that wheel.
-3. **A7 and D1 to D6:** these need live model calls, so they wait for the spending decision.
-   Until then the documentation says only what a PASS means.
-4. **B2 has nothing to spare.** One reference change fewer would miss it. What it still refuses
-   for credential content is a literal under a credential label, and 40 of those 45 lines are in
-   test files. `placeholder_credential_paths` is the setting for test files that hold only
-   made-up logins, and whether its numbers (B3a) may count towards B2 and B3 is the owner's
-   decision.
+**B2 has nothing to spare.** One reference change fewer would miss it. What it still refuses for credential
+content is a literal under a credential label, and 40 of those 45 lines are in test files.
+`placeholder_credential_paths` is the setting for test files that hold only made-up logins; whether its numbers
+(B3a) may count towards B2 and B3 is the owner's decision.
 
 ## Gates
 
@@ -160,20 +154,35 @@ the code is free of defects.
 
 ## Work, in order
 
-1. **Figure screen on every route, with one reader.** Gates A1, A5 and A6 for figures, and B7.
-2. **`init --detect` stops drafting `deny_paths` the gate refuses,** and the policy check accepts a
-   private name there. Gate B1.
-3. **Digit matching and figure sources.** A list can be built from delimited files, and a figure is
-   matched by its significant digits and its two-place rounding, as common guards do. Gates A2
-   to A4.
-4. **Credential screen outside Python.** Skip values that are identifiers, member expressions,
-   calls and environment lookups, as the Python reading already does. Gates B4 and B5. The
-   labelled set also lists what the screen still gets wrong, in both directions, with the reason.
-5. **Hidden and bidirectional characters in content,** on every route. Gate A5.
-6. **Fit:** unsupported suffixes and files over the limit are left out and reported, not fatal to
-   the whole range, when the operator chooses that. Gates B2 and B3.
-7. **Accuracy programme.** Gates D1 to D6 and A7, after the spending decision.
-8. **Provenance.** Gates E1 to E3.
+Landed since 0.10.0, each with the gates it serves:
+
+- The figure screen on every route, with one reader; digit matching and figure lists from delimited files
+  (A1 to A6, B7).
+- `init --detect` drafts policies the gate accepts (B1); unreviewable files can be left out and reported
+  (B2, B3).
+- The credential screen outside Python, and hidden characters on every route (A5, B4, B5).
+- Tools found only through absolute `PATH` entries on Windows (the 0.11.0 security release).
+- `doctor` lists remedies a program can apply, checked on fifteen wrong setups (B8) and on the 225
+  reference changes (B9).
+
+Left, in this order:
+
+1. **Schemas for every document a user writes or reads** (#130), and **`doctor` checking its own
+   installation** (#127), each after its review findings are fixed.
+2. **Split `cli.py`** into a parser module and handlers beside the code they run. One file of 48,000
+   bytes at most now holds every command, and two open pull requests together already exceed it.
+3. **State** (#120): `state status` (built; it waits for the split), then one state location for every
+   command, then `state archive` and `state clean`. The gaps in #134 go with it.
+4. **A human view of `doctor`**: the same report as text, for a person at a terminal on their first day.
+   The JSON stays the contract.
+5. **Accuracy programme:** gates D1 to D6 and A7.
+   - **Done, offline:** 133 labelled cases from six of the maintainers' repositories are bound to pinned
+     policies and pass the live run's own preflight: 64 defects, 69 controls.
+   - **Needs the owner:** a public stratum to reach 100 defects (cloning public repositories), and the
+     provider, model and budget. One trial of every case is about 18.5 million input tokens.
+6. **Provenance:** gates E1 to E3. E1 needs a maintainer to run the README's attestation command.
+7. **The candidate:** gates C1 to C4 on the wheel the release workflow builds, before the owner approves
+   publishing.
 
 ## Commands
 
