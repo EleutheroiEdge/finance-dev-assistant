@@ -28,7 +28,11 @@ Behaviour that scripts may depend on, each described in full under Security, Cha
 - **Less is refused.** A credential-named field that is given a reference, such as a variable, a
   call or an environment lookup, is no longer refused as a credential. A literal still is.
 - **Model replies.** A reply that is wider than JSON, or gives a key twice in one object, is
-  refused as invalid JSON on every route.
+  refused as invalid JSON on every route: `review_json_invalid` from a review and a gate,
+  `proposal_schema_invalid` from a proposal, and `provider_transport_failed` for a provider's
+  envelope.
+- **Gate.** A range that changed only withheld files used to stop with
+  `gate_ignore_check_unavailable`. It now reports `review_scope_entirely_withheld`.
 - **`doctor`.** A credential refusal names the rule and the lines. A range blocked only by a
   file's size also gets the warning `request_lower_bound_exceeded` when the change is already
   over the request or packet limit.
