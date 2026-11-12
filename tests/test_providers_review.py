@@ -165,7 +165,7 @@ def test_provider_error_is_fixed_code_and_unknown_spend_stays_reserved(repositor
     repo, base, head = repository
     packet = build_packet(repo, base, head, Config())
     transport = httpx.MockTransport(lambda _: httpx.Response(401, text="sensitive provider error"))
-    with pytest.raises(AssistantError, match="provider_http_error") as caught:
+    with pytest.raises(AssistantError, match="provider_http_unauthorized") as caught:
         review_packet(
             packet,
             model_config(),

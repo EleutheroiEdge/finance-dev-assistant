@@ -118,6 +118,36 @@
     "policy_sha256": {
       "$ref": "#/$defs/hashOrNull"
     },
+    "reason_details": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "provider_http_unauthorized",
+              "provider_http_forbidden",
+              "provider_http_not_found",
+              "provider_http_rate_limited",
+              "provider_http_server_error",
+              "provider_http_error",
+              "provider_timeout"
+            ]
+          },
+          "http_status": {
+            "maximum": 599,
+            "minimum": 100,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "http_status"
+        ],
+        "type": "object"
+      },
+      "maxItems": 1,
+      "type": "array"
+    },
     "reasons": {
       "items": {
         "pattern": "^[a-z][a-z0-9_]{0,80}$",

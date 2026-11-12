@@ -88,7 +88,7 @@ def _repository(tmp_path, policy: str, shape: dict, monkeypatch):
 def _preflight(case) -> dict:
     report = policy_preflight(case["repo"], case["base"], case["head"], "gate-policy.json", case["pin"])
     assert KEY_VALUE not in canonical(report).decode()
-    assert not report["network_used"] and not report["key_value_read"]
+    assert not report["network_used"] and not report["key_values_returned"]
     return report
 
 

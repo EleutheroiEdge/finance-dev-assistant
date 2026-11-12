@@ -95,6 +95,8 @@ def _helpers(modules, errors) -> tuple[dict[tuple[str, str], int], set[int]]:
 # which is collected where it is raised, or builds a record from its own parameter. A new
 # site whose code can't be read statically fails until it is listed here with its provenance.
 PASSED_ON = {
+    ("doctor_environment.py", "{code}", "code"): "git errors or key states select existing literal codes",
+    ("model_gate.py", "{code}", "code"): "bounded HTTP details repeat an allowlisted caught provider code",
     ("auditing.py", "{code}", "code"): "command_audit records the code of the error it is unwinding",
     ("cli.py", "{code}", "exc.code"): "scan records the code of a caught AssistantError per finding",
     ("errors.py", "{code}", "exc.code"): "error_record builds the stderr record for a caught AssistantError",
@@ -565,7 +567,7 @@ def test_a_deeply_nested_hint_table_is_damage_not_a_crash(monkeypatch, capsys):
 
 def test_a_retired_entry_loads_lists_and_explains(monkeypatch, capsys):
     table = {"sample_retired_code": {"summary": "An old refusal.", "fix": "Nothing to do.", "retired": "0.8.0"}}
-    texts = {area: "{}" for area in error_hints.AREAS}
+    texts = {area: "{}" for area in (*error_hints.AREAS, "providers")}
     texts["setup"] = json.dumps(table)
 
     class Areas:
