@@ -60,6 +60,15 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   size already, so the first-run numbers above do not move. See `docs/security-design.md`.
 
 ### Added
+- **`doctor` lists remedies a program can read.** For a range, each blocker with a mechanical fix
+  now has an entry in `remedies`: the document to edit, the setting, and the value, bound or paths
+  that clear this instance, with what else the change does (`sends_more`, `spends_more` or
+  `leaves_files_out`). A script or a coding agent can propose the fix without parsing a hint.
+  `doctor` still edits nothing, and an option that sends or spends more is never listed before one
+  that does not. A blocker that needs a decision, such as a credential in the change or approval
+  to use the network, has no remedy. A new test sets up wrong configurations and policies one at
+  a time and applies every option: each must clear its blocker, and following the first option
+  each time must reach `ready`.
 - **`placeholder_credential_paths`: review test files that hold made-up logins.** A fixture with a
   field named `password` and a value that was never real refused the whole range, because the
   screen cannot tell it from a real one. List such files in the configuration, or in a gate
@@ -171,6 +180,11 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 Nothing else about what a gate accepts, authorizes or spends has changed.
 
 ### Fixed
+- **The gate named a setting it does not have.** A change whose packet is over the gate's packet
+  limit, the larger of 2,000,000 bytes and `max_request_bytes`, was refused as
+  `packet_limit_exceeded` with the configuration route's hint: raise `max_packet_bytes`. A gate
+  policy has no such setting. On the gate route the hint now names `max_request_bytes`, and so
+  does the remedy. Found by following the remedies on a real 45-file change.
 - **A hidden character is the last refusal of a configuration.** A hidden character in a profile
   checklist or in the endpoint was reported before a later fault of the same configuration: a
   match of the project's own patterns, a field that is not valid. Whatever else is wrong is now

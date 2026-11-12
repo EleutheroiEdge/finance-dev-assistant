@@ -30,6 +30,7 @@ from .policy_ignores import screen_ignores
 from .providers import request_payload
 from .review import review_schema, spend_estimate
 from .error_hints import error_fields
+from .remedies import attach_remedies
 from .scope import WITHHELD_REASON, git, omission_for, read_entry, read_sides, require_regular, resolve
 from .hidden_text import Waiting
 from .security import (TEXT_FIXTURE_SUFFIXES, canonical, local_name, check_fixture_private, check_name,
@@ -79,6 +80,9 @@ HINTS = {
     "forbidden_token_source_invalid": "Each figure source must be a delimited text file outside every checkout "
                                       "of the repository, with at least one numeric cell.",
     "gate_request_bytes_exceeded": "Raise max_request_bytes (up to 8,000,000) or review a smaller range.",
+    # The gate has no max_packet_bytes: its packet limit is the larger of 2,000,000 and max_request_bytes.
+    "packet_limit_exceeded": "Raise max_request_bytes (up to 8,000,000) or review a smaller range. The gate's "
+                             "packet limit is the larger of 2,000,000 bytes and max_request_bytes.",
     "run_budget_exceeded": "Raise max_run_usd above the reserved estimate, or review a smaller range.",
     "daily_budget_exceeded": "Raise daily_budget_usd above the reserved estimate.",
     "path_name_not_utf8": "Rename the changed files whose names are not UTF-8 text; the gate can't read them.",
@@ -252,6 +256,7 @@ class _Preflight:
             # Keep the report: name the failing step's class, never its message.
             self.block("preflight_check_failed", kind=type(exc).__name__)
         self.report["blockers"].extend(self._grouped.values())
+        attach_remedies(self.report, "gate")
         ready = not self.report["blockers"]
         self.report["status"] = "ready" if ready else "blocked"
         if ready and self.policy_file is not None:

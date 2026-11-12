@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .config import Config, config_hash
 from .error_hints import error_fields
+from .remedies import attach_remedies
 from .errors import AssistantError
 from .health import config_warnings
 from .onboarding import _shown_argument
@@ -74,6 +75,7 @@ class _ConfigPreflight:
             # Keep the report: name the failing step's class, never its message.
             self.block("preflight_check_failed", kind=type(exc).__name__)
         self.report["blockers"].extend(self._grouped.values())
+        attach_remedies(self.report, "configuration", _LEFT_OUT)
         ready = not self.report["blockers"]
         self.report["status"] = "ready" if ready else "blocked"
         self.report["next_step"] = (self._commands() if ready
