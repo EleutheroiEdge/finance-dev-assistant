@@ -1,0 +1,109 @@
+{
+  "$id": "urn:finledgerpoli:schema:workflow-template:1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "goal": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "type": "string"
+    },
+    "methodology": {
+      "items": {
+        "maxLength": 512,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "name": {
+      "pattern": "^[a-z][a-z0-9_-]{0,63}(?![\\s\\S])",
+      "type": "string"
+    },
+    "requirements": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "pattern": "^[a-z][a-z0-9_-]{0,63}(?![\\s\\S])",
+            "type": "string"
+          },
+          "methodology": {
+            "items": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 64,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "recipe": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}(?![\\s\\S])",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "recipe",
+          "methodology"
+        ],
+        "type": "object"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "steps": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "depends_on": {
+            "items": {
+              "pattern": "^[a-z][a-z0-9_-]{0,63}(?![\\s\\S])",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "minItems": 0,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "id": {
+            "pattern": "^[a-z][a-z0-9_-]{0,63}(?![\\s\\S])",
+            "type": "string"
+          },
+          "requirement": {
+            "pattern": "^[a-z][a-z0-9_-]{0,63}(?![\\s\\S])",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "requirement",
+          "depends_on"
+        ],
+        "type": "object"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "name",
+    "goal",
+    "methodology",
+    "requirements",
+    "steps"
+  ],
+  "type": "object"
+}

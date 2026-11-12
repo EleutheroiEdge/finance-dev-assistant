@@ -26,8 +26,9 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   value or file content can reach it. JSON stays the default and the contract; the exit codes are the same.
 - Doctor lists Git capabilities, local configuration/state/settings/cache paths, writable-directory estimates and a deduplicated key-use table with separate host permissions and limits for configuration and supplied gate policy. Proxy/custom-CA variables are named without values; no connection or write probe runs.
 - Published document-contract schemas and offline `finassist config schema --kind NAME`
-  exports for configuration, policies, packets, model gate/review reports and evaluation
-  suites. Runtime screening, integrity checks and approvals remain required.
+  exports for configuration, policies, workflow templates, packets, model gate/review
+  reports and evaluation suites. Runtime screening, integrity checks and approvals
+  remain required.
 - Evaluation and history suites also accept `schema_version: 1`, preserving the
   original canonical document for approval hashes. Conflicting aliases and non-integer
   version values are refused; existing integer `version: 1` inputs keep their hashes.
@@ -130,8 +131,9 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   a read-only `--check` mode.
 - Evaluation, history, packet and saved-review structural validation shares the
   exported contract and enforcing-module limits, with boundary and runtime-call
-  regressions. CI policy schemas now constrain configuration and repository names;
-  complete workflow-template schemas remain a separate follow-up.
+  regressions. CI policy schemas now constrain configuration and repository names,
+  and reference the complete version-1 workflow-template structural schema exported
+  from the existing loader. Runtime template acceptance and approval gates are unchanged.
 - **`doctor` blocked a range for a file under `generated_paths`.** The configuration preflight
   refused it as `scope_incomplete` and reported the coverage as incomplete, while the review and
   triage count a configured generated file as outside the scope and go ahead. `doctor` now agrees

@@ -92,8 +92,7 @@
       "type": "integer"
     },
     "workflow": {
-      "description": "Workflow template structure is validated by the workflow loader; a complete workflow schema is a separate follow-up.",
-      "type": "object"
+      "$ref": "urn:finledgerpoli:schema:workflow-template:1"
     }
   },
   "required": [
