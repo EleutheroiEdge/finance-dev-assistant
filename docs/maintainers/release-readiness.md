@@ -46,8 +46,9 @@ that. The bar on this page still stands for the release that does make such a cl
 
 ## Where the next release stands
 
-Measured on the source tree of main at `b282da3`, offline, with no model call, on the reference set of 225
-changes at pinned commits with the fingerprint `471b2dfe27d4dc2a` (see Commands). The figures that did not move
+Measured on a snapshot of main at `478e70b` (12 November), offline, with no model call, on the reference set of
+225 changes at pinned commits with the fingerprint `471b2dfe27d4dc2a` (see Commands). Every count below is the same
+as on `b282da3`, the tree of the previous measurement. The figures that did not move
 since the first measurement at `5c1af62` are marked so.
 
 | Gate | Result | Met |
@@ -65,7 +66,7 @@ since the first measurement at `5c1af62` are marked so.
 | B3a | With test paths listed: gate route 195 (87%), configuration route 202 (90%) | Reported |
 | B4 | All 45 distinct lines refused for a credential hold a literal value under a credential label, 40 of them in test files. None is a call, a member expression or an environment lookup | Yes |
 | B5 | The labelled set passes | Yes |
-| B6 | `doctor`: median 0.50 s, slowest 11.89 s over 1,800 runs. The dense-number test passes | Yes |
+| B6 | `doctor`: median 0.52 s, 95th percentile 2.78 s, slowest 14.52 s over 1,800 runs. The dense-number test passes. The slowest run is one change of one repository and sits under the bar by less than a second; see below | Yes, with almost none to spare |
 | B7 | The configuration tests pass, and the installed upgrade from 0.3.1 and 0.4.0 passed on the 0.11.0 candidate wheel in its release build | Yes |
 | B8 | 15 of 15 wrong setups, seven on the configuration route and eight on the gate route, give one named blocker; every remedy offered clears it; the first options reach `ready` | Yes |
 | B9 | Following the remedies sets up 189 changes on the configuration route (84%) and 185 on the gate route (82%). No remedy fails, loops or is unexplained, every change a hand-set skip variant reviews is reached, and none grants a capability. The 36 and 40 left need a person: mostly a credential-like value in a test file (32 and 28) | Yes |
@@ -75,9 +76,14 @@ since the first measurement at `5c1af62` are marked so.
 | E2 | `scripts/action_lock.py --check` passes | Yes |
 | E3 | 6.2 on main at `edf4439` (Scorecard 5.6.0, read on 12 November). The checks at 0: no approved reviews, a repository under 90 days old, GitHub releases without signed files or provenance, no fuzzing, no best-practices badge, and no contributing company or organization detected. Branch protection was not readable by the workflow's token, so it is not scored. Two uv advisories (Vulnerabilities 8) are fixed by #140, and the private-reporting link now in SECURITY.md should lift Security-Policy from 4 to 10: about 6.7 with both | No |
 
-B6 is wall-clock time and moves with the machine's load. On a busy shared machine the slowest run took up to
-18.6 s, on the published 0.10.0 code as on 0.11.0; this measurement ran at a load of about 3. The bar should be
-read on a quiet machine, and the slowest change profiled.
+B6 is wall-clock time and moves with the machine's load. Its slowest run is one change of one repository, about
+14 s on `b282da3` and on main alike; alternating the two trees on that repository gave 13.8 s at a load of about 2,
+and up to 15.4 s at a load of 3 to 5, over the bar. So load alone can decide B6. A profile of that run shows where
+the time goes: the gate preflight reads and screens every changed file twice, once to classify it and once to build
+the packet, and the packet screen reads the included files a third time; the credential screen is most of it.
+Screening each text once per command took that run from 13.5 and 13.9 s to 10.2 and 11.6 s in a two-round A/B,
+a sixth to a quarter, with every status and blocker count the same (work item 1).
+The bar should be read on a quiet machine.
 
 What the gate route still blocks, by number of changes: credential content 28, a change to an ignore file 7, a
 request over the size limit 5, the run budget 3, the packet limit 1, a hidden character 1, the file count 1, a
@@ -172,18 +178,28 @@ Landed since 0.10.0, each with the gates it serves:
 - The command-line parser in its own module, which leaves `cli.py` room to grow (#137).
 - `state status`, which shows what the tool keeps on the machine without writing anything, and
   `doctor --format text`, the same report for a person at a terminal; the JSON stays the contract (#138).
+- uv 0.13.4 in the CI tools, which fixes PYSEC-2026-4305 and PYSEC-2026-4321 (#140), and no implicit package cache
+  in release builds (#146).
+- `doctor` without a home folder, and a test suite that leaves the checkout as it found it (#142).
+- The workflow template schema, exported from the loader itself (#141).
+- One state folder for every command, so a spending ledger can no longer split in two, and a configuration
+  preflight that checks the folder of the review it suggests (#143).
+- A7 prepared offline: 60 synthetic attack and clean-twin pairs, controls and an offline scorer (#145).
 
 Left, in this order:
 
-1. **State** (#120): one state location for every command, then `state archive` and `state clean`, built on
-   `state status`. The gaps in #134 go with it.
-2. **Accuracy programme:** gates D1 to D6 and A7.
-   - **Done, offline:** 133 labelled cases from six of the maintainers' repositories are bound to pinned
+1. **B6 headroom:** screen each text once per command, and keep the slowest run well under the bar on a quiet
+   machine.
+2. **State** (#120): `state clean` (removing only what is certainly safe), then `state archive` for the audit chain.
+3. **Accuracy programme:** gates D1 to D6 and A7.
+   - **Done, offline:** for A7, 60 synthetic attack pairs with controls and an offline scorer (#145); 133 labelled cases from six of the maintainers' repositories are bound to pinned
      policies and pass the live run's own preflight: 64 defects, 69 controls.
+   - **Before the first live run:** every raw reply kept privately, so a run can be scored offline and again
+     (assigned on #29).
    - **Needs the owner:** a public stratum to reach 100 defects (cloning public repositories), and the
      provider, model and budget. One trial of every case is about 18.5 million input tokens.
-3. **Provenance:** gates E1 to E3. For E1 a maintainer verifies the attestations of a published release with `gh attestation verify`, then adds that exact command to the README. E3 needs more than this repository can change by itself: signed files or provenance on the GitHub releases, approved reviews on changes (an owner's decision for a repository with one maintainer), and the repository's 90th day.
-4. **The candidate:** gates C1 to C4 on the wheel the release workflow builds, before the owner approves
+4. **Provenance:** gates E1 to E3. For E1 a maintainer verifies the attestations of a published release with `gh attestation verify`, then adds that exact command to the README. E3 needs more than this repository can change by itself: signed files or provenance on the GitHub releases, approved reviews on changes (an owner's decision for a repository with one maintainer), and the repository's 90th day.
+5. **The candidate:** gates C1 to C4 on the wheel the release workflow builds, before the owner approves
    publishing.
 
 ## Commands
