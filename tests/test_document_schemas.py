@@ -5,6 +5,7 @@ from importlib.resources import files
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 from jsonschema import Draft202012Validator, ValidationError
 
@@ -16,11 +17,11 @@ from finassist.errors import AssistantError
 from finassist.evaluation import evaluate, validate_suite
 from finassist.history_suite import history_approval_hash, plan_history, validate_history_suite
 from finassist.model_gate import refused_model_report, validate_model_report
-from finassist.review import review_schema, validate_review
+from finassist.review import review_packet, review_schema, validate_review
 from finassist.scope import build_packet, verify_packet
 from finassist.security import canonical, digest
 from test_history_suite import history_suite
-from test_providers_review import response
+from test_providers_review import envelope, response
 
 ROOT = Path(__file__).parents[1]
 
@@ -49,7 +50,7 @@ def test_schema_cli_reads_no_project_or_state(kind, tmp_path, monkeypatch, capsy
     monkeypatch.setattr("finassist.cli.command_audit", unexpected)
     assert main(["--config", "absent.json", "--audit-dir", "absent-state", "config", "schema", "--kind", kind]) == 0
     output = capsys.readouterr()
-    assert output.out == document_schema_text(kind) and not output.err
+    assert output.out == (canonical(document_schema(kind)) + b"\n").decode() and not output.err
     assert list(tmp_path.iterdir()) == []
 
 
@@ -64,7 +65,7 @@ def test_default_schema_and_unknown_kind(capsys):
 def test_export_does_not_mutate_policy_or_provider_schema():
     model, ci, review = deepcopy(model_policy._SCHEMA), deepcopy(ci_policy._SCHEMA), review_schema()
     original_request_schema = canonical(review)
-    for kind in ("gate-policy", "ci-policy", "review-report"):
+    for kind in ("gate-policy", "ci-policy", "review-response"):
         exported = document_schema(kind)
         exported["properties"].clear()
         exported["$id"] = "https://example.invalid/changed"
@@ -112,11 +113,11 @@ def test_review_schema_export_preserves_runtime_envelope(repository):
     repo, base, head = repository
     packet = build_packet(repo, base, head, Config())
     report = response(packet)
-    Draft202012Validator(document_schema("review-report")).validate(report)
+    Draft202012Validator(document_schema("review-response")).validate(report)
     validate_review(report, packet, config=Config())
     report["new_field"] = True
     with pytest.raises(ValidationError):
-        Draft202012Validator(document_schema("review-report")).validate(report)
+        Draft202012Validator(document_schema("review-response")).validate(report)
 
 
 @pytest.mark.parametrize("version", [1, 2])
@@ -207,3 +208,28 @@ def test_alias_evaluation_runs_offline_with_distinct_raw_identity(tmp_path):
     assert first["cases"] == second["cases"]
     assert first["suite_hash"] != second["suite_hash"]
     assert not list(tmp_path.iterdir())
+
+
+
+@pytest.mark.parametrize("provider", ["offline", "openai"])
+def test_saved_review_report_matches_installed_schema(repository, tmp_path, monkeypatch, provider):
+    repo, base, head = repository
+    config = replace(Config(), provider=provider, model="" if provider == "offline" else "synthetic",
+                     api_key_env="REVIEW_TEST_KEY", allow_network=provider != "offline",
+                     input_usd_per_million=1, output_usd_per_million=1)
+    monkeypatch.setenv("REVIEW_TEST_KEY", "fictional-test-value")
+    packet = build_packet(repo, base, head, config)
+    calls = []
+    def transport(request):
+        calls.append(request)
+        return httpx.Response(200, json=envelope(json.dumps(response(packet))))
+    report = review_packet(packet, config, tmp_path / "audit.sqlite",
+                           network_approved=provider != "offline", approved_packet_hash=packet["packet_hash"],
+                           transport=httpx.MockTransport(transport))
+    Draft202012Validator(document_schema("review-report")).validate(report)
+    assert bool(calls) == (provider != "offline")
+    assert not report["merge_authority"]
+    malformed = deepcopy(report)
+    malformed["merge_authority"] = True
+    with pytest.raises(ValidationError):
+        Draft202012Validator(document_schema("review-report")).validate(malformed)

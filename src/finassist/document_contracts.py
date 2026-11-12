@@ -75,11 +75,14 @@ def history_suite_schema() -> dict:
     return _suite(case)
 
 
-@lru_cache(maxsize=3)
+@lru_cache(maxsize=4)
 def _validator(kind: str) -> Draft202012Validator:
     if kind == "packet":
         from .packet_schema import packet_schema
         schema = packet_schema()
+    elif kind == "review-report":
+        from .review_report_schema import review_report_schema
+        schema = review_report_schema()
     else:
         schema = {"evaluation-suite": evaluation_suite_schema,
                   "history-suite": history_suite_schema}[kind]()

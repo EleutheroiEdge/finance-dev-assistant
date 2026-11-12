@@ -506,7 +506,7 @@ change its `$id` when publishing their own version.
 
 
 Print the schema from the installed package without loading project configuration
-or creating audit state:
+or creating audit state (one JSON object on stdout):
 
 ```sh
 finassist config schema
@@ -526,7 +526,8 @@ schema files work offline. An identifier does not cause finassist to fetch it.
 | `packet` | Version-1 or version-2 source packet |
 | `gate-report` | Current version-2 model gate report |
 | `gate-report-v1` | Legacy version-1 model gate report |
-| `review-report` | Model review response, retaining its existing unversioned envelope |
+| `review-report` | Saved offline or model review report, retaining its existing unversioned envelope |
+| `review-response` | Raw provider response nested inside a model review report |
 | `evaluation-suite` | Synthetic evaluation input |
 | `history-suite` | Frozen-history evaluation input |
 

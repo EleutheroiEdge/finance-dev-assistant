@@ -15,6 +15,7 @@ import jsonschema
 
 from .config import Config, config_hash
 from .errors import AssistantError, network_not_approved, prices_required
+from .document_contracts import validate_document_shape
 from .forbidden_tokens import screen_review_output, token_file_audit
 from .hidden_text import Waiting
 from .ledger import Ledger
@@ -266,7 +267,7 @@ def review_packet(
         raise AssistantError("empty_review_scope")
     if config.provider == "offline":
         waiting.release()  # With a provider, the function that calls it releases its own list, last.
-        return {
+        report = {
             "status": "offline-analysis",
             "packet_hash": packet["packet_hash"],
             "head": packet["head"],
@@ -277,6 +278,8 @@ def review_packet(
             "qualification": "No model review or test execution performed.",
             "merge_authority": False,
         }
+        validate_document_shape(report, "review-report", "review_schema_invalid")
+        return report
     result, reservation = call_model(
         packet,
         config,
@@ -328,4 +331,5 @@ def review_packet(
                 },
             }
         )
+    validate_document_shape(report, "review-report", "review_schema_invalid")
     return report

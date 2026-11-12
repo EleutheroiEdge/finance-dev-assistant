@@ -763,9 +763,9 @@ def main(argv: list[str] | None = None) -> int:
             _emit(fix_local_state(path, audit_directory(args)))
             return 0
         if args.command == "config" and args.config_action == "schema":
-            from .document_schemas import document_schema_text
+            from .document_schemas import document_schema
 
-            print(document_schema_text(args.kind), end="")
+            _emit(document_schema(args.kind))
             return 0
         if args.command == "config":
             from .config_compat import apply_config_migration, preview_config_migration

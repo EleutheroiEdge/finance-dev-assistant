@@ -1,0 +1,115 @@
+{
+  "$id": "https://raw.githubusercontent.com/EleutheroiEdge/finance-dev-assistant/v0.10.0/schemas/review-response.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "findings": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "claim": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "line": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "sha256": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "side": {
+                  "enum": [
+                    "before",
+                    "after"
+                  ]
+                }
+              },
+              "required": [
+                "path",
+                "side",
+                "line",
+                "sha256"
+              ],
+              "type": "object"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
+          },
+          "impact": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "line": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "reproduction": {
+            "maxLength": 3000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low",
+              "info"
+            ]
+          }
+        },
+        "required": [
+          "severity",
+          "path",
+          "line",
+          "claim",
+          "impact",
+          "reproduction",
+          "evidence"
+        ],
+        "type": "object"
+      },
+      "maxItems": 50,
+      "type": "array"
+    },
+    "head": {
+      "maxLength": 64,
+      "minLength": 40,
+      "type": "string"
+    },
+    "reviewed_paths": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "summary": {
+      "maxLength": 4000,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "head",
+    "summary",
+    "reviewed_paths",
+    "findings"
+  ],
+  "type": "object"
+}
