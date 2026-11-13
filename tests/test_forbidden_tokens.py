@@ -2,6 +2,7 @@
 
 import pytest
 
+from conftest import holds_number
 from finassist.errors import AssistantError
 from finassist.forbidden_tokens import normalize_numeric_token
 
@@ -48,7 +49,7 @@ def test_external_tokens_union_hashes_without_plaintext_repr(tmp_path):
     snapshot = load_token_snapshot({"forbidden_token_file": str(tokens), "forbidden_token_hashes": [extra]}, (root,))
     assert snapshot.hashes == frozenset(hashlib.sha256(s.encode()).hexdigest() for s in ("6729102.5", "12", "89"))
     assert snapshot.line_count == 2
-    assert "6729102" not in repr(snapshot) and str(tokens) not in repr(snapshot)
+    assert not holds_number(repr(snapshot), "6729102") and str(tokens) not in repr(snapshot)
     assert extra not in repr(snapshot)
 
 
