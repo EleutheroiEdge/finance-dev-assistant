@@ -11,6 +11,7 @@ import warnings
 
 import pytest
 
+from conftest import holds_number
 from finassist.errors import AssistantError
 from finassist.forbidden_tokens import TokenSnapshot, normalize_numeric_token, screen_packet, screen_source
 from finassist.python_source import number_text, python_screen, python_tokens
@@ -206,7 +207,7 @@ def test_untokenizable_python_is_refused_before_key_or_ledger(gate_case, monkeyp
     report, calls = run(gate_case)
     assert not calls and report["reasons"] == ["forbidden_token_python_unreadable"]
     assert not (gate_case["state"] / "audit.sqlite").exists()
-    assert "6729102" not in json.dumps(report)
+    assert not holds_number(json.dumps(report), "6729102")
 
 
 def test_hexadecimal_whole_figure_is_refused_before_key_or_ledger(gate_case, monkeypatch):

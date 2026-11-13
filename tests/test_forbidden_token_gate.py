@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from conftest import command
+from conftest import command, holds_number
 from test_model_gate import gate_case, change_policy, run  # noqa: F401
 from test_model_policy import policy_case  # noqa: F401
 from test_providers_review import envelope, response
@@ -35,7 +35,7 @@ def test_numeric_hash_refuses_content_before_key_or_ledger(request, text, monkey
     report, calls = run(case)
     assert not calls and report["reasons"] == ["forbidden_token_present"]
     assert not (case["state"] / "audit.sqlite").exists()
-    assert "6729102" not in canonical(report).decode()
+    assert not holds_number(canonical(report).decode(), "6729102")
 
 
 def test_filename_alone_does_not_refuse(request):
@@ -58,7 +58,7 @@ def test_external_file_refuses_and_is_never_in_request(request, tmp_path):
     report, calls = run(case)
     assert report["verdict"] == "PASS" and len(calls) == 1, report
     assert str(path) not in calls[0].content.decode()
-    assert "6729102" not in calls[0].content.decode()
+    assert not holds_number(calls[0].content.decode(), "6729102")
     candidate(case, "# 6729102.50")
     report, calls = run(case)
     assert not calls and report["reasons"] == ["forbidden_token_present"]
@@ -79,7 +79,7 @@ def test_provider_invented_number_is_removed_after_usage_settlement(request, cla
     assert report["findings"] == [] and report["spend"]["actual_usd"] == "0.0003"
     with Ledger(case["state"] / "audit.sqlite") as ledger:
         assert not ledger.open_reservations()
-        assert "6729102" not in canonical(ledger.events()).decode()
+        assert not holds_number(canonical(ledger.events()).decode(), "6729102")
     assert "6,729,102" not in canonical(report).decode()
 
 
@@ -142,7 +142,7 @@ def test_private_audit_contains_only_safe_path_and_count(request, tmp_path, name
         events = ledger.events()
         event = next(e["payload"] for e in events if e["payload"]["event"] == "forbidden_token_file_screened")
     assert {k: v for k, v in event.items() if k not in {"event_schema", "recorded_at"}} == {"event": "forbidden_token_file_screened", "file_path": expected or str(path), "line_count": 1}
-    assert "6729102" not in canonical(events).decode()
+    assert not holds_number(canonical(events).decode(), "6729102")
     assert str(path) not in canonical(report).decode()
 
 
