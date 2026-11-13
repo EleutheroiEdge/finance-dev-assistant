@@ -5,7 +5,8 @@ Everything else in the state folder is reported and kept.
 
 A link is never followed. On Windows that includes every reparse point, a junction among them.
 An entry is removed only if it is still the one that was listed. On POSIX a folder is removed
-through open descriptors, so a folder replaced by a link while the removal runs is not entered.
+through descriptors bound to the folder that was listed: an entry replaced while the removal runs,
+by a link or by another folder, is neither entered nor removed.
 Windows has no such interface: there a process of the same user could redirect a removal that
 is under way; the temporary folder there belongs to the user.
 """
@@ -63,6 +64,11 @@ _UNREADABLE = "unreadable"
 _KEYS = ("kind", "path", "bytes", "reason")
 _DIRECTORY = (
     os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+)
+# Removal through descriptors needs these; POSIX systems have them, Windows does not.
+_DESCRIPTORS = (
+    {os.open, os.stat, os.unlink, os.rmdir} <= os.supports_dir_fd and os.scandir in os.supports_fd
+    and hasattr(os, "fchmod") and bool(getattr(os, "O_NOFOLLOW", 0)) and bool(getattr(os, "O_DIRECTORY", 0))
 )
 
 
@@ -361,39 +367,57 @@ def _remove_entry(path: Path, identity: tuple[int, int, int]) -> None:
         raise EntryChanged(path.name)
     if _link_reason(info) is not None or not stat.S_ISDIR(info.st_mode):
         _unlink(path)
-    elif shutil.rmtree.avoids_symlink_attacks:
-        _grant_tree(path, identity)
-        shutil.rmtree(path)  # through descriptors: an entry replaced by a link is not entered
+    elif _DESCRIPTORS:
+        _remove_tree_bound(path, identity)
     else:
         # Windows: a link or a junction inside is unlinked, never entered.
         shutil.rmtree(path, **{_HANDLER: _retry_read_only})
 
 
-def _grant_tree(path: Path, identity: tuple[int, int, int]) -> None:
-    """Give the owner rwx on each real folder of the tree, so that a read-only leftover can be removed.
-    Every folder is opened without following a link and changed through its descriptor."""
-    descriptor = os.open(path, _DIRECTORY)
+def _remove_tree_bound(path: Path, identity: tuple[int, int, int]) -> None:
+    """POSIX: remove a listed folder through descriptors only. The folder is opened without following a link
+    and must be the one listed; what is inside is removed relative to it, each folder checked the same way;
+    last, the name is removed only if it still names that folder."""
+    parent = os.open(path.parent, _DIRECTORY)
     try:
-        if _identity(os.fstat(descriptor)) != identity:
-            raise EntryChanged(path.name)
-        _grant_folder(descriptor)
+        folder = os.open(path.name, _DIRECTORY, dir_fd=parent)
+        try:
+            if _identity(os.fstat(folder)) != identity:
+                raise EntryChanged(path.name)
+            _empty_folder(folder)
+        finally:
+            os.close(folder)
+        _rmdir_if_same(parent, path.name, identity)
     finally:
-        os.close(descriptor)
+        os.close(parent)
 
 
-def _grant_folder(descriptor: int) -> None:
+def _empty_folder(descriptor: int) -> None:
+    """Remove everything in an open folder. A read-only folder is first made rwx for its user, through its
+    descriptor; a link is unlinked itself, never followed."""
     mode = stat.S_IMODE(os.fstat(descriptor).st_mode)
     if mode & stat.S_IRWXU != stat.S_IRWXU:
         os.fchmod(descriptor, mode | stat.S_IRWXU)
     with os.scandir(descriptor) as entries:
-        names = [entry.name for entry in entries if entry.is_dir(follow_symlinks=False)]
-    for name in names:
+        listed = [(entry.name, entry.stat(follow_symlinks=False)) for entry in entries]
+    for name, info in listed:
+        if not stat.S_ISDIR(info.st_mode):
+            os.unlink(name, dir_fd=descriptor)
+            continue
         child = os.open(name, _DIRECTORY, dir_fd=descriptor)
         try:
-            _grant_folder(child)
+            if _identity(os.fstat(child)) != _identity(info):
+                raise EntryChanged(name)
+            _empty_folder(child)
         finally:
             os.close(child)
+        _rmdir_if_same(descriptor, name, _identity(info))
 
+
+def _rmdir_if_same(parent: int, name: str, identity: tuple[int, int, int]) -> None:
+    if _identity(os.stat(name, dir_fd=parent, follow_symlinks=False)) != identity:
+        raise EntryChanged(name)
+    os.rmdir(name, dir_fd=parent)
 
 def _retry_read_only(function, path, error) -> None:
     """Windows: a read-only file or folder is made writable and removed again. A link never is."""

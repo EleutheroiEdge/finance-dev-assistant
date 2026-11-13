@@ -707,7 +707,7 @@ def test_a_junction_for_the_backup_folder_or_a_backup_is_not_followed(tmp_path, 
     assert sorted(path.name for path in outside.iterdir()) == [_hex(index) for index in range(12)]
 
 
-@pytest.mark.skipif(not shutil.rmtree.avoids_symlink_attacks, reason="needs removal through descriptors")
+@pytest.mark.skipif(not state_clean._DESCRIPTORS, reason="needs removal through descriptors")
 def test_a_leftover_replaced_by_a_link_after_it_was_listed_is_not_removed(tmp_path, monkeypatch, capsys):
     temp = _isolate(monkeypatch, tmp_path)
     outside = tmp_path / "outside"
@@ -734,7 +734,7 @@ def test_a_leftover_replaced_by_a_link_after_it_was_listed_is_not_removed(tmp_pa
     assert leftover.is_symlink() and (outside / "keep").read_bytes() == b"outside-bytes"
 
 
-@pytest.mark.skipif(not shutil.rmtree.avoids_symlink_attacks, reason="needs removal through descriptors")
+@pytest.mark.skipif(not state_clean._DESCRIPTORS, reason="needs removal through descriptors")
 def test_a_folder_inside_replaced_by_a_link_is_neither_entered_nor_changed(tmp_path, monkeypatch, capsys):
     temp = _isolate(monkeypatch, tmp_path)
     outside = tmp_path / "outside"
@@ -746,16 +746,16 @@ def test_a_folder_inside_replaced_by_a_link_is_neither_entered_nor_changed(tmp_p
     (leftover / "sub" / "file").write_bytes(b"abc")
     leftover.chmod(0o500)
     _stamp(leftover, OLD)
-    grant = state_clean._grant_tree
+    remove = state_clean._remove_tree_bound
 
-    def replaced_before_the_grant(path, identity):
+    def replaced_before_the_removal(path, identity):
         os.chmod(path, 0o700)
         shutil.rmtree(path / "sub")
         synthetic_symlink(path / "sub", outside, target_is_directory=True)
         os.chmod(path, 0o500)
-        grant(path, identity)
+        remove(path, identity)
 
-    monkeypatch.setattr(state_clean, "_grant_tree", replaced_before_the_grant)
+    monkeypatch.setattr(state_clean, "_remove_tree_bound", replaced_before_the_removal)
     state = tmp_path / "state"
     state.mkdir()
     try:
@@ -767,6 +767,37 @@ def test_a_folder_inside_replaced_by_a_link_is_neither_entered_nor_changed(tmp_p
     finally:
         _unlock(leftover)
         outside.chmod(0o750)
+
+
+@pytest.mark.skipif(not state_clean._DESCRIPTORS, reason="needs removal through descriptors")
+def test_a_leftover_swapped_for_another_folder_during_removal_is_not_removed(tmp_path, monkeypatch, capsys):
+    # The listed folder is opened and checked; then its name is given to an unrelated folder. Only the listed
+    # folder's contents go, through its descriptor; the unrelated folder at its name stays whole.
+    temp = _isolate(monkeypatch, tmp_path)
+    leftover = temp / "finassist-state-old"
+    (leftover / "inner").mkdir(parents=True)
+    (leftover / "inner" / "note").write_bytes(b"abc")
+    _stamp(leftover, OLD)
+    aside = tmp_path / "listed-folder-moved-aside"
+    empty = state_clean._empty_folder
+    swapped = []
+
+    def swap_then_empty(descriptor):
+        if not swapped:
+            swapped.append(True)
+            leftover.rename(aside)
+            (leftover / "unrelated").mkdir(parents=True)
+            (leftover / "unrelated" / "keep").write_bytes(b"keep-bytes")
+        empty(descriptor)
+
+    monkeypatch.setattr(state_clean, "_empty_folder", swap_then_empty)
+    state = tmp_path / "state"
+    state.mkdir()
+    code, report = _run(capsys, tmp_path, ["state", "clean", "--state-dir", str(state), "--apply"])
+    assert code == 1 and report["removed"] == []
+    assert [item.get("error") for item in report["removable"]] == ["EntryChanged"]
+    assert (leftover / "unrelated" / "keep").read_bytes() == b"keep-bytes"
+    assert aside.is_dir() and list(aside.iterdir()) == []
 
 
 @pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs POSIX permissions, not root")
