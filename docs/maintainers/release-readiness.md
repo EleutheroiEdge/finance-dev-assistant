@@ -39,8 +39,8 @@ with `++`; the other rows are from the first run.
 ## What 0.11.0 is
 
 0.11.0 is a security release. Every release up to 0.10.0 could run a program from the current
-directory on Windows (see the changelog), so the owner decided to publish the fix ahead of the
-gates below that are still open. It holds everything merged up to that fix. It makes no claim
+directory on Windows (see the changelog). 0.11.0 fixes that, and was published before the gates
+below that are still open were met. It holds everything merged up to that fix. It makes no claim
 about review accuracy, gates D1 to D6 are not measured, and no adopter is told to rely on it for
 that. The bar on this page still stands for the release that does make such a claim.
 
@@ -70,8 +70,8 @@ since the first measurement at `5c1af62` are marked so.
 | B7 | The configuration tests pass, and the installed upgrade from 0.3.1 and 0.4.0 passed on the 0.11.0 candidate wheel in its release build | Yes |
 | B8 | 15 of 15 wrong setups, seven on the configuration route and eight on the gate route, give one named blocker; every remedy offered clears it; the first options reach `ready` | Yes |
 | B9 | Following the remedies sets up 189 changes on the configuration route (84%) and 185 on the gate route (82%). No remedy fails, loops or is unexplained, every change a hand-set skip variant reviews is reached, and none grants a capability. The 36 and 40 left need a person: mostly a credential-like value in a test file (32 and 28) | Yes |
-| C1 | Partly, for 0.11.0. On the workflow's wheel: its 147 package files equal the tagged tree, the screen, first-run and credential measurements (A2, B2, B3, B4, B6) repeated main's, and the upgrade check (B7) passed in the build. A7, D1 to D6, E1 and E3 were not run on it: 0.11.0 is a security release that the owner chose to publish ahead of those gates (see "What 0.11.0 is"). The full gate applies to every later candidate | Partly |
-| D1 to D6 | Not measured. 133 labelled cases (64 defects, 69 controls) are bound to pinned policies and pass the live run's preflight offline; the run waits for the owner's provider, model and budget, and D1 needs 36 more defects | No |
+| C1 | Partly, for 0.11.0. On the workflow's wheel: its 147 package files equal the tagged tree, the screen, first-run and credential measurements (A2, B2, B3, B4, B6) repeated main's, and the upgrade check (B7) passed in the build. A7, D1 to D6, E1 and E3 were not run on it: 0.11.0 is a security release published ahead of those gates (see "What 0.11.0 is"). The full gate applies to every later candidate | Partly |
+| D1 to D6 | Not measured. 133 labelled cases (64 defects, 69 controls) are bound to pinned policies and pass the live run's preflight offline; the live run has not been started, and D1 needs 36 more defects | No |
 | E1 | The release workflow attests every file. The README does not give the verifying command yet | No |
 | E2 | `scripts/action_lock.py --check` passes | Yes |
 | E3 | 6.2 on main at `edf4439` (Scorecard 5.6.0, read on 12 November). The checks at 0: no approved reviews, a repository under 90 days old, GitHub releases without signed files or provenance, no fuzzing, no best-practices badge, and no contributing company or organization detected. Branch protection was not readable by the workflow's token, so it is not scored. Two uv advisories (Vulnerabilities 8) are fixed by #140, and the private-reporting link now in SECURITY.md should lift Security-Policy from 4 to 10: about 6.7 with both | No |
@@ -91,8 +91,8 @@ range of private files only 1, and nothing to review 1. Some changes have more t
 
 **B2 has nothing to spare.** One reference change fewer would miss it. What it still refuses for credential
 content is a literal under a credential label, and 40 of those 45 lines are in test files.
-`placeholder_credential_paths` is the setting for test files that hold only made-up logins; whether its numbers
-(B3a) may count towards B2 and B3 is the owner's decision.
+`placeholder_credential_paths` is the setting for test files that hold only made-up logins; its numbers (B3a)
+are reported beside B2 and B3 and do not count towards them.
 
 ## Gates
 
@@ -118,7 +118,7 @@ measurement is not passed.
 | B1. The draft is valid | On every reference repository, `init --detect` drafts a policy the gate accepts | `scripts/first_run_scenarios.py` |
 | B2. First run, gate route | At least 80% of the 225 reference changes are ready with the drafted policy plus `skip-and-report` | the same script |
 | B3. First run, configuration route | At least 80%, counting only setup blockers | the same script |
-| B3a. First run, with test paths listed | The script also measures both routes with test files listed in `placeholder_credential_paths` on top of both skip settings. It is reported beside B2 and B3 and does not replace them: listing a path is a statement about a repository that only its owner can make | the same script, variants `gate+tests` and `config+tests` |
+| B3a. First run, with test paths listed | The script also measures both routes with test files listed in `placeholder_credential_paths` on top of both skip settings. It is reported beside B2 and B3 and does not replace them: listing a path is a statement about a repository that only its maintainers can make | the same script, variants `gate+tests` and `config+tests` |
 | B4. Every remaining refusal is deliberate | Each blocker code left in B2 and B3 is one of: a literal value under a credential label, a hidden character, a change to the review rules, a private file, a binary file, a size or a cost over a stated limit. No `sensitive_content` on a call, a member expression or an environment lookup | blocker histogram from the same script, which counts each content refusal by rule and file suffix |
 | B5. Other languages | TypeScript, Go, SQL and YAML changes that assign from a variable, a call or the environment are not refused as credentials: 0 false refusals on a labelled set of 200 lines | `pytest tests/test_credential_references.py`, on the set in `tests/credential_cases.py` |
 | B6. Speed | `doctor` median under 2 seconds and worst case under 15 on the reference changes; 1.6 MB of dense numbers screened in under 20 seconds | the script; `tests/test_figure_matrix.py` |
@@ -130,14 +130,14 @@ measurement is not passed.
 
 | Gate | Threshold | How it is measured |
 |---|---|---|
-| C1. Candidate wheel, before publication | Every gate in A, B and E is run on the exact wheel the release workflow built, installed into a fresh environment, not on the source tree. The owner approves publication only after that | release checklist |
+| C1. Candidate wheel, before publication | Every gate in A, B and E is run on the exact wheel the release workflow built, installed into a fresh environment, not on the source tree. Publication is approved only after that | release checklist |
 | C2. Published wheel, after publication | The wheel installed from the index by hash has the candidate's digest, and A1, A2, A3 and B1 to B3 give the candidate's numbers | release checklist |
 | C3. An adopter's ranges | Before any message to an adopter, their real ranges are rerun on the published wheel, and every claim in the message maps to a line of that output | release checklist |
 | C4. Second reader | An independent reviewer reruns C3 before the message is sent | release checklist |
 
 ### D. Review accuracy
 
-These need live model calls, so they need a spending decision first. Until they are measured,
+These need live model calls, and none has been made for them. Until they are measured,
 the documentation says only what a PASS means: no blocking finding was reported. It never says
 the code is free of defects.
 
@@ -194,13 +194,12 @@ Left, in this order:
 3. **Accuracy programme:** gates D1 to D6 and A7.
    - **Done, offline:** for A7, 60 synthetic attack pairs with controls and an offline scorer (#145); 133 labelled cases from six of the maintainers' repositories are bound to pinned
      policies and pass the live run's own preflight: 64 defects, 69 controls.
-   - **Before the first live run:** every raw reply kept privately, so a run can be scored offline and again
-     (assigned on #29).
-   - **Needs the owner:** a public stratum to reach 100 defects (cloning public repositories), and the
-     provider, model and budget. One trial of every case is about 18.5 million input tokens.
-4. **Provenance:** gates E1 to E3. For E1 a maintainer verifies the attestations of a published release with `gh attestation verify`, then adds that exact command to the README. E3 needs more than this repository can change by itself: signed files or provenance on the GitHub releases, approved reviews on changes (an owner's decision for a repository with one maintainer), and the repository's 90th day.
-5. **The candidate:** gates C1 to C4 on the wheel the release workflow builds, before the owner approves
-   publishing.
+   - **Before the first live run:** every raw reply kept privately, so a run can be scored offline and again.
+   - **Still open:** a public stratum to reach 100 defects, and the live run itself, on a chosen provider and
+     model. One trial of every case is about 18.5 million input tokens.
+4. **Provenance:** gates E1 to E3. For E1 a maintainer verifies the attestations of a published release with `gh attestation verify`, then adds that exact command to the README. E3 needs more than this repository can change by itself: signed files or provenance on the GitHub releases, approved reviews on changes (which a repository with one maintainer cannot give itself), and the repository's 90th day.
+5. **The candidate:** gates C1 to C4 on the wheel the release workflow builds, before publication is
+   approved.
 
 ## Commands
 
