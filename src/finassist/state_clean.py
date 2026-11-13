@@ -2,14 +2,23 @@
 
 A dry run lists them and writes nothing. ``--apply`` removes exactly that list.
 Everything else in the state folder is reported and kept.
+
+A link is never followed. On Windows that includes every reparse point, a junction among them.
+An entry is removed only if it is still the one that was listed. On POSIX a folder is removed
+through open descriptors, so a folder replaced by a link while the removal runs is not entered.
+Windows has no such interface: there a process of the same user could redirect a removal that
+is under way; the temporary folder there belongs to the user.
 """
 
 from __future__ import annotations
 
+from datetime import datetime
 import os
 from pathlib import Path
 import re
+import shutil
 import stat
+import sys
 import tempfile
 import time
 
@@ -23,6 +32,11 @@ _TEMP_PREFIXES = (
     "finassist-home-", "finassist-ignore-", "finassist-model-gate-",
     "finassist-patch-screen-", "finassist-state-", "finassist-workflow-",
 )
+# The names the writers give backups: the dashboard names one by its content's SHA-256, a
+# configuration migration by the UTC time it was taken. No other name is a backup.
+_STATE_BACKUP = re.compile(r"[0-9a-f]{64}\.json\Z")
+_FILE_BACKUP_STAMP = re.compile(r"[0-9]{8}T[0-9]{6}\.[0-9]{6}Z\Z")
+_FILE_BACKUP_TIME = "%Y%m%dT%H%M%S.%fZ"
 _SIDECARS = ("-wal", "-shm", "-journal")
 _VERSIONED_EVIDENCE = re.compile(r"evidence\.v[1-9][0-9]*\.sqlite\Z")
 _FOLDERS = {
@@ -42,10 +56,18 @@ _TEMP_DROP = "temporary leftover"
 _TEMP_YOUNG = "newer than the age threshold"
 _TEMP_OWNER = "not owned by the current user"
 _LINK = "symbolic link"
+_REPARSE = "reparse point"
 _NOT_REGULAR = "not a regular file"
 _NOT_DIR = "not a directory"
 _UNREADABLE = "unreadable"
 _KEYS = ("kind", "path", "bytes", "reason")
+_DIRECTORY = (
+    os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+)
+
+
+class EntryChanged(OSError):
+    """The entry at a listed path is no longer the one that was listed."""
 
 
 def run_state_clean(args) -> int:
@@ -55,17 +77,22 @@ def run_state_clean(args) -> int:
     _check(args)
     folder, origin = state_location(args, refuse=False)
     removable, kept, problem = _plan(folder, args)
-    if args.apply and removable and _ledger_present(folder):
-        # The removal must be recordable: a chain that does not verify stops it before anything is removed.
+    if not (args.apply and removable):
+        report = _document(
+            folder, origin, removable, kept, applied=bool(args.apply), removed=[], problem=problem)
+        _emit(report)
+        return 0
+    if _ledger_present(folder):
+        # The removal must be recordable: a chain that does not verify, or cannot record that the
+        # command started, stops it before anything is removed.
         _verify_ledger(folder)
-    removed = _remove_all(removable) if args.apply else []
-    report = _document(
-        folder, origin, removable, kept, applied=bool(args.apply), removed=removed, problem=problem)
-    failed = bool(args.apply and any("error" in item for item in removable))
-    if removed:
-        report["audit"] = _audit(folder, removed, sum("error" in item for item in removable))
+        removed, audit = _remove_recorded(folder, removable)
+    else:
+        removed, audit = _remove_all(removable), "no ledger"
+    report = _document(folder, origin, removable, kept, applied=True, removed=removed, problem=problem)
+    report["audit"] = audit
     _emit(report)
-    return 1 if failed else 0
+    return 1 if audit == "failed" or any("error" in item for item in removable) else 0
 
 
 def _check(args) -> None:
@@ -90,6 +117,7 @@ def _state_plan(state_dir: Path, keep: int) -> tuple[list, list, str | None]:
         root = regular_path(state_dir)
     except (OSError, AssistantError) as exc:
         return removable, kept, type(exc).__name__
+    # regular_path has refused a link or a reparse point here or in any parent folder.
     if not root.exists():
         return removable, kept, None
     if not stat.S_ISDIR(root.lstat().st_mode):
@@ -149,6 +177,20 @@ def _config_plan(config, keep: int, removable: list, kept: list) -> None:
         parent, keep, "config-file-backup", removable, kept, prefix=name + ".backup-", announce=False)
 
 
+def _backup_name(name: str, prefix: str | None) -> bool:
+    """Whether a writer gives backups this name. Anything else is neither removed nor counted."""
+    if prefix is None:
+        return _STATE_BACKUP.fullmatch(name) is not None
+    stamp = name[len(prefix):]
+    if not name.startswith(prefix) or _FILE_BACKUP_STAMP.fullmatch(stamp) is None:
+        return False
+    try:
+        datetime.strptime(stamp, _FILE_BACKUP_TIME)
+    except ValueError:
+        return False
+    return True
+
+
 def _scan_backups(directory: Path, keep: int, kind: str, removable: list, kept: list, *,
                   prefix: str | None, announce: bool) -> None:
     status, failure = _dir_status(directory)
@@ -168,14 +210,17 @@ def _scan_backups(directory: Path, keep: int, kind: str, removable: list, kept: 
         children = [child for child in children if child.name.startswith(prefix)]
     regular = []
     for child in children:
+        if not _backup_name(child.name, prefix):
+            kept.append(_note(kind, child, _UNKNOWN))
+            continue
         listed = _regular(child, kind, kept)
         if listed is not None:
             regular.append(listed)
     regular.sort(key=lambda row: (row[0], row[1]))  # time, then name: a greater name is newer
     stale, fresh = _split(regular, keep)
-    for _mtime, _name, path, size in stale:
-        removable.append(_item(kind, path, size, _BACKUP_DROP))
-    for _mtime, _name, path, _size in fresh:
+    for _mtime, _name, path, size, identity in stale:
+        removable.append(_item(kind, path, size, _BACKUP_DROP, identity))
+    for _mtime, _name, path, _size, _identity in fresh:
         kept.append(_note(kind, path, _BACKUP_KEEP))
 
 
@@ -185,13 +230,27 @@ def _regular(child: Path, kind: str, kept: list) -> tuple | None:
     except OSError as exc:
         kept.append(_note(kind, child, _UNREADABLE, error=type(exc).__name__))
         return None
-    if stat.S_ISLNK(info.st_mode):
-        kept.append(_note(kind, child, _LINK))
+    linked = _link_reason(info)
+    if linked is not None:
+        kept.append(_note(kind, child, linked))
         return None
     if not stat.S_ISREG(info.st_mode):
         kept.append(_note(kind, child, _NOT_REGULAR))
         return None
-    return (info.st_mtime_ns, child.name, child, info.st_size)
+    return (info.st_mtime_ns, child.name, child, info.st_size, _identity(info))
+
+
+def _link_reason(info: os.stat_result) -> str | None:
+    """A symbolic link, or on Windows any other reparse point, such as a junction. Neither is followed."""
+    if stat.S_ISLNK(info.st_mode):
+        return _LINK
+    if getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+        return _REPARSE
+    return None
+
+
+def _identity(info: os.stat_result) -> tuple[int, int, int]:
+    return (info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode))
 
 
 def _dir_status(directory: Path) -> tuple[str, str | None]:
@@ -201,8 +260,9 @@ def _dir_status(directory: Path) -> tuple[str, str | None]:
         return "absent", None
     except OSError as exc:
         return _UNREADABLE, type(exc).__name__
-    if stat.S_ISLNK(info.st_mode):
-        return _LINK, None
+    linked = _link_reason(info)
+    if linked is not None:
+        return linked, None
     if not stat.S_ISDIR(info.st_mode):
         return _NOT_DIR, None
     return "ok", None
@@ -247,16 +307,15 @@ def _consider_temp(path: Path, cutoff: float, removable: list, kept: list) -> No
         kept.append(_note("temporary", path, _TEMP_YOUNG))
         return
     try:
-        size = _entry_bytes(path)
+        size = _entry_bytes(path, info)
     except OSError as exc:
         kept.append(_note("temporary", path, _UNREADABLE, error=type(exc).__name__))
         return
-    removable.append(_item("temporary", path, size, _TEMP_DROP))
+    removable.append(_item("temporary", path, size, _TEMP_DROP, _identity(info)))
 
 
-def _entry_bytes(path: Path) -> int:
-    info = path.lstat()
-    if stat.S_ISLNK(info.st_mode):
+def _entry_bytes(path: Path, info: os.stat_result) -> int:
+    if _link_reason(info) is not None:
         return 0  # the link itself; never the target
     if stat.S_ISREG(info.st_mode):
         return info.st_size
@@ -266,25 +325,27 @@ def _entry_bytes(path: Path) -> int:
 
 
 def _tree_bytes(path: Path) -> int:
+    """Regular files' bytes under `path`. A link or a reparse point is counted as nothing and not entered."""
     total = 0
-    for directory, _dirnames, filenames in os.walk(path, followlinks=False, onerror=_raise):
-        current = Path(directory)
-        for name in filenames:
-            info = (current / name).lstat()
-            if stat.S_ISREG(info.st_mode):
-                total += info.st_size
+    pending = [path]
+    while pending:
+        with os.scandir(pending.pop()) as entries:
+            for entry in entries:
+                info = entry.stat(follow_symlinks=False)
+                if _link_reason(info) is not None:
+                    continue
+                if stat.S_ISDIR(info.st_mode):
+                    pending.append(Path(entry.path))
+                elif stat.S_ISREG(info.st_mode):
+                    total += info.st_size
     return total
-
-
-def _raise(error: OSError) -> None:
-    raise error
 
 
 def _remove_all(items: list[dict]) -> list[dict]:
     removed = []
     for item in items:
         try:
-            _remove_entry(Path(item["path"]))
+            _remove_entry(Path(item["path"]), item["_identity"])
         except (OSError, RecursionError) as exc:  # A tree too deep to walk is a failed removal, not a crash.
             item["error"] = type(exc).__name__
         else:
@@ -292,63 +353,109 @@ def _remove_all(items: list[dict]) -> list[dict]:
     return removed
 
 
-def _remove_entry(path: Path) -> None:
-    """Remove one leftover. A symbolic link is unlinked; its target is never opened."""
+def _remove_entry(path: Path, identity: tuple[int, int, int]) -> None:
+    """Remove one listed entry, if it is still the one listed. A link is unlinked; its target is never
+    opened."""
     info = path.lstat()
-    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+    if _identity(info) != identity:
+        raise EntryChanged(path.name)
+    if _link_reason(info) is not None or not stat.S_ISDIR(info.st_mode):
         _unlink(path)
-        return
-    _grant(path)
-    for child in list(path.iterdir()):
-        _remove_entry(child)
+    elif shutil.rmtree.avoids_symlink_attacks:
+        _grant_tree(path, identity)
+        shutil.rmtree(path)  # through descriptors: an entry replaced by a link is not entered
+    else:
+        # Windows: a link or a junction inside is unlinked, never entered.
+        shutil.rmtree(path, **{_HANDLER: _retry_read_only})
+
+
+def _grant_tree(path: Path, identity: tuple[int, int, int]) -> None:
+    """Give the owner rwx on each real folder of the tree, so that a read-only leftover can be removed.
+    Every folder is opened without following a link and changed through its descriptor."""
+    descriptor = os.open(path, _DIRECTORY)
     try:
-        path.rmdir()
-    except OSError:
-        _grant(path)
-        path.rmdir()
+        if _identity(os.fstat(descriptor)) != identity:
+            raise EntryChanged(path.name)
+        _grant_folder(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _grant_folder(descriptor: int) -> None:
+    mode = stat.S_IMODE(os.fstat(descriptor).st_mode)
+    if mode & stat.S_IRWXU != stat.S_IRWXU:
+        os.fchmod(descriptor, mode | stat.S_IRWXU)
+    with os.scandir(descriptor) as entries:
+        names = [entry.name for entry in entries if entry.is_dir(follow_symlinks=False)]
+    for name in names:
+        child = os.open(name, _DIRECTORY, dir_fd=descriptor)
+        try:
+            _grant_folder(child)
+        finally:
+            os.close(child)
+
+
+def _retry_read_only(function, path, error) -> None:
+    """Windows: a read-only file or folder is made writable and removed again. A link never is."""
+    failure = error if isinstance(error, BaseException) else error[1]
+    if not isinstance(failure, PermissionError) or function not in {os.unlink, os.remove, os.rmdir}:
+        raise failure
+    info = os.lstat(path)
+    read_only = getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_READONLY
+    if _link_reason(info) is not None or not read_only:
+        raise failure
+    os.chmod(path, stat.S_IWRITE)
+    function(path)
+
+
+_HANDLER = "onexc" if sys.version_info >= (3, 12) else "onerror"
 
 
 def _unlink(path: Path) -> None:
+    """Remove a file or a link itself. On Windows a read-only file is made writable first; a link never
+    is."""
     try:
-        path.unlink()
-    except OSError:
-        if stat.S_ISLNK(path.lstat().st_mode):
+        os.unlink(path)
+    except PermissionError as exc:
+        if os.name != "nt":
             raise
-        _grant(path)
-        path.unlink()
+        _retry_read_only(os.unlink, path, exc)
 
 
-def _grant(path: Path) -> None:
-    """Give the owner write, and on a directory the right to list it. Never follows a link."""
-    info = path.lstat()
-    if stat.S_ISLNK(info.st_mode):
-        return
-    needed = stat.S_IRWXU if stat.S_ISDIR(info.st_mode) else stat.S_IWUSR
-    if (info.st_mode & needed) == needed:
-        return
-    os.chmod(path, info.st_mode | needed)
+def _remove_recorded(state_dir: Path, removable: list[dict]) -> tuple[list[dict], str]:
+    """Remove inside the command's audit: nothing is removed unless its start is recorded. Counts and bytes
+    only. A record that fails after the removal began is reported as `failed`, with what was removed."""
+    import sqlite3
 
-
-def _audit(state_dir: Path, removed: list[dict], failed_count: int) -> str:
-    """Counts and byte totals only. An absent chain is left absent."""
-    if not _ledger_present(state_dir):
-        return "no ledger"
     from .auditing import command_audit
     from .config import Config
     from .ledger import Ledger
 
-    # The configuration file is not read: --config only names sibling backups. The hash is the
-    # default configuration, the same way `update` records a run that has no project file.
-    with command_audit(state_dir / "audit.sqlite", "state-clean", Config()) as outcome:
-        with Ledger(state_dir / "audit.sqlite") as ledger:
-            ledger.append({
-                "event": "state_cleaned",
-                "removed_count": len(removed),
-                "removed_bytes": sum(item["bytes"] for item in removed),
-                "failed_count": failed_count,
-            })
-        outcome["exit_code"] = 1 if failed_count else 0
-    return "recorded"
+    path = state_dir / "audit.sqlite"
+    removed: list[dict] | None = None
+    try:
+        # The configuration file is not read: --config only names sibling backups. The hash is the
+        # default configuration, the same way `update` records a run that has no project file.
+        with command_audit(path, "state-clean", Config()) as outcome:
+            removed = _remove_all(removable)
+            failed = sum("error" in item for item in removable)
+            with Ledger(path) as ledger:
+                ledger.append({
+                    "event": "state_cleaned",
+                    "removed_count": len(removed),
+                    "removed_bytes": sum(item["bytes"] for item in removed),
+                    "failed_count": failed,
+                })
+            outcome["exit_code"] = 1 if failed else 0
+    except AssistantError:
+        if removed is None:
+            raise
+        return removed, "failed"
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        if removed is None:
+            raise AssistantError("audit_unavailable") from exc
+        return removed, "failed"
+    return removed, "recorded"
 
 
 def _ledger_present(state_dir: Path) -> bool:
@@ -371,9 +478,10 @@ def _verify_ledger(state_dir: Path) -> None:
 
 
 def _document(state_dir, origin, removable, kept, *, applied, removed, problem) -> dict:
+    listed = [{key: value for key, value in item.items() if not key.startswith("_")} for item in removable]
     report = {
         "schema_version": 1, "mode": "state-clean", "applied": applied, "state_dir": str(state_dir),
-        "state_dir_source": origin, "removable": removable, "removed": removed, "kept": kept,
+        "state_dir_source": origin, "removable": listed, "removed": removed, "kept": kept,
         "removable_bytes": sum(item["bytes"] for item in removable),
         "removed_bytes": sum(item["bytes"] for item in removed),
     }
@@ -388,8 +496,8 @@ def _emit(report: dict) -> None:
     print(canonical(report).decode())
 
 
-def _item(kind: str, path: Path, size: int, reason: str) -> dict:
-    return {"kind": kind, "path": str(path), "bytes": size, "reason": reason}
+def _item(kind: str, path: Path, size: int, reason: str, identity: tuple[int, int, int]) -> dict:
+    return {"kind": kind, "path": str(path), "bytes": size, "reason": reason, "_identity": identity}
 
 
 def _note(kind: str, path: Path, reason: str, error: str | None = None) -> dict:
