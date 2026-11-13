@@ -9,6 +9,7 @@ import comrak
 import jsonschema
 import pytest
 
+from conftest import holds_number
 from finassist.cli import main
 from finassist.errors import AssistantError
 from finassist.forbidden_tokens import TokenSnapshot, normalize_numeric_token, screen_text
@@ -47,7 +48,7 @@ def test_underscore_content_refuses_before_transport_or_reservation(gate_case, t
     report, calls = run(gate_case)
     assert report["reasons"] == ["forbidden_token_present"] and not calls
     assert not (gate_case["state"] / "audit.sqlite").exists()
-    assert "6729102" not in canonical(report).decode()
+    assert not holds_number(canonical(report).decode(), "6729102")
 
 
 
@@ -60,7 +61,7 @@ def test_underscore_external_list_matches_grouped_and_compact_source(gate_case, 
     report, calls = run(gate_case)
     assert report["reasons"] == ["forbidden_token_present"] and not calls
     assert not (gate_case["state"] / "audit.sqlite").exists()
-    assert "6729102" not in canonical(report).decode()
+    assert not holds_number(canonical(report).decode(), "6729102")
 
 
 def test_underscore_grouping_does_not_change_a_distinct_value():

@@ -11,7 +11,7 @@ import subprocess
 
 import pytest
 
-from conftest import command
+from conftest import command, holds_number
 from test_model_gate import change_policy, run
 from test_model_policy import model_policy
 from finassist import maintenance, model_gate, onboarding, providers, review
@@ -155,7 +155,7 @@ def test_every_schema_error_is_reported_with_its_range_and_no_value(policy_case,
         {"field": "/model_review/timeout_seconds", "rule": "minimum",
          "allowed": {"type": "integer", "minimum": 1, "maximum": 300}},
     ]
-    assert report["status"] == "blocked" and "3000123" not in canonical(report).decode()
+    assert report["status"] == "blocked" and not holds_number(canonical(report).decode(), "3000123")
 
 
 def test_names_that_fail_screening_are_redacted_and_nothing_is_audited(gate_case, tmp_path, capsys):
@@ -221,7 +221,7 @@ def test_a_listed_figure_is_located_by_path_and_never_echoed(gate_case, tmp_path
     gate_case["head"] = command(gate_case["repo"], "rev-parse", "HEAD")
     report = preflight(gate_case)
     assert {"path": "src/cash.py", "status": "refused", "code": "forbidden_token_present"} in report["paths"]
-    assert "6729102" not in canonical(report).decode()
+    assert not holds_number(canonical(report).decode(), "6729102")
     assert hashlib.sha256(normalize_numeric_token("6729102.50").encode()).hexdigest() not in canonical(report).decode()
 
 
