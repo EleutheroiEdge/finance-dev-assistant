@@ -463,6 +463,14 @@ def execute(args, config: Config | None = None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """One command. Within it, a text already screened under the same rules is not screened again."""
+    from .security import screening_cache
+
+    with screening_cache():
+        return _main(argv)
+
+
+def _main(argv: list[str] | None) -> int:
     command = None
     try:
         root, argv = parser(), sys.argv[1:] if argv is None else list(argv)
