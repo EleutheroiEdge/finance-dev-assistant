@@ -39,10 +39,10 @@ with `++`; the other rows are from the first run.
 ## What 0.11.0 is
 
 0.11.0 is a security release. Every release up to 0.10.0 could run a program from the current
-directory on Windows (see the changelog). 0.11.0 fixes that, and was published before the gates
-below that are still open were met. It holds everything merged up to that fix. It makes no claim
-about review accuracy, gates D1 to D6 are not measured, and no adopter is told to rely on it for
-that. The bar on this page still stands for the release that does make such a claim.
+directory on Windows (see the changelog). 0.11.0 fixes that. Its tag and its candidate wheel were
+made before the gates below that are still open were met. It holds everything merged up to that fix.
+It makes no claim about review accuracy, gates D1 to D6 are not measured, and no adopter is told to
+rely on it for that. The bar on this page still stands for the release that does make such a claim.
 
 ## Where the next release stands
 
@@ -70,7 +70,7 @@ since the first measurement at `5c1af62` are marked so.
 | B7 | The configuration tests pass, and the installed upgrade from 0.3.1 and 0.4.0 passed on the 0.11.0 candidate wheel in its release build | Yes |
 | B8 | 15 of 15 wrong setups, seven on the configuration route and eight on the gate route, give one named blocker; every remedy offered clears it; the first options reach `ready` | Yes |
 | B9 | Following the remedies sets up 189 changes on the configuration route (84%) and 185 on the gate route (82%). No remedy fails, loops or is unexplained, every change a hand-set skip variant reviews is reached, and none grants a capability. The 36 and 40 left need a person: mostly a credential-like value in a test file (32 and 28) | Yes |
-| C1 | Partly, for 0.11.0. On the workflow's wheel: its 147 package files equal the tagged tree, the screen, first-run and credential measurements (A2, B2, B3, B4, B6) repeated main's, and the upgrade check (B7) passed in the build. A7, D1 to D6, E1 and E3 were not run on it: 0.11.0 is a security release published ahead of those gates (see "What 0.11.0 is"). The full gate applies to every later candidate | Partly |
+| C1 | Partly, for 0.11.0. On the workflow's wheel: its 147 package files equal the tagged tree, the screen, first-run and credential measurements (A2, B2, B3, B4, B6) repeated main's, and the upgrade check (B7) passed in the build. A7, D1 to D6, E1 and E3 were not run on it: 0.11.0 is a security release tagged and built ahead of those gates (see "What 0.11.0 is"). The full gate applies to every later candidate | Partly |
 | D1 to D6 | Not measured. 133 labelled cases (64 defects, 69 controls) are bound to pinned policies and pass the live run's preflight offline; the live run has not been started, and D1 needs 36 more defects | No |
 | E1 | The release workflow attests every file. The README does not give the verifying command yet | No |
 | E2 | `scripts/action_lock.py --check` passes | Yes |
