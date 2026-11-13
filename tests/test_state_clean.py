@@ -622,7 +622,7 @@ def test_only_the_names_the_writers_give_count_as_backups(tmp_path, monkeypatch,
     backups.mkdir(parents=True)
     valid = _series(backups, _hex, count)
     lookalikes = [backups / name for name in (
-        "README.txt", "f" * 63 + ".json", "F" * 64 + ".json", "f" * 64 + ".json.tmp", "f" * 64 + ".JSON",
+        "README.txt", "f" * 63 + ".json", "F" * 64 + ".json", "f" * 64 + ".json.tmp", "d" * 64 + ".JSON",
         "f" * 65 + ".json")]
     project = tmp_path / "project"
     project.mkdir()
@@ -631,7 +631,10 @@ def test_only_the_names_the_writers_give_count_as_backups(tmp_path, monkeypatch,
     siblings = _series(project, _stamped, count)
     odd = [project / ("finassist.json.backup-" + suffix) for suffix in (
         "not-a-backup", "20261301T000000.000000Z", "20261101T000000Z", "20261101T000000.000000Z.bak",
-        "20261101T000000.000000z")]
+        "20261102T000000.000000z")]
+    # No two names differ only in case: macOS and Windows would make them one file.
+    names = [path.name.lower() for path in (*valid, *lookalikes, *siblings, *odd)]
+    assert len(names) == len(set(names))
     for path in (*lookalikes, *odd):
         path.write_bytes(b"not-a-backup")
         _stamp(path, OLD)  # older than every backup: counted by age, they would go first
