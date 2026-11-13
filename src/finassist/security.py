@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from fnmatch import fnmatchcase
 from functools import lru_cache
@@ -13,6 +15,7 @@ import re
 import tempfile
 import stat
 import sys
+import threading
 import unicodedata
 
 from .code_text import (MIN_SECRET_LENGTH, code_text, in_block_scalar, is_expansion, is_shell, is_yaml,
@@ -460,8 +463,76 @@ def check_name(name: str, *, extra_patterns: tuple[str, ...] = ()) -> None:
         raise AssistantError("unsafe_path")
 
 
+# Within one command a text is screened once per set of rules. A preflight reads every changed file to classify it,
+# again to build the packet, and the packet screen reads the included files a third time; on a change of a few
+# hundred files that repeated work was most of doctor's time. The outcome depends only on the arguments, so a cached
+# outcome is the outcome. Outside `screening_cache()` nothing is kept. The scope closes with its command: a context
+# copied inside it, by a thread or a task, may outlive the command, but from then on neither reads nor fills it.
+class _ScreeningScope:
+    """The outcomes remembered within one command, and whether that command is still running. A lock serializes
+    an insertion with the close, so a screen that finishes as the command ends cannot leave an entry behind."""
+
+    __slots__ = ("open", "outcomes", "_lock")
+
+    def __init__(self) -> None:
+        self.open = True
+        self.outcomes: dict = {}
+        self._lock = threading.Lock()
+
+    def remember(self, key, outcome) -> None:
+        with self._lock:
+            if self.open and len(self.outcomes) < _SCREENED_LIMIT:
+                self.outcomes[key] = outcome
+
+    def close(self) -> None:
+        with self._lock:
+            self.open = False
+            self.outcomes.clear()
+
+
+_SCREENED: ContextVar[_ScreeningScope | None] = ContextVar("finassist_screened", default=None)
+_UNSEEN = object()
+_SCREENED_LIMIT = 8192  # Entries hold digests and refusals only; a long-running command stops adding past this.
+
+
+@contextmanager
+def screening_cache():
+    """For the duration of one command: `check_credentials` remembers each outcome by text digest and rules."""
+    scope = _ScreeningScope()
+    token = _SCREENED.set(scope)
+    try:
+        yield
+    finally:
+        scope.close()  # seen by every context copied inside the command
+        _SCREENED.reset(token)
+
+
 def check_credentials(text: str, *, extra_patterns: tuple[str, ...] = (), source_path: str | None = None,
                       placeholders: tuple[str, ...] = ()) -> None:
+    """The first half of `check_text`, remembered within `screening_cache()`. See `_screen_credentials`."""
+    scope = _SCREENED.get()
+    if scope is None or not scope.open or not isinstance(text, str):
+        _screen_credentials(text, extra_patterns, source_path, placeholders)
+        return
+    cache = scope.outcomes
+    key = (hashlib.sha256(text.encode("utf-8", "surrogatepass")).digest(), tuple(extra_patterns), source_path,
+           tuple(placeholders))
+    remembered = cache.get(key, _UNSEEN)
+    if remembered is not _UNSEEN:
+        if remembered is not None:
+            raise deepcopy(remembered)  # A fresh error: details a caller adds to one never reach another.
+        return
+    try:
+        _screen_credentials(text, extra_patterns, source_path, placeholders)
+    except AssistantError as exc:
+        if scope.open:
+            scope.remember(key, deepcopy(exc))  # copied outside the lock
+        raise
+    scope.remember(key, None)
+
+
+def _screen_credentials(text: str, extra_patterns: tuple[str, ...], source_path: str | None,
+                        placeholders: tuple[str, ...]) -> None:
     """The first half of `check_text`. Call `check_text` for one text that stands alone.
 
     Two kinds of reader call this instead, and then the hidden-character screen themselves, so
