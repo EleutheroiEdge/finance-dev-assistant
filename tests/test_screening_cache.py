@@ -115,6 +115,31 @@ def test_a_context_copied_inside_the_command_does_not_outlive_it(monkeypatch):
     assert scope.open is False and scope.outcomes == {}
 
 
+@pytest.mark.parametrize("case,hook", [(0, "_screen_credentials"), (4, "deepcopy")])
+def test_a_screen_that_ends_after_the_command_leaves_nothing_behind(monkeypatch, case, hook):
+    # The command ends while an accepted text is being screened, or while a refusal is being copied.
+    path, text = CASES[case]
+    real = getattr(security, hook)
+    with screening_cache():
+        scope = security._SCREENED.get()
+
+        def closing(*arguments):
+            try:
+                return real(*arguments)
+            finally:
+                scope.open = False  # what closing the scope does, without its lock
+                scope.outcomes.clear()
+
+        monkeypatch.setattr(security, hook, closing)
+        try:
+            check_credentials(text, source_path=path)
+        except AssistantError:
+            assert case == 4
+        else:
+            assert case == 0
+        assert scope.open is False and scope.outcomes == {}
+
+
 def test_a_thread_started_inside_the_command_screens_again_after_it(monkeypatch):
     calls = _counting(monkeypatch)
     path, text = CASES[0]

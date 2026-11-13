@@ -15,6 +15,7 @@ import re
 import tempfile
 import stat
 import sys
+import threading
 import unicodedata
 
 from .code_text import (MIN_SECRET_LENGTH, code_text, in_block_scalar, is_expansion, is_shell, is_yaml,
@@ -468,13 +469,25 @@ def check_name(name: str, *, extra_patterns: tuple[str, ...] = ()) -> None:
 # outcome is the outcome. Outside `screening_cache()` nothing is kept. The scope closes with its command: a context
 # copied inside it, by a thread or a task, may outlive the command, but from then on neither reads nor fills it.
 class _ScreeningScope:
-    """The outcomes remembered within one command, and whether that command is still running."""
+    """The outcomes remembered within one command, and whether that command is still running. A lock serializes
+    an insertion with the close, so a screen that finishes as the command ends cannot leave an entry behind."""
 
-    __slots__ = ("open", "outcomes")
+    __slots__ = ("open", "outcomes", "_lock")
 
     def __init__(self) -> None:
         self.open = True
         self.outcomes: dict = {}
+        self._lock = threading.Lock()
+
+    def remember(self, key, outcome) -> None:
+        with self._lock:
+            if self.open and len(self.outcomes) < _SCREENED_LIMIT:
+                self.outcomes[key] = outcome
+
+    def close(self) -> None:
+        with self._lock:
+            self.open = False
+            self.outcomes.clear()
 
 
 _SCREENED: ContextVar[_ScreeningScope | None] = ContextVar("finassist_screened", default=None)
@@ -490,8 +503,7 @@ def screening_cache():
     try:
         yield
     finally:
-        scope.open = False  # seen by every context copied inside the command
-        scope.outcomes.clear()
+        scope.close()  # seen by every context copied inside the command
         _SCREENED.reset(token)
 
 
@@ -513,11 +525,10 @@ def check_credentials(text: str, *, extra_patterns: tuple[str, ...] = (), source
     try:
         _screen_credentials(text, extra_patterns, source_path, placeholders)
     except AssistantError as exc:
-        if scope.open and len(cache) < _SCREENED_LIMIT:
-            cache[key] = deepcopy(exc)
+        if scope.open:
+            scope.remember(key, deepcopy(exc))  # copied outside the lock
         raise
-    if scope.open and len(cache) < _SCREENED_LIMIT:
-        cache[key] = None
+    scope.remember(key, None)
 
 
 def _screen_credentials(text: str, extra_patterns: tuple[str, ...], source_path: str | None,
