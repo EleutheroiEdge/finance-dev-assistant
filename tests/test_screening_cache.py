@@ -1,5 +1,8 @@
 """A text screened once per command under the same rules: the same outcomes, fresh refusals, no shared state."""
 
+import contextvars
+import threading
+
 import pytest
 
 import finassist.security as security
@@ -78,5 +81,57 @@ def test_each_text_is_screened_once_per_set_of_rules(monkeypatch):
 def test_nothing_is_kept_after_the_command():
     with screening_cache():
         check_credentials("x = 1\n", source_path="a.py")
-        assert security._SCREENED.get()
+        assert security._SCREENED.get().outcomes
     assert security._SCREENED.get() is None
+
+
+def _counting(monkeypatch) -> list:
+    calls = []
+    real = security._screen_credentials
+
+    def counting(*arguments):
+        calls.append(arguments[2])
+        return real(*arguments)
+
+    monkeypatch.setattr(security, "_screen_credentials", counting)
+    return calls
+
+
+def test_a_context_copied_inside_the_command_does_not_outlive_it(monkeypatch):
+    calls = _counting(monkeypatch)
+    path, text = CASES[0]
+    refused_path, refused = CASES[4]
+    with screening_cache():
+        check_credentials(text, source_path=path)
+        copied = contextvars.copy_context()
+        copied.run(check_credentials, text, source_path=path)
+        assert len(calls) == 1  # inside the command the copy shares what was remembered
+    for _ in range(2):
+        copied.run(check_credentials, text, source_path=path)
+        with pytest.raises(AssistantError):
+            copied.run(check_credentials, refused, source_path=refused_path)
+    assert len(calls) == 5  # after it, the copy screens every time
+    scope = copied.run(security._SCREENED.get)
+    assert scope.open is False and scope.outcomes == {}
+
+
+def test_a_thread_started_inside_the_command_screens_again_after_it(monkeypatch):
+    calls = _counting(monkeypatch)
+    path, text = CASES[0]
+    ended = threading.Event()
+    seen = []
+
+    def later():
+        ended.wait(10)
+        check_credentials(text, source_path=path)
+        check_credentials(text, source_path=path)
+        seen.append(security._SCREENED.get().outcomes)
+
+    with screening_cache():
+        check_credentials(text, source_path=path)
+        worker = threading.Thread(target=contextvars.copy_context().run, args=(later,))
+        worker.start()
+    ended.set()
+    worker.join(10)
+    assert not worker.is_alive()
+    assert len(calls) == 3 and seen == [{}]
