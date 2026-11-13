@@ -511,7 +511,12 @@ def _main(argv: list[str] | None) -> int:
                 outcome["exit_code"] = 0 if result["installer_exit_code"] == 0 else 1
                 return outcome["exit_code"]
         if args.command == "state":
-            # Read-only: before the configuration, the update notice and the command audit, so nothing is written.
+            # status and a clean dry run write nothing, so they stay ahead of configuration, the update
+            # notice and the command audit. clean --apply records a removal only from run_state_clean.
+            if args.state_action == "clean":
+                from .state_clean import run_state_clean
+
+                return run_state_clean(args)
             from .state_report import run_state
 
             return run_state(args)
