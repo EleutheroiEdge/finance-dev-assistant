@@ -19,13 +19,26 @@ def _no_state_folder_left_in_the_working_directory():
         pytest.fail("a .finassist folder appeared in the working directory during this test")
 
 
-def holds_number(text: str, digits: str) -> bool:
-    """Whether `digits` occur in `text` as a number, not as a run inside a hash, an identifier or a time stamp.
+_ESCAPED = re.compile(r"\\(?:u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|x[0-9a-fA-F]{2})")
+_STRUCTURE = re.compile(
+    r"(?<![0-9A-Za-z])"
+    r"(?:[0-9a-f]{64}|[0-9a-f]{40}|[0-9a-f]{32}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})"
+    r"(?![0-9A-Za-z])"
+)
 
-    Reports, requests and audit events carry run identifiers, hashes and time stamps. Seven given digits turn up inside
-    one of them by chance now and then, so a bare substring test can fail although no figure leaked.
+
+def holds_number(text: str, digits: str) -> bool:
+    """Whether `digits` occur in `text` as a number.
+
+    Reports, requests and audit events carry hashes and identifiers. Seven given digits turn up inside one
+    of them by chance now and then, so a bare substring test can fail although no figure leaked. So a
+    whole token that is a hash or an identifier is left out as structure: exactly 32, 40 or 64 lowercase
+    hexadecimal characters, or a UUID. An escaped character, such as JSON's `\\u00a3` for a pound sign,
+    counts as one character that is not a digit, so the figure after it is still found. The digits must
+    not run on into another decimal digit.
     """
-    return re.search(r"(?<![0-9A-Fa-f])" + re.escape(digits) + r"(?![0-9A-Fa-f])", text) is not None
+    content = _STRUCTURE.sub(" ", _ESCAPED.sub(" ", text))
+    return re.search(r"(?<![0-9])" + re.escape(digits) + r"(?![0-9])", content) is not None
 
 
 def command(repo: Path, *args: str) -> str:
