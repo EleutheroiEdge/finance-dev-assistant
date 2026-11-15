@@ -2,11 +2,9 @@
 
 import argparse
 import ast
-import configparser
-import importlib.util
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import re
 import subprocess
 import sysconfig
@@ -14,11 +12,6 @@ import tarfile
 import tomllib
 import urllib.request
 import zipfile
-
-# What a build adds to the tagged tree: the sdist's metadata, and the wheel's own dist-info files.
-SDIST_GENERATED = frozenset({"PKG-INFO", "setup.cfg", *(f"src/finledgerpoli.egg-info/{name}" for name in (
-    "PKG-INFO", "SOURCES.txt", "dependency_links.txt", "entry_points.txt", "requires.txt", "top_level.txt"))})
-WHEEL_METADATA = frozenset({"licenses/LICENSE", "METADATA", "WHEEL", "entry_points.txt", "top_level.txt", "RECORD"})
 
 
 def validate_tag(root, tag):
@@ -46,9 +39,10 @@ def validate_environment(document, policies):
 
 def validate_tag_rules(rulesets):
     """Two active tag rulesets cover every `v*` tag. One blocks moving and deleting a release tag, fast-forward moves
-    included, and no one may bypass it, so a release tag names one commit for good. The other restricts creating
-    one to those its bypass list names. The workflow's own token can't read a ruleset's bypass list, so it sees none:
-    a bypass list it can see refuses, and the maintainer checks the list is empty before tagging."""
+    included, so a release tag names one commit for good: no one may bypass it, so it must not also restrict
+    creation, whose ruleset needs a bypass for anyone to tag at all. The other restricts creating one to those its
+    bypass list names. The workflow's own token can't read a ruleset's bypass list and sees none: a list it can see,
+    or a ruleset it may bypass itself, refuses, and the maintainer checks the first list is empty before tagging."""
     def rules(ruleset):
         names = (ruleset.get("conditions") or {}).get("ref_name") or {}
         if (ruleset.get("target") != "tag" or ruleset.get("enforcement") != "active" or names.get("exclude")
@@ -57,57 +51,49 @@ def validate_tag_rules(rulesets):
         return {rule.get("type"): rule.get("parameters") or {} for rule in ruleset.get("rules", [])}
 
     found = [(ruleset, rules(ruleset)) for ruleset in rulesets]
-    if not any("deletion" in kinds and "update" in kinds and not kinds["update"].get("update_allows_fetch_and_merge")
-               and not ruleset.get("bypass_actors") for ruleset, kinds in found):
+    if not any({"deletion", "update"} <= set(kinds) and "creation" not in kinds
+               and not kinds["update"].get("update_allows_fetch_and_merge") and not ruleset.get("bypass_actors")
+               and ruleset.get("current_user_can_bypass", "never") == "never" for ruleset, kinds in found):
         raise ValueError("release tags need an active ruleset, with no bypass, that blocks moving and deleting them")
     if not any("creation" in kinds for _ruleset, kinds in found):
         raise ValueError("release tags need an active ruleset that restricts creating them")
 
 
-def _members(names, kind):
-    if len(names) != len(set(names)) or any(PurePosixPath(name).is_absolute() or ".." in PurePosixPath(name).parts
-                                            for name in names):
-        raise ValueError(f"the {kind} repeats a file or holds a path outside itself")
+def _archive(path):
+    """Each member of a release archive as (name, kind, bytes), in order. A name that could stand for anything but
+    itself refuses: absolute, with a backslash, an empty, `.` or `..` part, or named twice."""
+    if path.name.endswith(".whl"):
+        with zipfile.ZipFile(path) as archive:
+            members = [(item.filename, "directory" if item.is_dir() else "file",
+                        b"" if item.is_dir() else archive.read(item)) for item in archive.infolist()]
+    else:
+        with tarfile.open(path, "r:gz") as archive:
+            members = []
+            for member in archive.getmembers():
+                if not (member.isfile() or member.isdir()):
+                    raise ValueError(f"{path.name} holds a link or a special file")
+                members.append((member.name, "directory" if member.isdir() else "file",
+                                archive.extractfile(member).read() if member.isfile() else b""))
+    names = [name.removesuffix("/") for name, _kind, _data in members]
+    if any("\\" in name or name.startswith("/") or {"", ".", ".."} & set(name.split("/")) for name in names):
+        raise ValueError(f"{path.name} holds a name that is not a plain relative path")
+    if len(names) != len(set(names)):
+        raise ValueError(f"{path.name} repeats a member")
+    return members
 
 
-def distributions_match_tree(root, dist, version):
-    """`dist` holds exactly the release's wheel and sdist, and each holds the tagged tree's bytes and nothing else but
-    the metadata a build writes: what is published is what was tagged and tested."""
-    name = f"finledgerpoli-{version}"
-    wheel, sdist = Path(dist) / f"{name}-py3-none-any.whl", Path(dist) / f"{name}.tar.gz"
-    if sorted(path.name for path in Path(dist).iterdir()) != sorted([wheel.name, sdist.name]):
-        raise ValueError("dist must hold exactly the release's wheel and sdist")
-    source = root / "src"
-    package = {path.relative_to(source).as_posix(): path.read_bytes() for path in (source / "finassist").rglob("*")
-               if path.is_file() and "__pycache__" not in path.parts}
-    with zipfile.ZipFile(wheel) as archive:
-        names = [item.filename for item in archive.infolist() if not item.is_dir()]
-        _members(names, "wheel")
-        files = {item: archive.read(item) for item in names}
-    info = f"{name}.dist-info/"
-    scripts = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["scripts"]
-    entry = configparser.ConfigParser(delimiters=("=",))
-    entry.optionxform = str
-    entry.read_string(files.get(info + "entry_points.txt", b"").decode("utf-8"))
-    if ({item: files[item] for item in files if item.startswith("finassist/")} != package
-            or {item.removeprefix(info) for item in files if not item.startswith("finassist/")} != WHEEL_METADATA
-            or files[info + "licenses/LICENSE"] != (root / "LICENSE").read_bytes()
-            or files[info + "top_level.txt"] != b"finassist\n"
-            or entry.sections() != ["console_scripts"] or dict(entry["console_scripts"]) != scripts):
-        raise ValueError("the wheel's files differ from the tagged tree")
-    with tarfile.open(sdist) as archive:
-        members = archive.getmembers()
-        _members([member.name for member in members], "sdist")
-        prefix = name + "/"
-        if any(not (member.isfile() or member.isdir()) or not (member.name + "/").startswith(prefix)
-               for member in members):
-            raise ValueError("the sdist holds a link or a path outside its folder")
-        for member in members:
-            relative = member.name[len(prefix):]
-            if member.isfile() and relative not in SDIST_GENERATED and (
-                    not (root / relative).is_file() or archive.extractfile(member).read() != (root / relative).read_bytes()):
-                raise ValueError("the sdist's files differ from the tagged tree")
-    return len(package)
+def distributions_match_rebuild(dist, rebuilt, version):
+    """`dist` holds exactly the release's wheel and sdist, and each is, member for member, the archive an independent
+    build of the tagged tree makes: the same names in the same order, the same kinds and the same bytes, metadata
+    included. The build is reproducible, so anything a compromised or broken build added, dropped or changed refuses."""
+    expected = sorted([f"finledgerpoli-{version}-py3-none-any.whl", f"finledgerpoli-{version}.tar.gz"])
+    for folder in (dist, rebuilt):
+        if sorted(path.name for path in Path(folder).iterdir()) != expected:
+            raise ValueError("dist must hold exactly the release's wheel and sdist")
+    for name in expected:
+        if _archive(Path(dist) / name) != _archive(Path(rebuilt) / name):
+            raise ValueError(f"{name} differs from an independent build of the tagged tree")
+    return len(expected)
 
 
 def installed_package(root, location):
@@ -119,12 +105,15 @@ def installed_package(root, location):
 
 
 def read_github(repository, path, token):
+    """One API document. One that runs on to another page refuses: what it leaves out could be what matters."""
     request = urllib.request.Request(
         f"https://api.github.com/repos/{repository}/{path}",
         headers={"Authorization": "Bearer " + token, "Accept": "application/vnd.github+json",
                  "X-GitHub-Api-Version": "2022-11-28"},
     )
     with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310 fixed HTTPS API
+        if 'rel="next"' in (response.headers.get("Link") or ""):
+            raise ValueError(f"{path} runs on to another page")
         return json.load(response)
 
 
@@ -132,8 +121,10 @@ def check_settings(repository, token):
     """The release settings, read with the workflow's own token; any read that fails stops the release."""
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
         raise ValueError("invalid repository")
-    validate_environment(read_github(repository, "environments/pypi", token), read_github(
-        repository, "environments/pypi/deployment-branch-policies?per_page=100", token).get("branch_policies", []))
+    policies = read_github(repository, "environments/pypi/deployment-branch-policies?per_page=100", token)
+    if policies.get("total_count", 0) != len(policies.get("branch_policies", [])):
+        raise ValueError("the pypi environment's deployment rules were not all read")
+    validate_environment(read_github(repository, "environments/pypi", token), policies["branch_policies"])
     validate_tag_rules([read_github(repository, f"rulesets/{int(item['id'])}", token)
                         for item in read_github(repository, "rulesets?per_page=100", token)
                         if item.get("target") == "tag"])
@@ -164,17 +155,14 @@ def main():
     parser.add_argument("--tag", required=True)
     parser.add_argument("--check-environment", action="store_true")
     parser.add_argument("--notes-output", type=Path)
-    parser.add_argument("--distributions-match-tree", type=Path, metavar="DIST")
-    parser.add_argument("--imports-installed", action="store_true")
+    parser.add_argument("--distributions-match-rebuild", type=Path, nargs=2, metavar=("DIST", "REBUILT"))
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
     version = validate_tag(root, args.tag)
     if args.notes_output:
         args.notes_output.write_text(release_notes(root, version), encoding="utf-8", newline="\n")
-    if args.distributions_match_tree:
-        distributions_match_tree(root, args.distributions_match_tree, version)
-    if args.imports_installed:  # after `ci_install.py wheel`: where `import finassist` would load it from
-        installed_package(root, importlib.util.find_spec("finassist").origin)
+    if args.distributions_match_rebuild:
+        distributions_match_rebuild(*args.distributions_match_rebuild, version)
     if args.check_environment:
         check_settings(os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"])
         subprocess.run(

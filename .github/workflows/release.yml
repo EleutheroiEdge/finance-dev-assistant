@@ -75,9 +75,9 @@ jobs:
             release-assets/*-requirements.txt
           if-no-files-found: error
           retention-days: 30
-  # In place of a person's approval: before anything is published, the wheel and the sdist must hold exactly the
-  # tagged tree's files and a build's metadata, and the wheel, installed by its hash, must pass the whole test suite
-  # and the demo.
+  # In place of a person's approval: before anything is published, the wheel and the sdist must be, member for
+  # member, what an independent build of the tagged checkout makes, and the wheel, installed by its hash, must pass
+  # the whole test suite and the demo.
   gates:
     needs: build
     runs-on: ubuntu-24.04
@@ -93,19 +93,19 @@ jobs:
         with:
           name: release-${{ github.sha }}
           path: ${{ runner.temp }}/release
-      - name: Verify the wheel and the sdist hold exactly the tagged tree's files
-        run: python scripts/release_checks.py --tag "$RELEASE_TAG" --distributions-match-tree "$RUNNER_TEMP/release/dist"
+      - run: python scripts/ci_install.py dependencies
+      - name: Build the wheel and the sdist again, from the tagged checkout
+        run: python -m build --no-isolation --outdir "$RUNNER_TEMP/rebuilt"
+      - name: Verify the release archives are that build's, member for member
+        run: python scripts/release_checks.py --tag "$RELEASE_TAG" --distributions-match-rebuild "$RUNNER_TEMP/release/dist" "$RUNNER_TEMP/rebuilt"
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-      - run: python scripts/ci_install.py dependencies
       - name: Install the built wheel by its hash, in place of the tree
         run: python scripts/ci_install.py wheel "$RUNNER_TEMP/release/dist"
-      - name: Verify the tests will import the installed wheel, not the tree
-        run: python scripts/release_checks.py --tag "$RELEASE_TAG" --imports-installed
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-      - name: Run the whole test suite against the installed wheel
+      - name: Run the whole test suite against the installed wheel, never the tree
         run: python scripts/ci_test.py
+        env:
+          FINASSIST_REQUIRE_INSTALLED: "1"
       - run: finassist demo
         working-directory: ${{ runner.temp }}
   publish:

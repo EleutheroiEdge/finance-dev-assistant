@@ -21,8 +21,9 @@ approve and perform them; preparing this workflow does not configure them.
    refs to the `v*` release tags with one environment tag rule and no branch rule.
    In Settings → Rules, add two active tag rulesets for `v*`. One blocks updates,
    fast-forward ones included, and deletions, with no bypass, so a release tag can
-   never be moved or reused. The other restricts creations, and only maintainers
-   may bypass it. The build preflight refuses to run without both rulesets. Its
+   never be moved or reused; it must not also restrict creations. The other
+   restricts creations, and only maintainers may bypass it. The build preflight
+   refuses to run without both rulesets. Its
    token can't read a ruleset's bypass list, so check before tagging that the
    first ruleset's list is empty. A required reviewer is optional:
    the gates job (step 5) stands in for one. If you add one, disable administrator
@@ -71,12 +72,14 @@ No action needed. Upgrades never edit project configuration or evidence.
    the wheel, sdist, release notes and `release-sbom.spdx.json`. The SBOM inventories source
    manifests, lockfiles and built distributions, including development dependencies;
    it is not a vulnerability report or a minimal runtime-only inventory.
-5. The gates job downloads that artifact outside the checkout and checks that it
-   holds only the wheel and the sdist, each with exactly the tagged tree's files
-   and the metadata a build writes. It installs that wheel by its hash, checks that
-   the tests will import it and not the tree, and runs the whole test suite and the
-   demo against it. Only when it passes does the `pypi` job run, after any required
-   reviewer approves. That job downloads the same artifact from the same run,
+5. The gates job downloads that artifact outside the checkout, builds the wheel
+   and sdist again from the tagged checkout, and requires the artifact's `dist`
+   folder to hold exactly those two archives, member for member: the same names
+   in the same order and the same bytes, metadata included. The build is
+   reproducible, so a file a build added, dropped or changed stops the release. It
+   then installs that wheel by its hash and runs the whole test suite, which refuses
+   to start if it would import the tree instead, and the demo. Only when it passes
+   does the `pypi` job run, after any required reviewer approves. That job downloads the same artifact from the same run,
    records GitHub build/SBOM attestations and publishes with short-lived OIDC
    credentials, then attaches the distributions and SBOM to a GitHub Release
    using the notes extracted for that version. PyPI publishing also generates PyPI publish

@@ -15,8 +15,8 @@ import pytest
 import yaml
 
 from scripts import release_checks
-from scripts.release_checks import (distributions_match_tree, installed_package, release_notes, validate_environment,
-                                    validate_tag, validate_tag_rules)
+from scripts.release_checks import (distributions_match_rebuild, installed_package, release_notes,
+                                    validate_environment, validate_tag, validate_tag_rules)
 from finassist.platform_support import clean_environment
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -67,9 +67,9 @@ FIXED, CREATION = _ruleset("deletion", "update"), _ruleset("creation", bypass_ac
 
 def test_release_tags_are_kept_from_moving_and_deletion_and_their_creation_is_restricted():
     validate_tag_rules([FIXED, CREATION])
-    validate_tag_rules([_ruleset("deletion", "update", "creation")])  # one ruleset may hold all three
     without_list = {key: value for key, value in FIXED.items() if key != "bypass_actors"}
     validate_tag_rules([without_list, CREATION])  # the workflow token sees no bypass list: the maintainer checks it
+    validate_tag_rules([{**FIXED, "current_user_can_bypass": "never"}, CREATION])
     validate_tag_rules([_ruleset("deletion", "update", conditions={"ref_name": {"include": ["~ALL"]}}), CREATION])
 
 
@@ -77,10 +77,12 @@ def test_release_tags_are_kept_from_moving_and_deletion_and_their_creation_is_re
     [],
     [FIXED],
     [CREATION],
+    [_ruleset("deletion", "update", "creation")],
     [_ruleset("deletion", "update", enforcement="evaluate"), CREATION],
     [_ruleset("deletion", "update", target="branch"), CREATION],
     [_ruleset("deletion"), CREATION],
     [_ruleset("deletion", "update", bypass_actors=[{"actor_type": "RepositoryRole"}]), CREATION],
+    [{**FIXED, "current_user_can_bypass": "always"}, CREATION],
     [{**FIXED, "rules": [{"type": "deletion"}, {"type": "update", "parameters": {"update_allows_fetch_and_merge": True}}]},
      CREATION],
     [_ruleset("deletion", "update", conditions={"ref_name": {"include": ["refs/tags/v*"], "exclude": ["refs/tags/v0*"]}}),
@@ -88,88 +90,82 @@ def test_release_tags_are_kept_from_moving_and_deletion_and_their_creation_is_re
     [_ruleset("deletion", "update", conditions={"ref_name": {"include": ["refs/tags/release-*"]}}), CREATION],
     [_ruleset("deletion", "update", conditions=None), CREATION],
     [FIXED, _ruleset("creation", enforcement="disabled")],
-], ids=["none", "no-creation-rule", "no-fixed-rule", "evaluate-only", "branches", "no-update-rule", "bypass-shown",
-        "fast-forward-moves", "excluded", "other-tags", "no-conditions", "creation-disabled"])
+], ids=["none", "no-creation-rule", "no-fixed-rule", "one-ruleset-for-all", "evaluate-only", "branches",
+        "no-update-rule", "bypass-shown", "token-may-bypass", "fast-forward-moves", "excluded", "other-tags",
+        "no-conditions", "creation-disabled"])
 def test_release_tag_rules_that_leave_a_gap_refuse(rulesets):
     with pytest.raises(ValueError, match="ruleset"):
         validate_tag_rules(rulesets)
 
 
-def _release_tree(root):
-    files = {"src/finassist/__init__.py": b"__version__ = '0.0.0'\n", "src/finassist/resources/guide.md": b"# Guide\n",
-             "README.md": b"# Synthetic\n", "LICENSE": b"Synthetic licence\n",
-             "pyproject.toml": b'[project]\nname = "finledgerpoli"\nversion = "0.0.0"\n'
-                               b'[project.scripts]\nfinassist = "finassist.cli:main"\n'}
-    for name, data in files.items():
-        (root / name).parent.mkdir(parents=True, exist_ok=True)
-        (root / name).write_bytes(data)
-    (root / "src/finassist/__pycache__").mkdir()
-    (root / "src/finassist/__pycache__/x.cpython-313.pyc").write_bytes(b"compiled")  # never packaged
-    return files
+WHEEL, SDIST = "finledgerpoli-0.0.0-py3-none-any.whl", "finledgerpoli-0.0.0.tar.gz"
+_WHEEL = [("finassist/__init__.py", b"__version__ = '0.0.0'\n"), ("finledgerpoli-0.0.0.dist-info/METADATA",
+          b"Name: finledgerpoli\nRequires-Dist: packaging\n"), ("finledgerpoli-0.0.0.dist-info/RECORD", b"")]
+_SDIST = [("finledgerpoli-0.0.0", None), ("finledgerpoli-0.0.0/PKG-INFO", b"Name: finledgerpoli\n"),
+          ("finledgerpoli-0.0.0/src/finassist/__init__.py", b"__version__ = '0.0.0'\n")]
 
 
-def _build(root, files, wheel_changes=None, sdist_changes=None, extra=None):
-    dist = root / "dist"
-    dist.mkdir(exist_ok=True)
-    for old in dist.iterdir():
-        old.unlink()
-    info = "finledgerpoli-0.0.0.dist-info/"
-    wheel = {name.removeprefix("src/"): data for name, data in files.items() if name.startswith("src/finassist/")}
-    wheel.update({info + "licenses/LICENSE": files["LICENSE"], info + "METADATA": b"Name: finledgerpoli\n",
-                  info + "WHEEL": b"Wheel-Version: 1.0\n", info + "top_level.txt": b"finassist\n",
-                  info + "entry_points.txt": b"[console_scripts]\nfinassist = finassist.cli:main\n", info + "RECORD": b""})
-    wheel.update(wheel_changes or {})
-    with zipfile.ZipFile(dist / "finledgerpoli-0.0.0-py3-none-any.whl", "w") as archive:
-        for name, data in wheel.items():
-            if data is not None:
-                archive.writestr(name, data)
-    sdist = {name: data for name, data in files.items()}
-    sdist.update({"PKG-INFO": b"Name: finledgerpoli\n", "src/finledgerpoli.egg-info/SOURCES.txt": b"README.md\n"})
-    sdist.update(sdist_changes or {})
-    with tarfile.open(dist / "finledgerpoli-0.0.0.tar.gz", "w:gz") as archive:
-        for name, data in sdist.items():
-            if data is not None:
-                member = tarfile.TarInfo("finledgerpoli-0.0.0/" + name)
+def _archives(folder, wheel=_WHEEL, sdist=_SDIST, extra=()):
+    folder.mkdir()
+    with zipfile.ZipFile(folder / WHEEL, "w") as archive:
+        for name, data in wheel:
+            archive.writestr(name, data)
+    with tarfile.open(folder / SDIST, "w:gz") as archive:
+        for name, data in sdist:
+            member = tarfile.TarInfo(name)
+            if data is None:
+                member.type = tarfile.DIRTYPE
+                archive.addfile(member)
+            elif isinstance(data, str):  # a link to that target
+                member.type, member.linkname = tarfile.SYMTYPE, data
+                archive.addfile(member)
+            else:
                 member.size = len(data)
                 archive.addfile(member, io.BytesIO(data))
-    for name, data in (extra or {}).items():
-        (dist / name).write_bytes(data)
-    return dist
+    for name in extra:
+        (folder / name).write_bytes(b"")
+    return folder
 
 
-def test_published_distributions_must_hold_exactly_the_tagged_files(tmp_path):
-    files = _release_tree(tmp_path)
-    assert distributions_match_tree(tmp_path, _build(tmp_path, files), "0.0.0") == 2
+def test_published_archives_must_equal_an_independent_build_member_for_member(tmp_path):
+    assert distributions_match_rebuild(_archives(tmp_path / "dist"), _archives(tmp_path / "rebuilt"), "0.0.0") == 2
 
 
-@pytest.mark.parametrize("changes,match", [
-    ({"wheel_changes": {"finassist/resources/guide.md": b"# Changed\n"}}, "wheel"),
-    ({"wheel_changes": {"finassist/resources/guide.md": None}}, "wheel"),
-    ({"wheel_changes": {"finassist/extra.py": b""}}, "wheel"),
-    ({"wheel_changes": {"autoload.pth": b"import os\n"}}, "wheel"),
-    ({"wheel_changes": {"finledgerpoli-0.0.0.data/scripts/run": b"#!/bin/sh\n"}}, "wheel"),
-    ({"wheel_changes": {"finledgerpoli-0.0.0.dist-info/entry_points.txt":
-                        b"[console_scripts]\nfinassist = other.module:main\n"}}, "wheel"),
-    ({"wheel_changes": {"finledgerpoli-0.0.0.dist-info/licenses/LICENSE": b"Other\n"}}, "wheel"),
-    ({"sdist_changes": {"README.md": b"# Changed\n"}}, "sdist"),
-    ({"sdist_changes": {"setup.py": b"import os\n"}}, "sdist"),
-    ({"sdist_changes": {"../outside.txt": b""}}, "sdist"),
-    ({"extra": {"other-1.0-py3-none-any.whl": b""}}, "dist"),
-], ids=["wheel-file-changed", "wheel-file-missing", "wheel-file-extra", "wheel-path-file", "wheel-data-script",
-        "wheel-entry-point", "wheel-licence", "sdist-file-changed", "sdist-file-extra", "sdist-outside", "dist-extra"])
-def test_a_distribution_with_anything_but_the_tagged_files_refuses(tmp_path, changes, match):
-    files = _release_tree(tmp_path)
+@pytest.mark.parametrize("published", [
+    {"wheel": [*_WHEEL[:1], (_WHEEL[1][0], b"Name: finledgerpoli\nRequires-Dist: packaging\nRequires-Dist: other\n"),
+               *_WHEEL[2:]]},
+    {"wheel": [*_WHEEL, ("autoload.pth", b"import os\n")]},
+    {"wheel": _WHEEL[:2]},
+    {"wheel": [_WHEEL[1], _WHEEL[0], _WHEEL[2]]},
+    {"sdist": [*_SDIST[:2], (_SDIST[2][0], b"__version__ = 'other'\n")]},
+    {"sdist": _SDIST[:2]},
+    {"sdist": [*_SDIST, ("finledgerpoli-0.0.0/setup.py", b"import os\n")]},
+], ids=["added-dependency", "path-file", "missing-member", "reordered", "sdist-changed", "sdist-missing", "sdist-extra"])
+def test_an_archive_that_differs_from_the_rebuild_refuses(tmp_path, published):
+    with pytest.raises(ValueError, match="independent build"):
+        distributions_match_rebuild(_archives(tmp_path / "dist", **published), _archives(tmp_path / "rebuilt"), "0.0.0")
+
+
+@pytest.mark.parametrize("sdist,match", [
+    ([*_SDIST, ("finledgerpoli-0.0.0//etc/hosts", b"")], "plain relative path"),
+    ([*_SDIST, ("finledgerpoli-0.0.0/./PKG-INFO", b"")], "plain relative path"),
+    ([*_SDIST, ("finledgerpoli-0.0.0/../outside", b"")], "plain relative path"),
+    ([*_SDIST, ("finledgerpoli-0.0.0/a\\b", b"")], "plain relative path"),
+    ([*_SDIST, ("/finledgerpoli-0.0.0/x", b"")], "plain relative path"),
+    ([*_SDIST, ("finledgerpoli-0.0.0/PKG-INFO", b"Name: other\n")], "repeats"),
+    ([*_SDIST, ("finledgerpoli-0.0.0/src", "/etc")], "link"),
+], ids=["double-slash", "dot-part", "dot-dot", "backslash", "absolute", "repeated", "link"])
+def test_an_archive_member_that_could_mean_another_path_refuses(tmp_path, sdist, match):
+    # Refused before any comparison, even when the rebuild holds the same member.
     with pytest.raises(ValueError, match=match):
-        distributions_match_tree(tmp_path, _build(tmp_path, files, **changes), "0.0.0")
+        distributions_match_rebuild(_archives(tmp_path / "dist", sdist=sdist), _archives(tmp_path / "rebuilt", sdist=sdist),
+                                    "0.0.0")
 
 
-def test_a_wheel_naming_one_file_twice_refuses(tmp_path):
-    files = _release_tree(tmp_path)
-    dist = _build(tmp_path, files)
-    with zipfile.ZipFile(dist / "finledgerpoli-0.0.0-py3-none-any.whl", "a") as archive, pytest.warns(UserWarning):
-        archive.writestr("finassist/__init__.py", b"__version__ = 'other'\n")
-    with pytest.raises(ValueError, match="repeats"):
-        distributions_match_tree(tmp_path, dist, "0.0.0")
+def test_dist_must_hold_exactly_the_release_archives(tmp_path):
+    with pytest.raises(ValueError, match="exactly"):
+        distributions_match_rebuild(_archives(tmp_path / "dist", extra=["other-1.0-py3-none-any.whl"]),
+                                    _archives(tmp_path / "rebuilt"), "0.0.0")
 
 
 def test_the_tests_must_import_the_installed_wheel_and_not_the_tree(tmp_path):
@@ -180,10 +176,18 @@ def test_the_tests_must_import_the_installed_wheel_and_not_the_tree(tmp_path):
             installed_package(tmp_path, location)
 
 
+def test_the_suite_refuses_to_start_on_the_tree_when_the_installed_wheel_is_required():
+    environment = {**clean_environment(), "PYTHONPATH": str(ROOT / "src"), "FINASSIST_REQUIRE_INSTALLED": "1"}
+    result = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--collect-only",
+                             "tests/test_release_requirements.py"], cwd=ROOT, env=environment, capture_output=True,
+                            text=True, timeout=120, shell=False)
+    assert result.returncode != 0 and "installed wheel" in result.stdout + result.stderr
+
+
 def test_the_settings_are_read_with_the_token_and_any_failed_read_stops_the_release(monkeypatch):
     documents = {
         "environments/pypi": {"name": "pypi", "deployment_branch_policy": TAG_ONLY},
-        "environments/pypi/deployment-branch-policies?per_page=100": {"branch_policies": RELEASE_TAGS},
+        "environments/pypi/deployment-branch-policies?per_page=100": {"total_count": 1, "branch_policies": RELEASE_TAGS},
         "rulesets?per_page=100": [{"id": 7, "target": "tag"}, {"id": 8, "target": "tag"}, {"id": 9, "target": "branch"}],
         "rulesets/7": FIXED, "rulesets/8": CREATION,
     }
@@ -200,11 +204,30 @@ def test_the_settings_are_read_with_the_token_and_any_failed_read_stops_the_rele
     release_checks.check_settings("owner/repository", given)
     assert {path for _repository, path, _token in seen} == set(documents)
     assert all(token is given for _repository, _path, token in seen)
+    documents["environments/pypi/deployment-branch-policies?per_page=100"]["total_count"] = 2
+    with pytest.raises(ValueError, match="not all read"):
+        release_checks.check_settings("owner/repository", given)
+    documents["environments/pypi/deployment-branch-policies?per_page=100"]["total_count"] = 1
     del documents["rulesets/8"]
     with pytest.raises(urllib.error.HTTPError):
         release_checks.check_settings("owner/repository", given)
     with pytest.raises(ValueError, match="repository"):
         release_checks.check_settings("owner/repository/../other", given)
+
+
+def test_a_document_that_runs_on_to_another_page_refuses(monkeypatch):
+    class Response(io.BytesIO):
+        headers = {"Link": '<https://api.github.com/repositories/1/rulesets?page=2>; rel="next"'}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exception):
+            return False
+
+    monkeypatch.setattr(release_checks.urllib.request, "urlopen", lambda request, timeout: Response(b"[]"))
+    with pytest.raises(ValueError, match="another page"):
+        release_checks.read_github("owner/repository", "rulesets?per_page=100", "x")
 
 
 def test_release_workflow_is_tag_only_and_least_privilege():
@@ -214,17 +237,20 @@ def test_release_workflow_is_tag_only_and_least_privilege():
     assert set(workflow["jobs"]) == {"build", "gates", "publish"}
     publish = workflow["jobs"]["publish"]
     assert publish["needs"] == ["build", "gates"] and publish["environment"]["name"] == "pypi"
-    # The gates job holds no permission of its own, and tests the built distributions, never the tree: they are checked
-    # against the tagged tree, outside the checkout, before the wheel is installed by its hash; the tests' import of
-    # the installed wheel is checked; and the whole suite and the demo run after.
+    # The gates job holds no permission of its own, and tests the built archives, never the tree: they are compared
+    # with an independent build of the tagged checkout, member for member, before the wheel is installed by its hash;
+    # the whole suite runs against it and refuses to start on the tree; and the demo runs outside the checkout.
     gates = workflow["jobs"]["gates"]
     assert gates["needs"] == "build" and "permissions" not in gates and "environment" not in gates
     runs = [step.get("run", "") for step in gates["steps"]]
     order = [next(index for index, run in enumerate(runs) if text in run) for text in (
-        '--distributions-match-tree "$RUNNER_TEMP/release/dist"', 'python scripts/ci_install.py wheel "$RUNNER_TEMP/release/dist"',
-        "--imports-installed", "python scripts/ci_test.py", "finassist demo")]
+        "python scripts/ci_install.py dependencies", 'python -m build --no-isolation --outdir "$RUNNER_TEMP/rebuilt"',
+        '--distributions-match-rebuild "$RUNNER_TEMP/release/dist" "$RUNNER_TEMP/rebuilt"',
+        'python scripts/ci_install.py wheel "$RUNNER_TEMP/release/dist"', "python scripts/ci_test.py", "finassist demo")]
     assert order == sorted(order)
     assert not any("ci_install.py project" in run or "finassist scan" in run for run in runs)
+    suite = next(step for step in gates["steps"] if step.get("run") == "python scripts/ci_test.py")
+    assert suite["env"] == {"FINASSIST_REQUIRE_INSTALLED": "1"}
     downloads = [step["with"] for step in gates["steps"] if "download-artifact" in step.get("uses", "")]
     assert downloads == [{"name": "release-${{ github.sha }}", "path": "${{ runner.temp }}/release"}]
     assert next(step for step in gates["steps"] if step.get("run") == "finassist demo")["working-directory"] == (

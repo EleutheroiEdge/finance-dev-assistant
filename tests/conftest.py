@@ -8,6 +8,19 @@ from finassist.platform_support import find_tool
 from finassist.scope import git_environment
 
 
+def pytest_configure(config):
+    # The release's gates job installs the built wheel and sets FINASSIST_REQUIRE_INSTALLED: the suite then refuses
+    # to start if finassist would be imported from the tree instead of from that wheel.
+    if os.environ.get("FINASSIST_REQUIRE_INSTALLED"):
+        import finassist
+        from scripts.release_checks import installed_package
+
+        try:
+            installed_package(Path(__file__).resolve().parents[1], finassist.__file__)
+        except ValueError as error:
+            raise pytest.UsageError(str(error)) from None
+
+
 @pytest.fixture(autouse=True)
 def _no_state_folder_left_in_the_working_directory():
     # A test leaves the checkout as it found it: its state goes under tmp_path or an explicit --state-dir (#134).
