@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import gzip
 import io
 import stat
 import sysconfig
@@ -216,10 +217,92 @@ def test_a_member_mode_that_differs_from_the_rebuild_refuses(tmp_path):
     ('<https://api.github.com/x?page=2>; REL = "prev next"', True),
     ('<https://api.github.com/x?page=1>; rel="prev", <https://api.github.com/x?page=3>; rel="last"', False),
     ('<https://api.github.com/x?rel="next">; rel="prev"', False),
+    ('<https://api.github.com/x;rel=next;v=1>; rel="prev"', False),
     ("", False),
-], ids=["quoted", "bare", "spaced-and-several", "prev-and-last", "in-the-address", "none"])
+], ids=["quoted", "bare", "spaced-and-several", "prev-and-last", "in-the-address", "parameters-in-the-address",
+        "none"])
 def test_a_link_header_names_a_next_page_however_it_is_written(link, more):
     assert release_checks._names_next(link) is more
+
+
+def _tar(members):
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode="w") as archive:
+        for name, data in members:
+            member = tarfile.TarInfo(name)
+            if data is None:
+                member.type = tarfile.DIRTYPE
+                archive.addfile(member)
+            else:
+                member.size = len(data)
+                archive.addfile(member, io.BytesIO(data))
+    return stream.getvalue()
+
+
+@pytest.mark.parametrize("stream,match", [
+    (lambda clean: clean + _tar([("finledgerpoli-0.0.0/src/finassist/hidden.py", b"import os\n")]), "independent build"),
+    (lambda clean: clean + b"not padding", "after its last member|not a plain archive"),
+], ids=["archive-appended-after-the-end", "bytes-after-the-end"])
+def test_an_sdist_that_another_reader_would_read_differently_refuses(tmp_path, stream, match):
+    dist, rebuilt = _archives(tmp_path / "dist"), _archives(tmp_path / "rebuilt")
+    (dist / SDIST).write_bytes(gzip.compress(stream(_tar(_SDIST))))
+    with pytest.raises(ValueError, match=match):
+        distributions_match_rebuild(dist, rebuilt, "0.0.0")
+
+
+def test_an_sdist_with_bytes_after_its_gzip_stream_refuses(tmp_path):
+    dist, rebuilt = _archives(tmp_path / "dist"), _archives(tmp_path / "rebuilt")
+    (dist / SDIST).write_bytes((dist / SDIST).read_bytes() + b"trailing")
+    with pytest.raises(ValueError, match="gzip"):
+        distributions_match_rebuild(dist, rebuilt, "0.0.0")
+
+
+@pytest.mark.parametrize("change,match", [
+    (lambda raw: b"prepended" + raw, "outside its entries"),
+    (lambda raw: raw[:-2] + b"\x07\x00comment", "end record"),
+], ids=["bytes-before-the-entries", "comment"])
+def test_a_wheel_that_another_reader_would_read_differently_refuses(tmp_path, change, match):
+    dist, rebuilt = _archives(tmp_path / "dist"), _archives(tmp_path / "rebuilt")
+    (dist / WHEEL).write_bytes(change((dist / WHEEL).read_bytes()))
+    with pytest.raises(ValueError, match=match):
+        distributions_match_rebuild(dist, rebuilt, "0.0.0")
+
+
+@pytest.mark.parametrize("name,attributes,data,match", [
+    ("finassist/run.py", (stat.S_IFDIR | 0o755) << 16, b"", "link or a special file"),
+    ("finassist/folder/", (stat.S_IFDIR | 0o755) << 16, b"payload", "data in a directory"),
+], ids=["file-marked-directory", "directory-with-data"])
+def test_a_wheel_entry_whose_kind_and_contents_disagree_refuses(tmp_path, name, attributes, data, match):
+    folders = [_archives(tmp_path / folder) for folder in ("dist", "rebuilt")]
+    for folder in folders:
+        with zipfile.ZipFile(folder / WHEEL, "a") as archive:
+            entry = zipfile.ZipInfo(name)
+            entry.external_attr = attributes
+            archive.writestr(entry, data)
+    with pytest.raises(ValueError, match=match):
+        distributions_match_rebuild(*folders, "0.0.0")
+
+
+@pytest.mark.parametrize("name", ["finledgerpoli-0.0.0/src/CON .py", "finledgerpoli-0.0.0/src/COM\u00b9.py",
+                                  "finledgerpoli-0.0.0/CONIN$", "finledgerpoli-0.0.0/del\x7f",
+                                  "finledgerpoli-0.0.0/c\u0301"], ids=["device-and-space", "device-superscript",
+                                                                         "console", "delete", "combining"])
+def test_more_names_unsafe_on_some_system_refuse(tmp_path, name):
+    sdist = [*_SDIST, (name, b"")]
+    if name.endswith("\u0301"):
+        sdist.append(("finledgerpoli-0.0.0/\u0107", b""))  # the same name, composed
+    with pytest.raises(ValueError, match="plain relative path|repeats"):
+        distributions_match_rebuild(_archives(tmp_path / "dist", sdist=sdist), _archives(tmp_path / "rebuilt", sdist=sdist),
+                                    "0.0.0")
+
+
+def test_child_processes_import_only_the_installed_wheel_while_it_is_required(monkeypatch):
+    from conftest import source_path
+    monkeypatch.setenv("FINASSIST_REQUIRE_INSTALLED", "1")
+    child = source_path({"PYTHONPATH": "src", "OTHER": "kept"})
+    assert "PYTHONPATH" not in child and child["PYTHONSAFEPATH"] == "1" and child["OTHER"] == "kept"
+    monkeypatch.delenv("FINASSIST_REQUIRE_INSTALLED")
+    assert source_path({})["PYTHONPATH"] == str(ROOT / "src")
 
 
 def test_dist_must_hold_exactly_the_release_archives(tmp_path):
@@ -276,8 +359,13 @@ def test_the_settings_are_read_with_the_token_and_any_failed_read_stops_the_rele
 
 
 def test_a_document_that_runs_on_to_another_page_refuses(monkeypatch):
+    class Headers:
+        def get_all(self, name):  # two Link headers: the second names the next page
+            return ['<https://api.github.com/repositories/1/rulesets?page=1>; rel="first"',
+                    '<https://api.github.com/repositories/1/rulesets?page=2>; rel="next"'] if name == "Link" else None
+
     class Response(io.BytesIO):
-        headers = {"Link": '<https://api.github.com/repositories/1/rulesets?page=2>; rel="next"'}
+        headers = Headers()
 
         def __enter__(self):
             return self

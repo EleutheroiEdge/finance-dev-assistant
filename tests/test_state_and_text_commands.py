@@ -12,10 +12,10 @@ ROOT = Path(__file__).parents[1]
 
 
 def _run(cwd: Path, *arguments: str, home: Path, extra: dict | None = None) -> subprocess.CompletedProcess:
-    environment = {**os.environ, "FINASSIST_NO_UPDATE_CHECK": "1", "HOME": str(home), "USERPROFILE": str(home),
-                   "XDG_CONFIG_HOME": str(home / "config"), "XDG_CACHE_HOME": str(home / "cache"),
-                   "APPDATA": str(home / "appdata"), "LOCALAPPDATA": str(home / "localappdata"),
-                   **source_path(), **(extra or {})}
+    environment = {**source_path({**os.environ, "FINASSIST_NO_UPDATE_CHECK": "1", "HOME": str(home),
+                                  "USERPROFILE": str(home), "XDG_CONFIG_HOME": str(home / "config"),
+                                  "XDG_CACHE_HOME": str(home / "cache"), "APPDATA": str(home / "appdata"),
+                                  "LOCALAPPDATA": str(home / "localappdata")}), **(extra or {})}
     return subprocess.run([sys.executable, "-m", "finassist", *arguments], cwd=cwd, env=environment,
                           capture_output=True, text=True, check=False)
 

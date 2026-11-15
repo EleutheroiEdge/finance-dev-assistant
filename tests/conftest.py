@@ -24,12 +24,17 @@ def pytest_configure(config):
             raise pytest.UsageError(str(error)) from None
 
 
-def source_path() -> dict:
-    """The PYTHONPATH that points a child process at the tree's own source, or none while the release's gates job
-    tests the installed wheel (FINASSIST_REQUIRE_INSTALLED), so a child imports that wheel too."""
+def source_path(environment: dict) -> dict:
+    """A child process's environment, pointed at the tree's own source; or, while the release's gates job tests the
+    installed wheel (FINASSIST_REQUIRE_INSTALLED), at that wheel alone: no PYTHONPATH, inherited or not, and neither
+    the working folder nor a script's folder on the path."""
+    environment = dict(environment)
     if os.environ.get("FINASSIST_REQUIRE_INSTALLED"):
-        return {}
-    return {"PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
+        environment.pop("PYTHONPATH", None)
+        environment["PYTHONSAFEPATH"] = "1"
+    else:
+        environment["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+    return environment
 
 
 @pytest.fixture(autouse=True)

@@ -470,7 +470,7 @@ def test_run_lock_excludes_other_processes_and_releases_on_exit(tmp_path):
     process = subprocess.Popen(
         [sys.executable, "-c", source, str(state), str(marker)], stdin=subprocess.PIPE,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
-        env={**clean_environment(), **source_path()},
+        env=source_path(clean_environment()),
     )
     try:
         deadline = time.monotonic() + 10

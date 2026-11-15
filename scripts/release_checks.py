@@ -2,6 +2,8 @@
 
 import argparse
 import ast
+import gzip
+import io
 import json
 import os
 from pathlib import Path
@@ -11,6 +13,7 @@ import subprocess
 import sysconfig
 import tarfile
 import tomllib
+import unicodedata
 import urllib.request
 import zipfile
 
@@ -54,43 +57,92 @@ def validate_tag_rules(rulesets):
     found = [(ruleset, rules(ruleset)) for ruleset in rulesets]
     if not any({"deletion", "update"} <= set(kinds) and "creation" not in kinds
                and not kinds["update"].get("update_allows_fetch_and_merge") and not ruleset.get("bypass_actors")
-               and (ruleset.get("current_user_can_bypass") or "never") == "never" for ruleset, kinds in found):
+               and ruleset.get("current_user_can_bypass") in (None, "never") for ruleset, kinds in found):
         raise ValueError("release tags need an active ruleset, with no bypass, that blocks moving and deleting them")
     if not any("creation" in kinds for _ruleset, kinds in found):
         raise ValueError("release tags need an active ruleset that restricts creating them")
 
 
-_DEVICE = re.compile(r"(?i)(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?")
+# A Windows device name, as Windows reads a path part: what comes before its first dot, with trailing spaces dropped.
+_DEVICE = re.compile(r"(?i)con|prn|aux|nul|conin\$|conout\$|(?:com|lpt)[0-9¹²³]")
+_TIMES = {"mtime", "atime", "ctime"}  # when a build ran, which no two builds share
+
+
+def _unsafe_name(name):
+    """Whether a member name could stand for another path on any system an archive is installed on."""
+    if ("\\" in name or ":" in name or name.startswith("/")
+            or any(ord(character) < 32 or 0x7F <= ord(character) <= 0x9F for character in name)):
+        return True
+    return any(part in ("", ".", "..") or part[-1] in ". " or _DEVICE.fullmatch(part.partition(".")[0].rstrip(" "))
+               for part in name.split("/"))
+
+
+def _wheel_members(path, raw):
+    """A wheel's members, read only when its bytes are exactly its entries, its central directory and an end record
+    without a comment, in that order: no byte before, between or after them is left for another reader to find."""
+    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+        end = raw[-22:]
+        if archive.comment or end[:4] != b"PK\x05\x06":
+            raise ValueError(f"{path.name} does not end in a plain end record")
+        size, start = int.from_bytes(end[12:16], "little"), int.from_bytes(end[16:20], "little")
+        members, position = [], 0
+        for item in sorted(archive.infolist(), key=lambda entry: entry.header_offset):
+            header = raw[item.header_offset:item.header_offset + 30]
+            name_length, extra_length = int.from_bytes(header[26:28], "little"), int.from_bytes(header[28:30], "little")
+            encoding = "utf-8" if item.flag_bits & 0x800 else "cp437"
+            name = raw[item.header_offset + 30:item.header_offset + 30 + name_length]
+            if (item.header_offset != position or header[:4] != b"PK\x03\x04" or item.flag_bits & 0x08
+                    or name != item.orig_filename.encode(encoding)):
+                raise ValueError(f"{path.name} holds bytes outside its entries")
+            position = item.header_offset + 30 + name_length + extra_length + item.compress_size
+            kind, data = stat.S_IFMT(item.external_attr >> 16), archive.read(item)
+            if kind not in (0, stat.S_IFREG, stat.S_IFDIR) or (kind and (kind == stat.S_IFDIR) != item.is_dir()):
+                raise ValueError(f"{path.name} holds a link or a special file")
+            if item.is_dir() and data:
+                raise ValueError(f"{path.name} holds data in a directory entry")
+            members.append((item.filename, item.external_attr, item.create_system, data))
+        if position != start or start + size + 22 != len(raw):
+            raise ValueError(f"{path.name} holds bytes outside its entries")
+    return members
+
+
+def _sdist_members(path, raw):
+    """An sdist's members, from the whole gzip stream, read past any zero blocks so an archive appended after the
+    first end is read too, and only when nothing but zero padding follows the last member. Owners and pax headers
+    count, all but the build's own times."""
+    try:
+        data = gzip.decompress(raw)
+    except (OSError, EOFError) as error:
+        raise ValueError(f"{path.name} is not one whole gzip stream") from error
+    members, end = [], 0
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:", ignore_zeros=True) as archive:
+        for member in archive.getmembers():
+            if not (member.isfile() or member.isdir()):
+                raise ValueError(f"{path.name} holds a link or a special file")
+            members.append((member.name, member.type, member.mode, member.uid, member.gid, member.uname, member.gname,
+                            sorted((key, value) for key, value in member.pax_headers.items() if key not in _TIMES),
+                            archive.extractfile(member).read() if member.isfile() else b""))
+            end = max(end, member.offset_data + -(-member.size // 512) * 512)
+    if data[end:].strip(b"\0"):
+        raise ValueError(f"{path.name} holds bytes after its last member")
+    return members
 
 
 def _archive(path, folder=None):
-    """Each member of a release archive as (name, kind, permission bits, bytes), sorted. A link or a special file
-    refuses, and so does a name that could stand for another path on any system an archive is installed on:
-    absolute or with a drive, a backslash, a colon or a control character, an empty, `.` or `..` part, a part that
-    ends in a dot or a space or is a Windows device name, a name used twice even in another case, or, with folder,
-    a name outside that one top folder."""
-    members = []
-    if path.name.endswith(".whl"):
-        with zipfile.ZipFile(path) as archive:
-            for item in archive.infolist():
-                mode = item.external_attr >> 16
-                if stat.S_IFMT(mode) not in (0, stat.S_IFREG, stat.S_IFDIR):
-                    raise ValueError(f"{path.name} holds a link or a special file")
-                members.append((item.filename, "directory" if item.is_dir() else "file", stat.S_IMODE(mode),
-                                b"" if item.is_dir() else archive.read(item)))
-    else:
-        with tarfile.open(path, "r:gz") as archive:
-            for member in archive.getmembers():
-                if not (member.isfile() or member.isdir()):
-                    raise ValueError(f"{path.name} holds a link or a special file")
-                members.append((member.name, "directory" if member.isdir() else "file", stat.S_IMODE(member.mode),
-                                archive.extractfile(member).read() if member.isfile() else b""))
-    names = [name.removesuffix("/") for name, *_rest in members]
-    if any("\\" in name or ":" in name or name.startswith("/") or any(ord(character) < 32 for character in name)
-           or any(part in ("", ".", "..") or part[-1] in ". " or _DEVICE.fullmatch(part) for part in name.split("/"))
-           for name in names):
+    """Each member of a release archive with its metadata and bytes, sorted. Refused before any comparison: an
+    archive that holds bytes another reader could find and this one does not, a link or a special file, a name that
+    could stand for another path on any system (absolute or with a drive, a backslash, a colon or a control
+    character, an empty, `.` or `..` part, a part that ends in a dot or a space or is a Windows device name), a name
+    used twice even in another case or form, or, with folder, a name outside that one top folder."""
+    raw = path.read_bytes()
+    try:
+        members = _wheel_members(path, raw) if path.name.endswith(".whl") else _sdist_members(path, raw)
+    except (zipfile.BadZipFile, tarfile.TarError) as error:
+        raise ValueError(f"{path.name} is not a plain archive") from error
+    names = [member[0].removesuffix("/") for member in members]
+    if any(_unsafe_name(name) for name in names):
         raise ValueError(f"{path.name} holds a name that is not a plain relative path")
-    if len({name.casefold() for name in names}) != len(names):
+    if len({unicodedata.normalize("NFD", name).casefold() for name in names}) != len(names):
         raise ValueError(f"{path.name} repeats a member")
     if folder and any(name != folder and not name.startswith(folder + "/") for name in names):
         raise ValueError(f"{path.name} holds a member outside its folder")
@@ -99,13 +151,13 @@ def _archive(path, folder=None):
 
 def distributions_match_rebuild(dist, rebuilt, version):
     """`dist` holds exactly the release's wheel and sdist, and each is, member for member, the archive an independent
-    build of the tagged tree makes: the same names, kinds, permission bits and bytes, metadata included. The build is
+    build of the tagged tree makes: the same names, kinds, permissions, owners and bytes, metadata included. The build is
     reproducible, so anything a compromised or broken build added, dropped or changed refuses. Member order is not
     compared, so a runner that lists files in another order does not stop an honest release."""
     wheel, sdist = f"finledgerpoli-{version}-py3-none-any.whl", f"finledgerpoli-{version}.tar.gz"
     for folder in (dist, rebuilt):
         if sorted(path.name for path in Path(folder).iterdir()) != sorted([wheel, sdist]):
-            raise ValueError(f"{Path(folder).name} must hold exactly the release's wheel and sdist")
+            raise ValueError(f"{Path(folder).resolve().name} must hold exactly the release's wheel and sdist")
     for name, top in ((wheel, None), (sdist, f"finledgerpoli-{version}")):
         if _archive(Path(dist) / name, top) != _archive(Path(rebuilt) / name, top):
             raise ValueError(f"{name} differs from an independent build of the tagged tree")
@@ -128,15 +180,15 @@ def read_github(repository, path, token):
                  "X-GitHub-Api-Version": "2022-11-28"},
     )
     with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310 fixed HTTPS API
-        if _names_next(response.headers.get("Link") or ""):
+        if _names_next(", ".join(response.headers.get_all("Link") or ())):
             raise ValueError(f"{path} runs on to another page")
         return json.load(response)
 
 
 def _names_next(link):
-    """Whether a Link header names a next page: any `rel` parameter whose relations include next, in any case, quoted
-    or not, alone or with others."""
-    for value in link.split(","):
+    """Whether Link headers name a next page: any `rel` parameter whose relations include next, in any case, quoted
+    or not, alone or with others. The addresses in angle brackets are left out first: what they hold is no parameter."""
+    for value in re.sub(r"<[^>]*>", "", link).split(","):
         for parameter in value.split(";")[1:]:
             key, _equals, relations = parameter.partition("=")
             if key.strip().lower() == "rel" and "next" in relations.strip().strip('"').lower().split():

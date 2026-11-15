@@ -76,8 +76,9 @@ No action needed. Upgrades never edit project configuration or evidence.
    and sdist again from the tagged checkout, and requires the artifact's `dist`
    folder to hold exactly those two archives, member for member: the same names,
    kinds, permissions and bytes, metadata included. The build is reproducible, so
-   a file a build added, dropped or changed stops the release, and so does a link
-   or a name that could mean another path on any system. It
+   a file a build added, dropped or changed stops the release, and so do a link, a
+   name that could mean another path on any system, and bytes an archive holds that
+   another reader would find and this one would not. It
    then installs that wheel by its hash and runs the whole test suite, which refuses
    to start if it would import the tree instead, and the demo. Only when it passes
    does the `pypi` job run, after any required reviewer approves. That job downloads the same artifact from the same run,
