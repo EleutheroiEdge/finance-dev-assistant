@@ -47,8 +47,13 @@ jobs:
         run: python scripts/release_checks.py --tag "$RELEASE_TAG" --notes-output release-notes.md
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-      - name: Build sdist and wheel from the sdist
-        run: python -m build --no-isolation
+      - name: Build sdist and wheel from the sdist, reproducibly, from a clean checkout of the tag
+        run: |
+          SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)
+          export SOURCE_DATE_EPOCH
+          git worktree add --detach "$RUNNER_TEMP/source" HEAD
+          python -m build --no-isolation --outdir dist "$RUNNER_TEMP/source"
+          python scripts/normalize_sdist.py dist
       - run: python -m twine check --strict dist/*
       - name: Generate and verify hash-locked runtime requirements
         run: python scripts/release_requirements.py --dist dist --output release-assets
@@ -75,13 +80,16 @@ jobs:
             release-assets/*-requirements.txt
           if-no-files-found: error
           retention-days: 30
-  # In place of a person's approval: before anything is published, the wheel and the sdist must be, member for
-  # member, what an independent build of the tagged checkout makes, and the wheel, installed by its hash, must pass
-  # the whole test suite and the demo.
+  # In place of a person's approval: before anything is published, the wheel and the sdist must be, byte for byte,
+  # what an independent build of a clean checkout of the tag makes, the sdist must build the wheel, and the wheel,
+  # installed by its hash, must pass the whole test suite and the demo. The publishing job then publishes only files
+  # with the digest this job recorded.
   gates:
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    outputs:
+      digest: ${{ steps.gated.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -93,11 +101,26 @@ jobs:
         with:
           name: release-${{ github.sha }}
           path: ${{ runner.temp }}/release
+      - name: Record the digest of every downloaded file, for the publishing job
+        id: gated
+        run: |
+          set -o pipefail
+          cd "$RUNNER_TEMP/release"
+          digest=$(find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f 1)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
       - run: python scripts/ci_install.py dependencies
-      - name: Build the wheel and the sdist again, from the tagged checkout
-        run: python -m build --no-isolation --outdir "$RUNNER_TEMP/rebuilt"
-      - name: Verify the release archives are that build's, member for member
-        run: python scripts/release_checks.py --tag "$RELEASE_TAG" --distributions-match-rebuild "$RUNNER_TEMP/release/dist" "$RUNNER_TEMP/rebuilt"
+      - name: Build the wheel and the sdist again, the same way, from a clean checkout of the tag
+        run: |
+          SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)
+          export SOURCE_DATE_EPOCH
+          git worktree add --detach "$RUNNER_TEMP/source" HEAD
+          python -m build --no-isolation --outdir "$RUNNER_TEMP/rebuilt" "$RUNNER_TEMP/source"
+          python scripts/normalize_sdist.py "$RUNNER_TEMP/rebuilt"
+      - name: Verify the release archives are that build's, byte for byte, and the sdist builds the wheel
+        run: |
+          SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)
+          export SOURCE_DATE_EPOCH
+          python scripts/release_checks.py --tag "$RELEASE_TAG" --distributions-match-rebuild "$RUNNER_TEMP/release/dist" "$RUNNER_TEMP/rebuilt" --sdist-builds-the-wheel "$RUNNER_TEMP/release/dist"
         env:
           RELEASE_TAG: ${{ github.ref_name }}
       - name: Install the built wheel by its hash, in place of the tree
@@ -124,6 +147,14 @@ jobs:
         with:
           name: release-${{ github.sha }}
           path: release
+      - name: Verify these are the files the gates job tested
+        run: |
+          set -o pipefail
+          cd release
+          digest=$(find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f 1)
+          test -n "$GATED" && test "$digest" = "$GATED"
+        env:
+          GATED: ${{ needs.gates.outputs.digest }}
       - name: Attest distribution and SBOM provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:

@@ -64,6 +64,9 @@ No action needed. Upgrades never edit project configuration or evidence.
 2. Review source and dependencies, then build locally with `python -m build`.
    The release builds an sdist and then a wheel from that sdist. Verify both
    installed-wheel CLI and dashboard smoke checks. Node/pnpm are build-time tools.
+   To reproduce a release's archives byte for byte, build a clean checkout of its
+   tag with `SOURCE_DATE_EPOCH` set to the tagged commit's time
+   (`git log -1 --format=%ct`), then run `python scripts/normalize_sdist.py dist`.
 3. An authorized maintainer creates and pushes the exact stable tag, for example `v0.3.0`, on the
    reviewed main commit. **Do not push a tag during development or review.** The
    workflow runs only for pushed `v*` tags; it has no manual, branch or PR trigger.
@@ -72,17 +75,21 @@ No action needed. Upgrades never edit project configuration or evidence.
    the wheel, sdist, release notes and `release-sbom.spdx.json`. The SBOM inventories source
    manifests, lockfiles and built distributions, including development dependencies;
    it is not a vulnerability report or a minimal runtime-only inventory.
-5. The gates job downloads that artifact outside the checkout, builds the wheel
-   and sdist again from the tagged checkout, and requires the artifact's `dist`
-   folder to hold exactly those two archives, member for member: the same names,
-   kinds, permissions and bytes, metadata included. The build is reproducible, so
-   a file a build added, dropped or changed stops the release, and so do a link, a
-   name that could mean another path on any system, and bytes an archive holds that
-   another reader would find and this one would not. It
-   then installs that wheel by its hash and runs the whole test suite, which refuses
-   to start if it would import the tree instead, and the demo. Only when it passes
-   does the `pypi` job run, after any required reviewer approves. That job downloads the same artifact from the same run,
-   records GitHub build/SBOM attestations and publishes with short-lived OIDC
+5. The gates job downloads that artifact outside the checkout and records a
+   digest of every file in it. It builds the wheel and sdist again, the same way,
+   from a clean checkout of the tag. The build is reproducible: both jobs date it
+   by the tagged commit (`SOURCE_DATE_EPOCH`) and re-pack the sdist in a fixed
+   order with fixed times and owners (`scripts/normalize_sdist.py`). The
+   artifact's `dist` folder must hold exactly those two archives, byte for byte,
+   so anything a build added, dropped or changed stops the release, wherever in a
+   file it hides, and so do a link and a name that could mean another path on any
+   system. The published sdist must also build the published wheel, byte for
+   byte. The job then installs that wheel by its hash and runs the whole test
+   suite, which refuses to start if it would import the tree instead, and the
+   demo. Only when it passes does the `pypi` job run, after any required reviewer
+   approves. That job downloads the same artifact from the same run, checks that
+   its files have the digest the gates job recorded, records GitHub build/SBOM
+   attestations and publishes with short-lived OIDC
    credentials, then attaches the distributions and SBOM to a GitHub Release
    using the notes extracted for that version. PyPI publishing also generates PyPI publish
    attestations. Only this publishing job has repository contents-write

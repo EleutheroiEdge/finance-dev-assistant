@@ -2,16 +2,16 @@
 
 import argparse
 import ast
-import gzip
-import io
 import json
 import os
 from pathlib import Path
 import re
 import stat
 import subprocess
+import sys
 import sysconfig
 import tarfile
+import tempfile
 import tomllib
 import unicodedata
 import urllib.request
@@ -64,8 +64,8 @@ def validate_tag_rules(rulesets):
 
 
 # A Windows device name, as Windows reads a path part: what comes before its first dot, with trailing spaces dropped.
-_DEVICE = re.compile(r"(?i)con|prn|aux|nul|conin\$|conout\$|(?:com|lpt)[0-9¹²³]")
-_TIMES = {"mtime", "atime", "ctime"}  # when a build ran, which no two builds share
+_DEVICE = re.compile(r"(?i)con|prn|aux|nul|conin\$|conout\$|(?:com|lpt)"
+                     r"[0-9\N{SUPERSCRIPT ONE}\N{SUPERSCRIPT TWO}\N{SUPERSCRIPT THREE}]")
 
 
 def _unsafe_name(name):
@@ -77,91 +77,63 @@ def _unsafe_name(name):
                for part in name.split("/"))
 
 
-def _wheel_members(path, raw):
-    """A wheel's members, read only when its bytes are exactly its entries, its central directory and an end record
-    without a comment, in that order: no byte before, between or after them is left for another reader to find."""
-    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-        end = raw[-22:]
-        if archive.comment or end[:4] != b"PK\x05\x06":
-            raise ValueError(f"{path.name} does not end in a plain end record")
-        size, start = int.from_bytes(end[12:16], "little"), int.from_bytes(end[16:20], "little")
-        members, position = [], 0
-        for item in sorted(archive.infolist(), key=lambda entry: entry.header_offset):
-            header = raw[item.header_offset:item.header_offset + 30]
-            name_length, extra_length = int.from_bytes(header[26:28], "little"), int.from_bytes(header[28:30], "little")
-            encoding = "utf-8" if item.flag_bits & 0x800 else "cp437"
-            name = raw[item.header_offset + 30:item.header_offset + 30 + name_length]
-            if (item.header_offset != position or header[:4] != b"PK\x03\x04" or item.flag_bits & 0x08
-                    or name != item.orig_filename.encode(encoding)):
-                raise ValueError(f"{path.name} holds bytes outside its entries")
-            position = item.header_offset + 30 + name_length + extra_length + item.compress_size
-            kind, data = stat.S_IFMT(item.external_attr >> 16), archive.read(item)
-            if kind not in (0, stat.S_IFREG, stat.S_IFDIR) or (kind and (kind == stat.S_IFDIR) != item.is_dir()):
-                raise ValueError(f"{path.name} holds a link or a special file")
-            if item.is_dir() and data:
-                raise ValueError(f"{path.name} holds data in a directory entry")
-            members.append((item.filename, item.external_attr, item.create_system, data))
-        if position != start or start + size + 22 != len(raw):
-            raise ValueError(f"{path.name} holds bytes outside its entries")
-    return members
-
-
-def _sdist_members(path, raw):
-    """An sdist's members, from the whole gzip stream, read past any zero blocks so an archive appended after the
-    first end is read too, and only when nothing but zero padding follows the last member. Owners and pax headers
-    count, all but the build's own times."""
-    try:
-        data = gzip.decompress(raw)
-    except (OSError, EOFError) as error:
-        raise ValueError(f"{path.name} is not one whole gzip stream") from error
-    members, end = [], 0
-    with tarfile.open(fileobj=io.BytesIO(data), mode="r:", ignore_zeros=True) as archive:
-        for member in archive.getmembers():
-            if not (member.isfile() or member.isdir()):
-                raise ValueError(f"{path.name} holds a link or a special file")
-            members.append((member.name, member.type, member.mode, member.uid, member.gid, member.uname, member.gname,
-                            sorted((key, value) for key, value in member.pax_headers.items() if key not in _TIMES),
-                            archive.extractfile(member).read() if member.isfile() else b""))
-            end = max(end, member.offset_data + -(-member.size // 512) * 512)
-    if data[end:].strip(b"\0"):
-        raise ValueError(f"{path.name} holds bytes after its last member")
-    return members
-
-
-def _archive(path, folder=None):
-    """Each member of a release archive with its metadata and bytes, sorted. Refused before any comparison: an
-    archive that holds bytes another reader could find and this one does not, a link or a special file, a name that
-    could stand for another path on any system (absolute or with a drive, a backslash, a colon or a control
-    character, an empty, `.` or `..` part, a part that ends in a dot or a space or is a Windows device name), a name
-    used twice even in another case or form, or, with folder, a name outside that one top folder."""
-    raw = path.read_bytes()
-    try:
-        members = _wheel_members(path, raw) if path.name.endswith(".whl") else _sdist_members(path, raw)
-    except (zipfile.BadZipFile, tarfile.TarError) as error:
-        raise ValueError(f"{path.name} is not a plain archive") from error
-    names = [member[0].removesuffix("/") for member in members]
-    if any(_unsafe_name(name) for name in names):
-        raise ValueError(f"{path.name} holds a name that is not a plain relative path")
-    if len({unicodedata.normalize("NFD", name).casefold() for name in names}) != len(names):
-        raise ValueError(f"{path.name} repeats a member")
-    if folder and any(name != folder and not name.startswith(folder + "/") for name in names):
-        raise ValueError(f"{path.name} holds a member outside its folder")
-    return sorted(members)
+def _names(path):
+    """The member names of a release archive as they are stored, a zip entry's past any NUL byte too. A link or a
+    special file refuses."""
+    if path.name.endswith(".whl"):
+        with zipfile.ZipFile(path) as archive:
+            items = archive.infolist()
+        if any(stat.S_IFMT(item.external_attr >> 16) not in (0, stat.S_IFREG, stat.S_IFDIR) for item in items):
+            raise ValueError(f"{path.name} holds a link or a special file")
+        return [item.orig_filename for item in items]
+    with tarfile.open(path, "r:gz") as archive:
+        members = archive.getmembers()
+    if not all(member.isfile() or member.isdir() for member in members):
+        raise ValueError(f"{path.name} holds a link or a special file")
+    return [member.name for member in members]
 
 
 def distributions_match_rebuild(dist, rebuilt, version):
-    """`dist` holds exactly the release's wheel and sdist, and each is, member for member, the archive an independent
-    build of the tagged tree makes: the same names, kinds, permissions, owners and bytes, metadata included. The build is
-    reproducible, so anything a compromised or broken build added, dropped or changed refuses. Member order is not
-    compared, so a runner that lists files in another order does not stop an honest release."""
+    """`dist` holds exactly the release's wheel and sdist, each byte for byte the file an independent build of the
+    tagged tree makes. The build is reproducible: both jobs build a clean checkout of the tag, dated by its commit
+    (SOURCE_DATE_EPOCH), and normalize the sdist (scripts/normalize_sdist.py). So any byte a compromised or broken
+    build added, dropped or changed stops the release, wherever in the file it hides, and no reader can find in it
+    what another would not. Each member's name must also be a plain relative path on every system, unique in any
+    case or Unicode form, and the sdist's must lie in its one top folder."""
     wheel, sdist = f"finledgerpoli-{version}-py3-none-any.whl", f"finledgerpoli-{version}.tar.gz"
     for folder in (dist, rebuilt):
         if sorted(path.name for path in Path(folder).iterdir()) != sorted([wheel, sdist]):
             raise ValueError(f"{Path(folder).resolve().name} must hold exactly the release's wheel and sdist")
-    for name, top in ((wheel, None), (sdist, f"finledgerpoli-{version}")):
-        if _archive(Path(dist) / name, top) != _archive(Path(rebuilt) / name, top):
+    for name in (wheel, sdist):
+        if (Path(dist) / name).read_bytes() != (Path(rebuilt) / name).read_bytes():
             raise ValueError(f"{name} differs from an independent build of the tagged tree")
-    return 2
+    for name, folder in ((wheel, None), (sdist, f"finledgerpoli-{version}")):
+        try:
+            names = [member.removesuffix("/") for member in _names(Path(dist) / name)]
+        except (zipfile.BadZipFile, tarfile.TarError, OSError, EOFError) as error:
+            raise ValueError(f"{name} is not a plain archive") from error
+        if any(_unsafe_name(member) for member in names):
+            raise ValueError(f"{name} holds a name that is not a plain relative path")
+        folded = {unicodedata.normalize("NFD", unicodedata.normalize("NFD", member).casefold()) for member in names}
+        if len(folded) != len(names):
+            raise ValueError(f"{name} repeats a member")
+        if folder and any(member != folder and not member.startswith(folder + "/") for member in names):
+            raise ValueError(f"{name} holds a member outside its folder")
+
+
+def sdist_builds_the_wheel(dist, version, work):
+    """The published sdist, unpacked, builds the published wheel byte for byte, under the same SOURCE_DATE_EPOCH:
+    the sdist is complete, and it is what users who build from source get."""
+    if not os.environ.get("SOURCE_DATE_EPOCH"):
+        raise ValueError("SOURCE_DATE_EPOCH must date the build, as it dates the release's")
+    folder = Path(work)
+    with tarfile.open(Path(dist) / f"finledgerpoli-{version}.tar.gz", "r:gz") as archive:
+        archive.extractall(folder / "sdist", filter="data")
+    subprocess.run([sys.executable, "-m", "build", "--wheel", "--no-isolation", "--outdir", str(folder / "wheel"),
+                    str(folder / "sdist" / f"finledgerpoli-{version}")], check=True, shell=False)
+    wheel = f"finledgerpoli-{version}-py3-none-any.whl"
+    if (folder / "wheel" / wheel).read_bytes() != (Path(dist) / wheel).read_bytes():
+        raise ValueError("the published sdist does not build the published wheel")
 
 
 def installed_package(root, location):
@@ -235,6 +207,7 @@ def main():
     parser.add_argument("--check-environment", action="store_true")
     parser.add_argument("--notes-output", type=Path)
     parser.add_argument("--distributions-match-rebuild", type=Path, nargs=2, metavar=("DIST", "REBUILT"))
+    parser.add_argument("--sdist-builds-the-wheel", type=Path, metavar="DIST")
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
     version = validate_tag(root, args.tag)
@@ -242,6 +215,9 @@ def main():
         args.notes_output.write_text(release_notes(root, version), encoding="utf-8", newline="\n")
     if args.distributions_match_rebuild:
         distributions_match_rebuild(*args.distributions_match_rebuild, version)
+    if args.sdist_builds_the_wheel:
+        with tempfile.TemporaryDirectory(prefix="finassist-sdist-") as work:
+            sdist_builds_the_wheel(args.sdist_builds_the_wheel, version, work)
     if args.check_environment:
         check_settings(os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"])
         subprocess.run(

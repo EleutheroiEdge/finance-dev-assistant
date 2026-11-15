@@ -1,12 +1,14 @@
 """Offline checks for release gates; never publish or request an OIDC token."""
 
 from pathlib import Path
-import re
-import subprocess
-import sys
 import gzip
 import io
+import os
+import re
+import shutil
 import stat
+import subprocess
+import sys
 import sysconfig
 import tarfile
 import tomllib
@@ -16,9 +18,10 @@ import zipfile
 import pytest
 import yaml
 
-from scripts import release_checks
+from scripts import normalize_sdist, release_checks
+from scripts.normalize_sdist import normalized
 from scripts.release_checks import (distributions_match_rebuild, installed_package, release_notes,
-                                    validate_environment, validate_tag, validate_tag_rules)
+                                    sdist_builds_the_wheel, validate_environment, validate_tag, validate_tag_rules)
 from finassist.platform_support import clean_environment
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -106,46 +109,96 @@ _WHEEL = [("finassist/__init__.py", b"__version__ = '0.0.0'\n"), ("finledgerpoli
           b"Name: finledgerpoli\nRequires-Dist: packaging\n"), ("finledgerpoli-0.0.0.dist-info/RECORD", b"")]
 _SDIST = [("finledgerpoli-0.0.0", None), ("finledgerpoli-0.0.0/PKG-INFO", b"Name: finledgerpoli\n"),
           ("finledgerpoli-0.0.0/src/finassist/__init__.py", b"__version__ = '0.0.0'\n")]
+_HIDDEN = [("finledgerpoli-0.0.0/src/finassist/hidden.py", b"import os\n")]
+_VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+
+
+def _entry(name, mode=stat.S_IFREG | 0o644, extra=b""):
+    entry = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
+    entry.external_attr, entry.extra = mode << 16, extra
+    return entry
+
+
+def _wheel(entries, comment=b""):
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as archive:
+        for name, data in entries:
+            archive.writestr(name if isinstance(name, zipfile.ZipInfo) else _entry(name), data)
+        archive.comment = comment
+    return stream.getvalue()
+
+
+def _tar(members):
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode="w", format=tarfile.PAX_FORMAT) as archive:
+        for name, data in members:
+            member = tarfile.TarInfo(name)
+            if data is None:
+                member.type = tarfile.DIRTYPE
+            elif isinstance(data, str):  # a link to that target
+                member.type, member.linkname = tarfile.SYMTYPE, data
+            else:
+                member.size = len(data)
+            archive.addfile(member, io.BytesIO(data) if isinstance(data, bytes) else None)
+    return stream.getvalue()
+
+
+def _sdist(members):
+    return gzip.compress(_tar(members), mtime=0)
 
 
 def _archives(folder, wheel=_WHEEL, sdist=_SDIST, extra=()):
     folder.mkdir()
-    with zipfile.ZipFile(folder / WHEEL, "w") as archive:
-        for name, data in wheel:
-            archive.writestr(name, data)
-    with tarfile.open(folder / SDIST, "w:gz") as archive:
-        for name, data in sdist:
-            member = tarfile.TarInfo(name)
-            if data is None:
-                member.type = tarfile.DIRTYPE
-                archive.addfile(member)
-            elif isinstance(data, str):  # a link to that target
-                member.type, member.linkname = tarfile.SYMTYPE, data
-                archive.addfile(member)
-            else:
-                member.size = len(data)
-                archive.addfile(member, io.BytesIO(data))
+    (folder / WHEEL).write_bytes(_wheel(wheel))
+    (folder / SDIST).write_bytes(_sdist(sdist))
     for name in extra:
         (folder / name).write_bytes(b"")
     return folder
 
 
-def test_published_archives_must_equal_an_independent_build_member_for_member(tmp_path):
-    assert distributions_match_rebuild(_archives(tmp_path / "dist"), _archives(tmp_path / "rebuilt"), "0.0.0") == 2
+def _published_and_rebuilt(tmp_path, **contents):
+    """An honest release: the published archives are copies of the rebuild's."""
+    rebuilt = _archives(tmp_path / "rebuilt", **contents)
+    return Path(shutil.copytree(rebuilt, tmp_path / "dist")), rebuilt
 
 
-@pytest.mark.parametrize("published", [
-    {"wheel": [*_WHEEL[:1], (_WHEEL[1][0], b"Name: finledgerpoli\nRequires-Dist: packaging\nRequires-Dist: other\n"),
-               *_WHEEL[2:]]},
-    {"wheel": [*_WHEEL, ("autoload.pth", b"import os\n")]},
-    {"wheel": _WHEEL[:2]},
-    {"sdist": [*_SDIST[:2], (_SDIST[2][0], b"__version__ = 'other'\n")]},
-    {"sdist": _SDIST[:2]},
-    {"sdist": [*_SDIST, ("finledgerpoli-0.0.0/setup.py", b"import os\n")]},
-], ids=["added-dependency", "path-file", "missing-member", "sdist-changed", "sdist-missing", "sdist-extra"])
-def test_an_archive_that_differs_from_the_rebuild_refuses(tmp_path, published):
+def test_published_archives_must_equal_an_independent_build_byte_for_byte(tmp_path):
+    distributions_match_rebuild(*_published_and_rebuilt(tmp_path), "0.0.0")
+
+
+_CHANGES = {
+    # What a build added, dropped or changed.
+    "added-dependency": (WHEEL, lambda raw: _wheel([_WHEEL[0], (_WHEEL[1][0], _WHEEL[1][1] + b"Requires-Dist: other\n"),
+                                                    _WHEEL[2]])),
+    "path-file": (WHEEL, lambda raw: _wheel([*_WHEEL, ("autoload.pth", b"import os\n")])),
+    "missing-member": (WHEEL, lambda raw: _wheel(_WHEEL[:2])),
+    "reordered": (WHEEL, lambda raw: _wheel([_WHEEL[1], _WHEEL[0], _WHEEL[2]])),
+    "mode": (WHEEL, lambda raw: _wheel([(_entry(_WHEEL[0][0], stat.S_IFREG | 0o4755), _WHEEL[0][1]), *_WHEEL[1:]])),
+    "sdist-changed": (SDIST, lambda raw: _sdist([*_SDIST[:2], (_SDIST[2][0], b"__version__ = 'other'\n")])),
+    "sdist-missing": (SDIST, lambda raw: _sdist(_SDIST[:2])),
+    "sdist-extra": (SDIST, lambda raw: _sdist([*_SDIST, ("finledgerpoli-0.0.0/setup.py", b"import os\n")])),
+    # Bytes one reader would find and another would not.
+    "unicode-path-field": (WHEEL, lambda raw: _wheel([(_entry(_WHEEL[0][0], extra=b"\x75\x70\x09\x00\x01" + bytes(4)
+                                                              + b"evil"), _WHEEL[0][1]), *_WHEEL[1:]])),
+    "comment": (WHEEL, lambda raw: _wheel(_WHEEL, comment=b"hidden")),
+    "bytes-before-the-entries": (WHEEL, lambda raw: b"prepended" + raw),
+    "one-byte": (WHEEL, lambda raw: raw[:40] + bytes([raw[40] ^ 1]) + raw[41:]),
+    "archive-after-the-end": (SDIST, lambda raw: gzip.compress(_tar(_SDIST) + _tar(_HIDDEN), mtime=0)),
+    "zero-blocks-between-members": (SDIST, lambda raw: gzip.compress(_tar(_SDIST)[:512] + bytes(1024)
+                                                                     + _tar(_SDIST)[512:], mtime=0)),
+    "second-gzip-stream": (SDIST, lambda raw: raw + _sdist(_HIDDEN)),
+    "bytes-after-the-gzip-stream": (SDIST, lambda raw: raw + b"trailing"),
+}
+
+
+@pytest.mark.parametrize("change", sorted(_CHANGES))
+def test_any_byte_that_differs_from_the_rebuild_refuses(tmp_path, change):
+    dist, rebuilt = _published_and_rebuilt(tmp_path)
+    name, rewrite = _CHANGES[change]
+    (dist / name).write_bytes(rewrite((dist / name).read_bytes()))
+    assert (dist / name).read_bytes() != (rebuilt / name).read_bytes()
     with pytest.raises(ValueError, match="independent build"):
-        distributions_match_rebuild(_archives(tmp_path / "dist", **published), _archives(tmp_path / "rebuilt"), "0.0.0")
+        distributions_match_rebuild(dist, rebuilt, "0.0.0")
 
 
 @pytest.mark.parametrize("sdist,match", [
@@ -158,16 +211,9 @@ def test_an_archive_that_differs_from_the_rebuild_refuses(tmp_path, published):
     ([*_SDIST, ("finledgerpoli-0.0.0/src", "/etc")], "link"),
 ], ids=["double-slash", "dot-part", "dot-dot", "backslash", "absolute", "repeated", "link"])
 def test_an_archive_member_that_could_mean_another_path_refuses(tmp_path, sdist, match):
-    # Refused before any comparison, even when the rebuild holds the same member.
+    # Refused even though the rebuild holds the same member: the tagged tree itself must not make one.
     with pytest.raises(ValueError, match=match):
-        distributions_match_rebuild(_archives(tmp_path / "dist", sdist=sdist), _archives(tmp_path / "rebuilt", sdist=sdist),
-                                    "0.0.0")
-
-
-def test_member_order_alone_does_not_stop_an_honest_release(tmp_path):
-    reordered = [_WHEEL[1], _WHEEL[0], _WHEEL[2]]
-    assert distributions_match_rebuild(_archives(tmp_path / "dist", wheel=reordered), _archives(tmp_path / "rebuilt"),
-                                       "0.0.0") == 2
+        distributions_match_rebuild(*_published_and_rebuilt(tmp_path, sdist=sdist), "0.0.0")
 
 
 @pytest.mark.parametrize("name,match", [
@@ -180,34 +226,33 @@ def test_member_order_alone_does_not_stop_an_honest_release(tmp_path):
     ("other/README.md", "outside its folder"),
 ], ids=["drive", "device", "trailing-dot", "trailing-space", "control", "case-collision", "outside"])
 def test_an_archive_name_unsafe_on_any_system_refuses(tmp_path, name, match):
-    sdist = [*_SDIST, (name, b"")]
     with pytest.raises(ValueError, match=match):
-        distributions_match_rebuild(_archives(tmp_path / "dist", sdist=sdist), _archives(tmp_path / "rebuilt", sdist=sdist),
-                                    "0.0.0")
+        distributions_match_rebuild(*_published_and_rebuilt(tmp_path, sdist=[*_SDIST, (name, b"")]), "0.0.0")
+
+
+@pytest.mark.parametrize("names", [
+    ["finledgerpoli-0.0.0/src/CON .py"], ["finledgerpoli-0.0.0/src/COM\u00b9.py"], ["finledgerpoli-0.0.0/CONIN$"],
+    ["finledgerpoli-0.0.0/del\x7f"], ["finledgerpoli-0.0.0/c\u0301", "finledgerpoli-0.0.0/\u0107"],
+    ["finledgerpoli-0.0.0/\u0130.py", "finledgerpoli-0.0.0/i\u0307.py"],
+], ids=["device-and-space", "device-superscript", "console", "delete", "combining", "dotted-capital"])
+def test_more_names_unsafe_on_some_system_refuse(tmp_path, names):
+    sdist = [*_SDIST, *((name, b"") for name in names)]
+    with pytest.raises(ValueError, match="plain relative path|repeats"):
+        distributions_match_rebuild(*_published_and_rebuilt(tmp_path, sdist=sdist), "0.0.0")
 
 
 def test_a_wheel_member_stored_as_a_link_refuses(tmp_path):
-    folders = [_archives(tmp_path / name) for name in ("dist", "rebuilt")]
-    for folder in folders:
-        with zipfile.ZipFile(folder / WHEEL, "a") as archive:
-            link = zipfile.ZipInfo("finassist/elsewhere")
-            link.external_attr = (stat.S_IFLNK | 0o777) << 16
-            archive.writestr(link, "/etc")
+    wheel = [*_WHEEL, (_entry("finassist/elsewhere", stat.S_IFLNK | 0o777), b"/etc")]
     with pytest.raises(ValueError, match="link or a special file"):
-        distributions_match_rebuild(*folders, "0.0.0")
+        distributions_match_rebuild(*_published_and_rebuilt(tmp_path, wheel=wheel), "0.0.0")
 
 
-def test_a_member_mode_that_differs_from_the_rebuild_refuses(tmp_path):
-    dist, rebuilt = _archives(tmp_path / "dist"), _archives(tmp_path / "rebuilt")
-    with zipfile.ZipFile(dist / WHEEL, "a") as archive:
-        script = zipfile.ZipInfo("finassist/run.py")
-        script.external_attr = (stat.S_IFREG | 0o4755) << 16
-        archive.writestr(script, b"")
-    with zipfile.ZipFile(rebuilt / WHEEL, "a") as archive:
-        script = zipfile.ZipInfo("finassist/run.py")
-        script.external_attr = (stat.S_IFREG | 0o644) << 16
-        archive.writestr(script, b"")
-    with pytest.raises(ValueError, match="independent build"):
+def test_a_wheel_name_that_runs_on_past_a_nul_byte_refuses(tmp_path):
+    # Python's reader cuts such a name at the NUL; other readers keep all of it.
+    dist, rebuilt = _published_and_rebuilt(tmp_path, wheel=[*_WHEEL, ("finassist/run.py?../evil.py", b"")])
+    for folder in (dist, rebuilt):
+        (folder / WHEEL).write_bytes((folder / WHEEL).read_bytes().replace(b"run.py?", b"run.py\0"))
+    with pytest.raises(ValueError, match="plain relative path"):
         distributions_match_rebuild(dist, rebuilt, "0.0.0")
 
 
@@ -225,82 +270,90 @@ def test_a_link_header_names_a_next_page_however_it_is_written(link, more):
     assert release_checks._names_next(link) is more
 
 
-def _tar(members):
+_MEMBERS = [("p-1", None, 0o775), ("p-1/run.sh", b"echo\n", 0o775), ("p-1/PKG-INFO", b"Name: p\n", 0o664)]
+
+
+def _built_sdist(members, mtime, owner, stamp):
+    """An sdist as a build tool might write it: its own order, times and owners, and a dated gzip header."""
     stream = io.BytesIO()
-    with tarfile.open(fileobj=stream, mode="w") as archive:
-        for name, data in members:
+    with tarfile.open(fileobj=stream, mode="w", format=tarfile.GNU_FORMAT) as archive:
+        for name, data, mode in members:
             member = tarfile.TarInfo(name)
+            member.mtime, member.uid, member.gid, member.mode = mtime, owner, owner, mode
+            member.uname, member.gname = f"user{owner}", f"group{owner}"
             if data is None:
                 member.type = tarfile.DIRTYPE
-                archive.addfile(member)
+            elif isinstance(data, str):  # a link to that target
+                member.type, member.linkname = tarfile.SYMTYPE, data
             else:
                 member.size = len(data)
-                archive.addfile(member, io.BytesIO(data))
-    return stream.getvalue()
+            archive.addfile(member, io.BytesIO(data) if isinstance(data, bytes) else None)
+    return gzip.compress(stream.getvalue(), mtime=stamp)
 
 
-@pytest.mark.parametrize("stream,match", [
-    (lambda clean: clean + _tar([("finledgerpoli-0.0.0/src/finassist/hidden.py", b"import os\n")]), "independent build"),
-    (lambda clean: clean + b"not padding", "after its last member|not a plain archive"),
-], ids=["archive-appended-after-the-end", "bytes-after-the-end"])
-def test_an_sdist_that_another_reader_would_read_differently_refuses(tmp_path, stream, match):
-    dist, rebuilt = _archives(tmp_path / "dist"), _archives(tmp_path / "rebuilt")
-    (dist / SDIST).write_bytes(gzip.compress(stream(_tar(_SDIST))))
+def test_normalizing_makes_two_builds_of_one_tree_agree_and_keeps_every_file():
+    first = normalized(_built_sdist(_MEMBERS, 1_700_000_000, 1001, 5), 1_600_000_000)
+    assert first == normalized(_built_sdist(_MEMBERS[::-1], 1_700_000_999, 0, 9), 1_600_000_000)
+    assert first[3] == 0 and first[4:8] == bytes(4)  # the gzip header records no name and no time
+    with tarfile.open(fileobj=io.BytesIO(first), mode="r:gz") as archive:
+        assert [(member.name, member.mode, member.mtime, member.uid, member.uname) for member in archive] == [
+            ("p-1", 0o755, 1_600_000_000, 0, ""), ("p-1/PKG-INFO", 0o644, 1_600_000_000, 0, ""),
+            ("p-1/run.sh", 0o755, 1_600_000_000, 0, "")]
+        assert archive.extractfile("p-1/run.sh").read() == b"echo\n"
+        assert archive.extractfile("p-1/PKG-INFO").read() == b"Name: p\n"
+
+
+@pytest.mark.parametrize("members,match", [
+    ([*_MEMBERS, ("p-1/elsewhere", "/etc", 0o777)], "link"),
+    ([*_MEMBERS, ("p-1/run.sh", b"other\n", 0o644)], "repeats"),
+], ids=["link", "repeated"])
+def test_normalizing_refuses_an_sdist_with_a_link_or_a_repeated_member(members, match):
     with pytest.raises(ValueError, match=match):
-        distributions_match_rebuild(dist, rebuilt, "0.0.0")
+        normalized(_built_sdist(members, 1_700_000_000, 0, 0), 1_600_000_000)
 
 
-def test_an_sdist_with_bytes_after_its_gzip_stream_refuses(tmp_path):
-    dist, rebuilt = _archives(tmp_path / "dist"), _archives(tmp_path / "rebuilt")
-    (dist / SDIST).write_bytes((dist / SDIST).read_bytes() + b"trailing")
-    with pytest.raises(ValueError, match="gzip"):
-        distributions_match_rebuild(dist, rebuilt, "0.0.0")
+def test_normalize_rewrites_the_folders_one_sdist_in_place(tmp_path, monkeypatch, capsys):
+    (tmp_path / "p-1.tar.gz").write_bytes(_built_sdist(_MEMBERS, 1_700_000_000, 1001, 5))
+    (tmp_path / "p-1-py3-none-any.whl").write_bytes(b"left alone")
+    monkeypatch.setattr(sys, "argv", ["normalize_sdist.py", str(tmp_path)])
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1600000000")
+    normalize_sdist.main()
+    assert (tmp_path / "p-1.tar.gz").read_bytes() == normalized(_built_sdist(_MEMBERS, 1, 0, 0), 1_600_000_000)
+    assert (tmp_path / "p-1-py3-none-any.whl").read_bytes() == b"left alone"
+    assert capsys.readouterr().out == "p-1.tar.gz normalized\n"
 
 
-@pytest.mark.parametrize("change,match", [
-    (lambda raw: b"prepended" + raw, "outside its entries"),
-    (lambda raw: raw[:-2] + b"\x07\x00comment", "end record"),
-], ids=["bytes-before-the-entries", "comment"])
-def test_a_wheel_that_another_reader_would_read_differently_refuses(tmp_path, change, match):
-    dist, rebuilt = _archives(tmp_path / "dist"), _archives(tmp_path / "rebuilt")
-    (dist / WHEEL).write_bytes(change((dist / WHEEL).read_bytes()))
-    with pytest.raises(ValueError, match=match):
-        distributions_match_rebuild(dist, rebuilt, "0.0.0")
+def test_an_sdist_that_does_not_build_the_published_wheel_refuses(tmp_path, monkeypatch):
+    dist = _archives(tmp_path / "dist")
 
+    def builds(entries):  # stands for `python -m build --wheel`, making a wheel of these entries
+        def run(command, **options):
+            outdir = Path(command[command.index("--outdir") + 1])
+            outdir.mkdir(parents=True)
+            (outdir / WHEEL).write_bytes(_wheel(entries))
+        return run
 
-@pytest.mark.parametrize("name,attributes,data,match", [
-    ("finassist/run.py", (stat.S_IFDIR | 0o755) << 16, b"", "link or a special file"),
-    ("finassist/folder/", (stat.S_IFDIR | 0o755) << 16, b"payload", "data in a directory"),
-], ids=["file-marked-directory", "directory-with-data"])
-def test_a_wheel_entry_whose_kind_and_contents_disagree_refuses(tmp_path, name, attributes, data, match):
-    folders = [_archives(tmp_path / folder) for folder in ("dist", "rebuilt")]
-    for folder in folders:
-        with zipfile.ZipFile(folder / WHEEL, "a") as archive:
-            entry = zipfile.ZipInfo(name)
-            entry.external_attr = attributes
-            archive.writestr(entry, data)
-    with pytest.raises(ValueError, match=match):
-        distributions_match_rebuild(*folders, "0.0.0")
-
-
-@pytest.mark.parametrize("name", ["finledgerpoli-0.0.0/src/CON .py", "finledgerpoli-0.0.0/src/COM\u00b9.py",
-                                  "finledgerpoli-0.0.0/CONIN$", "finledgerpoli-0.0.0/del\x7f",
-                                  "finledgerpoli-0.0.0/c\u0301"], ids=["device-and-space", "device-superscript",
-                                                                         "console", "delete", "combining"])
-def test_more_names_unsafe_on_some_system_refuse(tmp_path, name):
-    sdist = [*_SDIST, (name, b"")]
-    if name.endswith("\u0301"):
-        sdist.append(("finledgerpoli-0.0.0/\u0107", b""))  # the same name, composed
-    with pytest.raises(ValueError, match="plain relative path|repeats"):
-        distributions_match_rebuild(_archives(tmp_path / "dist", sdist=sdist), _archives(tmp_path / "rebuilt", sdist=sdist),
-                                    "0.0.0")
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1600000000")
+    monkeypatch.setattr(release_checks.subprocess, "run", builds(_WHEEL))
+    sdist_builds_the_wheel(dist, "0.0.0", tmp_path / "same")
+    monkeypatch.setattr(release_checks.subprocess, "run", builds([*_WHEEL, ("finassist/added.py", b"")]))
+    with pytest.raises(ValueError, match="does not build the published wheel"):
+        sdist_builds_the_wheel(dist, "0.0.0", tmp_path / "other")
+    monkeypatch.delenv("SOURCE_DATE_EPOCH")
+    with pytest.raises(ValueError, match="SOURCE_DATE_EPOCH"):
+        sdist_builds_the_wheel(dist, "0.0.0", tmp_path / "undated")
 
 
 def test_child_processes_import_only_the_installed_wheel_while_it_is_required(monkeypatch):
-    from conftest import source_path
+    from conftest import pytest_configure, source_path
     monkeypatch.setenv("FINASSIST_REQUIRE_INSTALLED", "1")
-    child = source_path({"PYTHONPATH": "src", "OTHER": "kept"})
+    child = source_path({"PYTHONPATH": "src", "PYTHONSAFEPATH": "", "OTHER": "kept"})
     assert "PYTHONPATH" not in child and child["PYTHONSAFEPATH"] == "1" and child["OTHER"] == "kept"
+    # The suite's own environment loses PYTHONPATH too, for the children that inherit it.
+    monkeypatch.setenv("PYTHONPATH", "src")
+    monkeypatch.setattr(release_checks, "installed_package", lambda root, location: None)
+    pytest_configure(None)
+    assert "PYTHONPATH" not in os.environ
     monkeypatch.delenv("FINASSIST_REQUIRE_INSTALLED")
     assert source_path({})["PYTHONPATH"] == str(ROOT / "src")
 
@@ -378,24 +431,43 @@ def test_a_document_that_runs_on_to_another_page_refuses(monkeypatch):
         release_checks.read_github("owner/repository", "rulesets?per_page=100", "x")
 
 
+DIGEST = "find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f 1"
+REPRODUCIBLE = ("SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)", "export SOURCE_DATE_EPOCH",
+                'git worktree add --detach "$RUNNER_TEMP/source" HEAD')
+
+
+def _in_order(job, *texts):
+    script = "\n".join(step.get("run", "") for step in job["steps"])
+    positions = [script.index(text) for text in texts]
+    assert positions == sorted(positions), texts
+
+
 def test_release_workflow_is_tag_only_and_least_privilege():
     workflow = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8"))
     assert workflow.get("on", workflow.get(True)) == {"push": {"tags": ["v*"]}}
     assert workflow["permissions"] == {"contents": "read"}
     assert set(workflow["jobs"]) == {"build", "gates", "publish"}
-    publish = workflow["jobs"]["publish"]
+    build, gates, publish = (workflow["jobs"][name] for name in ("build", "gates", "publish"))
     assert publish["needs"] == ["build", "gates"] and publish["environment"]["name"] == "pypi"
-    # The gates job holds no permission of its own, and tests the built archives, never the tree: they are compared
-    # with an independent build of the tagged checkout, member for member, before the wheel is installed by its hash;
-    # the whole suite runs against it and refuses to start on the tree; and the demo runs outside the checkout.
-    gates = workflow["jobs"]["gates"]
+    # Both jobs build a clean checkout of the tag the same way, dated by its commit, and normalize the sdist, so an
+    # honest release gives the same bytes twice.
+    _in_order(build, *REPRODUCIBLE, 'python -m build --no-isolation --outdir dist "$RUNNER_TEMP/source"',
+              "python scripts/normalize_sdist.py dist", "python -m twine check --strict dist/*")
+    # The gates job holds no permission of its own, and tests the built archives, never the tree: it records their
+    # digest, compares them with its own build byte for byte, builds the wheel from the published sdist, installs
+    # the wheel by its hash, runs the whole suite against it, which refuses to start on the tree, and the demo
+    # outside the checkout.
     assert gates["needs"] == "build" and "permissions" not in gates and "environment" not in gates
+    _in_order(gates, DIGEST, "python scripts/ci_install.py dependencies", *REPRODUCIBLE,
+              'python -m build --no-isolation --outdir "$RUNNER_TEMP/rebuilt" "$RUNNER_TEMP/source"',
+              'python scripts/normalize_sdist.py "$RUNNER_TEMP/rebuilt"',
+              '--distributions-match-rebuild "$RUNNER_TEMP/release/dist" "$RUNNER_TEMP/rebuilt"',
+              '--sdist-builds-the-wheel "$RUNNER_TEMP/release/dist"',
+              'python scripts/ci_install.py wheel "$RUNNER_TEMP/release/dist"', "python scripts/ci_test.py",
+              "finassist demo")
+    checks = next(step["run"] for step in gates["steps"] if "--sdist-builds-the-wheel" in step.get("run", ""))
+    assert "export SOURCE_DATE_EPOCH" in checks
     runs = [step.get("run", "") for step in gates["steps"]]
-    order = [next(index for index, run in enumerate(runs) if text in run) for text in (
-        "python scripts/ci_install.py dependencies", 'python -m build --no-isolation --outdir "$RUNNER_TEMP/rebuilt"',
-        '--distributions-match-rebuild "$RUNNER_TEMP/release/dist" "$RUNNER_TEMP/rebuilt"',
-        'python scripts/ci_install.py wheel "$RUNNER_TEMP/release/dist"', "python scripts/ci_test.py", "finassist demo")]
-    assert order == sorted(order)
     assert not any("ci_install.py project" in run or "finassist scan" in run for run in runs)
     suite = next(step for step in gates["steps"] if step.get("run") == "python scripts/ci_test.py")
     assert suite["env"] == {"FINASSIST_REQUIRE_INSTALLED": "1"}
@@ -403,16 +475,22 @@ def test_release_workflow_is_tag_only_and_least_privilege():
     assert downloads == [{"name": "release-${{ github.sha }}", "path": "${{ runner.temp }}/release"}]
     assert next(step for step in gates["steps"] if step.get("run") == "finassist demo")["working-directory"] == (
         "${{ runner.temp }}")
+    # The publishing job publishes only the files the gates job tested: right after downloading the artifact, it
+    # checks the digest of every file it holds against the one the gates job recorded.
+    recorded = next(step for step in gates["steps"] if step.get("id") == "gated")
+    assert gates["outputs"] == {"digest": "${{ steps.gated.outputs.digest }}"} and DIGEST in recorded["run"]
+    verify = publish["steps"][1]
+    assert "download-artifact" in publish["steps"][0]["uses"] and DIGEST in verify["run"]
+    assert verify["env"] == {"GATED": "${{ needs.gates.outputs.digest }}"} and '"$digest" = "$GATED"' in verify["run"]
     assert publish["environment"]["url"] == "https://pypi.org/project/finledgerpoli/"
     assert publish["permissions"] == {"contents": "write", "id-token": "write", "attestations": "write"}
-    assert "permissions" not in workflow["jobs"]["build"]
+    assert "permissions" not in build
     for job in workflow["jobs"].values():
         for step in job["steps"]:
             if "uses" in step:
                 assert re.fullmatch(r"[^@]+@[a-f0-9]{40}", step["uses"])
-    steps = workflow["jobs"]["build"]["steps"]
-    assert any("--check-environment" in step.get("run", "") for step in steps)
-    assert any("git diff --exit-code -- src/finassist/resources/dashboard" == step.get("run") for step in steps)
+    assert any("--check-environment" in step.get("run", "") for step in build["steps"])
+    assert any("git diff --exit-code -- src/finassist/resources/dashboard" == step.get("run") for step in build["steps"])
     assert not any("secrets." in str(job) for job in workflow["jobs"].values())
     assert "gh release create" in publish["steps"][-1]["run"]
     publisher = publish["steps"][-2]
@@ -461,10 +539,26 @@ def test_current_unreleased_notes_explain_upgrade_and_downgrade_boundary():
     assert "Historical releases" in notes
 
 
-def test_built_source_distribution_contains_complete_action_bootstrap(tmp_path):
-    subprocess.run([sys.executable, "-m", "build", "--sdist", "--no-isolation", "--outdir", str(tmp_path)],
-                   cwd=ROOT, env=clean_environment(), capture_output=True, check=True, timeout=90, shell=False)
-    archives = list(tmp_path.glob("finledgerpoli-*.tar.gz"))
+EPOCH = "1767225600"  # a fixed time; the release dates both of its builds by the tagged commit
+
+
+def _release_build(outdir):
+    """This tree built as the release builds it: dated, with the sdist normalized."""
+    environment = {**clean_environment(), "SOURCE_DATE_EPOCH": EPOCH}
+    subprocess.run([sys.executable, "-m", "build", "--no-isolation", "--outdir", str(outdir)], cwd=ROOT,
+                   env=environment, capture_output=True, check=True, timeout=300, shell=False)
+    subprocess.run([sys.executable, str(ROOT / "scripts/normalize_sdist.py"), str(outdir)], env=environment,
+                   capture_output=True, check=True, timeout=60, shell=False)
+    return outdir
+
+
+@pytest.fixture(scope="module")
+def release_build(tmp_path_factory):
+    return _release_build(tmp_path_factory.mktemp("release") / "dist")
+
+
+def test_built_source_distribution_contains_complete_action_bootstrap(release_build):
+    archives = list(release_build.glob("finledgerpoli-*.tar.gz"))
     assert len(archives) == 1
     with tarfile.open(archives[0], "r:gz") as archive:
         prefix = archive.getmembers()[0].name.split("/")[0] + "/"
@@ -472,6 +566,17 @@ def test_built_source_distribution_contains_complete_action_bootstrap(tmp_path):
             member = archive.extractfile(prefix + relative)
             assert member is not None and member.read() == (ROOT / relative).read_bytes()
         assert not any(".finassist" in Path(member.name).parts for member in archive.getmembers())
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="releases are built on Linux; one build is enough elsewhere")
+def test_two_release_builds_of_this_tree_are_byte_identical(release_build, tmp_path):
+    distributions_match_rebuild(release_build, _release_build(tmp_path / "again"), _VERSION)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="releases are built on Linux; one build is enough elsewhere")
+def test_the_release_sdist_builds_the_release_wheel(release_build, tmp_path, monkeypatch):
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", EPOCH)
+    sdist_builds_the_wheel(release_build, _VERSION, tmp_path)
 
 
 @pytest.mark.parametrize("headers", ["", "## 0.3.01 - Unreleased\n\nWrong version", "## 0.3.0 - Unreleased\n\n", "## 0.3.0 - Unreleased\n\nOne\n\n## 0.3.0 - 2026-10-28\n\nTwo"])

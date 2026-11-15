@@ -467,7 +467,7 @@ def test_explain_option_conflicts_are_refused(argv, code, capsys):
 ])
 def test_explain_output_is_ascii_under_any_locale(environment):
     env = {key: value for key, value in os.environ.items() if key not in {"PYTHONUTF8", "PYTHONIOENCODING"}}
-    env = {**source_path(env), **environment}
+    env = source_path({**env, **environment})
     for argv, expected in ((["explain", "network_not_approved", "--format", "text"], 0),
                            (["explain", "--list", "--format", "text"], 0), (["explain", "zz_nothing"], 2)):
         completed = subprocess.run([sys.executable, "-m", "finassist", *argv], env=env, capture_output=True,

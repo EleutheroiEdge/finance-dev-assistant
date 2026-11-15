@@ -22,6 +22,8 @@ def pytest_configure(config):
             installed_package(Path(__file__).resolve().parents[1], location)
         except ValueError as error:
             raise pytest.UsageError(str(error)) from None
+        # Nor may a child process that inherits the suite's own environment be pointed at the tree.
+        os.environ.pop("PYTHONPATH", None)
 
 
 def source_path(environment: dict) -> dict:

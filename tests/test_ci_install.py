@@ -70,7 +70,8 @@ def test_workflows_keep_hash_verification_and_existing_check_identities():
                 "platform (macOS, 3.12)", "platform (macOS)",
             ]
         else:
-            assert any(step.get("run") == "python -m build --no-isolation" for step in steps)
+            assert any('python -m build --no-isolation --outdir dist "$RUNNER_TEMP/source"' in step.get("run", "")
+                       for step in steps)
 
 
 def test_local_wheel_install_verifies_artifact_without_fetching_dependencies(tmp_path, monkeypatch):
