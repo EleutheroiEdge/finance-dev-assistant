@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sysconfig
 import tarfile
@@ -53,47 +54,62 @@ def validate_tag_rules(rulesets):
     found = [(ruleset, rules(ruleset)) for ruleset in rulesets]
     if not any({"deletion", "update"} <= set(kinds) and "creation" not in kinds
                and not kinds["update"].get("update_allows_fetch_and_merge") and not ruleset.get("bypass_actors")
-               and ruleset.get("current_user_can_bypass", "never") == "never" for ruleset, kinds in found):
+               and (ruleset.get("current_user_can_bypass") or "never") == "never" for ruleset, kinds in found):
         raise ValueError("release tags need an active ruleset, with no bypass, that blocks moving and deleting them")
     if not any("creation" in kinds for _ruleset, kinds in found):
         raise ValueError("release tags need an active ruleset that restricts creating them")
 
 
-def _archive(path):
-    """Each member of a release archive as (name, kind, bytes), in order. A name that could stand for anything but
-    itself refuses: absolute, with a backslash, an empty, `.` or `..` part, or named twice."""
+_DEVICE = re.compile(r"(?i)(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?")
+
+
+def _archive(path, folder=None):
+    """Each member of a release archive as (name, kind, permission bits, bytes), sorted. A link or a special file
+    refuses, and so does a name that could stand for another path on any system an archive is installed on:
+    absolute or with a drive, a backslash, a colon or a control character, an empty, `.` or `..` part, a part that
+    ends in a dot or a space or is a Windows device name, a name used twice even in another case, or, with folder,
+    a name outside that one top folder."""
+    members = []
     if path.name.endswith(".whl"):
         with zipfile.ZipFile(path) as archive:
-            members = [(item.filename, "directory" if item.is_dir() else "file",
-                        b"" if item.is_dir() else archive.read(item)) for item in archive.infolist()]
+            for item in archive.infolist():
+                mode = item.external_attr >> 16
+                if stat.S_IFMT(mode) not in (0, stat.S_IFREG, stat.S_IFDIR):
+                    raise ValueError(f"{path.name} holds a link or a special file")
+                members.append((item.filename, "directory" if item.is_dir() else "file", stat.S_IMODE(mode),
+                                b"" if item.is_dir() else archive.read(item)))
     else:
         with tarfile.open(path, "r:gz") as archive:
-            members = []
             for member in archive.getmembers():
                 if not (member.isfile() or member.isdir()):
                     raise ValueError(f"{path.name} holds a link or a special file")
-                members.append((member.name, "directory" if member.isdir() else "file",
+                members.append((member.name, "directory" if member.isdir() else "file", stat.S_IMODE(member.mode),
                                 archive.extractfile(member).read() if member.isfile() else b""))
-    names = [name.removesuffix("/") for name, _kind, _data in members]
-    if any("\\" in name or name.startswith("/") or {"", ".", ".."} & set(name.split("/")) for name in names):
+    names = [name.removesuffix("/") for name, *_rest in members]
+    if any("\\" in name or ":" in name or name.startswith("/") or any(ord(character) < 32 for character in name)
+           or any(part in ("", ".", "..") or part[-1] in ". " or _DEVICE.fullmatch(part) for part in name.split("/"))
+           for name in names):
         raise ValueError(f"{path.name} holds a name that is not a plain relative path")
-    if len(names) != len(set(names)):
+    if len({name.casefold() for name in names}) != len(names):
         raise ValueError(f"{path.name} repeats a member")
-    return members
+    if folder and any(name != folder and not name.startswith(folder + "/") for name in names):
+        raise ValueError(f"{path.name} holds a member outside its folder")
+    return sorted(members)
 
 
 def distributions_match_rebuild(dist, rebuilt, version):
     """`dist` holds exactly the release's wheel and sdist, and each is, member for member, the archive an independent
-    build of the tagged tree makes: the same names in the same order, the same kinds and the same bytes, metadata
-    included. The build is reproducible, so anything a compromised or broken build added, dropped or changed refuses."""
-    expected = sorted([f"finledgerpoli-{version}-py3-none-any.whl", f"finledgerpoli-{version}.tar.gz"])
+    build of the tagged tree makes: the same names, kinds, permission bits and bytes, metadata included. The build is
+    reproducible, so anything a compromised or broken build added, dropped or changed refuses. Member order is not
+    compared, so a runner that lists files in another order does not stop an honest release."""
+    wheel, sdist = f"finledgerpoli-{version}-py3-none-any.whl", f"finledgerpoli-{version}.tar.gz"
     for folder in (dist, rebuilt):
-        if sorted(path.name for path in Path(folder).iterdir()) != expected:
-            raise ValueError("dist must hold exactly the release's wheel and sdist")
-    for name in expected:
-        if _archive(Path(dist) / name) != _archive(Path(rebuilt) / name):
+        if sorted(path.name for path in Path(folder).iterdir()) != sorted([wheel, sdist]):
+            raise ValueError(f"{Path(folder).name} must hold exactly the release's wheel and sdist")
+    for name, top in ((wheel, None), (sdist, f"finledgerpoli-{version}")):
+        if _archive(Path(dist) / name, top) != _archive(Path(rebuilt) / name, top):
             raise ValueError(f"{name} differs from an independent build of the tagged tree")
-    return len(expected)
+    return 2
 
 
 def installed_package(root, location):
@@ -112,9 +128,20 @@ def read_github(repository, path, token):
                  "X-GitHub-Api-Version": "2022-11-28"},
     )
     with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310 fixed HTTPS API
-        if 'rel="next"' in (response.headers.get("Link") or ""):
+        if _names_next(response.headers.get("Link") or ""):
             raise ValueError(f"{path} runs on to another page")
         return json.load(response)
+
+
+def _names_next(link):
+    """Whether a Link header names a next page: any `rel` parameter whose relations include next, in any case, quoted
+    or not, alone or with others."""
+    for value in link.split(","):
+        for parameter in value.split(";")[1:]:
+            key, _equals, relations = parameter.partition("=")
+            if key.strip().lower() == "rel" and "next" in relations.strip().strip('"').lower().split():
+                return True
+    return False
 
 
 def check_settings(repository, token):

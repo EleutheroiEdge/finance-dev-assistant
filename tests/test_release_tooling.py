@@ -5,6 +5,7 @@ import re
 import subprocess
 import sys
 import io
+import stat
 import sysconfig
 import tarfile
 import tomllib
@@ -70,6 +71,7 @@ def test_release_tags_are_kept_from_moving_and_deletion_and_their_creation_is_re
     without_list = {key: value for key, value in FIXED.items() if key != "bypass_actors"}
     validate_tag_rules([without_list, CREATION])  # the workflow token sees no bypass list: the maintainer checks it
     validate_tag_rules([{**FIXED, "current_user_can_bypass": "never"}, CREATION])
+    validate_tag_rules([{**FIXED, "current_user_can_bypass": None}, CREATION])  # null, as an API may send it
     validate_tag_rules([_ruleset("deletion", "update", conditions={"ref_name": {"include": ["~ALL"]}}), CREATION])
 
 
@@ -136,11 +138,10 @@ def test_published_archives_must_equal_an_independent_build_member_for_member(tm
                *_WHEEL[2:]]},
     {"wheel": [*_WHEEL, ("autoload.pth", b"import os\n")]},
     {"wheel": _WHEEL[:2]},
-    {"wheel": [_WHEEL[1], _WHEEL[0], _WHEEL[2]]},
     {"sdist": [*_SDIST[:2], (_SDIST[2][0], b"__version__ = 'other'\n")]},
     {"sdist": _SDIST[:2]},
     {"sdist": [*_SDIST, ("finledgerpoli-0.0.0/setup.py", b"import os\n")]},
-], ids=["added-dependency", "path-file", "missing-member", "reordered", "sdist-changed", "sdist-missing", "sdist-extra"])
+], ids=["added-dependency", "path-file", "missing-member", "sdist-changed", "sdist-missing", "sdist-extra"])
 def test_an_archive_that_differs_from_the_rebuild_refuses(tmp_path, published):
     with pytest.raises(ValueError, match="independent build"):
         distributions_match_rebuild(_archives(tmp_path / "dist", **published), _archives(tmp_path / "rebuilt"), "0.0.0")
@@ -160,6 +161,65 @@ def test_an_archive_member_that_could_mean_another_path_refuses(tmp_path, sdist,
     with pytest.raises(ValueError, match=match):
         distributions_match_rebuild(_archives(tmp_path / "dist", sdist=sdist), _archives(tmp_path / "rebuilt", sdist=sdist),
                                     "0.0.0")
+
+
+def test_member_order_alone_does_not_stop_an_honest_release(tmp_path):
+    reordered = [_WHEEL[1], _WHEEL[0], _WHEEL[2]]
+    assert distributions_match_rebuild(_archives(tmp_path / "dist", wheel=reordered), _archives(tmp_path / "rebuilt"),
+                                       "0.0.0") == 2
+
+
+@pytest.mark.parametrize("name,match", [
+    ("finledgerpoli-0.0.0/C:x", "plain relative path"),
+    ("finledgerpoli-0.0.0/src/CON.py", "plain relative path"),
+    ("finledgerpoli-0.0.0/notes.", "plain relative path"),
+    ("finledgerpoli-0.0.0/notes ", "plain relative path"),
+    ("finledgerpoli-0.0.0/bell\x07", "plain relative path"),
+    ("finledgerpoli-0.0.0/src/finassist/__INIT__.py", "repeats"),
+    ("other/README.md", "outside its folder"),
+], ids=["drive", "device", "trailing-dot", "trailing-space", "control", "case-collision", "outside"])
+def test_an_archive_name_unsafe_on_any_system_refuses(tmp_path, name, match):
+    sdist = [*_SDIST, (name, b"")]
+    with pytest.raises(ValueError, match=match):
+        distributions_match_rebuild(_archives(tmp_path / "dist", sdist=sdist), _archives(tmp_path / "rebuilt", sdist=sdist),
+                                    "0.0.0")
+
+
+def test_a_wheel_member_stored_as_a_link_refuses(tmp_path):
+    folders = [_archives(tmp_path / name) for name in ("dist", "rebuilt")]
+    for folder in folders:
+        with zipfile.ZipFile(folder / WHEEL, "a") as archive:
+            link = zipfile.ZipInfo("finassist/elsewhere")
+            link.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(link, "/etc")
+    with pytest.raises(ValueError, match="link or a special file"):
+        distributions_match_rebuild(*folders, "0.0.0")
+
+
+def test_a_member_mode_that_differs_from_the_rebuild_refuses(tmp_path):
+    dist, rebuilt = _archives(tmp_path / "dist"), _archives(tmp_path / "rebuilt")
+    with zipfile.ZipFile(dist / WHEEL, "a") as archive:
+        script = zipfile.ZipInfo("finassist/run.py")
+        script.external_attr = (stat.S_IFREG | 0o4755) << 16
+        archive.writestr(script, b"")
+    with zipfile.ZipFile(rebuilt / WHEEL, "a") as archive:
+        script = zipfile.ZipInfo("finassist/run.py")
+        script.external_attr = (stat.S_IFREG | 0o644) << 16
+        archive.writestr(script, b"")
+    with pytest.raises(ValueError, match="independent build"):
+        distributions_match_rebuild(dist, rebuilt, "0.0.0")
+
+
+@pytest.mark.parametrize("link,more", [
+    ('<https://api.github.com/x?page=2>; rel="next"', True),
+    ("<https://api.github.com/x?page=2>; rel=next", True),
+    ('<https://api.github.com/x?page=2>; REL = "prev next"', True),
+    ('<https://api.github.com/x?page=1>; rel="prev", <https://api.github.com/x?page=3>; rel="last"', False),
+    ('<https://api.github.com/x?rel="next">; rel="prev"', False),
+    ("", False),
+], ids=["quoted", "bare", "spaced-and-several", "prev-and-last", "in-the-address", "none"])
+def test_a_link_header_names_a_next_page_however_it_is_written(link, more):
+    assert release_checks._names_next(link) is more
 
 
 def test_dist_must_hold_exactly_the_release_archives(tmp_path):

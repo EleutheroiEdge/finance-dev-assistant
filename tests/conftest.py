@@ -15,10 +15,21 @@ def pytest_configure(config):
         import finassist
         from scripts.release_checks import installed_package
 
+        location = getattr(finassist, "__file__", None)
+        if location is None:
+            raise pytest.UsageError("finassist has no file: the tests would not import the installed wheel")
         try:
-            installed_package(Path(__file__).resolve().parents[1], finassist.__file__)
+            installed_package(Path(__file__).resolve().parents[1], location)
         except ValueError as error:
             raise pytest.UsageError(str(error)) from None
+
+
+def source_path() -> dict:
+    """The PYTHONPATH that points a child process at the tree's own source, or none while the release's gates job
+    tests the installed wheel (FINASSIST_REQUIRE_INSTALLED), so a child imports that wheel too."""
+    if os.environ.get("FINASSIST_REQUIRE_INSTALLED"):
+        return {}
+    return {"PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
 
 
 @pytest.fixture(autouse=True)

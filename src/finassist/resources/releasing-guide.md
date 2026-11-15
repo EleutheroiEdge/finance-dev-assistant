@@ -74,9 +74,10 @@ No action needed. Upgrades never edit project configuration or evidence.
    it is not a vulnerability report or a minimal runtime-only inventory.
 5. The gates job downloads that artifact outside the checkout, builds the wheel
    and sdist again from the tagged checkout, and requires the artifact's `dist`
-   folder to hold exactly those two archives, member for member: the same names
-   in the same order and the same bytes, metadata included. The build is
-   reproducible, so a file a build added, dropped or changed stops the release. It
+   folder to hold exactly those two archives, member for member: the same names,
+   kinds, permissions and bytes, metadata included. The build is reproducible, so
+   a file a build added, dropped or changed stops the release, and so does a link
+   or a name that could mean another path on any system. It
    then installs that wheel by its hash and runs the whole test suite, which refuses
    to start if it would import the tree instead, and the demo. Only when it passes
    does the `pypi` job run, after any required reviewer approves. That job downloads the same artifact from the same run,

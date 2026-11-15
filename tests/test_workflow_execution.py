@@ -13,7 +13,7 @@ import time
 
 import pytest
 
-from conftest import command
+from conftest import command, source_path
 from test_workflow import workflow_case as workflow_case
 from finassist.cli import main
 from finassist.config import save_config
@@ -461,7 +461,6 @@ def test_state_replay_rejects_impossible_but_hash_valid_transitions(execution_ca
 
 
 def test_run_lock_excludes_other_processes_and_releases_on_exit(tmp_path):
-    root = Path(__file__).resolve().parents[1]
     marker, state = tmp_path / "ready", tmp_path / "state"
     source = (
         "from pathlib import Path; import sys; from finassist.workflow_state import workflow_lock; "
@@ -471,7 +470,7 @@ def test_run_lock_excludes_other_processes_and_releases_on_exit(tmp_path):
     process = subprocess.Popen(
         [sys.executable, "-c", source, str(state), str(marker)], stdin=subprocess.PIPE,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
-        env={**clean_environment(), "PYTHONPATH": str(root / "src")},
+        env={**clean_environment(), **source_path()},
     )
     try:
         deadline = time.monotonic() + 10
