@@ -139,7 +139,7 @@ def unpack_pnpm(directory):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("tool", choices=["dependencies", "project", "pnpm", "pnpm-run"])
+    parser.add_argument("tool", choices=["dependencies", "project", "wheel", "pnpm", "pnpm-run"])
     parser.add_argument("arguments", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.tool == "dependencies":
@@ -147,6 +147,11 @@ def main():
     elif args.tool == "project":
         with tempfile.TemporaryDirectory(prefix="finassist-ci-wheel-") as directory:
             install_wheel(sys.executable, build_wheel(directory))
+    elif args.tool == "wheel":  # an already built wheel, the one in the folder given, as the release's gates job tests
+        wheels = sorted(Path(args.arguments[0]).glob("finledgerpoli-*.whl")) if len(args.arguments) == 1 else []
+        if len(wheels) != 1:
+            raise RuntimeError("Expected one folder holding exactly one built wheel")
+        install_wheel(sys.executable, wheels[0])
     elif args.tool == "pnpm-run":
         run(os.environ["PNPM_CLI"], *args.arguments)
     else:

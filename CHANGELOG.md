@@ -69,6 +69,15 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   each time must reach `ready`.
 
 ### Changed
+- **A release is published only after its own wheel passes the tests.** A gates job in the release workflow checks
+  that the wheel and the sdist are, byte for byte, what an independent build of a clean checkout of the tag makes,
+  and that the sdist builds the wheel; it installs the wheel by its hash and runs the whole test suite and the demo
+  against it. The publishing job waits for it and publishes only files with the digest it tested. Release builds
+  are now reproducible: dated by the tagged commit (`SOURCE_DATE_EPOCH`), with the sdist re-packed in a fixed order
+  with fixed times and owners (`scripts/normalize_sdist.py`). The
+  build preflight now requires the `pypi` environment to deploy only `v*` tags, and two tag rulesets: one that keeps
+  release tags from being moved or deleted, with no bypass, and another that restricts creating them. A required
+  reviewer is optional. Forks that publish need the same environment rule and rulesets.
 - **One state folder for every command (#120).** Without `--state-dir` or `--audit-dir`, every
   command keeps its private state in the `.finassist` folder of the repository holding `--config`
   (outside a repository, of the folder holding it), or without `--config`, of the repository

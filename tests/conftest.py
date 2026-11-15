@@ -8,6 +8,37 @@ from finassist.platform_support import find_tool
 from finassist.scope import git_environment
 
 
+def pytest_configure(config):
+    # The release's gates job installs the built wheel and sets FINASSIST_REQUIRE_INSTALLED: the suite then refuses
+    # to start if finassist would be imported from the tree instead of from that wheel.
+    if os.environ.get("FINASSIST_REQUIRE_INSTALLED"):
+        import finassist
+        from scripts.release_checks import installed_package
+
+        location = getattr(finassist, "__file__", None)
+        if location is None:
+            raise pytest.UsageError("finassist has no file: the tests would not import the installed wheel")
+        try:
+            installed_package(Path(__file__).resolve().parents[1], location)
+        except ValueError as error:
+            raise pytest.UsageError(str(error)) from None
+        # Nor may a child process that inherits the suite's own environment be pointed at the tree.
+        os.environ.pop("PYTHONPATH", None)
+
+
+def source_path(environment: dict) -> dict:
+    """A child process's environment, pointed at the tree's own source; or, while the release's gates job tests the
+    installed wheel (FINASSIST_REQUIRE_INSTALLED), at that wheel alone: no PYTHONPATH, inherited or not, and neither
+    the working folder nor a script's folder on the path."""
+    environment = dict(environment)
+    if os.environ.get("FINASSIST_REQUIRE_INSTALLED"):
+        environment.pop("PYTHONPATH", None)
+        environment["PYTHONSAFEPATH"] = "1"
+    else:
+        environment["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+    return environment
+
+
 @pytest.fixture(autouse=True)
 def _no_state_folder_left_in_the_working_directory():
     # A test leaves the checkout as it found it: its state goes under tmp_path or an explicit --state-dir (#134).

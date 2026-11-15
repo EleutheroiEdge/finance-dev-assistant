@@ -10,7 +10,7 @@ import sys
 
 import pytest
 
-from conftest import command, synthetic_symlink
+from conftest import command, source_path, synthetic_symlink
 from finassist.cli import main
 from finassist.initialization_state import local_state_exclude
 
@@ -47,7 +47,7 @@ def test_readme_then_first_run_commands_in_order(tmp_path, source):
     guide = (ROOT / "docs/first-run.md").read_text()
     for block in re.findall(r"```sh\n(.*?)```", guide, re.S)[:4]:
         commands.extend(line for line in block.splitlines() if line.startswith("finassist "))
-    env = {**os.environ, "PYTHONPATH": str(ROOT / "src"), "FINASSIST_NO_UPDATE_CHECK": "1"}
+    env = {**source_path(dict(os.environ)), "FINASSIST_NO_UPDATE_CHECK": "1"}
     reports = []
     for line in commands:
         # Follow the guide's explicit source/base prerequisite after the README.
