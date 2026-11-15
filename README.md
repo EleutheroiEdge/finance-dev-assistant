@@ -121,26 +121,6 @@ a full rollback; later observations are not merged automatically. See the
 [upgrade guide](https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/docs/upgrading.md)
 or run `finassist guide upgrading` offline.
 
-### Verifying a release
-
-The release workflow, `.github/workflows/release.yml`, attests every file it publishes.
-On GitHub each file has build provenance (SLSA v1), and each distribution also has its
-software bill of materials (SPDX). On PyPI each distribution has a PEP 740 attestation,
-which PyPI serves at
-`https://pypi.org/integrity/finledgerpoli/<VERSION>/<FILE>/provenance`. To check a
-downloaded file against its GitHub attestations, with the [GitHub CLI](https://cli.github.com/):
-
-```sh
-python -m pip download finledgerpoli==<VERSION> --no-deps --only-binary=:all: --dest .
-gh attestation verify finledgerpoli-<VERSION>-py3-none-any.whl \
-  --repo EleutheroiEdge/finance-dev-assistant \
-  --signer-workflow EleutheroiEdge/finance-dev-assistant/.github/workflows/release.yml
-```
-
-`--signer-workflow` requires that the release workflow itself signed the attestation. The
-command checks the build provenance; add `--predicate-type https://spdx.dev/Document/v2.3`
-to check the bill of materials instead.
-
 ## How it works
 
 1. **Plan:** choose the exact commits, screen source and inspect what will be reviewed.
