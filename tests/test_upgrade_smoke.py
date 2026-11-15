@@ -331,6 +331,11 @@ def test_git_never_finds_a_repository_above_the_work_folder(upgrade_smoke, tmp_p
         upgrade_smoke.git(inner, "rev-parse", "HEAD", env=upgrade_smoke.environment(inner))
 
 
+def test_a_work_folder_whose_path_holds_the_path_separator_refuses(upgrade_smoke, tmp_path):
+    with pytest.raises(RuntimeError, match="cannot take as a ceiling"):
+        upgrade_smoke.environment(tmp_path / f"a{os.pathsep}b" / "home")
+
+
 def test_git_decodes_utf8_and_refuses_with_gits_own_message(upgrade_smoke, tmp_path, monkeypatch):
     seen = []
     real_run = subprocess.run

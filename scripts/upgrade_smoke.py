@@ -45,7 +45,10 @@ def environment(home):
                   PYTHONDONTWRITEBYTECODE="1", PIP_CONFIG_FILE=os.devnull,
                   PIP_DISABLE_PIP_VERSION_CHECK="1", FINASSIST_NO_UPDATE_CHECK="1", GIT_CONFIG_NOSYSTEM="1")
     ceilings = {str(Path(home).absolute().parent), str(Path(home).resolve().parent)}
-    result["GIT_CEILING_DIRECTORIES"] = os.pathsep.join(sorted(path for path in ceilings if os.pathsep not in path))
+    if any(os.pathsep in path for path in ceilings):
+        raise RuntimeError(f"The work folder's path holds {os.pathsep!r}, which Git cannot take as a ceiling: use a "
+                           "temporary folder without it")
+    result["GIT_CEILING_DIRECTORIES"] = os.pathsep.join(sorted(ceilings))
     return result
 
 
