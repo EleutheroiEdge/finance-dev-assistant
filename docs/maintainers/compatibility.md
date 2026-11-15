@@ -80,23 +80,56 @@ automatic upgrade or rollback command.
 ## Installed historical-wheel regression
 
 The existing native CI wheel check also runs `scripts/upgrade_smoke.py` with
-the built candidate wheel. It installs the actual public 0.3.1 and 0.4.0 wheels
-in separate temporary environments using hash-locked runtime dependencies.
-`examples/upgrade-fixtures/wheels.json` records their fixed PyPI download URLs,
-sizes and SHA-256 hashes. Downloads and cached bytes must match those pins;
-there is no moving "latest" dependency or fallback release. These hashes are
-byte-integrity checks, not a claim of cryptographic provenance verification.
+the built candidate wheel. It installs each public wheel that
+`examples/upgrade-fixtures/wheels.json` lists, now 0.3.1, 0.4.0, 0.9.0 and
+0.10.0, in separate temporary environments using hash-locked runtime
+dependencies. The manifest records their fixed PyPI download URLs, sizes and
+SHA-256 hashes, in release order. Downloads and cached bytes must match those
+pins; there is no moving "latest" dependency or fallback release. A download is
+written whole into the cache, never through a link, and every install names
+the `finledgerpoli` distribution and passes the pinned hash to pip, so a file
+changed after it was verified, or one whose metadata names another
+distribution, is refused.
+These hashes are byte-integrity checks, not a claim of cryptographic provenance
+verification.
 
 Each environment generates configuration with the old `init` and compares it
 with the corresponding byte-exact golden JSON fixture, then runs the old demo
 and seeds fictional evidence. Installing the candidate must preserve those
-configuration bytes; doctor and evidence verification must succeed. Explicit
-migration must leave the original store intact and verify the new file. After
-adding a new revision, reinstalling the historical wheel must read the old
-observation without changing either file. The candidate is reinstalled to test
-a simulated older guarded reader and the new version-floor error before other
-configuration validation. Published historical readers retain their original
-`unknown_config_option` behavior. No live provider or user data is involved.
+configuration bytes, pass `pip check`, report a canonical version no older than
+the newest pinned one (a pre-release of that version is older), and accept the
+same configuration with `min_version` set to the old version; doctor, the demo and evidence verification must succeed. The manifest pins the schema of each version's store and the
+version-floor code its reader answers, so the candidate never decides either. A
+store an older version wrote at schema 0 (0.3.1 and 0.4.0) is migrated
+explicitly: the original must stay intact and the new file must verify. A store
+already at the current schema (0.9.0 and 0.10.0) needs no migration, and a real
+migration must write nothing. Either way the candidate must read the upgraded
+store's observation, then its own new revision. Reinstalled, an older
+historical wheel must still read the old observation, and a reader of the
+current schema the candidate's revision, without changing any file. The
+candidate is reinstalled to test a simulated guarded reader one schema behind,
+and the version-floor error before other configuration validation: 0.3.1 and
+0.4.0 answer the floor with `unknown_config_option`, 0.9.0 and 0.10.0 with
+`minimum_version_required`, as pinned.
+
+A version listed with a gate policy is also checked on the gate route: 0.9.0
+and 0.10.0, with the example policy they published
+(`gate-policy-0.10.0.json`). On a synthetic repository, `doctor` runs that
+policy as published, and the same policy with a private figure file, each
+pinned by its bytes, under the historical wheel and then under the candidate.
+The verdicts must be the same, and no policy or figure file may change, so a
+pin set under the old version stays valid. A clean change is ready, and one that
+adds the listed figure is refused with `forbidden_token_present`. No live
+provider or user data is involved.
+
+Two limits. Each environment holds the candidate's locked runtime dependencies
+(`requirements-action.lock`), and the historical wheels run with them, so a
+dependency change that breaks an old version's own code shows here as a failure
+to look into, not as a user's upgrade breaking. And a historical reader that
+guards its evidence schema (0.9.0 and 0.10.0 do, as the manifest's
+`schema_guard` records) behind the candidate's would stop the check with a
+message until its expected downgrade is written down; today the candidate's
+schema is theirs.
 
 To run only this check locally after building a wheel:
 

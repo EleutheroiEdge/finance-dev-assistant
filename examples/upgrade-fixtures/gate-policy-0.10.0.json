@@ -1,0 +1,26 @@
+{
+  "schema_version": 2,
+  "model_review": {
+    "enabled": true,
+    "provider": "openai",
+    "model": "operator-selected",
+    "endpoint": "https://api.openai.com/v1/responses",
+    "allowed_host": "api.openai.com",
+    "api_key_env": "REVIEW_PROVIDER_KEY",
+    "allow_paths": [
+      "src/"
+    ],
+    "deny_paths": [],
+    "max_request_bytes": 120000,
+    "max_file_bytes": 48000,
+    "max_files": 10,
+    "profile": "finance-saas",
+    "max_output_tokens": 4096,
+    "timeout_seconds": 60,
+    "max_run_usd": 1,
+    "daily_budget_usd": 5,
+    "input_usd_per_million": 1,
+    "output_usd_per_million": 2,
+    "blocking_severities": []
+  }
+}
