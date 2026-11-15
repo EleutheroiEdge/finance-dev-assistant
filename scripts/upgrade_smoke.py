@@ -34,7 +34,9 @@ FIGURE, PLACEHOLDER = "7341906", "placeholder-not-a-key"
 
 
 def environment(home):
-    # No provider keys, user Python paths, pip configuration, system Git configuration or real home settings.
+    # No provider keys, user Python paths, pip configuration, system Git configuration or real home settings, and no
+    # Git repository above the work folder: Git stops at `home`'s parent, the work root, so a run whose temporary
+    # folder sits inside a checkout never finds that checkout.
     names = ("PATH", "SYSTEMROOT", "SystemRoot", "WINDIR", "TEMP", "TMP")
     result = {key: os.environ[key] for key in names if key in os.environ}
     result.update(HOME=str(home), USERPROFILE=str(home), XDG_CONFIG_HOME=str(home / "config"),
@@ -42,6 +44,8 @@ def environment(home):
                   LOCALAPPDATA=str(home / "localappdata"), PYTHONIOENCODING="utf-8",
                   PYTHONDONTWRITEBYTECODE="1", PIP_CONFIG_FILE=os.devnull,
                   PIP_DISABLE_PIP_VERSION_CHECK="1", FINASSIST_NO_UPDATE_CHECK="1", GIT_CONFIG_NOSYSTEM="1")
+    ceilings = {str(Path(home).absolute().parent), str(Path(home).resolve().parent)}
+    result["GIT_CEILING_DIRECTORIES"] = os.pathsep.join(sorted(path for path in ceilings if os.pathsep not in path))
     return result
 
 

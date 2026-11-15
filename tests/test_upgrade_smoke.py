@@ -318,6 +318,19 @@ def test_an_unexpected_gate_exit_reports_the_childs_stdout(upgrade_smoke, tmp_pa
                                     {"clean": ("base", "head")}, env={})
 
 
+def test_git_never_finds_a_repository_above_the_work_folder(upgrade_smoke, tmp_path):
+    outer = tmp_path / "outer"
+    outer.mkdir()
+    env = upgrade_smoke.environment(tmp_path)
+    upgrade_smoke.git(outer, "init", "-q", "-b", "main", env=env)
+    (outer / "file.txt").write_text("synthetic" + chr(10), encoding="utf-8", newline=chr(10))
+    assert len(upgrade_smoke.commit(outer, "Synthetic outer commit", env=env)) == 40
+    inner = outer / "inner"
+    inner.mkdir()
+    with pytest.raises(RuntimeError, match="git rev-parse failed"):
+        upgrade_smoke.git(inner, "rev-parse", "HEAD", env=upgrade_smoke.environment(inner))
+
+
 def test_git_decodes_utf8_and_refuses_with_gits_own_message(upgrade_smoke, tmp_path, monkeypatch):
     seen = []
     real_run = subprocess.run
