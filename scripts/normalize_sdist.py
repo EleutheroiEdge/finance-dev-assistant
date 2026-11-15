@@ -12,14 +12,14 @@ import re
 import sys
 import tarfile
 
-# A zip file cannot date anything before 1980, so neither can a wheel; the sdist is held to the same range.
-EARLIEST = 315532800
+# A zip file can date nothing before 1980 or after 2107, so neither can a wheel; the sdist is held to the same range.
+EARLIEST, LATEST = 315532800, 4354819199
 
 
 def release_epoch(value):
-    """SOURCE_DATE_EPOCH as a release sets it: a whole number of seconds, from 1980 on."""
-    if not re.fullmatch(r"[0-9]+", value or "") or int(value) < EARLIEST:
-        raise ValueError("SOURCE_DATE_EPOCH must be a whole number of seconds, from 1980 on")
+    """SOURCE_DATE_EPOCH as a release sets it: a whole number of seconds, from 1980 to 2107."""
+    if not re.fullmatch(r"[0-9]+", value or "") or not EARLIEST <= int(value) <= LATEST:
+        raise ValueError("SOURCE_DATE_EPOCH must be a whole number of seconds, from 1980 to 2107")
     return int(value)
 
 

@@ -19,7 +19,7 @@ approve and perform them; preparing this workflow does not configure them.
    same publisher from its Publishing page. No API token or GitHub secret is needed.
 2. In GitHub Settings → Environments, create **`pypi`** and restrict its deployment
    refs to the `v*` release tags with one environment tag rule and no branch rule.
-   In Settings → Rules, add two active tag rulesets for `v*`. One blocks updates,
+   In Settings → Rules, add two active tag rulesets for `v*`, with no exclusions. One blocks updates,
    fast-forward ones included, and deletions, with no bypass, so a release tag can
    never be moved or reused; it must not also restrict creations. The other
    restricts creations, and only maintainers may bypass it. The build preflight

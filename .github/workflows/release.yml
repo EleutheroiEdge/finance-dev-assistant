@@ -110,6 +110,15 @@ jobs:
           test -n "$(find . -type f -print -quit)"
           digest=$(find . -type f -print0 | LC_ALL=C sort -z | xargs -0r sha256sum -z | sha256sum | cut -d ' ' -f 1)
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      # Before anything is published: the publishing job attaches these to the GitHub release after PyPI, when a
+      # missing one could no longer stop it.
+      - name: Verify the artifact holds everything the publishing job attaches
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/release"
+          test -s release-sbom.spdx.json
+          test -s release-notes.md
+          for file in release-assets/*-requirements.txt; do test -s "$file"; done
       - run: python scripts/ci_install.py dependencies
       - name: Build the wheel and the sdist again, the same way, from a clean checkout of the tag
         run: |

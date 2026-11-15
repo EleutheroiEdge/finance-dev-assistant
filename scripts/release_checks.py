@@ -125,8 +125,8 @@ def sdist_builds_the_wheel(dist, version, work):
     """The published sdist, unpacked, builds the published wheel byte for byte, under the same SOURCE_DATE_EPOCH:
     the sdist is complete, and it is what users who build from source get."""
     epoch = os.environ.get("SOURCE_DATE_EPOCH", "")
-    if not re.fullmatch(r"[0-9]+", epoch) or int(epoch) < 315532800:  # zip times start in 1980
-        raise ValueError("SOURCE_DATE_EPOCH must date the build, as it dates the release's: whole seconds from 1980 on")
+    if not re.fullmatch(r"[0-9]+", epoch) or not 315532800 <= int(epoch) <= 4354819199:  # a zip's range of times
+        raise ValueError("SOURCE_DATE_EPOCH must date the build, as it dates the release's: whole seconds, 1980 to 2107")
     folder = Path(work)
     with tarfile.open(Path(dist) / f"finledgerpoli-{version}.tar.gz", "r:gz") as archive:
         archive.extractall(folder / "sdist", filter="data")

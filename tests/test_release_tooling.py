@@ -459,7 +459,7 @@ def test_release_workflow_is_tag_only_and_least_privilege():
     # the wheel by its hash, runs the whole suite against it, which refuses to start on the tree, and the demo
     # outside the checkout.
     assert gates["needs"] == "build" and "permissions" not in gates and "environment" not in gates
-    _in_order(gates, DIGEST, "python scripts/ci_install.py dependencies", *REPRODUCIBLE,
+    _in_order(gates, DIGEST, "test -s release-sbom.spdx.json", "python scripts/ci_install.py dependencies", *REPRODUCIBLE,
               'python -m build --no-isolation --outdir "$RUNNER_TEMP/rebuilt" "$RUNNER_TEMP/source"',
               'python scripts/normalize_sdist.py "$RUNNER_TEMP/rebuilt"',
               '--distributions-match-rebuild "$RUNNER_TEMP/release/dist" "$RUNNER_TEMP/rebuilt"',
@@ -543,8 +543,29 @@ def test_the_publishing_job_publishes_only_the_files_the_gates_job_tested(tmp_pa
     assert _step(record, tmp_path, RUNNER_TEMP=str(tmp_path / "empty"), GITHUB_OUTPUT=str(output)) != 0
 
 
-@pytest.mark.parametrize("epoch", ["", "soon", "1.5", "315532799", "\u00b9"])
-def test_a_build_date_that_is_not_whole_seconds_from_1980_refuses(tmp_path, monkeypatch, epoch):
+@pytest.mark.skipif(sys.platform != "linux", reason="the release's jobs run these steps on Linux")
+def test_the_gates_job_refuses_an_artifact_missing_what_the_publishing_job_attaches(tmp_path):
+    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8"))["jobs"]
+    complete = next(step["run"] for step in jobs["gates"]["steps"]
+                    if "everything the publishing job attaches" in step.get("name", ""))
+    files = ("release-sbom.spdx.json", "release-notes.md", "release-assets/runtime-requirements.txt")
+
+    def artifact(name, leave_out=(), empty=()):
+        release = tmp_path / name / "release"
+        (release / "release-assets").mkdir(parents=True)
+        for path in files:
+            if path not in leave_out:
+                (release / path).write_text("" if path in empty else "x", encoding="utf-8")
+        return str(tmp_path / name)
+
+    assert _step(complete, tmp_path, RUNNER_TEMP=artifact("complete")) == 0
+    for path in files:
+        assert _step(complete, tmp_path, RUNNER_TEMP=artifact("without-" + path.replace("/", "-"), leave_out=[path])) != 0
+        assert _step(complete, tmp_path, RUNNER_TEMP=artifact("empty-" + path.replace("/", "-"), empty=[path])) != 0
+
+
+@pytest.mark.parametrize("epoch", ["", "soon", "1.5", "315532799", "4354819200", "1700000000000", "\u00b9"])
+def test_a_build_date_that_is_not_whole_seconds_from_1980_to_2107_refuses(tmp_path, monkeypatch, epoch):
     with pytest.raises(ValueError, match="SOURCE_DATE_EPOCH"):
         normalize_sdist.release_epoch(epoch)
     monkeypatch.setenv("SOURCE_DATE_EPOCH", epoch)
@@ -553,6 +574,7 @@ def test_a_build_date_that_is_not_whole_seconds_from_1980_refuses(tmp_path, monk
     with pytest.raises(ValueError, match="SOURCE_DATE_EPOCH"):
         normalized(_built_sdist(_MEMBERS, 1_700_000_000, 0, 0), 0)
     assert normalize_sdist.release_epoch("315532800") == 315532800
+    assert normalize_sdist.release_epoch("4354819199") == 4354819199
 
 
 def test_release_notes_only_include_requested_version():
