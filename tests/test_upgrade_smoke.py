@@ -186,6 +186,70 @@ def test_a_candidate_that_is_a_link_or_not_a_finledgerpoli_wheel_refuses_before_
     assert not (tmp_path / "work").exists()
 
 
+@pytest.mark.parametrize("version,wheel,refusal", [
+    ("0.11.0+dirty", "finledgerpoli-0.11.0+dirty-py3-none-any.whl", "not a canonical version"),
+    ("1!0.11.0", "finledgerpoli-1!0.11.0-py3-none-any.whl", "not a canonical version"),
+    ("0.11.00", "finledgerpoli-0.11.00-py3-none-any.whl", "not a canonical version"),
+    ("0.9.9", "finledgerpoli-0.9.9-py3-none-any.whl", "older than the newest published version, 0.10.0"),
+    ("0.11.0", "finledgerpoli-0.12.0-py3-none-any.whl", "name and version differ"),
+    ("0.11.0", "finledgerpoli-0.11.0rc1-py3-none-any.whl", "name and version differ"),
+])
+def test_each_refused_candidate_version_names_the_rule_it_broke(upgrade_smoke, version, wheel, refusal):
+    with pytest.raises(RuntimeError, match=re.escape(refusal)):
+        upgrade_smoke.check_candidate_version(version, wheel, (0, 10, 0))
+
+
+def test_a_candidate_in_release_form_named_for_its_version_passes(upgrade_smoke):
+    for version in ("0.10.0", "0.11.0", "0.11.0rc1", "0.10.0.post1"):
+        upgrade_smoke.check_candidate_version(version, f"finledgerpoli-{version}-py3-none-any.whl", (0, 10, 0))
+
+
+def _link(link, target):
+    try:
+        link.symlink_to(target, target_is_directory=target.is_dir())
+    except OSError:
+        pytest.skip("this system did not allow a symbolic link")
+
+
+def test_a_link_named_through_a_missing_folder_and_dotdot_still_refuses(upgrade_smoke, tmp_path):
+    (tmp_path / "real").mkdir()
+    _link(tmp_path / "leaf", tmp_path / "real")
+    wheel = tmp_path / "finledgerpoli-9.9.9-py3-none-any.whl"
+    wheel.write_bytes(b"synthetic")
+    roundabout = tmp_path / "missing" / ".." / "leaf"
+    with pytest.raises(RuntimeError, match="must not be links"):
+        upgrade_smoke.unlinked(roundabout)
+    with pytest.raises(RuntimeError, match="must not be links"):
+        upgrade_smoke.exercise_upgrades(wheel, tmp_path / "work", cache=roundabout)
+    assert not (tmp_path / "work").exists() and list((tmp_path / "real").iterdir()) == []
+
+
+def test_a_default_cache_that_is_a_link_refuses(upgrade_smoke, tmp_path):
+    wheel = tmp_path / "finledgerpoli-9.9.9-py3-none-any.whl"
+    wheel.write_bytes(b"synthetic")
+    (tmp_path / "real").mkdir()
+    (tmp_path / "work").mkdir()
+    _link(tmp_path / "work" / "historical-wheels", tmp_path / "real")
+    with pytest.raises(RuntimeError, match="must not be links"):
+        upgrade_smoke.exercise_upgrades(wheel, tmp_path / "work")
+    assert list((tmp_path / "real").iterdir()) == []
+
+
+def test_a_link_in_a_parent_folder_is_allowed(upgrade_smoke, tmp_path):
+    (tmp_path / "real").mkdir()
+    _link(tmp_path / "alias", tmp_path / "real")
+    assert upgrade_smoke.unlinked(tmp_path / "alias" / "cache") == (tmp_path / "real").resolve() / "cache"
+
+
+def test_a_relative_path_is_made_absolute_and_a_path_must_end_in_a_name(upgrade_smoke, tmp_path, monkeypatch):
+    (tmp_path / "real").mkdir()
+    monkeypatch.chdir(tmp_path / "real")
+    assert upgrade_smoke.unlinked(Path("cache")) == (tmp_path / "real").resolve() / "cache"
+    for ending in (tmp_path / "real" / "..", Path(".")):
+        with pytest.raises(RuntimeError, match="must end in a file or folder name"):
+            upgrade_smoke.unlinked(ending)
+
+
 def test_a_wheel_is_installed_by_the_hash_it_was_pinned_to_not_one_read_again(upgrade_smoke, tmp_path, monkeypatch):
     wheel = tmp_path / "finledgerpoli-9.9.9-py3-none-any.whl"
     wheel.write_bytes(b"changed after it was verified")

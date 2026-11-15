@@ -190,17 +190,35 @@ def exercise_gate(candidate, record, wheel, python, root, env):
     return {"gate_verdicts_unchanged": True, "gate_pins_unchanged": True}
 
 
-def at_least(version, floor):
-    """Whether an installed version, in canonical PEP 440 form, is at least `floor`, a pinned version's (major, minor,
-    patch). 0.11.0rc1 and 0.10.0.post1 are at least 0.10.0; 0.10.0rc1 and 0.10.0.dev0 come before it; a spelling
-    that is not canonical, such as 0.10.00 or 0.11.0-dirty, or one PyPI would not take, with an epoch or a local
-    segment such as 0.10.0+dirty, is not a version this check accepts."""
+def release_form(version):
+    """Whether a version is in the form this check accepts: canonical PEP 440, with no epoch and no local segment.
+    A spelling that is not canonical, such as 0.10.00 or 0.11.0-dirty, is refused, and so are 1!0.1.0 and
+    0.10.0+dirty: PyPI refuses a local segment, the project uses no epoch, and the wheel-name check compares this
+    text with the file name."""
     try:
         parsed = Version(version)
     except InvalidVersion:
         return False
-    return (str(parsed) == version and parsed.epoch == 0 and parsed.local is None
-            and parsed >= Version(".".join(map(str, floor))))
+    return str(parsed) == version and parsed.epoch == 0 and parsed.local is None
+
+
+def at_least(version, floor):
+    """Whether an installed version is in release form and at least `floor`, a pinned version's (major, minor,
+    patch). 0.11.0rc1 and 0.10.0.post1 are at least 0.10.0; 0.10.0rc1 and 0.10.0.dev0 come before it."""
+    return release_form(version) and Version(version) >= Version(".".join(map(str, floor)))
+
+
+def check_candidate_version(version, wheel_name, floor):
+    """The version the installed candidate reports must be in release form, no older than `floor`, the newest pinned
+    version, and the one its wheel file is named for. Each refusal names the rule it broke."""
+    if not release_form(version):
+        raise RuntimeError(f"The candidate reports {version!r}: not a canonical version without an epoch or a "
+                           "local segment")
+    if not at_least(version, floor):
+        raise RuntimeError(f"The candidate {version} is older than the newest published version, "
+                           f"{'.'.join(map(str, floor))}")
+    if not wheel_name.startswith(f"finledgerpoli-{version}-"):
+        raise RuntimeError(f"The wheel's name and version differ: {wheel_name} reports {version}")
 
 
 def check_schema_support(record, current):
@@ -248,8 +266,7 @@ def exercise(candidate, record, wheel, root, newest):
     install(python, *candidate, cwd=project, env=env)
     run(python, "-m", "pip", "check", cwd=project, env=env)  # the candidate's declared dependencies are satisfied
     candidate_version = run(python, "-m", "finassist", "--version", cwd=project, env=env).stdout.strip()
-    assert at_least(candidate_version, newest), f"The candidate {candidate_version} is older than a published version"
-    assert candidate[0].name.startswith(f"finledgerpoli-{candidate_version}-"), "The wheel's name and version differ"
+    check_candidate_version(candidate_version, candidate[0].name, newest)
     current = int(run(python, "-c", "from finassist import evidence_schema; "
                       "print(evidence_schema.SUPPORTED_EVIDENCE_SCHEMA)", cwd=project, env=env).stdout)
     check_schema_support(record, current)
@@ -347,23 +364,34 @@ else:
     return result
 
 
+def unlinked(path):
+    """`path` with its folder resolved, refused when it names a link. The folder is resolved first, links and `..`
+    included, so `missing/../link` cannot step around the check; a link in a parent folder, such as /var on macOS,
+    is allowed. Nothing is created."""
+    path = Path(path)
+    if path.name in ("", ".", ".."):
+        raise RuntimeError(f"{path} must end in a file or folder name")
+    leaf = path.absolute().parent.resolve() / path.name
+    if leaf.is_symlink():
+        raise RuntimeError("The candidate wheel and the cache must not be links")
+    return leaf
+
+
 def exercise_upgrades(candidate, directory, *, cache=None):
     # Temporary roots can use OS aliases (notably /var on macOS). Pass only
     # the canonical owned staging path to installed CLIs; their link rejection
     # remains unchanged for project configuration and evidence inputs.
-    # Neither the candidate nor the cache may be a link, checked before anything is resolved or created.
-    if Path(candidate).is_symlink() or (cache is not None and Path(cache).is_symlink()):
-        raise RuntimeError("The candidate wheel and the cache must not be links")
-    if not (Path(candidate).name.startswith("finledgerpoli-") and Path(candidate).name.endswith(".whl")):
+    # Neither the candidate nor the cache, given or default, may be a link, checked before anything is created.
+    candidate = unlinked(candidate)
+    if not (candidate.name.startswith("finledgerpoli-") and candidate.name.endswith(".whl")):
         raise RuntimeError("The candidate must be a finledgerpoli wheel")
-    candidate = Path(candidate).resolve()
     directory = directory.resolve()
+    cache = unlinked(cache if cache is not None else directory / "historical-wheels")
     manifest = json.loads((FIXTURES / "wheels.json").read_text(encoding="utf-8"))
     wheels = manifest.get("wheels") if isinstance(manifest, dict) else None
     keys = [version_key(row.get("version") if isinstance(row, dict) else None) for row in wheels or []]
     if manifest.get("distribution") != "finledgerpoli" or not keys or keys != sorted(set(keys)):
         raise RuntimeError("The pinned historical versions must be distinct and listed in release order")
-    cache = Path(cache).resolve() if cache is not None else directory / "historical-wheels"
     cache.mkdir(parents=True, exist_ok=True)
     # The candidate is installed by the hash it has now, so a file changed during the check is refused.
     pinned_candidate = (candidate, file_hash(candidate))
