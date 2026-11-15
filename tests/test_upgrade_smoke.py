@@ -260,10 +260,38 @@ def test_the_script_checks_with_require_not_assert_so_python_dash_o_keeps_every_
     upgrade_smoke.require(True, "unused")
     with pytest.raises(RuntimeError, match="a failed check"):
         upgrade_smoke.require(False, "a failed check")
-    optimized = subprocess.run(
-        [sys.executable, "-O", "-c", "import upgrade_smoke; upgrade_smoke.require(False, 'a failed check')"],
-        cwd=ROOT / "scripts", capture_output=True, text=True, timeout=60, check=False)
-    assert optimized.returncode != 0 and "a failed check" in optimized.stderr
+    # Isolated, so no outer PYTHON* variable (PYTHONSAFEPATH, PYTHONOPTIMIZE) changes the run; the script is found
+    # by an explicit path; exit 3 if -O is not on; and the match is the exception line, which a failed import in the
+    # same source line cannot produce.
+    probe = ("import sys; sys.path.insert(0, sys.argv[1]); sys.flags.optimize or sys.exit(3); "
+             "import upgrade_smoke; upgrade_smoke.require(False, 'a failed check')")
+    optimized = subprocess.run([sys.executable, "-I", "-O", "-c", probe, str(ROOT / "scripts")], cwd=ROOT,
+                               capture_output=True, text=True, timeout=60, check=False)
+    assert optimized.returncode == 1 and "RuntimeError: a failed check" in optimized.stderr, optimized.stderr
+
+
+def test_an_isolated_child_prints_utf8_and_writes_no_bytecode(upgrade_smoke, tmp_path):
+    text = "Ren" + chr(0xE9) + " " + chr(0x2014) + " " + chr(0x2713)  # outside every ANSI code page together
+    code = (f"import sys; print({text!r}); "
+            "raise SystemExit(0 if sys.dont_write_bytecode and sys.flags.utf8_mode else 3)")
+    result = upgrade_smoke.run(sys.executable, "-c", code, cwd=tmp_path, env=upgrade_smoke.environment(tmp_path))
+    assert result.stdout.strip() == text
+
+
+def test_the_gate_check_starts_its_children_the_same_isolated_way(upgrade_smoke, tmp_path, monkeypatch):
+    seen = []
+
+    def run(command, **kwargs):
+        seen.append(command)
+        report = {"status": "ready", "blockers": [], "policy": {"sha256": "a" * 64}}
+        return types.SimpleNamespace(returncode=0, stdout=json.dumps(report), stderr="")
+
+    monkeypatch.setattr(upgrade_smoke.subprocess, "run", run)
+    policy = tmp_path / "policy.json"
+    verdicts = upgrade_smoke.gate_verdicts("python", tmp_path, {"example": policy}, {policy: "b" * 64},
+                                           {"clean": ("base", "head")}, env={})
+    assert verdicts == {("example", "clean"): ("ready", [], "a" * 64, 0)}
+    assert [command[1:5] for command in seen] == [list(upgrade_smoke.ISOLATED)]
 
 
 @pytest.mark.parametrize("kind", ["missing", "folder"])

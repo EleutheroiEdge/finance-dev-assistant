@@ -24,6 +24,10 @@ _FLOOR_CODES = ("unknown_config_option", "minimum_version_required")
 # Windows's IO_REPARSE_TAG_MOUNT_POINT, the reparse tag of a directory junction; the `stat` module names it on Windows
 # only.
 JUNCTION_TAG = 0xA0000003
+# How every Python child here starts. `-I` ignores every PYTHON* variable, PYTHONIOENCODING and
+# PYTHONDONTWRITEBYTECODE among them, so their effects are given as options: UTF-8 pipes on every system (on Windows
+# a child would otherwise write the ANSI code page while this script decodes UTF-8), and no bytecode written.
+ISOLATED = ("-I", "-B", "-X", "utf8")
 # A synthetic confidential figure for the gate check, and a placeholder for the key variable the example policy
 # names: doctor checks that the variable is set, never its value, and calls no provider.
 FIGURE, PLACEHOLDER = "7341906", "placeholder-not-a-key"
@@ -113,7 +117,7 @@ def historical_wheel(record, directory):
 
 
 def run(python, *args, cwd, env, expected_exit=0):
-    result = subprocess.run([str(python), "-I", *map(str, args)], cwd=cwd, env=env,
+    result = subprocess.run([str(python), *ISOLATED, *map(str, args)], cwd=cwd, env=env,
                             capture_output=True, text=True, encoding="utf-8", shell=False,
                             timeout=90, check=False)
     if result.returncode != expected_exit:
@@ -158,7 +162,8 @@ def gate_verdicts(python, root, policies, pins, changes, *, env):
     verdicts = {}
     for name, policy in policies.items():
         for change, (base, head) in changes.items():
-            done = subprocess.run([str(python), "-I", "-m", "finassist", "doctor", "--policy-file", str(policy),
+            done = subprocess.run([str(python), *ISOLATED, "-m", "finassist", "doctor",
+                                   "--policy-file", str(policy),
                                    "--policy-sha256", pins[policy], "--repo", str(root / "gate-repo"),
                                    "--base", base, "--head", head], cwd=root, env=env, capture_output=True,
                                   text=True, encoding="utf-8", shell=False, timeout=90, check=False)
