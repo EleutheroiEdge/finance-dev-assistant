@@ -431,7 +431,8 @@ def test_a_document_that_runs_on_to_another_page_refuses(monkeypatch):
         release_checks.read_github("owner/repository", "rulesets?per_page=100", "x")
 
 
-DIGEST = "find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f 1"
+DIGEST = "find . -type f -print0 | LC_ALL=C sort -z | xargs -0r sha256sum -z | sha256sum | cut -d ' ' -f 1"
+ONLY_FILES = 'test -z "$(find . ! -type f ! -type d -print -quit)"'
 REPRODUCIBLE = ("SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)", "export SOURCE_DATE_EPOCH",
                 'git worktree add --detach "$RUNNER_TEMP/source" HEAD')
 
@@ -463,6 +464,7 @@ def test_release_workflow_is_tag_only_and_least_privilege():
               'python scripts/normalize_sdist.py "$RUNNER_TEMP/rebuilt"',
               '--distributions-match-rebuild "$RUNNER_TEMP/release/dist" "$RUNNER_TEMP/rebuilt"',
               '--sdist-builds-the-wheel "$RUNNER_TEMP/release/dist"',
+              '--notes-output "$RUNNER_TEMP/notes.md"', 'cmp "$RUNNER_TEMP/notes.md" "$RUNNER_TEMP/release/release-notes.md"',
               'python scripts/ci_install.py wheel "$RUNNER_TEMP/release/dist"', "python scripts/ci_test.py",
               "finassist demo")
     checks = next(step["run"] for step in gates["steps"] if "--sdist-builds-the-wheel" in step.get("run", ""))
@@ -481,6 +483,7 @@ def test_release_workflow_is_tag_only_and_least_privilege():
     assert gates["outputs"] == {"digest": "${{ steps.gated.outputs.digest }}"} and DIGEST in recorded["run"]
     verify = publish["steps"][1]
     assert "download-artifact" in publish["steps"][0]["uses"] and DIGEST in verify["run"]
+    assert all(ONLY_FILES in step["run"] and "set -euo pipefail" in step["run"] for step in (recorded, verify))
     assert verify["env"] == {"GATED": "${{ needs.gates.outputs.digest }}"} and '"$digest" = "$GATED"' in verify["run"]
     assert publish["environment"]["url"] == "https://pypi.org/project/finledgerpoli/"
     assert publish["permissions"] == {"contents": "write", "id-token": "write", "attestations": "write"}
@@ -496,6 +499,60 @@ def test_release_workflow_is_tag_only_and_least_privilege():
     publisher = publish["steps"][-2]
     assert publisher["uses"].startswith("pypa/gh-action-pypi-publish@")
     assert publisher["with"] == {"packages-dir": "release/dist/", "attestations": True}
+
+
+def _step(script, folder, **environment):
+    keep = {key: value for key, value in os.environ.items() if key not in {"GATED", "GITHUB_OUTPUT", "RUNNER_TEMP"}}
+    return subprocess.run(["bash", "-c", script], cwd=folder, env={**keep, **environment}, capture_output=True,
+                          text=True, timeout=60, shell=False).returncode
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="the release's jobs run these steps on Linux")
+def test_the_publishing_job_publishes_only_the_files_the_gates_job_tested(tmp_path):
+    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8"))["jobs"]
+    record = next(step["run"] for step in jobs["gates"]["steps"] if step.get("id") == "gated")
+    verify = jobs["publish"]["steps"][1]["run"]
+    gated = tmp_path / "gates"
+    (gated / "release" / "dist").mkdir(parents=True)
+    (gated / "release" / "dist" / WHEEL).write_bytes(b"wheel")
+    (gated / "release" / "release-notes.md").write_bytes(b"notes")
+    output = tmp_path / "output"
+    assert _step(record, tmp_path, RUNNER_TEMP=str(gated), GITHUB_OUTPUT=str(output)) == 0
+    digest = output.read_text(encoding="utf-8").strip().removeprefix("digest=")
+    assert re.fullmatch(r"[0-9a-f]{64}", digest)
+
+    def published(name, change=None):
+        folder = Path(shutil.copytree(gated, tmp_path / name))
+        if change:
+            change(folder / "release")
+        return folder
+
+    assert _step(verify, published("same"), GATED=digest) == 0
+    for name, change in (
+            ("changed", lambda release: (release / "dist" / WHEEL).write_bytes(b"other")),
+            ("added", lambda release: (release / "dist" / "extra.whl").write_bytes(b"")),
+            ("link", lambda release: (release / "dist" / "extra.whl").symlink_to(release / "dist" / WHEEL)),
+            ("newline", lambda release: (release / "dist" / "a\nb").write_bytes(b""))):
+        assert _step(verify, published(name, change), GATED=digest) != 0, name
+    assert _step(verify, published("no-digest"), GATED="") != 0
+    assert _step(verify, published("unset")) != 0
+    # Nor does the gates job record a digest for a link, or for an empty artifact.
+    (gated / "release" / "dist" / "extra.whl").symlink_to(gated / "release" / "dist" / WHEEL)
+    assert _step(record, tmp_path, RUNNER_TEMP=str(gated), GITHUB_OUTPUT=str(output)) != 0
+    (tmp_path / "empty" / "release").mkdir(parents=True)
+    assert _step(record, tmp_path, RUNNER_TEMP=str(tmp_path / "empty"), GITHUB_OUTPUT=str(output)) != 0
+
+
+@pytest.mark.parametrize("epoch", ["", "soon", "1.5", "315532799", "\u00b9"])
+def test_a_build_date_that_is_not_whole_seconds_from_1980_refuses(tmp_path, monkeypatch, epoch):
+    with pytest.raises(ValueError, match="SOURCE_DATE_EPOCH"):
+        normalize_sdist.release_epoch(epoch)
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", epoch)
+    with pytest.raises(ValueError, match="SOURCE_DATE_EPOCH"):
+        sdist_builds_the_wheel(_archives(tmp_path / "dist"), "0.0.0", tmp_path / "work")
+    with pytest.raises(ValueError, match="SOURCE_DATE_EPOCH"):
+        normalized(_built_sdist(_MEMBERS, 1_700_000_000, 0, 0), 0)
+    assert normalize_sdist.release_epoch("315532800") == 315532800
 
 
 def test_release_notes_only_include_requested_version():

@@ -104,9 +104,11 @@ jobs:
       - name: Record the digest of every downloaded file, for the publishing job
         id: gated
         run: |
-          set -o pipefail
+          set -euo pipefail
           cd "$RUNNER_TEMP/release"
-          digest=$(find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f 1)
+          test -z "$(find . ! -type f ! -type d -print -quit)"
+          test -n "$(find . -type f -print -quit)"
+          digest=$(find . -type f -print0 | LC_ALL=C sort -z | xargs -0r sha256sum -z | sha256sum | cut -d ' ' -f 1)
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
       - run: python scripts/ci_install.py dependencies
       - name: Build the wheel and the sdist again, the same way, from a clean checkout of the tag
@@ -116,11 +118,13 @@ jobs:
           git worktree add --detach "$RUNNER_TEMP/source" HEAD
           python -m build --no-isolation --outdir "$RUNNER_TEMP/rebuilt" "$RUNNER_TEMP/source"
           python scripts/normalize_sdist.py "$RUNNER_TEMP/rebuilt"
-      - name: Verify the release archives are that build's, byte for byte, and the sdist builds the wheel
+      - name: Verify the release archives are that build's, byte for byte, the sdist builds the wheel, and the notes are the tag's
         run: |
           SOURCE_DATE_EPOCH=$(git log -1 --format=%ct HEAD)
           export SOURCE_DATE_EPOCH
           python scripts/release_checks.py --tag "$RELEASE_TAG" --distributions-match-rebuild "$RUNNER_TEMP/release/dist" "$RUNNER_TEMP/rebuilt" --sdist-builds-the-wheel "$RUNNER_TEMP/release/dist"
+          python scripts/release_checks.py --tag "$RELEASE_TAG" --notes-output "$RUNNER_TEMP/notes.md"
+          cmp "$RUNNER_TEMP/notes.md" "$RUNNER_TEMP/release/release-notes.md"
         env:
           RELEASE_TAG: ${{ github.ref_name }}
       - name: Install the built wheel by its hash, in place of the tree
@@ -149,9 +153,10 @@ jobs:
           path: release
       - name: Verify these are the files the gates job tested
         run: |
-          set -o pipefail
+          set -euo pipefail
           cd release
-          digest=$(find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f 1)
+          test -z "$(find . ! -type f ! -type d -print -quit)"
+          digest=$(find . -type f -print0 | LC_ALL=C sort -z | xargs -0r sha256sum -z | sha256sum | cut -d ' ' -f 1)
           test -n "$GATED" && test "$digest" = "$GATED"
         env:
           GATED: ${{ needs.gates.outputs.digest }}

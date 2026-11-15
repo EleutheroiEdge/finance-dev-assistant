@@ -84,7 +84,7 @@ No action needed. Upgrades never edit project configuration or evidence.
    so anything a build added, dropped or changed stops the release, wherever in a
    file it hides, and so do a link and a name that could mean another path on any
    system. The published sdist must also build the published wheel, byte for
-   byte. The job then installs that wheel by its hash and runs the whole test
+   byte, and the release notes must be the tag's own. The job then installs that wheel by its hash and runs the whole test
    suite, which refuses to start if it would import the tree instead, and the
    demo. Only when it passes does the `pypi` job run, after any required reviewer
    approves. That job downloads the same artifact from the same run, checks that

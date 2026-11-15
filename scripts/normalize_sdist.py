@@ -8,12 +8,24 @@ import gzip
 import io
 import os
 from pathlib import Path
+import re
 import sys
 import tarfile
+
+# A zip file cannot date anything before 1980, so neither can a wheel; the sdist is held to the same range.
+EARLIEST = 315532800
+
+
+def release_epoch(value):
+    """SOURCE_DATE_EPOCH as a release sets it: a whole number of seconds, from 1980 on."""
+    if not re.fullmatch(r"[0-9]+", value or "") or int(value) < EARLIEST:
+        raise ValueError("SOURCE_DATE_EPOCH must be a whole number of seconds, from 1980 on")
+    return int(value)
 
 
 def normalized(raw, epoch):
     """The canonical bytes of one sdist."""
+    release_epoch(str(epoch))
     with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as source:
         members = []
         for member in source.getmembers():
@@ -43,7 +55,7 @@ def main():
     sdists = sorted(Path(sys.argv[1]).glob("*.tar.gz"))
     if len(sdists) != 1:
         raise SystemExit("expected exactly one sdist")
-    epoch = int(os.environ["SOURCE_DATE_EPOCH"])
+    epoch = release_epoch(os.environ.get("SOURCE_DATE_EPOCH"))
     sdists[0].write_bytes(normalized(sdists[0].read_bytes(), epoch))
     print(sdists[0].name, "normalized")
 
