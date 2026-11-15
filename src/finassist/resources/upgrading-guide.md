@@ -173,9 +173,10 @@ metadata, excluding development extras. It verifies a clean install using
 `pip install --require-hashes`, then runs `pip check` and `finassist doctor`.
 The verification uses a temporary wheelhouse so the exact newly built wheel can
 be checked before publication, without substituting an older index distribution.
-The requirements asset is preserved across the existing approval job and attached
+The requirements asset is preserved for the gates and publishing jobs and attached
 to the GitHub release beside the wheel and SBOM; it is not uploaded as a PyPI
-distribution. Existing tag, merged-source and human publication gates remain.
+distribution. The tag and merged-source gates remain, and the gates job tests
+the exact wheel before publication.
 
 Universal resolution retains environment markers and distribution hashes across
 platforms. The release job verifies its current Python/OS; a platform without a

@@ -6,11 +6,13 @@ import subprocess
 import sys
 import tarfile
 import tomllib
+import zipfile
 
 import pytest
 import yaml
 
-from scripts.release_checks import release_notes, validate_environment, validate_tag
+from scripts.release_checks import (release_notes, validate_environment, validate_tag, validate_tag_rules,
+                                    wheel_matches_tree)
 from finassist.platform_support import clean_environment
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -26,20 +28,92 @@ def test_release_versions_and_tag_gate():
     assert project["scripts"] == {"finassist": "finassist.cli:main", "finledgerpoli": "finassist.cli:main"}
 
 
-def test_environment_requires_actual_human_reviewers():
-    for document in [{}, {"name": "pypi"}, {"name": "pypi", "protection_rules": [{"type": "required_reviewers", "reviewers": []}]}]:
-        with pytest.raises(ValueError):
-            validate_environment(document)
-    validate_environment({"name": "pypi", "protection_rules": [{"type": "required_reviewers", "reviewers": [{"type": "User"}]}]})
+TAG_ONLY = {"protected_branches": False, "custom_branch_policies": True}
+RELEASE_TAGS = [{"type": "tag", "name": "v*"}]
+
+
+@pytest.mark.parametrize("document,policies", [
+    ({}, RELEASE_TAGS),
+    ({"name": "pypi"}, RELEASE_TAGS),
+    ({"name": "pypi", "deployment_branch_policy": {"protected_branches": True, "custom_branch_policies": False}},
+     RELEASE_TAGS),
+    ({"name": "pypi", "deployment_branch_policy": TAG_ONLY}, []),
+    ({"name": "pypi", "deployment_branch_policy": TAG_ONLY}, [*RELEASE_TAGS, {"type": "branch", "name": "main"}]),
+    ({"name": "pypi", "deployment_branch_policy": TAG_ONLY}, [{"type": "tag", "name": "*"}]),
+], ids=["missing", "no-rule", "protected-branches", "no-tag-rule", "and-a-branch", "every-tag"])
+def test_the_pypi_environment_must_deploy_only_release_tags(document, policies):
+    with pytest.raises(ValueError):
+        validate_environment(document, policies)
+
+
+def test_a_release_needs_no_reviewer_and_may_keep_one():
+    validate_environment({"name": "pypi", "deployment_branch_policy": TAG_ONLY}, RELEASE_TAGS)
+    validate_environment({"name": "pypi", "deployment_branch_policy": TAG_ONLY, "protection_rules": [
+        {"type": "required_reviewers", "reviewers": [{"type": "User"}]}]}, RELEASE_TAGS)
+
+
+def _ruleset(**changes):
+    return {"target": "tag", "enforcement": "active", "bypass_actors": [],
+            "conditions": {"ref_name": {"include": ["refs/tags/v*"], "exclude": []}},
+            "rules": [{"type": "deletion"}, {"type": "update"}], **changes}
+
+
+def test_release_tags_must_be_kept_from_moving_and_deletion():
+    validate_tag_rules([_ruleset()])
+    validate_tag_rules([_ruleset(target="branch"), _ruleset(conditions={"ref_name": {"include": ["~ALL"]}})])
+    for rulesets in ([], [_ruleset(enforcement="evaluate")], [_ruleset(target="branch")],
+                     [_ruleset(rules=[{"type": "deletion"}])], [_ruleset(bypass_actors=[{"actor_type": "RepositoryRole"}])],
+                     [_ruleset(conditions={"ref_name": {"include": ["refs/tags/v*"], "exclude": ["refs/tags/v0*"]}})],
+                     [_ruleset(conditions={"ref_name": {"include": ["refs/tags/release-*"]}})], [_ruleset(conditions=None)]):
+        with pytest.raises(ValueError, match="ruleset"):
+            validate_tag_rules(rulesets)
+
+
+def test_the_published_wheel_must_hold_exactly_the_tagged_package_files(tmp_path):
+    files = {"finassist/__init__.py": b"__version__ = '0.0.0'\n", "finassist/resources/guide.md": b"# Guide\n"}
+    for name, data in files.items():
+        (tmp_path / "src" / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "src" / name).write_bytes(data)
+    (tmp_path / "src/finassist/__pycache__").mkdir()
+    (tmp_path / "src/finassist/__pycache__/x.cpython-313.pyc").write_bytes(b"compiled")  # never packaged
+    dist = tmp_path / "dist"
+    dist.mkdir()
+
+    def build(entries):
+        with zipfile.ZipFile(dist / "finledgerpoli-0.0.0-py3-none-any.whl", "w") as archive:
+            for name, data in entries.items():
+                archive.writestr(name, data)
+            archive.writestr("finledgerpoli-0.0.0.dist-info/METADATA", "Name: finledgerpoli\n")
+
+    build(files)
+    assert wheel_matches_tree(tmp_path, dist) == 2
+    for entries in ({**files, "finassist/resources/guide.md": b"# Changed\n"},
+                    {"finassist/__init__.py": files["finassist/__init__.py"]}, {**files, "finassist/extra.py": b""}):
+        build(entries)
+        with pytest.raises(ValueError, match="differ"):
+            wheel_matches_tree(tmp_path, dist)
+    (dist / "finledgerpoli-9.9.9-py3-none-any.whl").write_bytes(b"")
+    with pytest.raises(ValueError, match="exactly one"):
+        wheel_matches_tree(tmp_path, dist)
 
 
 def test_release_workflow_is_tag_only_and_least_privilege():
     workflow = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8"))
     assert workflow.get("on", workflow.get(True)) == {"push": {"tags": ["v*"]}}
     assert workflow["permissions"] == {"contents": "read"}
-    assert set(workflow["jobs"]) == {"build", "publish"}
+    assert set(workflow["jobs"]) == {"build", "gates", "publish"}
     publish = workflow["jobs"]["publish"]
-    assert publish["needs"] == "build" and publish["environment"]["name"] == "pypi"
+    assert publish["needs"] == ["build", "gates"] and publish["environment"]["name"] == "pypi"
+    # The gates job holds no permission of its own, and tests the built wheel, never the tree: the wheel's files are
+    # checked against the tagged tree before it is installed by its hash, and the whole suite runs after.
+    gates = workflow["jobs"]["gates"]
+    assert gates["needs"] == "build" and "permissions" not in gates and "environment" not in gates
+    runs = [step.get("run", "") for step in gates["steps"]]
+    order = [next(index for index, run in enumerate(runs) if text in run) for text in (
+        "--wheel-matches-tree release/dist", "python scripts/ci_install.py wheel release/dist", "python scripts/ci_test.py")]
+    assert order == sorted(order) and not any("ci_install.py project" in run for run in runs)
+    downloads = [step["with"]["name"] for step in gates["steps"] if "download-artifact" in step.get("uses", "")]
+    assert downloads == ["release-${{ github.sha }}"]
     assert publish["environment"]["url"] == "https://pypi.org/project/finledgerpoli/"
     assert publish["permissions"] == {"contents": "write", "id-token": "write", "attestations": "write"}
     assert "permissions" not in workflow["jobs"]["build"]

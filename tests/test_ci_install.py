@@ -89,6 +89,25 @@ def test_local_wheel_install_verifies_artifact_without_fetching_dependencies(tmp
     assert len(calls) == 1
 
 
+def test_the_wheel_tool_installs_exactly_one_built_wheel(tmp_path, monkeypatch):
+    installed = []
+    monkeypatch.setattr(ci_install, "install_wheel", lambda python, wheel: installed.append(wheel))
+    for count in (0, 2):
+        folder = tmp_path / f"dist-{count}"
+        folder.mkdir()
+        for number in range(count):
+            (folder / f"finledgerpoli-0.{number}.0-py3-none-any.whl").write_bytes(b"synthetic")
+        monkeypatch.setattr("sys.argv", ["ci_install.py", "wheel", str(folder)])
+        with pytest.raises(RuntimeError, match="exactly one"):
+            ci_install.main()
+    wheel = tmp_path / "dist" / "finledgerpoli-0.3.1-py3-none-any.whl"
+    wheel.parent.mkdir()
+    wheel.write_bytes(b"synthetic")
+    monkeypatch.setattr("sys.argv", ["ci_install.py", "wheel", str(wheel.parent)])
+    ci_install.main()
+    assert installed == [wheel]
+
+
 def test_native_upgrade_checks_have_a_bounded_windows_time_allowance():
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
     job = workflow["jobs"]["test"]
