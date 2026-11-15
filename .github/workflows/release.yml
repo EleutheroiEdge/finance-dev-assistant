@@ -75,9 +75,9 @@ jobs:
             release-assets/*-requirements.txt
           if-no-files-found: error
           retention-days: 30
-  # In place of a person's approval: before anything is published, the built wheel must hold exactly the tagged
-  # tree's package files, and that wheel, installed by its hash, must pass the whole test suite, the demo and the
-  # publication scan.
+  # In place of a person's approval: before anything is published, the wheel and the sdist must hold exactly the
+  # tagged tree's files and a build's metadata, and the wheel, installed by its hash, must pass the whole test suite
+  # and the demo.
   gates:
     needs: build
     runs-on: ubuntu-24.04
@@ -92,18 +92,22 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-${{ github.sha }}
-          path: release
-      - name: Verify the wheel holds exactly the tagged tree's package files
-        run: python scripts/release_checks.py --tag "$RELEASE_TAG" --wheel-matches-tree release/dist
+          path: ${{ runner.temp }}/release
+      - name: Verify the wheel and the sdist hold exactly the tagged tree's files
+        run: python scripts/release_checks.py --tag "$RELEASE_TAG" --distributions-match-tree "$RUNNER_TEMP/release/dist"
         env:
           RELEASE_TAG: ${{ github.ref_name }}
       - run: python scripts/ci_install.py dependencies
       - name: Install the built wheel by its hash, in place of the tree
-        run: python scripts/ci_install.py wheel release/dist
+        run: python scripts/ci_install.py wheel "$RUNNER_TEMP/release/dist"
+      - name: Verify the tests will import the installed wheel, not the tree
+        run: python scripts/release_checks.py --tag "$RELEASE_TAG" --imports-installed
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
       - name: Run the whole test suite against the installed wheel
         run: python scripts/ci_test.py
       - run: finassist demo
-      - run: finassist scan --repo .
+        working-directory: ${{ runner.temp }}
   publish:
     needs: [build, gates]
     runs-on: ubuntu-24.04

@@ -19,19 +19,22 @@ approve and perform them; preparing this workflow does not configure them.
    same publisher from its Publishing page. No API token or GitHub secret is needed.
 2. In GitHub Settings → Environments, create **`pypi`** and restrict its deployment
    refs to the `v*` release tags with one environment tag rule and no branch rule.
-   In Settings → Rules, add an active tag ruleset for `v*` that blocks updates and
-   deletions, with no bypass, so a release tag can never be moved or reused. The
-   build preflight refuses to run without both. A required reviewer is optional:
+   In Settings → Rules, add two active tag rulesets for `v*`. One blocks updates,
+   fast-forward ones included, and deletions, with no bypass, so a release tag can
+   never be moved or reused. The other restricts creations, and only maintainers
+   may bypass it. The build preflight refuses to run without both rulesets. Its
+   token can't read a ruleset's bypass list, so check before tagging that the
+   first ruleset's list is empty. A required reviewer is optional:
    the gates job (step 5) stands in for one. If you add one, disable administrator
    bypass where available; “Prevent self-review” needs a second eligible reviewer.
-3. Review the exact workflow pins and permissions before merging. Restrict who
-   can create or update release tags using repository rules. Fork maintainers must
-   replace the package name, publisher identity, repository links and reviewers
-   with their own; a fork does not inherit publishing authority.
+3. Review the exact workflow pins and permissions before merging. Fork maintainers
+   must replace the package name, publisher identity, repository links, the
+   environment's tag rule and the rulesets with their own; a fork does not inherit
+   publishing authority.
 
 See [PyPI publisher configuration](https://docs.pypi.org/trusted-publishers/adding-a-publisher/)
 and [Trusted Publishing usage](https://docs.pypi.org/trusted-publishers/using-a-publisher/).
-A missing environment, a deployment rule wider than the `v*` tags, or release tags without that ruleset
+A missing environment, a deployment rule wider than the `v*` tags, or release tags without those rulesets
 fail the read-only build preflight. If the
 runner cannot read environment metadata, stop and resolve access with your repository administrator;
 do not remove that guard or add an upload token as a workaround.
@@ -68,11 +71,12 @@ No action needed. Upgrades never edit project configuration or evidence.
    the wheel, sdist, release notes and `release-sbom.spdx.json`. The SBOM inventories source
    manifests, lockfiles and built distributions, including development dependencies;
    it is not a vulnerability report or a minimal runtime-only inventory.
-5. The gates job downloads that artifact and checks that the wheel holds exactly
-   the tagged tree's package files, byte for byte. It installs that wheel by its
-   hash and runs the whole test suite, the demo and the publication scan against
-   it. Only when it passes does the `pypi` job run, after any required reviewer
-   approves. That job downloads the same artifact from the same run,
+5. The gates job downloads that artifact outside the checkout and checks that it
+   holds only the wheel and the sdist, each with exactly the tagged tree's files
+   and the metadata a build writes. It installs that wheel by its hash, checks that
+   the tests will import it and not the tree, and runs the whole test suite and the
+   demo against it. Only when it passes does the `pypi` job run, after any required
+   reviewer approves. That job downloads the same artifact from the same run,
    records GitHub build/SBOM attestations and publishes with short-lived OIDC
    credentials, then attaches the distributions and SBOM to a GitHub Release
    using the notes extracted for that version. PyPI publishing also generates PyPI publish
