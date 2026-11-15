@@ -254,20 +254,34 @@ def test_a_relative_path_is_made_absolute_and_a_path_must_end_in_a_name(upgrade_
             upgrade_smoke.unlinked(ending)
 
 
-def test_the_script_checks_with_require_not_assert_so_python_dash_o_keeps_every_check(upgrade_smoke):
+def test_the_script_checks_with_require_not_assert_so_python_dash_o_keeps_every_check(upgrade_smoke, tmp_path):
     tree = ast.parse((ROOT / "scripts/upgrade_smoke.py").read_text(encoding="utf-8"))
     assert [node.lineno for node in ast.walk(tree) if isinstance(node, ast.Assert)] == []
     upgrade_smoke.require(True, "unused")
     with pytest.raises(RuntimeError, match="a failed check"):
         upgrade_smoke.require(False, "a failed check")
-    # Isolated, so no outer PYTHON* variable (PYTHONSAFEPATH, PYTHONOPTIMIZE) changes the run; the script is found
-    # by an explicit path; exit 3 if -O is not on; and the match is the exception line, which a failed import in the
-    # same source line cannot produce.
+    # Started as the script starts every child, so no outer PYTHON* variable (PYTHONSAFEPATH, PYTHONOPTIMIZE)
+    # changes the run and no bytecode is written; from a staged copy in a folder whose name is outside every ANSI code
+    # page, so the traceback's path must come back as UTF-8; exit 3 if -O is not on; and the match is the exception
+    # line, which a failed import in the same source line cannot produce.
+    staged = tmp_path / ("Ren" + chr(0xE9) + "-" + chr(0x2014) + "-" + chr(0x2713)) / "scripts"
+    staged.mkdir(parents=True)
+    for name in ("upgrade_smoke.py", "ci_install.py"):
+        (staged / name).write_bytes((ROOT / "scripts" / name).read_bytes())
     probe = ("import sys; sys.path.insert(0, sys.argv[1]); sys.flags.optimize or sys.exit(3); "
              "import upgrade_smoke; upgrade_smoke.require(False, 'a failed check')")
-    optimized = subprocess.run([sys.executable, "-I", "-O", "-c", probe, str(ROOT / "scripts")], cwd=ROOT,
-                               capture_output=True, text=True, timeout=60, check=False)
+    optimized = subprocess.run([sys.executable, *upgrade_smoke.ISOLATED, "-O", "-c", probe, str(staged)],
+                               cwd=tmp_path, env=upgrade_smoke.environment(tmp_path), capture_output=True,
+                               text=True, encoding="utf-8", timeout=60, check=False)
     assert optimized.returncode == 1 and "RuntimeError: a failed check" in optimized.stderr, optimized.stderr
+    assert staged.parent.name in optimized.stderr  # the traceback's path, decoded
+    assert not (staged / "__pycache__").exists()  # nothing written beside the script
+
+
+def test_a_failed_child_reports_its_stdout_when_its_stderr_is_empty(upgrade_smoke, tmp_path):
+    code = "import sys; print('a blocked report'); sys.exit(1)"
+    with pytest.raises(RuntimeError, match="a blocked report"):
+        upgrade_smoke.run(sys.executable, "-c", code, cwd=tmp_path, env=upgrade_smoke.environment(tmp_path))
 
 
 def test_an_isolated_child_prints_utf8_and_writes_no_bytecode(upgrade_smoke, tmp_path):

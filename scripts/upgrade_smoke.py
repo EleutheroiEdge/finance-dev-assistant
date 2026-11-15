@@ -121,7 +121,7 @@ def run(python, *args, cwd, env, expected_exit=0):
                             capture_output=True, text=True, encoding="utf-8", shell=False,
                             timeout=90, check=False)
     if result.returncode != expected_exit:
-        raise RuntimeError(f"Upgrade check failed ({result.returncode}): {result.stderr}")
+        raise RuntimeError(f"Upgrade check failed ({result.returncode}): {result.stderr or result.stdout}")
     return result
 
 
