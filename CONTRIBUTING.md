@@ -5,7 +5,8 @@ Contribute focused, tested improvements to finledgerpoli while preserving its of
 Work on a focused feature branch. Document the problem, scope, governing project
 rules, expected behavior and validation. Keep fixtures synthetic and provider
 tests on fake transports. Do not copy private source histories or datasets into
-this project.
+this project. Keep private context out of issues, pull requests, commits and
+files; see [Keep private context out of this public repository](AGENTS.md#keep-private-context-out-of-this-public-repository).
 
 Run the full test suite, linter, offline demo and publication scan. Add regression
 tests that fail on the original defect, especially around source identity,

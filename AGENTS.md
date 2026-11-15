@@ -22,3 +22,26 @@ risks and limitations with evidence; do not claim live provider validation from
 mocked tests. Stage only reviewed paths and do not modify another agent's work.
 
 For using finledgerpoli from a coding agent, see [the user agent guide](docs/agents.md).
+
+## Keep private context out of this public repository
+
+This repository is public. Issues, pull requests, comments, reviews, commit
+messages, branch names and files here can be read by anyone, and edits and
+history stay visible after the fact. Do not include:
+
+- personal information about anyone, including names, roles, contact details or
+  quotes of private conversations;
+- maintainer workstation paths, machine names, local tool names or other machine
+  details;
+- names, sizes or results of other projects that are not public;
+- private links, such as agent session URLs or private document paths;
+- account, billing or usage details for any provider;
+- internal coordination notes, such as hand-offs, approvals, holds or who
+  reviews what.
+
+Use generic wording instead, for example "a private consumer repository", "the
+maintainers" or "a local worktree". Commit with your GitHub noreply email
+address and do not add session-link commit trailers. Keep fixtures obviously
+synthetic, such as `example.invalid` hosts and fake keys. Reread a title, body
+or message for these items before posting it, because a published commit
+message cannot be cleaned without rewriting history.
