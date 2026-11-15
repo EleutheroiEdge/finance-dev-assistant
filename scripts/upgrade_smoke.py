@@ -144,9 +144,15 @@ def install(python, wheel, sha256, *, cwd, env):
 
 
 def git(repo, *args, env):
-    return subprocess.run(["git", "-c", "user.name=Synthetic Tester", "-c", "user.email=tester@example.invalid",
+    """Run Git on the synthetic repository. Its pipes are decoded as UTF-8, as Git writes them on every system, and a
+    failure refuses with Git's own message."""
+    done = subprocess.run(["git", "-c", "user.name=Synthetic Tester", "-c", "user.email=tester@example.invalid",
                            "-c", "core.autocrlf=false", "-c", "commit.gpgsign=false", "-C", str(repo), *args],
-                          env=env, capture_output=True, text=True, check=True, timeout=60, shell=False).stdout.strip()
+                          env=env, capture_output=True, text=True, encoding="utf-8", timeout=60, shell=False,
+                          check=False)
+    if done.returncode:
+        raise RuntimeError(f"git {args[0]} failed ({done.returncode}): {done.stderr or done.stdout}")
+    return done.stdout.strip()
 
 
 def commit(repo, message, *, env):
@@ -168,7 +174,7 @@ def gate_verdicts(python, root, policies, pins, changes, *, env):
                                    "--base", base, "--head", head], cwd=root, env=env, capture_output=True,
                                   text=True, encoding="utf-8", shell=False, timeout=90, check=False)
             if done.returncode not in (0, 1):  # ready, or blocked with a report
-                raise RuntimeError(f"Upgrade gate check failed ({done.returncode}): {done.stderr}")
+                raise RuntimeError(f"Upgrade gate check failed ({done.returncode}): {done.stderr or done.stdout}")
             report = json.loads(done.stdout)
             verdicts[(name, change)] = (report["status"], sorted(item["code"] for item in report.get("blockers", [])),
                                         report["policy"]["sha256"], done.returncode)

@@ -308,6 +308,31 @@ def test_the_gate_check_starts_its_children_the_same_isolated_way(upgrade_smoke,
     assert [command[1:5] for command in seen] == [list(upgrade_smoke.ISOLATED)]
 
 
+def test_an_unexpected_gate_exit_reports_the_childs_stdout(upgrade_smoke, tmp_path, monkeypatch):
+    monkeypatch.setattr(upgrade_smoke.subprocess, "run",
+                        lambda command, **kwargs: types.SimpleNamespace(returncode=3, stdout="an unexpected report",
+                                                                        stderr=""))
+    policy = tmp_path / "policy.json"
+    with pytest.raises(RuntimeError, match="an unexpected report"):
+        upgrade_smoke.gate_verdicts("python", tmp_path, {"example": policy}, {policy: "b" * 64},
+                                    {"clean": ("base", "head")}, env={})
+
+
+def test_git_decodes_utf8_and_refuses_with_gits_own_message(upgrade_smoke, tmp_path, monkeypatch):
+    seen = []
+    real_run = subprocess.run
+
+    def run(command, **kwargs):
+        seen.append(kwargs)
+        return real_run(command, **kwargs)
+
+    monkeypatch.setattr(upgrade_smoke.subprocess, "run", run)
+    with pytest.raises(RuntimeError, match="git rev-parse failed") as refused:
+        upgrade_smoke.git(tmp_path, "rev-parse", "HEAD", env=upgrade_smoke.environment(tmp_path))
+    assert seen[0]["encoding"] == "utf-8"
+    assert str(refused.value).split("): ", 1)[1].strip()  # Git's own message is carried, not only the exit status
+
+
 @pytest.mark.parametrize("kind", ["missing", "folder"])
 def test_a_candidate_that_is_not_an_existing_file_refuses_before_anything_is_created(upgrade_smoke, tmp_path, kind):
     wheel = tmp_path / "finledgerpoli-9.9.9-py3-none-any.whl"
