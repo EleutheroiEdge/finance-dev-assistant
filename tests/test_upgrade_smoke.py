@@ -1,10 +1,14 @@
 """Offline checks of the installed-upgrade check's own rules: no wheel is downloaded or installed here."""
 
+import ast
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import subprocess
+import sys
+import types
 
 import pytest
 
@@ -248,6 +252,60 @@ def test_a_relative_path_is_made_absolute_and_a_path_must_end_in_a_name(upgrade_
     for ending in (tmp_path / "real" / "..", Path(".")):
         with pytest.raises(RuntimeError, match="must end in a file or folder name"):
             upgrade_smoke.unlinked(ending)
+
+
+def test_the_script_checks_with_require_not_assert_so_python_dash_o_keeps_every_check(upgrade_smoke):
+    tree = ast.parse((ROOT / "scripts/upgrade_smoke.py").read_text(encoding="utf-8"))
+    assert [node.lineno for node in ast.walk(tree) if isinstance(node, ast.Assert)] == []
+    upgrade_smoke.require(True, "unused")
+    with pytest.raises(RuntimeError, match="a failed check"):
+        upgrade_smoke.require(False, "a failed check")
+    optimized = subprocess.run(
+        [sys.executable, "-O", "-c", "import upgrade_smoke; upgrade_smoke.require(False, 'a failed check')"],
+        cwd=ROOT / "scripts", capture_output=True, text=True, timeout=60, check=False)
+    assert optimized.returncode != 0 and "a failed check" in optimized.stderr
+
+
+@pytest.mark.parametrize("kind", ["missing", "folder"])
+def test_a_candidate_that_is_not_an_existing_file_refuses_before_anything_is_created(upgrade_smoke, tmp_path, kind):
+    wheel = tmp_path / "finledgerpoli-9.9.9-py3-none-any.whl"
+    if kind == "folder":
+        wheel.mkdir()
+    with pytest.raises(RuntimeError, match="must be an existing file"):
+        upgrade_smoke.exercise_upgrades(wheel, tmp_path / "work")
+    assert not (tmp_path / "work").exists()
+
+
+def test_a_windows_junction_counts_as_a_link(upgrade_smoke, tmp_path, monkeypatch):
+    junction = tmp_path / "junction"
+    junction.mkdir()
+    real_lstat = os.lstat
+
+    def lstat(path, *args, **kwargs):
+        info = real_lstat(path, *args, **kwargs)
+        if Path(path) == junction:  # as Windows reports a junction: a folder with a mount-point reparse tag
+            return types.SimpleNamespace(st_mode=info.st_mode, st_reparse_tag=upgrade_smoke.JUNCTION_TAG)
+        return info
+
+    monkeypatch.setattr(upgrade_smoke.os, "lstat", lstat)
+    assert upgrade_smoke.is_link(junction) and not upgrade_smoke.is_link(tmp_path)
+    assert not upgrade_smoke.is_link(tmp_path / "missing" / "leaf")
+    with pytest.raises(RuntimeError, match="must not be links"):
+        upgrade_smoke.unlinked(junction)
+    with pytest.raises(RuntimeError, match="cache is a link"):
+        upgrade_smoke.historical_wheel(_record(b"x"), junction)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="directory junctions are a Windows feature")
+def test_a_real_windows_junction_refuses(upgrade_smoke, tmp_path):
+    import _winapi
+
+    (tmp_path / "real").mkdir()
+    junction = tmp_path / "junction"
+    _winapi.CreateJunction(str(tmp_path / "real"), str(junction))
+    assert upgrade_smoke.is_link(junction)
+    with pytest.raises(RuntimeError, match="must not be links"):
+        upgrade_smoke.unlinked(junction)
 
 
 def test_a_wheel_is_installed_by_the_hash_it_was_pinned_to_not_one_read_again(upgrade_smoke, tmp_path, monkeypatch):

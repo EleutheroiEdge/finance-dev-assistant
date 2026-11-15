@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -20,6 +21,9 @@ from ci_install import ROOT
 FIXTURES = ROOT / "examples/upgrade-fixtures"
 _VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 _FLOOR_CODES = ("unknown_config_option", "minimum_version_required")
+# Windows's IO_REPARSE_TAG_MOUNT_POINT, the reparse tag of a directory junction; the `stat` module names it on Windows
+# only.
+JUNCTION_TAG = 0xA0000003
 # A synthetic confidential figure for the gate check, and a placeholder for the key variable the example policy
 # names: doctor checks that the variable is set, never its value, and calls no provider.
 FIGURE, PLACEHOLDER = "7341906", "placeholder-not-a-key"
@@ -35,6 +39,23 @@ def environment(home):
                   PYTHONDONTWRITEBYTECODE="1", PIP_CONFIG_FILE=os.devnull,
                   PIP_DISABLE_PIP_VERSION_CHECK="1", FINASSIST_NO_UPDATE_CHECK="1", GIT_CONFIG_NOSYSTEM="1")
     return result
+
+
+def require(condition, message):
+    """A check that still runs under `python -O`, which strips `assert` statements, so a failed check can never read
+    as a pass."""
+    if not condition:
+        raise RuntimeError(message)
+
+
+def is_link(path):
+    """Whether `path` itself is a symbolic link or, on Windows, a directory junction, which any user can make and which
+    `Path.is_symlink()` does not report. A path that does not exist is not a link."""
+    try:
+        info = os.lstat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    return stat.S_ISLNK(info.st_mode) or getattr(info, "st_reparse_tag", 0) == JUNCTION_TAG
 
 
 def file_hash(path):
@@ -66,10 +87,10 @@ def historical_wheel(record, directory):
             or type(record.get("store_schema")) is not int or record["store_schema"] < 0
             or type(record.get("schema_guard")) is not bool or record.get("floor_code") not in _FLOOR_CODES):
         raise RuntimeError("Invalid pinned historical wheel manifest")
-    if directory.is_symlink():
+    if is_link(directory):
         raise RuntimeError("The historical wheel cache is a link")
     target = directory / expected
-    if target.is_symlink():
+    if is_link(target):
         raise RuntimeError("Cached historical wheel is a link")
     if not target.exists():
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
@@ -85,7 +106,7 @@ def historical_wheel(record, directory):
             os.replace(handle.name, target)
         finally:
             Path(handle.name).unlink(missing_ok=True)
-    if (target.is_symlink() or not target.is_file() or target.stat().st_size != record["size"]
+    if (is_link(target) or not target.is_file() or target.stat().st_size != record["size"]
             or file_hash(target) != record["sha256"]):
         raise RuntimeError("Cached historical wheel hash mismatch")
     return target
@@ -182,11 +203,14 @@ def exercise_gate(candidate, record, wheel, python, root, env):
     before = gate_verdicts(python, root, policies, pins, changes, env=gate_env)
     install(python, *candidate, cwd=root, env=env)
     after = gate_verdicts(python, root, policies, pins, changes, env=gate_env)
-    assert {path: file_hash(path) for path in pins} == pins, "The upgrade changed a policy or figure file"
-    assert after == before, f"Gate verdicts changed on upgrade: {before} -> {after}"
-    assert after[("example", "clean")][0] == after[("example", "figure")][0] == "ready"
-    assert after[("with-figure-file", "clean")][0] == "ready"
-    assert after[("with-figure-file", "figure")][:2] == ("blocked", ["forbidden_token_present"])
+    require({path: file_hash(path) for path in pins} == pins, "The upgrade changed a policy or figure file")
+    require(after == before, f"Gate verdicts changed on upgrade: {before} -> {after}")
+    require(after[("example", "clean")][0] == after[("example", "figure")][0] == "ready",
+            "The example policy no longer reads both changes as ready")
+    require(after[("with-figure-file", "clean")][0] == "ready",
+            "The policy with a figure file no longer reads the clean change as ready")
+    require(after[("with-figure-file", "figure")][:2] == ("blocked", ["forbidden_token_present"]),
+            "The policy with a figure file no longer refuses the change that adds the figure")
     return {"gate_verdicts_unchanged": True, "gate_pins_unchanged": True}
 
 
@@ -246,12 +270,14 @@ def exercise(candidate, record, wheel, root, newest):
     synthetic = json.loads((ROOT / "examples/evidence-observation.json").read_text(encoding="utf-8"))
     synthetic["value"] = "100"
     observation.write_text(json.dumps(synthetic), encoding="utf-8", newline="\n")
-    assert run(python, "-m", "finassist", "--version", cwd=project, env=env).stdout.strip() == record["version"]
+    require(run(python, "-m", "finassist", "--version", cwd=project, env=env).stdout.strip() == record["version"],
+            "The historical wheel reports another version")
     cli(python, "init", "--output", config, cwd=project, env=env)
     original_config = config.read_bytes()
     golden = FIXTURES / (record["version"] + ".json")
-    assert original_config == golden.read_bytes(), "Historical init output changed"
-    assert cli(python, "--config", config, "demo", cwd=project, env=env)["status"] == "PASS"
+    require(original_config == golden.read_bytes(), "Historical init output changed")
+    require(cli(python, "--config", config, "demo", cwd=project, env=env)["status"] == "PASS",
+            "The historical version's demo did not pass")
     entry = cli(python, "--config", config, "evidence", "add", "--input", observation,
                 "--state-dir", state, cwd=project, env=env)
     cli(python, "--config", config, "evidence", "approve", "--id", entry["id"],
@@ -270,42 +296,51 @@ def exercise(candidate, record, wheel, root, newest):
     current = int(run(python, "-c", "from finassist import evidence_schema; "
                       "print(evidence_schema.SUPPORTED_EVIDENCE_SCHEMA)", cwd=project, env=env).stdout)
     check_schema_support(record, current)
-    assert config.read_bytes() == original_config
-    assert cli(python, "--config", config, "doctor", cwd=project, env=env)["provider"] == "offline"
-    assert cli(python, "--config", config, "demo", cwd=project, env=env)["status"] == "PASS"
+    require(config.read_bytes() == original_config, "The upgrade changed the configuration file")
+    require(cli(python, "--config", config, "doctor", cwd=project, env=env)["provider"] == "offline",
+            "The candidate's doctor did not accept the old configuration offline")
+    require(cli(python, "--config", config, "demo", cwd=project, env=env)["status"] == "PASS",
+            "The candidate's demo did not pass")
     # A floor the old version met is met by the candidate too.
     met = project / "minimum-met.json"
     met.write_text(json.dumps({**json.loads(original_config), "min_version": record["version"]}), encoding="utf-8",
                    newline="\n")
-    assert cli(python, "--config", met, "doctor", cwd=project, env=env)["provider"] == "offline"
+    require(cli(python, "--config", met, "doctor", cwd=project, env=env)["provider"] == "offline",
+            "The candidate did not accept a floor the old version met")
     # The store's schema is the one the manifest pins for that version, never what the candidate says it is.
     found = cli(python, "--config", config, "evidence", "verify", "--state-dir", state, cwd=project, env=env)
-    assert found["verified"] and found["schema_version"] == record["store_schema"] <= current
-    assert file_hash(original_store) == original_hash
+    require(found["verified"] and found["schema_version"] == record["store_schema"] <= current,
+            "The candidate could not verify the old store at its pinned schema")
+    require(file_hash(original_store) == original_hash, "Verifying changed the original store")
     listing = sorted(path.name for path in state.iterdir())
     plan = cli(python, "--config", config, "evidence", "migrate", "--state-dir", state, "--dry-run", cwd=project,
                env=env)
-    assert not plan["written"] and file_hash(original_store) == original_hash
-    assert sorted(path.name for path in state.iterdir()) == listing  # a dry run writes nothing at all
+    require(not plan["written"] and file_hash(original_store) == original_hash,
+            "A dry-run migration wrote or changed the store")
+    require(sorted(path.name for path in state.iterdir()) == listing, "A dry-run migration wrote a file")
     if record["store_schema"] < current:
         # An older store: explicit migration keeps the original and writes a new file the candidate reads.
-        assert plan["target_schema_version"] == current
+        require(plan["target_schema_version"] == current, "The migration plan names another schema")
         migrated = cli(python, "--config", config, "evidence", "migrate", "--state-dir", state, cwd=project, env=env)
         target = Path(migrated["destination"])
-        assert migrated["written"] and Path(migrated["backup"]) == original_store and target != original_store
-        assert target == Path(plan["destination"]) and target.parent.resolve() == state.resolve() and target.is_file()
-        assert file_hash(original_store) == original_hash
-        assert cli(python, "--config", config, "evidence", "verify", "--state-dir", state, cwd=project,
-                   env=env)["schema_version"] == current
+        require(migrated["written"] and Path(migrated["backup"]) == original_store and target != original_store,
+                "The migration did not write a new file beside the intact original")
+        require(target == Path(plan["destination"]) and target.parent.resolve() == state.resolve() and target.is_file(),
+                "The migration wrote somewhere other than its plan's destination in the state folder")
+        require(file_hash(original_store) == original_hash, "The migration changed the original store")
+        require(cli(python, "--config", config, "evidence", "verify", "--state-dir", state, cwd=project,
+                    env=env)["schema_version"] == current,
+                "The migrated store does not verify at the candidate's schema")
         stores, historical_value = (original_store, target), "100"
     else:
         # A store already at the current schema: nothing to migrate, and a real migration writes nothing at all.
-        assert "target_schema_version" not in plan
+        require("target_schema_version" not in plan, "A store at the current schema was planned for migration")
         migrated = cli(python, "--config", config, "evidence", "migrate", "--state-dir", state, cwd=project, env=env)
-        assert not migrated["written"] and file_hash(original_store) == original_hash
-        assert sorted(path.name for path in state.iterdir()) == listing
+        require(not migrated["written"] and file_hash(original_store) == original_hash,
+                "A migration of a current store wrote or changed it")
+        require(sorted(path.name for path in state.iterdir()) == listing, "A migration of a current store wrote a file")
         stores, historical_value = (original_store,), "120"
-    assert latest() == "100"  # the candidate reads the upgraded store
+    require(latest() == "100", "The candidate does not read the upgraded store")
     revision = json.loads(observation.read_text(encoding="utf-8"))
     revision["value"] = "120"
     revision_path = project / "revision.json"
@@ -314,44 +349,49 @@ def exercise(candidate, record, wheel, root, newest):
                 "--state-dir", state, cwd=project, env=env)
     cli(python, "--config", config, "evidence", "approve", "--id", added["id"], "--approve-hash", added["hash"],
         "--state-dir", state, cwd=project, env=env)
-    assert latest() == "120"  # and its own revision supersedes the old observation
+    require(latest() == "120", "The candidate's revision does not supersede the old observation")
     snapshots = {path: file_hash(path) for path in stores}
     if historical_value == "100":
-        assert snapshots[original_store] == original_hash
+        require(snapshots[original_store] == original_hash, "The candidate changed the original store")
     # Real historical code reads the store it knows without changing any file: an older reader sees the stale,
     # intact original (it cannot know the new filename and has no retroactive schema guard); a reader of the current
     # schema sees the candidate's revision.
     install(python, wheel, record["sha256"], cwd=project, env=env)
-    assert latest() == historical_value
-    assert {path: file_hash(path) for path in snapshots} == snapshots
+    require(latest() == historical_value, "The historical reader does not read what it should")
+    require({path: file_hash(path) for path in snapshots} == snapshots, "The historical reader changed a store")
     floor = project / "minimum.json"
     floor.write_text('{"min_version":"999.0.0","future_unknown":true}', encoding="utf-8", newline="\n")
     historical_floor = cli(python, "--config", floor, "doctor", cwd=project, env=env, expected_exit=2)["code"]
-    assert historical_floor == record["floor_code"]
+    require(historical_floor == record["floor_code"],
+            "The historical version answers another floor code than its pinned one")
     install(python, *candidate, cwd=project, env=env)
-    assert cli(python, "--config", floor, "doctor", cwd=project, env=env, expected_exit=2)["code"] == "minimum_version_required"
+    candidate_floor = cli(python, "--config", floor, "doctor", cwd=project, env=env, expected_exit=2)["code"]
+    require(candidate_floor == "minimum_version_required",
+            "The candidate does not refuse a floor above it with minimum_version_required")
     # A simulated guarded reader one schema behind refuses the store a current writer has touched. The schema it
     # supports is set before the store module is imported, so it holds however that module reads it.
     run(python, "-c", f"""
 import sys
 from pathlib import Path
 from finassist import evidence_schema
-assert 'finassist.evidence_store' not in sys.modules, 'the store module was imported before the schema was set'
+if 'finassist.evidence_store' in sys.modules:
+    raise AssertionError('the store module was imported before the schema was set')
 evidence_schema.SUPPORTED_EVIDENCE_SCHEMA = {current - 1}
 from finassist.evidence_store import EvidenceStore
 from finassist.errors import AssistantError
 try:
     EvidenceStore(Path('state/evidence.sqlite'))
 except AssistantError as error:
-    assert error.code == 'evidence_store_newer_schema_upgrade_required'
+    if error.code != 'evidence_store_newer_schema_upgrade_required':
+        raise AssertionError(error.code)
 else:
     raise AssertionError('Simulated older guarded reader opened a newer store')
 """, cwd=project, env=env)
-    assert {path: file_hash(path) for path in snapshots} == snapshots
-    assert config.read_bytes() == original_config
-    assert cli(python, "--config", config, "evidence", "verify", "--state-dir", state, cwd=project,
-               env=env)["entries"] == 2
-    assert latest() == "120"
+    require({path: file_hash(path) for path in snapshots} == snapshots, "The simulated guarded reader changed a store")
+    require(config.read_bytes() == original_config, "The configuration file changed")
+    require(cli(python, "--config", config, "evidence", "verify", "--state-dir", state, cwd=project,
+                env=env)["entries"] == 2, "The candidate's store does not hold both entries")
+    require(latest() == "120", "The candidate does not read its own revision")
     older = historical_value == "100"
     result = {"historical_version": record["version"], "config_byte_identical": True, "store_schema": record["store_schema"],
               "migration": "written beside the intact original" if older else "none needed",
@@ -372,7 +412,7 @@ def unlinked(path):
     if path.name in ("", ".", ".."):
         raise RuntimeError(f"{path} must end in a file or folder name")
     leaf = path.absolute().parent.resolve() / path.name
-    if leaf.is_symlink():
+    if is_link(leaf):
         raise RuntimeError("The candidate wheel and the cache must not be links")
     return leaf
 
@@ -385,11 +425,15 @@ def exercise_upgrades(candidate, directory, *, cache=None):
     candidate = unlinked(candidate)
     if not (candidate.name.startswith("finledgerpoli-") and candidate.name.endswith(".whl")):
         raise RuntimeError("The candidate must be a finledgerpoli wheel")
+    if not candidate.is_file():
+        raise RuntimeError("The candidate wheel must be an existing file")
     directory = directory.resolve()
     cache = unlinked(cache if cache is not None else directory / "historical-wheels")
     manifest = json.loads((FIXTURES / "wheels.json").read_text(encoding="utf-8"))
     wheels = manifest.get("wheels") if isinstance(manifest, dict) else None
-    keys = [version_key(row.get("version") if isinstance(row, dict) else None) for row in wheels or []]
+    if not isinstance(wheels, list) or not all(isinstance(row, dict) for row in wheels):
+        raise RuntimeError("Invalid pinned historical wheel manifest")
+    keys = [version_key(row.get("version")) for row in wheels]
     if manifest.get("distribution") != "finledgerpoli" or not keys or keys != sorted(set(keys)):
         raise RuntimeError("The pinned historical versions must be distinct and listed in release order")
     cache.mkdir(parents=True, exist_ok=True)

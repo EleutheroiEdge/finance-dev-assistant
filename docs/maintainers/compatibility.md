@@ -134,8 +134,11 @@ schema is theirs.
 To run only this check locally after building a wheel:
 
 ```sh
-python scripts/upgrade_smoke.py dist/finledgerpoli-0.5.0-py3-none-any.whl
+python scripts/upgrade_smoke.py dist/finledgerpoli-<version>-py3-none-any.whl
 ```
+
+`<version>` is the version you built. It must be no older than the newest version the manifest pins, and the
+wheel's name must carry the version it reports.
 
 The check executes installed packages from isolated temporary projects with
 temporary homes and a minimal environment. An optional `--cache DIRECTORY`
