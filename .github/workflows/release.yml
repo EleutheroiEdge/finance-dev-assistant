@@ -116,9 +116,16 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/release"
+          # One check a line: under set -e, a failure before the last && of a list would not stop the script.
+          test -f release-sbom.spdx.json
           test -s release-sbom.spdx.json
+          test -f release-notes.md
           test -s release-notes.md
-          for file in release-assets/*-requirements.txt; do test -s "$file"; done
+          for file in release-assets/*-requirements.txt; do
+            test -f "$file"
+            test -s "$file"
+            case "${file#release-assets/}" in *[!A-Za-z0-9._-]*) exit 1 ;; esac
+          done
       - run: python scripts/ci_install.py dependencies
       - name: Build the wheel and the sdist again, the same way, from a clean checkout of the tag
         run: |

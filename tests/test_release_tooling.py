@@ -333,7 +333,7 @@ def test_an_sdist_that_does_not_build_the_published_wheel_refuses(tmp_path, monk
             (outdir / WHEEL).write_bytes(_wheel(entries))
         return run
 
-    monkeypatch.setenv("SOURCE_DATE_EPOCH", "1600000000")
+    monkeypatch.setenv("SOURCE_DATE_EPOCH", "4354819199")  # the last time a zip can hold
     monkeypatch.setattr(release_checks.subprocess, "run", builds(_WHEEL))
     sdist_builds_the_wheel(dist, "0.0.0", tmp_path / "same")
     monkeypatch.setattr(release_checks.subprocess, "run", builds([*_WHEEL, ("finassist/added.py", b"")]))
@@ -459,7 +459,7 @@ def test_release_workflow_is_tag_only_and_least_privilege():
     # the wheel by its hash, runs the whole suite against it, which refuses to start on the tree, and the demo
     # outside the checkout.
     assert gates["needs"] == "build" and "permissions" not in gates and "environment" not in gates
-    _in_order(gates, DIGEST, "test -s release-sbom.spdx.json", "python scripts/ci_install.py dependencies", *REPRODUCIBLE,
+    _in_order(gates, DIGEST, "test -f release-sbom.spdx.json", "python scripts/ci_install.py dependencies", *REPRODUCIBLE,
               'python -m build --no-isolation --outdir "$RUNNER_TEMP/rebuilt" "$RUNNER_TEMP/source"',
               'python scripts/normalize_sdist.py "$RUNNER_TEMP/rebuilt"',
               '--distributions-match-rebuild "$RUNNER_TEMP/release/dist" "$RUNNER_TEMP/rebuilt"',
@@ -562,6 +562,20 @@ def test_the_gates_job_refuses_an_artifact_missing_what_the_publishing_job_attac
     for path in files:
         assert _step(complete, tmp_path, RUNNER_TEMP=artifact("without-" + path.replace("/", "-"), leave_out=[path])) != 0
         assert _step(complete, tmp_path, RUNNER_TEMP=artifact("empty-" + path.replace("/", "-"), empty=[path])) != 0
+        # A folder by that name, even one that holds a file, is not the file `gh release create` attaches.
+        folder = Path(artifact("folder-" + path.replace("/", "-"), leave_out=[path]))
+        (folder / "release" / path).mkdir()
+        (folder / "release" / path / "inside").write_text("x", encoding="utf-8")
+        assert _step(complete, tmp_path, RUNNER_TEMP=str(folder)) != 0, path
+    for name, change in (
+            ("no-assets-folder", lambda release: shutil.rmtree(release / "release-assets")),
+            ("an-empty-one-first", lambda release: (release / "release-assets" / "a-requirements.txt").write_text(
+                "", encoding="utf-8")),
+            ("label-mark", lambda release: (release / "release-assets" / "a#b-requirements.txt").write_text(
+                "x", encoding="utf-8"))):
+        folder = Path(artifact(name))
+        change(folder / "release")
+        assert _step(complete, tmp_path, RUNNER_TEMP=str(folder)) != 0, name
 
 
 @pytest.mark.parametrize("epoch", ["", "soon", "1.5", "315532799", "4354819200", "1700000000000", "\u00b9"])
