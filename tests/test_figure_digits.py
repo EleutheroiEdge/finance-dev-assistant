@@ -205,7 +205,8 @@ def test_a_guard_parses_an_unchanged_source_once_and_refuses_a_changed_one(custo
     monkeypatch.setattr(figure_sources, "_source_figures",
                         lambda raw, minimum, layout=None, rounds=False: parses.append(1) or real(raw, minimum, layout,
                                                                                     rounds))
-    guard = TokenGuard.load({"forbidden_token_sources": [custody], **DIGITS}, ())
+    guard = TokenGuard.load({"forbidden_token_sources": [{"path": custody, "delimiter": ",", "decimal_mark": "."}],
+                             "forbidden_token_sources_experimental": True, **DIGITS}, ())
     for _ in range(3):
         guard.recheck({"files": []}, "synthetic instructions")
     assert len(parses) == 1

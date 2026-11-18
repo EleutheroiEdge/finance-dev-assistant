@@ -4,7 +4,9 @@ A configuration or gate policy that lists a figure source without the opt-in is 
 no one believes a source screens what it does not. Synthetic only."""
 
 from dataclasses import replace
+import ast
 import json
+from pathlib import Path
 
 import pytest
 
@@ -19,6 +21,7 @@ from finassist.error_hints import error_fields, hints
 from finassist.errors import AssistantError
 from finassist.figure_source_entries import OPT_IN, SourceFormat
 from finassist.figure_sources import SOURCE_RULE
+from finassist.forbidden_tokens import TokenGuard
 from finassist.health import config_warnings
 from finassist.model_policy import check_draft
 from finassist.scope import config_token_guard
@@ -55,6 +58,40 @@ def test_a_configuration_listing_sources_without_the_opt_in_is_refused_by_name(s
 def test_the_opt_in_is_true_and_nothing_else(value):
     with pytest.raises(AssistantError, match="^forbidden_token_sources_experimental$"):
         _config({"forbidden_token_sources": [LAYOUT], OPT_IN: value})
+
+
+def test_the_guard_itself_refuses_sources_not_opted_in_or_without_a_layout(tmp_path):
+    source = _source(tmp_path)
+    for rules, code in (({"forbidden_token_sources": [source]}, "forbidden_token_sources_experimental"),
+                        ({"forbidden_token_sources": [_layout(source)]}, "forbidden_token_sources_experimental"),
+                        ({"forbidden_token_sources": [source], OPT_IN: True}, "forbidden_token_source_layout_required")):
+        with pytest.raises(AssistantError, match=f"^{code}$"):
+            TokenGuard.load(rules, ())
+    assert TokenGuard.load({"forbidden_token_sources": [_layout(source)], OPT_IN: True}, ()).snapshot.listed == 2
+
+
+def test_every_route_reads_a_source_through_the_guard():
+    # The loader and the reader are called only from TokenGuard, which checks the opt-in first, and from each other:
+    # no module of the package reaches a source another way.
+    entries, calls = {"load_token_snapshot", "_source_figures", "_read_source"}, set()
+
+    def walk(module, node, scope):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                walk(module, child, f"{scope}.{child.name}" if scope else child.name)
+                continue
+            if isinstance(child, ast.Call):
+                name = getattr(child.func, "id", getattr(child.func, "attr", None))
+                if name in entries:
+                    calls.add((module, scope, name))
+            walk(module, child, scope)
+
+    for path in (Path(__file__).parents[1] / "src" / "finassist").rglob("*.py"):
+        walk(path.stem, ast.parse(path.read_text(encoding="utf-8")), "")
+    assert calls == {("forbidden_tokens", "TokenGuard.load", "load_token_snapshot"),
+                     ("forbidden_tokens", "TokenGuard.recheck", "load_token_snapshot"),
+                     ("forbidden_tokens", "load_token_snapshot", "_source_figures"),
+                     ("figure_sources", "_source_figures", "_read_source")}
 
 
 def test_the_refusal_says_experimental_names_the_limit_and_the_exact_setting():
