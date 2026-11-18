@@ -2,9 +2,19 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.12.0 - DATE
 
 ### Upgrading
+
+**Coming from 0.10.0.** 0.11.0 was tagged but never published, so 0.12.0 is the first release on PyPI
+after 0.10.0, and its security fix reaches users only now. Every release up to 0.10.0 looked for Git,
+GitHub CLI, Docker and Podman in the directory the command runs in before `PATH`. Run inside a checkout
+that held a file named `git.exe`, it ran that file. These tools are now taken only from the absolute
+entries of `PATH`. A tool that was reachable only through the current directory, or through an empty or
+relative `PATH` entry, is now reported missing: name its directory in full in `PATH`. On other systems
+this matters only where `PATH` holds an empty or relative entry. Everything in the 0.11.0 notes below is
+also new to users of 0.10.0; read its Upgrading section with this one.
+
 - **Figure sources are experimental and off unless opted in: `forbidden_token_sources_experimental`.**
   The figure-source reader lists the figures in delimited exports, but review keeps finding amounts it
   misses when they are written in shapes it does not read, so it is not a complete screen, and nothing
@@ -453,7 +463,7 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   policy has no such setting. On the gate route the hint now names `max_request_bytes`, and so
   does the remedy. Found by following the remedies on a real 45-file change.
 
-## 0.11.0 - 2026-11-12
+## 0.11.0 - 2026-11-12 (tagged, never published)
 
 ### Upgrading
 
