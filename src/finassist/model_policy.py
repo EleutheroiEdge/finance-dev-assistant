@@ -15,9 +15,12 @@ from .errors import AssistantError, prices_required
 from .policy_fixtures import FIXTURE_PROPERTIES, fixture_settings, load_policy_config
 from .profiles import PROFILES
 from .scope import read_entry
+from .figure_source_entries import OPT_IN, SOURCE_ENTRY_SCHEMA, check_opt_in
+from .figure_sources import ROUND_OPTIONS, ROUND_RULE, SOURCE_RULE, source_rule
 from .forbidden_tokens import MATCHES, MAX_MIN_DIGITS, MAX_SOURCE_FILES, MAX_TOKENS, MIN_DIGITS
 from .hidden_text import check_hidden
-from .security import (MAX_PLACEHOLDER_PATHS, canonical, check_credentials, check_model_path, check_name, check_path,
+from .occurrence_identity import MAX_OCCURRENCE_ENTRIES, is_yaml_path
+from .security import (DENIED_SUFFIXES, MAX_PLACEHOLDER_PATHS, canonical, check_credentials, check_model_path, check_name, check_path,
                        check_text, digest, safe_relative)
 
 _PATHS = {"type": "array", "maxItems": 128, "uniqueItems": True,
@@ -53,10 +56,17 @@ _TOKEN_PROPERTIES = {
     "forbidden_token_file": {"type": "string", "minLength": 1, "maxLength": 4096},
     "forbidden_token_hashes": {"type": "array", "minItems": 1, "maxItems": MAX_TOKENS, "uniqueItems": True,
                               "items": {"type": "string", "pattern": r"^[0-9a-f]{64}$"}},
+    # A path, or a {path, delimiter, decimal_mark} object that declares the file's layout.
     "forbidden_token_sources": {"type": "array", "minItems": 1, "maxItems": MAX_SOURCE_FILES, "uniqueItems": True,
-                               "items": {"type": "string", "minLength": 1, "maxLength": 4096}},
+                               "items": SOURCE_ENTRY_SCHEMA},
     "forbidden_token_match": {"enum": list(MATCHES)},
     "forbidden_token_min_digits": {"type": "integer", "minimum": MIN_DIGITS, "maximum": MAX_MIN_DIGITS},
+    # The rule the sources are read by, stated in the reviewed bytes: required with sources, and only with them.
+    "forbidden_token_source_rule": {"type": "integer", "enum": [SOURCE_RULE, ROUND_RULE]},
+    # list: the sources' round figures too, read by rule 27; only with sources.
+    "forbidden_token_round_figures": {"enum": list(ROUND_OPTIONS)},
+    # true: read the sources, an experimental reader that can miss figures. Without it a policy with sources is refused.
+    OPT_IN: {"const": True},
 }
 # Optional. refuse (the default) keeps today's behaviour; skip-and-report withholds private paths.
 _COVERAGE_PROPERTIES = {"private_paths": {"enum": ["refuse", "skip-and-report"]},
@@ -64,7 +74,25 @@ _COVERAGE_PROPERTIES = {"private_paths": {"enum": ["refuse", "skip-and-report"]}
                         "placeholder_credential_paths": {
                             "type": "array", "maxItems": MAX_PLACEHOLDER_PATHS, "uniqueItems": True,
                             "items": {"type": "string", "minLength": 1, "maxLength": 512}},
+                        # The reviewable suffixes, as in the configuration. Data and binary formats stay
+                        # refused whatever this says.
+                        "text_suffixes": {
+                            "type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": True,
+                            "items": {"type": "string", "pattern": r"^\.[a-z][a-z0-9]{0,15}$"}},
+                        # Reviewed public synthetic YAML values the credential label rules let through, each
+                        # bound to its exact place: see occurrence_identity.
+                        "placeholder_credential_occurrences": {
+                            "type": "array", "maxItems": MAX_OCCURRENCE_ENTRIES, "uniqueItems": True,
+                            "items": {"type": "object", "additionalProperties": False,
+                                      "required": ["path", "occurrence_sha256"],
+                                      "properties": {
+                                          "path": {"type": "string", "minLength": 1, "maxLength": 512},
+                                          "occurrence_sha256": {"type": "string",
+                                                                "pattern": r"^[0-9a-f]{64}$"}}}},
                         "related_context": {"enum": ["none", "related"]},
+                        # block (the default) refuses a range with nothing in scope; not-applicable is the
+                        # policy author's statement that such a range needs no review (an explicit opt-in).
+                        "out_of_scope_ranges": {"enum": ["block", "not-applicable"]},
                         "related_max_bytes": {"type": "integer", "minimum": 1, "maximum": 400_000}}
 _SCHEMA = {
     "type": "object", "additionalProperties": False,
@@ -82,6 +110,26 @@ _SCHEMA = {
 }
 
 
+def stated_source_rule(model: dict) -> int:
+    """The source rule a policy's own settings call for: 27 with `"forbidden_token_round_figures": "list"`, else 26."""
+    rounds = model.get("forbidden_token_round_figures")
+    return source_rule(rounds) if isinstance(rounds, str) else SOURCE_RULE
+
+
+def source_rule_issue(document: object) -> bool:
+    """Whether a policy's `forbidden_token_source_rule` disagrees with its sources: missing beside them, present
+    without them, or anything but the rule its settings call for as an integer; or a round-figure setting without
+    sources. Such a policy is refused before anything is read or sent, and is never read by another rule than the one
+    its reviewed bytes state."""
+    model = document.get("model_review") if isinstance(document, dict) else None
+    if not isinstance(model, dict):
+        return False
+    rule = model.get("forbidden_token_source_rule")
+    if "forbidden_token_sources" not in model:
+        return "forbidden_token_source_rule" in model or "forbidden_token_round_figures" in model
+    return type(rule) is not int or rule != stated_source_rule(model)
+
+
 def missing_fields(document: dict) -> list[str]:
     """Required fields a policy draft does not state yet, for a person to fill in."""
     model = document.get("model_review", {})
@@ -89,11 +137,15 @@ def missing_fields(document: dict) -> list[str]:
 
 
 def check_draft(document: dict) -> None:
-    """Schema check only: nothing is read from a repository and no price or path rule runs."""
+    """The source rule beside the sources, first, as the gate and doctor check it, then the schema: nothing is read
+    from a repository and no price or path rule runs."""
+    if source_rule_issue(document):
+        raise AssistantError("gate_policy_source_rule_required")
     try:
         jsonschema.Draft202012Validator(_SCHEMA).validate(document)
     except jsonschema.ValidationError as exc:
         raise AssistantError("gate_policy_invalid") from exc
+    check_opt_in(document["model_review"])  # experimental figure sources, as the gate and doctor check them
 
 
 @dataclass(frozen=True)
@@ -182,6 +234,8 @@ def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePo
     document = decode_document(raw, "gate_policy_invalid")
     if document.get("schema_version") == 1:
         raise AssistantError("gate_model_opt_in_required")
+    if source_rule_issue(document):
+        raise AssistantError("gate_policy_source_rule_required")
     try:
         jsonschema.Draft202012Validator(_SCHEMA).validate(document)
     except jsonschema.ValidationError as exc:
@@ -189,12 +243,22 @@ def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePo
     model = document["model_review"]
     if type(document["schema_version"]) is not int or model["enabled"] is not True:
         raise AssistantError("gate_policy_invalid")
+    check_opt_in(model)  # before any source or other file is read
     for field, schema in _PROPERTIES.items():
         if schema.get("type") == "integer" and type(model[field]) is not int:
             raise AssistantError("gate_policy_invalid")
     # The only key material accepted by a policy is a variable NAME. All other
     # fields are screened, including unknown fields rejected by the schema.
     check_text(canonical(document).decode())
+    if set(model.get("text_suffixes", ())) & DENIED_SUFFIXES:
+        raise AssistantError("gate_policy_invalid")  # a data or binary format is never reviewable
+    for entry in model.get("placeholder_credential_occurrences", ()):
+        try:
+            check_path(entry["path"], source_only=False)
+        except AssistantError as exc:
+            raise AssistantError("invalid_placeholder_credential_occurrences") from exc
+        if not is_yaml_path(entry["path"]) or "*" in entry["path"]:
+            raise AssistantError("invalid_placeholder_credential_occurrences")
     settings = fixture_settings(repo, base, model)
     for name in ("allow_paths", "deny_paths"):
         for prefix in model[name]:
@@ -221,7 +285,7 @@ def policy_config_fields(model: dict, profile_text: list[str] | None) -> dict:
                          max_packet_bytes=max(2_000_000, model["max_request_bytes"]),
                          monthly_budget_usd=1_000_000)
     for key in ("private_paths", "unreviewable_paths", "placeholder_credential_paths", "related_context",
-                "related_max_bytes"):
+                "related_max_bytes", "text_suffixes"):
         if key in model:
             config_fields[key] = model[key]
     if profile_text is not None:

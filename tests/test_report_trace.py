@@ -32,6 +32,21 @@ def test_trace_has_claim_identity_location_and_human_disposition(report):
     assert report == before
 
 
+def test_an_expected_head_traces_only_that_commits_report(report, tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # Its state stays out of the checkout.
+    assert "Advisory finding trace" in trace_markdown(report, expect_head=report["head"])
+    for head in ("e" * 40, report["head"][:12], report["head"].upper(), "", report["head"] + "\n"):
+        with pytest.raises(AssistantError, match="^trace_head_mismatch$"):
+            trace_markdown(report, expect_head=head)
+    source, target = tmp_path / "report.json", tmp_path / "trace.md"
+    source.write_bytes(canonical(report))
+    command = ["report", "trace", "--report", str(source), "--output", str(target), "--expect-head"]
+    assert main([*command, "e" * 40]) == 2
+    assert json.loads(capsys.readouterr().err.strip().splitlines()[-1])["code"] == "trace_head_mismatch"
+    assert not target.exists()
+    assert main([*command, report["head"]]) == 0 and target.exists()
+
+
 def test_partial_adjudication_remains_unresolved_and_has_no_accuracy_metric(report):
     result = score_gate_report(report)
     assert result["complete"] is False and result["counts"]["Unresolved"] == 1
@@ -118,6 +133,7 @@ def test_legacy_trace_derives_ids_without_mutating_archive(report):
     from finassist.security import digest
     legacy = deepcopy(report)
     original_id = legacy["findings"][0].pop("id")
+    legacy.pop("outcome_class")  # A v1 report predates the class, as it predates finding ids.
     legacy["schema_version"] = 1
     legacy["report_hash"] = digest(canonical({k: v for k, v in legacy.items() if k != "report_hash"}))
     before = canonical(legacy)

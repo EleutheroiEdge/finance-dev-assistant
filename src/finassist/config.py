@@ -15,8 +15,9 @@ from urllib.parse import urlsplit
 from .errors import AssistantError
 from .config_compat import check_min_version, compatible_document, decode_config, unknown_option
 from .hidden_text import Waiting
-from .forbidden_tokens import (DEFAULT_MIN_DIGITS, MATCHES, MAX_MIN_DIGITS, MAX_SOURCE_FILES, MAX_TOKENS,
-                               MIN_DIGITS)
+from .figure_source_entries import OPT_IN, SOURCE_ENTRY_SCHEMA, SourceFormat, check_opt_in, source_entries, source_format
+from .figure_sources import ROUND_LIST, ROUND_OPTIONS, source_rule
+from .forbidden_tokens import DEFAULT_MIN_DIGITS, MATCHES, MAX_MIN_DIGITS, MAX_SOURCE_FILES, MAX_TOKENS, MIN_DIGITS
 from .security import (
     MAX_PLACEHOLDER_PATHS,
     PLACEHOLDER_PATTERN,
@@ -127,16 +128,21 @@ class Config:
         "identity": "when-set",
         "json_schema": {"maxItems": MAX_TOKENS, "uniqueItems": True,
                         "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}})
-    forbidden_token_sources: tuple[str, ...] = field(default=(), metadata={
+    # Each a path, read every way, or a SourceFormat: {path, delimiter, decimal_mark}, read that way only.
+    forbidden_token_sources: tuple[str | SourceFormat, ...] = field(default=(), metadata={
         "identity": "when-set",
-        "json_schema": {"maxItems": MAX_SOURCE_FILES, "uniqueItems": True,
-                        "items": {"type": "string", "minLength": 1, "maxLength": 4096}}})
+        "json_schema": {"maxItems": MAX_SOURCE_FILES, "uniqueItems": True, "items": SOURCE_ENTRY_SCHEMA}})
     # value: the same value in any notation. digits: also the same significant digits at any
     # scale, and a two-place rounding, for figures of at least forbidden_token_min_digits digits.
     forbidden_token_match: str = field(default=MATCHES[0], metadata={
         "identity": "when-set", "json_schema": {"enum": list(MATCHES)}})
     forbidden_token_min_digits: int = field(default=DEFAULT_MIN_DIGITS, metadata={
         "identity": "when-set", "json_schema": {"minimum": MIN_DIGITS, "maximum": MAX_MIN_DIGITS}})
+    # list: the sources' round figures too, as 347300.00, which the digit minimum leaves out (source rule 27).
+    forbidden_token_round_figures: str = field(default=ROUND_OPTIONS[0], metadata={
+        "identity": "when-set", "json_schema": {"enum": list(ROUND_OPTIONS)}})
+    # true: read forbidden_token_sources, an experimental reader that can miss figures. Without it sources are refused.
+    forbidden_token_sources_experimental: bool = field(default=False, metadata={"identity": "when-set"})
     max_file_bytes: int = field(default=48_000, metadata={"json_schema": {"minimum": 1, "maximum": 2_000_000}})
     max_packet_bytes: int = field(default=120_000, metadata={"json_schema": {"minimum": 1, "maximum": MAX_PACKET_BYTES}})
     max_output_tokens: int = field(default=4096, metadata={"json_schema": {"minimum": 1, "maximum": 2_000_000}})
@@ -148,6 +154,15 @@ class Config:
     output_usd_per_million: float = field(default=0.0, metadata={"json_schema": {"minimum": 0}})
     recipes: dict = field(default_factory=dict)
     runner_image: str = ""
+    # The limits of a recipe's container (docker or podman); approved local execution has none.
+    runner_memory_mb: int = field(default=1024, metadata={
+        "identity": "when-set", "json_schema": {"minimum": 64, "maximum": 65536}})
+    runner_cpus: int = field(default=2, metadata={
+        "identity": "when-set", "json_schema": {"minimum": 1, "maximum": 64}})
+    runner_pids: int = field(default=128, metadata={
+        "identity": "when-set", "json_schema": {"minimum": 16, "maximum": 4096}})
+    runner_tmp_mb: int = field(default=256, metadata={
+        "identity": "when-set", "json_schema": {"minimum": 16, "maximum": 16384}})
     required_recipes: tuple[str, ...] = ()
     blocking_severities: tuple[str, ...] = ("critical", "high")
     readiness_max_age_seconds: int = field(default=86400, metadata={"json_schema": {"minimum": 1, "maximum": 2_000_000}})
@@ -264,6 +279,11 @@ class Config:
             raise AssistantError("invalid_related_context")
         if type(self.related_max_bytes) is not int or not 1 <= self.related_max_bytes <= 400_000:
             raise AssistantError("invalid_limit", {"option": "related_max_bytes", "minimum": 1, "maximum": 400_000})
+        for option, low, high in (("runner_memory_mb", 64, 65_536), ("runner_cpus", 1, 64),
+                                  ("runner_pids", 16, 4096), ("runner_tmp_mb", 16, 16_384)):
+            value = getattr(self, option)
+            if type(value) is not int or not low <= value <= high:
+                raise AssistantError("invalid_limit", {"option": option, "minimum": low, "maximum": high})
         for key in (
             "max_file_bytes",
             "max_packet_bytes",
@@ -309,7 +329,6 @@ class Config:
             "required_recipes",
             "blocking_severities",
             "forbidden_token_hashes",
-            "forbidden_token_sources",
             "placeholder_credential_paths",
         ):
             if not isinstance(getattr(self, key), (tuple, list)) or any(
@@ -322,13 +341,19 @@ class Config:
         if (len(hashes) > MAX_TOKENS or len(set(hashes)) != len(hashes)
                 or any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in hashes)):
             raise AssistantError("forbidden_token_hashes_invalid")
-        sources = self.forbidden_token_sources
-        if (len(sources) > MAX_SOURCE_FILES or len(set(sources)) != len(sources)
-                or any(not item or len(item) > 4096 for item in sources)):
+        # Loaded, a declared layout is a SourceFormat: a configuration holds no mutable entry.
+        source_entries(self.forbidden_token_sources)
+        if any(not isinstance(item, (str, SourceFormat)) for item in self.forbidden_token_sources):
             raise AssistantError("forbidden_token_source_invalid")
+        if type(self.forbidden_token_sources_experimental) is not bool:
+            raise AssistantError("forbidden_token_sources_experimental")
+        check_opt_in(self.forbidden_token_rules)
         if (self.forbidden_token_match not in MATCHES or type(self.forbidden_token_min_digits) is not int
                 or not MIN_DIGITS <= self.forbidden_token_min_digits <= MAX_MIN_DIGITS):
             raise AssistantError("forbidden_token_match_invalid")
+        if (type(self.forbidden_token_round_figures) is not str or self.forbidden_token_round_figures not in ROUND_OPTIONS
+                or self.forbidden_token_round_figures == ROUND_LIST and not self.forbidden_token_sources):
+            raise AssistantError("forbidden_token_round_figures_invalid")
         if len(self.generated_paths) > 128 or len(set(self.generated_paths)) != len(self.generated_paths):
             raise AssistantError("invalid_generated_paths")
         for prefix in self.generated_paths:
@@ -423,10 +448,15 @@ class Config:
         if self.forbidden_token_hashes:
             rules["forbidden_token_hashes"] = list(self.forbidden_token_hashes)
         if self.forbidden_token_sources:
-            rules["forbidden_token_sources"] = list(self.forbidden_token_sources)
+            rules["forbidden_token_sources"] = [asdict(item) if isinstance(item, SourceFormat) else item
+                                                for item in self.forbidden_token_sources]
+            if self.forbidden_token_sources_experimental is True:
+                rules[OPT_IN] = True
         if rules:  # How to match belongs to the list: a screen built with another rule is another screen.
             rules.update(forbidden_token_match=self.forbidden_token_match,
                          forbidden_token_min_digits=self.forbidden_token_min_digits)
+        if self.forbidden_token_round_figures == ROUND_LIST:
+            rules["forbidden_token_round_figures"] = ROUND_LIST
         return rules
 
     def allows(self, path: str) -> bool:
@@ -511,6 +541,8 @@ def load_config(path: Path | None = None, *, content: bytes | None = None,
         ):
             if key in raw and isinstance(raw[key], list):
                 raw[key] = tuple(raw[key])
+        if isinstance(raw.get("forbidden_token_sources"), tuple):
+            raw["forbidden_token_sources"] = tuple(map(source_format, raw["forbidden_token_sources"]))
         if _policy_fixture_settings is None:
             config = Config(**raw)
         else:
@@ -587,13 +619,17 @@ def config_identity(config: Config) -> dict:
 
     A setting marked `when-set` is left out while it has its default. So a release that adds
     such a setting does not change the hash of a configuration that does not use it, and
-    records saved before the upgrade still count.
+    records saved before the upgrade still count. A configuration that lists figure sources also
+    carries the rule they are read by, which no setting can choose: records made under another
+    rule go stale.
     """
     document = asdict(config)
     for item in fields(config):
         # Compared as serialized, so an empty list given in code counts as the empty default.
         if item.metadata.get("identity") == "when-set" and canonical(document[item.name]) == canonical(item.default):
             del document[item.name]
+    if config.forbidden_token_sources:
+        document["forbidden_token_source_rule"] = source_rule(config.forbidden_token_round_figures)
     return document
 
 

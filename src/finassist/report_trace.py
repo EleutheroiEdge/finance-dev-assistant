@@ -12,6 +12,7 @@ from .model_gate import validate_model_report
 from .security import canonical, digest
 
 OUTCOMES = ("Confirmed", "Partly right", "Refuted")
+_SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 
 
 def read_trace_input(path: Path) -> dict:
@@ -42,6 +43,8 @@ def _text(value: str, *, operator_note: bool = False) -> str:
 
 def _rows(report: dict, adjudications: dict | None) -> list[dict]:
     validate_model_report(report)
+    if report["mode"] != "model-review":  # a not-applicable report reviewed nothing and has no findings
+        raise AssistantError("trace_report_not_a_review")
     judgments = {} if adjudications is None else adjudications
     if not isinstance(judgments, dict) or len(judgments) > 50:
         raise AssistantError("adjudications_invalid")
@@ -76,8 +79,12 @@ def score_gate_report(report: dict, adjudications: dict | None = None) -> dict:
     return {**result, "score_hash": digest(canonical(result))}
 
 
-def trace_markdown(report: dict, adjudications: dict | None = None) -> str:
+def trace_markdown(report: dict, adjudications: dict | None = None, *, expect_head: str | None = None) -> str:
+    """The trace of a validated report. With `expect_head`, only a report for exactly that full commit SHA."""
     rows = _rows(report, adjudications)
+    if expect_head is not None and not (type(expect_head) is str and _SHA.fullmatch(expect_head)
+                                        and report["head"] == expect_head):
+        raise AssistantError("trace_head_mismatch")
     lines = ["Advisory finding trace. Human dispositions do not change the gate verdict or grant merge authority.",
              "", "Report: " + report["report_hash"], "Request: " + (report["request_sha256"] or "unavailable"), ""]
     if report["schema_version"] == 1:

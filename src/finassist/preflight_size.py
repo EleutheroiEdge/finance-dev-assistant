@@ -70,20 +70,30 @@ def _version_sizes(repo: Path, revisions: tuple[str, str], selected: list[str],
 
 
 def size_warning(repo: Path, revisions: tuple[str, str], paths: list[str], rows: list[dict],
-                 limit: int, limit_setting: str) -> dict | None:
+                 limit: int, limit_setting: str, *, unread: bool = False) -> dict | None:
     """Sum both versions only when at least one size refusal is the sole path blocker.
 
     Omitted/withheld files never contribute. This is not a request estimate or a
     screening result: unread content may still refuse after a file limit is raised.
     Failed metadata reads suppress the advisory; they must not change blockers.
+
+    With `unread`, no content was read because the change has more files than the policy
+    allows. The same sum is then taken over the files the names would send, the rows still
+    unchecked, so that one run names both limits. Any refused row suppresses it.
     """
-    refused = [row for row in rows if row["status"] == "refused"]
-    if (not refused or any(row["code"] != "file_limit_exceeded" for row in refused)
-            or any(row["status"] == "unchecked" for row in rows)):
-        return None
+    if unread:
+        if any(row["status"] not in {"unchecked", "withheld", "omitted"} for row in rows):
+            return None
+        wanted = {"unchecked"}
+    else:
+        refused = [row for row in rows if row["status"] == "refused"]
+        if (not refused or any(row["code"] != "file_limit_exceeded" for row in refused)
+                or any(row["status"] == "unchecked" for row in rows)):
+            return None
+        wanted = {"included", "refused"}
     try:
         selected = [path for path, row in zip(paths, rows, strict=True)
-                    if row["status"] in {"included", "refused"}]
+                    if row["status"] in wanted]
     except ValueError:
         return None
     sizes = _version_sizes(repo, revisions, selected)

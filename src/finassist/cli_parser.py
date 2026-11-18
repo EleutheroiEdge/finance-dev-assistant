@@ -225,11 +225,24 @@ def parser() -> argparse.ArgumentParser:
     render = commands.add_parser("render", help="Render escaped static HTML from an existing JSON report")
     render.add_argument("--input", required=True)
     render.add_argument("--output", required=True)
+    sarif = commands.add_parser(
+        "sarif", help="Write SARIF 2.1.0 from a gate report or scan output, for code-scanning upload")
+    sarif.add_argument("input", type=Path, help="The report gate run --output wrote, or the JSON scan printed")
+    sarif.add_argument("--output", type=Path, required=True, help="A new file for the SARIF log")
+    sarif.add_argument("--expect-head", metavar="SHA",
+                       help="Refuse a gate report for any other commit: the full SHA the upload annotates")
     scan = commands.add_parser("scan", help="Screen tracked publication files; does not upload anything")
     scan.add_argument("--repo", type=Path, default=Path.cwd())
     scan.add_argument(
         "--forbid", action="append", default=[], help="Additional text to exclude, case-insensitively"
     )
+    occurrence = commands.add_parser(
+        "placeholder-occurrence",
+        help="Print the gate policy entry for one reviewed YAML placeholder value; never prints the value")
+    occurrence.add_argument("--repo", type=Path, default=Path.cwd())
+    occurrence.add_argument("--revision", required=True, help="A commit; the file is read from it, not the working tree")
+    occurrence.add_argument("--path", required=True, help="The YAML file's repository path")
+    occurrence.add_argument("--line", type=int, required=True, help="The line holding the key and its value")
     evaluation = commands.add_parser(
         "evaluate", help="Run frozen synthetic or local history cases; labels stay out of context"
     )

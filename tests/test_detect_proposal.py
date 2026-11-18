@@ -263,7 +263,7 @@ def test_a_month_cannot_hold_less_than_a_day_of_the_drafted_budget(tmp_path, cap
 ])
 def test_a_day_or_a_month_too_small_for_one_request_is_raised_on_its_own(tmp_path, capsys, monkeypatch, stated, raised,
                                                                         refused):
-    """Codex P109-1: a run budget that is enough does not excuse the other two."""
+    """A run budget that is enough does not excuse the other two."""
     monkeypatch.chdir(tmp_path)  # Its state stays out of the checkout.
     monkeypatch.setenv("REVIEW_PROVIDER_KEY", "fictional-provider-value")
     # State follows this configuration, so the command runs from the directory that holds it.
@@ -300,14 +300,14 @@ def test_a_month_that_holds_one_request_stays_beside_a_larger_day(tmp_path, caps
     repo, _base, _head = _near_the_limit(tmp_path)
     pricey = [*PROVIDER[:-4], "--input-usd-per-million", "100", "--output-usd-per-million", "2"]
     stated = tmp_path / "stated.json"
-    # One request reserves about 12.6: the month holds it, though it is smaller than the day.
-    stated.write_text(json.dumps({"max_run_usd": 50, "daily_budget_usd": 60, "monthly_budget_usd": 20}), encoding="utf-8")
+    # One request at the proposed limit reserves about 24.6: the month holds it, though it is smaller than the day.
+    stated.write_text(json.dumps({"max_run_usd": 50, "daily_budget_usd": 80, "monthly_budget_usd": 30}), encoding="utf-8")
     proposal = _proposal(capsys, ["--config", str(stated), "init", "--detect", "--repo", str(repo), *pricey])
     assert not {"max_run_usd", "daily_budget_usd", "monthly_budget_usd"} & set(proposal["config"])
     assert "budget_raised_for_packet_limit" not in {entry["code"] for entry in proposal["warnings"]}
     # The same when the run budget is the one that is raised: the day holds three requests and stays, so the
     # month is asked only whether it holds one.
-    stated.write_text(json.dumps({"max_run_usd": 1, "daily_budget_usd": 60, "monthly_budget_usd": 20}), encoding="utf-8")
+    stated.write_text(json.dumps({"max_run_usd": 1, "daily_budget_usd": 80, "monthly_budget_usd": 30}), encoding="utf-8")
     proposal = _proposal(capsys, ["--config", str(stated), "init", "--detect", "--repo", str(repo), *pricey])
     assert {"max_run_usd", "daily_budget_usd", "monthly_budget_usd"} & set(proposal["config"]) == {"max_run_usd"}
     assert [set(entry) for entry in proposal["warnings"] if entry["code"] == "budget_raised_for_packet_limit"] == [
@@ -345,10 +345,14 @@ def test_a_name_a_gate_policy_would_refuse_as_a_prefix_is_not_proposed(tmp_path)
     assert not [prefix for prefix in proposal["config"]["allow_paths"] if "[" in prefix]
 
 
+def _module(seed: int, size: int = 40_000) -> str:
+    line = "value = compute_total(opening, deposits)  # synthetic {n:07d}\n"
+    return "".join(line.format(n=seed * 100_000 + number) for number in range(size // len(line)))
+
+
 def _history(tmp_path, changes: int = 3, files: int = 6, size: int = 40_000):
     """A repository whose recent changes each rewrite several mid-sized modules."""
-    line = "value = compute_total(opening, deposits)  # synthetic {n:07d}\n"
-    body = lambda seed: "".join(line.format(n=seed * 100_000 + number) for number in range(size // len(line)))  # noqa: E731
+    body = lambda seed: _module(seed, size)  # noqa: E731
     repo = _repo(tmp_path, {**LAYOUT, **{f"engine/part_{n}.py": body(n) for n in range(files)}})
     heads = [command(repo, "rev-parse", "HEAD")]
     for round_ in range(1, changes + 1):
@@ -365,6 +369,7 @@ def test_limits_fit_the_largest_recent_change_not_only_the_largest_file(tmp_path
     assert proposal["config"]["max_packet_bytes"] > 6 * one_file
     (evidence,) = proposal["evidence"]["max_packet_bytes"]
     assert evidence["rule"] == "largest_recent_change" and evidence["changes_measured"] == 3
+    assert evidence["headroom"] == 1.5
     assert any(head.startswith(evidence["commit"]) for head in heads)
     assert proposal["gate_policy_draft"]["model_review"]["max_request_bytes"] >= proposal["config"]["max_packet_bytes"]
     assert proposal["gate_policy_draft"]["model_review"]["max_files"] >= 20
@@ -373,6 +378,22 @@ def test_limits_fit_the_largest_recent_change_not_only_the_largest_file(tmp_path
     _proposal(capsys, ["init", "--detect", "--repo", str(repo), "--write", "--output", str(config)])
     report = _proposal(capsys, ["--config", str(config), "doctor", "--repo", str(repo), "--base", heads[-2],
                                 "--head", heads[-1]])
+    assert report["status"] == "ready" and report["packet"]["bytes"] <= report["packet"]["limit"]
+
+
+def test_limits_leave_room_for_a_change_larger_than_any_recent_one(tmp_path, capsys, monkeypatch):
+    # Three changes each rewrite six of eight modules; the next rewrites all eight, a third larger. Limits fitted
+    # to the largest recent change exactly would refuse it.
+    monkeypatch.chdir(tmp_path)
+    repo, _heads = _history(tmp_path, changes=0, files=8)
+    for round_ in range(1, 4):
+        _commit(repo, {f"engine/part_{n}.py": _module(n + 10 * round_) for n in range(6)}, f"Synthetic change {round_}")
+    config = tmp_path / "finassist.json"
+    _proposal(capsys, ["init", "--detect", "--repo", str(repo), "--write", "--output", str(config)])
+    base = command(repo, "rev-parse", "HEAD")
+    head = _commit(repo, {f"engine/part_{n}.py": _module(n + 50) for n in range(8)}, "A larger change")
+    report = _proposal(capsys, ["--config", str(config), "doctor", "--repo", str(repo), "--base", base,
+                                "--head", head])
     assert report["status"] == "ready" and report["packet"]["bytes"] <= report["packet"]["limit"]
 
 

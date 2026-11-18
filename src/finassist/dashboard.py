@@ -369,7 +369,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             )
         except sqlite3.Error:
             return self.respond(409, {"code": "audit_unavailable"})
-        except (OSError, ValueError, TypeError, KeyError):
+        except (OSError, ValueError, TypeError, KeyError, RecursionError):
             return self.respond(400, {"code": "invalid_request"})
 
     def do_GET(self):

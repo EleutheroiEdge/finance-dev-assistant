@@ -10,7 +10,7 @@ from typing import get_origin, get_type_hints
 
 from .config import Config
 
-SCHEMA_ID = "urn:finledgerpoli:schema:config:1"
+SCHEMA_ID = "urn:finledgerpoli:schema:config:2"  # 2: forbidden_token_round_figures
 
 
 def configuration_schema() -> dict:

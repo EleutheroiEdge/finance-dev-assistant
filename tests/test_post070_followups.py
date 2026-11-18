@@ -120,6 +120,7 @@ def test_v1_report_schema_is_public_and_exported_with_legacy_validation(gate_cas
     report = run(gate_case)[0]
     legacy = deepcopy(report)
     legacy["schema_version"] = 1
+    legacy.pop("outcome_class")  # A v1 report predates the class.
     for finding in legacy["findings"]:
         finding.pop("id")
     legacy["report_hash"] = digest(canonical({k: v for k, v in legacy.items() if k != "report_hash"}))

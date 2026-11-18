@@ -22,3 +22,19 @@ risks and limitations with evidence; do not claim live provider validation from
 mocked tests. Stage only reviewed paths and do not modify another agent's work.
 
 For using finledgerpoli from a coding agent, see [the user agent guide](docs/agents.md).
+
+## Keep private context out
+
+Anything published from this repository or its package, including code, docs,
+commit messages, branch names, PR, issue and review text, tags and release
+notes, must contain only technical content about this project. Never publish
+people's names, aliases or contact details, role titles, quoted instructions
+or approvals, workstation paths, machine or helper names, names of other
+private repositories or services, account, billing or usage details, real
+financial data, secrets of any age, session links or session trailers, or
+notes on who works on what. Use generic stand-ins and obviously synthetic
+fixtures instead.
+
+Before posting or releasing, reread the exact text and search it for local
+paths, session links, private project names, role titles and billing terms.
+Keep coordination notes and maintainer decisions out of public text.

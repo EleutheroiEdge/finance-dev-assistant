@@ -356,7 +356,7 @@ def test_a_model_may_repeat_a_reference_from_the_source_it_was_sent(quote):
     "`@pw@: process.env.DB_@PW@` as string -- note,\n|| '@V@'",
     "`@pw@: process.env.DB_@PW@` as string # note,\n|| \"@V@\"",
     "`@pw@: process.env.DB_@PW@` as string || /,/.source + `@V@`",
-    # Codex at f569288: a string of SQL in dollar tags holds no quote mark, and a point is part of a number.
+    # A string of SQL in dollar tags holds no quote mark, and a point is part of a number.
     "`@pw@: process.env.DB_@PW@` || $$@V@$$",
     "`@pw@: process.env.DB_@PW@` || $tag$@V@$tag$",
     "`@pw@: process.env.DB_@PW@` || $q1$@V@$q1$",
@@ -494,7 +494,7 @@ def test_a_clause_after_a_code_span_that_has_no_end_in_reach_is_refused():
     (".12345678901", True), (".1234567890", False), ("123456789012", True), ("12345678901", False),
 ])
 def test_a_literal_after_a_quote_is_refused_in_a_reply_exactly_where_it_is_refused_in_source(literal, refused):
-    """Codex at f569288, in SQL: the dollar-quoted forms, and both sides of the length a number needs."""
+    """In SQL: the dollar-quoted forms, and both sides of the length a number needs."""
     written = "SELECT @pw@ = settings_@pw@;\n"
     files = source("src/settings.sql", written)
     check_text(spell(written), source_path="src/settings.sql")
@@ -695,15 +695,15 @@ def test_a_gate_reviews_a_script_that_reads_its_credentials_from_the_environment
 
 
 @pytest.mark.parametrize("summary", [
-    "`@pw@: process.env.DB_@PW@` as string /* ; */ || `@V@`",   # Codex at 6ecc1f6: punctuation inside a comment
+    "`@pw@: process.env.DB_@PW@` as string /* ; */ || `@V@`",   # punctuation inside a comment
     "`@pw@: process.env.DB_@PW@` as string /* , */ || `@V@`",
     "`@pw@: process.env.DB_@PW@` as string /* ) */ || `@V@`",
     "`@pw@: process.env.DB_@PW@` as string // ;\n|| `@V@`",
     "`@pw@: process.env.DB_@PW@` as string | `@V@`",            # a sign no list named
-    "`@pw@: process.env.DB_@PW@` || $$@V@$$",                   # Codex at f569288: a string in dollar tags
+    "`@pw@: process.env.DB_@PW@` || $$@V@$$",                   # a string in dollar tags
     "`@pw@: process.env.DB_@PW@` || $tag$@V@$tag$",
     "`@pw@: process.env.DB_@PW@` || .12345678901",              # and a number of 12 characters with its point
-    "`@pw@: process.env.DB_@PW@`\n | 0 || `@V@`",               # Codex at b2d2de6
+    "`@pw@: process.env.DB_@PW@`\n | 0 || `@V@`",
     "`@pw@: process.env.DB_@PW@` || `@V@`",
 ])
 def test_a_gate_blocks_a_reply_that_joins_a_literal_to_a_quoted_reference(gate_case, summary):

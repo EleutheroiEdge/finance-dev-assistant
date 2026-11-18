@@ -5,14 +5,143 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
 ## Unreleased
 
 ### Upgrading
+- **Figure sources are experimental and off unless opted in: `forbidden_token_sources_experimental`.**
+  The figure-source reader lists the figures in delimited exports, but review keeps finding amounts it
+  misses when they are written in shapes it does not read, so it is not a complete screen, and nothing
+  below claims it is. A configuration or gate policy that lists `forbidden_token_sources` is now refused
+  by name with `forbidden_token_sources_experimental` before any source is read or any request or
+  reservation is made: listed sources are never ignored. To keep using them, add
+  `"forbidden_token_sources_experimental": true` (in a gate policy under `model_review`, then pin the
+  new policy bytes) and give every source as an object that declares its layout,
+  `{"path": "~/exports/positions.csv", "delimiter": ";", "decimal_mark": ","}`. A bare path, which
+  was read every way, is refused with `forbidden_token_source_layout_required`. `doctor` warns while
+  the reader is on, and `init --detect` proposes no figure source. The opt-in is part of a
+  configuration's identity, so its hash changes and records saved under the old one stop counting; a
+  configuration without sources keeps its hash. Otherwise remove the sources and list the figures in
+  `forbidden_token_file` or `forbidden_token_hashes`. The entries below describe the reader as it is
+  when opted in.
+- **The upgrading guide says what an upgrade from 0.10.0 asks of you.** `finassist guide upgrading`
+  has an "Upgrading from 0.10.0" section: a table of what changes for a configuration or gate policy
+  with and without figure sources, a moved state folder and the new schema identifiers, and the steps
+  for a file that lists figure sources, which are experimental and off unless opted in: remove them, or
+  opt in, declare each layout and, in a gate policy, state the source rule. Its rule numbers, schema
+  identifiers and refusal codes are tested against the code.
+- **A gate policy may opt in to `NOT_APPLICABLE` for a range with nothing in scope.** With
+  `model_review.out_of_scope_ranges: "not-applicable"` and `unreviewable_paths: "skip-and-report"`,
+  a range whose every changed file is outside `allow_paths` exits 0 as `NOT_APPLICABLE`, its own
+  report document, instead of `BLOCKED` with `empty_model_context`. It is not a review or a pass:
+  nothing is read for review or sent. The default is unchanged. A consumer that treats every gate
+  report as a review must check `mode`; `report-trace` refuses a not-applicable report with
+  `trace_report_not_a_review`.
 - **The state folder can move to the repository root.** If you ran `review`, `propose`,
   `evaluate`, `evidence`, `audit`, `reconcile-budget`, `doctor` or `init` from a subfolder, or with
   a `--config` kept elsewhere, their spending ledger is in that folder's `.finassist`. Such a
   command now stops with `state_location_moved` before writing anything, and
   `finassist state status` names both folders. Pass `--state-dir` naming the folder to keep, or
   move the other aside. An explicit `--state-dir` or `--audit-dir` works as before.
+- **Three schema identifiers change for the source rule and the round-figure setting.** The configuration schema
+  becomes `urn:finledgerpoli:schema:config:2`, the gate policy schema `urn:finledgerpoli:schema:gate-policy:16` and
+  the CI policy schema, which refers to the configuration schema, `urn:finledgerpoli:schema:ci-policy:2`.
+  Documents keep their `schema_version`. A configuration without figure sources keeps its hash; one with
+  sources, and a gate policy listing them, move to the new source rule below, whether or not they set round
+  figures. Update a pin on a schema identifier or digest.
 
 ### Added
+- **A figure source that hides part of an amount is refused: `forbidden_token_source_hidden_mark`.** An
+  invisible character between the digits of an amount, such as a zero-width space or joiner, a direction mark or
+  bidirectional control, a variation selector or tag character, a soft hyphen, a filler, a control character or
+  a space that groups no digits, shows one number but reads as two, so `98<zero-width space>765.43` listed only
+  765.43. So did a line break inside a quoted field between the parts of an amount, as `"Total 1,234,` and
+  `567.89"` on the next line, or a tab between them in a source declared with another
+  delimiter. A mark beside an exponent mark or its sign (`1.2345<mark>e6`), or after a decimal mark that
+  starts a number (`.<mark>57891`, `USD.<mark>57891`), is inside the number too; read every way,
+  so is a mark right after a comma, which another reading may take as a decimal comma. Such a source is now refused before it is read. The grouping spaces the screen
+  reads (space, no-break, figure, thin and narrow no-break spaces) and apostrophes still list the whole amount,
+  and a mark beside an amount or inside a word changes nothing. A source whose quoting can't be read strictly,
+  with each delimiter the readings try, is refused as `forbidden_token_source_malformed_quotes`: a quote left open
+  at the end, a closing quote followed by anything but that reading's delimiter or a line end, another delimiter
+  included, or two readings that disagree about where a quoted field begins or ends. With another delimiter, csv
+  runs a cell on past its closing quote, so `"1,234"<tab>567.89` listed only 567.89. A file quoted from a line's
+  first cell, as `"SYN-1","98765.43"`, is therefore refused unless its layout is declared: declare the layout to
+  read such a file by its own delimiter only. Declared as one column, only a line end may follow a closing
+  quote. This is source rules 26 and 27.
+- **A figure source is read whole in four more shapes, or refused by name.** A bracketed amount grouped by spaces,
+  as `(98 765 432)`, lost its last group as if it were a footnote `432)`: it is listed whole now, beside the
+  footnote reading. An amount whose eight digits name a day was left out as a date however it was written; only
+  eight bare digits are a date now, so `20,170,520.00`, `20170520.00`, `USD 19991231` and `(20170520)` are figures.
+  A file that mixes UTF-8 characters with a byte that is not UTF-8, or holds a byte Windows-1252 does not define,
+  was read as Windows-1252, its UTF-8 grouping spaces and digits turned into letters: it is refused as
+  `forbidden_token_source_encoding`, and a file marked UTF-32 is read. A visible look-alike of a grouping or
+  decimal mark inside a number, such as a middle dot, a low quote, an ideographic or Arabic comma, a prime, an
+  accent or a modifier letter, or one number that writes two marks of one class, as the Arabic thousands separator
+  beside a point, listed the amount in part: such a source is refused as `forbidden_token_source_hidden_mark`
+  wherever an invisible mark would be, beside a grouping or hidden space, a quoted line break or tab, an exponent
+  mark or its sign, or after a decimal mark that starts a number; so is a replacement character between digits.
+  One right before digits, as in `USD<middle dot>57891`, also lists their fraction, 0.57891; beside another mark
+  there, as in `Total <middle dot><zero-width space>57891`, the source is refused. One beside an ASCII space parts
+  two numbers, as `, ` does in `98, 765.43`, unless a hidden mark, a quoted break or a sign stands on its other
+  side; so do dashes, minus and times signs and fraction slashes, except as an exponent's sign, as in
+  `1.2345e<minus>6`, or beside a hidden mark. A currency sign, bracket or percent sign is a mark wherever no letter,
+  space or delimiter stands beside it, as in `5<euro>50`, `98765<euro>.43` or `1.2345<euro>e6`: a decimal or
+  grouping mark, an exponent mark or sign or the grave accent does not part it from the number. A comma parts it
+  as the declared delimiter, or, read every way, where a letter, space or delimiter stands beyond the comma, as in
+  `Cash,<euro>75`; `SYN-1,<euro>75 929 683`, where the comma may be a decimal mark inside the number, is refused
+  read every way and reads as before declared. Still source rules 26 and 27.
+- **A figure source can also list its round figures: `forbidden_token_round_figures`.** The digit
+  minimum leaves out an amount such as 347,300.00, whose significant digits, 3473, are fewer than
+  `forbidden_token_min_digits`. With `"forbidden_token_round_figures": "list"`, in a configuration or a
+  gate policy that lists sources, a source also lists each number with at least
+  `forbidden_token_min_digits` digits before the point and at least 4 significant digits that is not
+  already a figure, matched by its exact value in either match mode: for a source holding 347,300.00, a
+  change writing `347300`, `347,300.00` or `3.473e5` is refused, and one writing `3473`, `34730` or
+  `3473000` is not. Dates are left out as before. The default, `skip`, lists what it listed before.
+  `list` is read by source rule 27: a configuration carries rule 27 and the setting in its identity, so
+  its hash changes, and a gate policy must state
+  `"forbidden_token_source_rule": 27` with the setting; a policy whose rule and setting disagree, a
+  setting without sources and an unknown value are refused before any source is read or any request
+  or reservation is made. A source of round figures only is read under `list` and refused as invalid
+  under `skip`. The parse cache keeps each setting apart.
+- **A figure source can declare its layout.** An entry of `forbidden_token_sources`, in a
+  configuration or a gate policy, may be an object such as
+  `{"path": "~/exports/positions.csv", "delimiter": ";", "decimal_mark": ","}` instead of a path.
+  The file is then read with that delimiter and decimal mark only, and refused as invalid when that
+  reading cuts a cell or finds a number the mark does not read, so a layout that does not fit the
+  file fails closed. This reads a file the automatic reading refuses as ambiguous. A `null`
+  delimiter declares one column, each line a cell. A comma can't be both the delimiter and the
+  decimal mark, and a file named twice, in either form or under two spellings, is refused. A
+  configuration whose entries are all paths keeps its hash; a declared layout is part of the hash,
+  of the parse cache's key and of the screen's identity, so a changed declaration needs a new
+  approval.
+- **A gate report names the kind of stop: `outcome_class`.** `pass`, `fail`, `refused` when every
+  reason is a rule that stopped the change on purpose (a content or privacy screen, an edited
+  governance file, a size, count or budget limit, the fork rule, nothing left to review), `incomplete`
+  when the review did not run to a result (a provider failure, an invalid reply, an outcome or
+  spend not reconciled, a setup problem), or `not_applicable`. An unlisted or mixed set of reasons
+  is `incomplete`, never a pass. Verdicts and exit codes are unchanged; a report written before the
+  field still validates, and one whose class does not match its verdict and reasons is refused. A stop
+  raised while validating the model's reply, such as a hidden character or a credential-shaped claim
+  in it, carries `outcome_phase: reply` and is `incomplete`: the same codes on the change itself are
+  `refused`.
+  The checks-only gate reports the same classes and `failed_check_causes`, taken from each failed
+  check's receipt (`nonzero_exit`, `killed`, `timed_out`, `output_limit_exceeded` or `unknown`): a
+  failed run is `fail` only when every failed check ran and exited nonzero, so a timed-out or killed
+  check is `incomplete`. A cause is read only from the artifact the run recorded; a changed one is
+  `unknown`, and only a blocked report may name failed checks. The Action has a new `outcome-class`
+  output.
+- **A gate policy can let one reviewed YAML value through the credential label rules.**
+  `model_review.placeholder_credential_occurrences` lists values a person reviewed as public
+  synthetic fixtures, such as a CI service container's test password, each bound to its exact
+  parsed place and text by a digest that `finassist placeholder-occurrence` prints, never
+  printing the value. An entry applies only while that occurrence is present exactly once at
+  base, at the merge base and at head; an edit, move or copy lapses it, and the preflight names
+  each entry's state. Every other screen still applies. A value let through is sent to the
+  provider, and a model may repeat it bare in its report: enrol only values safe to disclose. Needs PyYAML 6.0.3, from the new `yaml` extra; without it, or with another version,
+  nothing applies.
+- **A seeded finance evaluation suite.** `examples/seeded-finance-cases.json` holds 20 small finance
+  routines, each once with one seeded defect and once as a behaviour-preserving twin, for measuring
+  recall and false alarms with `finassist evaluate` and `score` (release gate D8). A test runs both
+  versions of every case on probe inputs, so each label is shown by execution: every defect changes
+  a result and every twin changes none.
 - **`finassist state status`: what the tool keeps on this machine, read-only.** Each store in the state
   folder (the audit chain, the evidence stores, patches, workflow runs and locks, history, configuration
   backups, setup) with its size, its tables' row counts or its file count, and its oldest and newest entry;
@@ -20,6 +149,14 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   writes nothing at all, not even an audit entry: a database with a journal or write-ahead file is read from a
   private copy. A store it cannot read in full is listed with its error, never as a smaller count. The first
   part of #120; archiving and cleaning come next.
+- **`finassist sarif`: gate and scan results for code scanning.** Converts the report `gate run` wrote,
+  or `scan`'s output, into a SARIF 2.1.0 log for an upload step such as
+  `github/codeql-action/upload-sarif`. A gate report's schema and own hash are checked first; findings
+  keep their severity, file, line and claim, the verdict travels as tool notifications, and the
+  upload step computes the alert fingerprint from the checked-out source. With `--expect-head SHA`, a
+  report for any other commit is refused (`sarif_head_mismatch`), so a stale report is not uploaded
+  against the wrong commit. `finassist report trace --expect-head SHA` refuses the same way
+  (`trace_head_mismatch`) before writing the trace.
 - **`finassist state clean`: remove what is certainly safe, list the rest.** A dry run unless
   `--apply`. It removes only configuration backups beyond the newest ten of each kind and this
   tool's own temporary leftovers older than a day, and lists every other store with the reason it
@@ -78,6 +215,159 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   build preflight now requires the `pypi` environment to deploy only `v*` tags, and two tag rulesets: one that keeps
   release tags from being moved or deleted, with no bypass, and another that restricts creating them. A required
   reviewer is optional. Forks that publish need the same environment rule and rulesets.
+- **`plan` warns on an empty range, and two first-run refusals are named.** A range that changes no
+  files still exits 0 and writes its packet, and its summary now carries
+  `warnings: [{code: "empty_review_scope", hint}]`; the hint says that on the branch itself the base
+  is the commit before the change, such as `HEAD~1`. A JSON input file that does not exist, or is not
+  a regular file, is `input_file_not_found` instead of `invalid_input`, without echoing the path. A
+  folder that does not exist or is not inside a Git checkout is `not_a_git_repository`, when Git says
+  so and no `.git` entry is found at the folder or above it; any other Git failure stays
+  `git_read_failed`, and `init` keeps `init_repository_required`.
+- **The branch-protection template requires one check, `all-checks`.** It passes only when every job ran and
+  passed, so a job its condition skips, as the Windows and macOS jobs of a private repository's draft, is never
+  a required check that waits forever or reads as passed. The template stays unapplied; adapt it to your own
+  check names.
+- **`doctor` names the request size when a change has too many files.** A gate preflight that stops
+  with `gate_file_count_exceeded` reads no file content. It now also warns
+  `request_lower_bound_exceeded` when the files it would send are already larger, in both
+  versions together, than `max_request_bytes`, read from Git's size metadata alone. So one run
+  names both limits. No warning when another path is refused, a rule file changed or a file
+  would be ignored; the gate's verdict is unchanged.
+- **`check` takes the two skip settings the review routes have.** With `private_paths: skip-and-report`
+  a private name, such as a CSV fixture, is left out of the recipe's snapshot unread and counted
+  (`withheld`); with `unreviewable_paths: skip-and-report` a file that cannot be reviewed is left out
+  and counted by reason (`omitted`). As on the review routes, a name that matches a configured
+  sensitive pattern still refuses rather than being withheld, and a link or a submodule still refuses
+  rather than being left out. Under the defaults the export refuses as before, and its manifest is
+  unchanged.
+- **`init --detect` reviews a repository in any common language, and a gate policy can say which
+  suffixes it reviews.** Detection knew 11 source suffixes, so a C#, C++, Ruby, PHP or Swift
+  repository got `no_source_detected` and `--write` was refused; and the gate always used the built-in
+  `text_suffixes`, so even Kotlin, which the credential screen reads as code, was refused there.
+  Detection now recognises 55 source suffixes. When a repository's source uses some outside the
+  default list, both drafts propose `text_suffixes` with them added, and the warning
+  `text_suffixes_proposed` names those the credential screen reads with the strict text rules. A gate
+  policy's `model_review` takes `text_suffixes` like the configuration; a data or binary format there
+  is refused. Drafts for repositories in the default languages are unchanged.
+- **A recipe container's limits are settings.** `runner_memory_mb`, `runner_cpus`, `runner_pids` and
+  `runner_tmp_mb` set the memory, CPUs, process count and `/tmp` size that `check` gives a
+  `docker` or `podman` recipe. They were fixed in code and undocumented; the defaults are the old
+  values (1 GiB, 2 CPUs, 128 processes, 256 MiB), and at their defaults they leave the configuration
+  hash as it was.
+- **Figure sources written with decimal commas are read as they are.** A source whose columns are
+  separated by semicolons and whose amounts use decimal commas was split on the comma when commas
+  outnumbered semicolons. It then listed fragments of the amounts, such as 12345 for 12.345,67, and the
+  amounts themselves went unscreened. The whole source is now read with each separator, and as one cell
+  per line; a reading that leaves a fragment, a cell with digits that reads as no one number, is not the
+  file's. When the readings left agree, their figures are listed; when none is left the source is refused
+  as before; when they disagree, as with one column of `12.345,67`, it is refused with
+  `forbidden_token_source_ambiguous`, before any request, instead of being listed in a way that may miss
+  its amounts. The parse cache is also keyed by `forbidden_token_min_digits`.
+- **A figure source lists amounts written with a mark.** An amount followed by a credit or debit mark
+  (`CR`, `DR`, or `S` and `H` in German exports), by a currency code and such a mark, by an asterisk or by
+  a footnote reference such as ` 1)` was read as text and not listed, or made the source unreadable. Such
+  amounts are now listed. A byte-order mark at the start of a figure source or figure file is no longer
+  read as part of the first cell, so a headerless export saved as UTF-8 by a spreadsheet lists its first
+  amount instead of dropping it or being refused. A name column beside comma-grouped amounts in a tab,
+  semicolon or bar file, as in `Alice<tab>12,345.67`, is no longer refused as ambiguous: a reading that
+  leaves a column break beside a number inside a cell did not split that line, and is ruled out. A seeded
+  corpus of synthetic exports measures all of this: release gate A8, `scripts/figure_source_corpus.py`.
+- **A figure source holding a number with a decimal comma and no digit before it is refused.** With its
+  layout declared, `,57891` was listed as 0.57891, but a payload spelling it `,57891` was not refused. Read
+  every way, the source could instead be split on the comma and list 57891. The payload screen reads a
+  leading point and never a leading comma, so such a source is now refused with
+  `forbidden_token_source_unscreenable`, before any request: write `0,57891`. This holds after a currency
+  code (`EUR,57891`) and inside a text label (`Total EUR ,57891`, `Balance: ,57891`), and glued to a word,
+  with or without a word after it (`TotalEUR,57891 units`), where that comma can't be a column break: a line
+  split on another mark, a quoted cell, a layout declared with decimal commas, or a file that reads as one
+  column with decimal commas and has no header above its data.
+- **The configuration guide says which match mode covers a digit-string guard.** Use `digits` when
+  replacing a guard that matches digit strings; `value` compares numeric values and does not provide
+  equivalent coverage.
+- **What a figure source lists is bound to the rule it is read by.** The same source settings now list other
+  figures than in 0.11.0, so they no longer share its hashes. A configuration that lists sources carries
+  `forbidden_token_source_rule: 26` in its identity, so its hash changes once and records saved under the old
+  rule go stale; no setting chooses the rule, and one without sources keeps its hash. A gate policy that
+  lists sources must state `"forbidden_token_source_rule": 26` in `model_review`, and one without sources
+  must not. Otherwise, or with 2 to 25 from a development build, it is refused with
+  `gate_policy_source_rule_required` before anything is read or sent, and `doctor --policy-file` names the
+  field. The gate policy schema's identifier becomes `urn:finledgerpoli:schema:gate-policy:16`, with the
+  round-figure setting; policies keep `schema_version` 2. Upgrading: add the line, check
+  the sources with `doctor`, commit the policy on base through review and update the pin.
+- **A figure source lists figures in text and in amounts a comma file cut, and checks whole records.** A total
+  beside its label in one cell, as `Total USD 87654.32` or `Kontostand: 87.654,32 EUR`, was skipped as text; an
+  unquoted comma file cut `1,234,567.89` or `123,45` into cells and listed fragments. Figures in a text cell, and
+  amounts a comma cut, with their whole exponent (`1,234,567.89e2`, `e0002`), are now listed, and so is each
+  shorter amount the cut cells may hold: under `Account,Quantity,Cost`, `SYN-1,12,345,678.90` may hold a cost of
+  345,678.90, while an amount inside a quoted field, read as the csv module quotes, is in one cell. An amount
+  cut into more than seven cells refuses the file, which is never read in part: quote such cells. These amounts
+  are listed whichever way the file is read, so a cell elsewhere that rules the comma reading out, or a layout
+  declared with another delimiter, does not drop them; the cut amount is listed whole too, and its first cell may
+  follow a colon, a slash or a date's dash, as in `Rate:12,345,678.90`, but never a point: `1.5,345,678.90`
+  holds 1.5 and 345,678.90. A text cell lists every number the payload screen reads in it, a number inside a
+  longer reading included: `Lot 1.5 345 678.90` holds 345,678.90 though its digits also read as 5,345,678.90,
+  and `Lots 25 157 435.77` may be 25 lots at 157,435.77. A cell of one number, as `USD 1 345 678.90`, is still
+  read as one. A cut amount may start after a letter, as in `x12,345,678.90`, and in a comma reading a number
+  right after a comma that may be a decimal one, as in `Lot ,5 345 678.90`, also lists what a text cell would.
+  Numbers are listed up to the 260 digits the payload screen reads, and an exponent past 128 hides nothing that a
+  spelling within it shows: `12,345,678.90e129` refuses `123456789e128`. Indian groups, as in `12,34,567.89`, are
+  read in a source and in a change (as with groups of three, a compact list such as `[9,99,999]` reads as one
+  number too), any currency sign may stand beside an amount, and a decimal-comma amount whose
+  digits underscores join, as `1_234,56`, is listed. A decimal-comma amount that starts inside a row of digit
+  groups, as 234,56 in `1 234,56` or in `1.234,56`, is listed up to nine groups, as far as the payload screen
+  reads from such a start; a later start of more groups refuses the source. A quoted field is one cell, so no
+  comma cuts an amount inside it: `"EUR 1.234,56"` lists 1234.56 alone.
+  The refusal holds in a file of any delimiter: a tab or bar
+  file holding an amount of more than seven comma groups is refused too. Quoting is read as a comma file quotes, so
+  in a file of another delimiter a quoted field counts as one cell only where a comma file would open one: at the
+  start of a line or after a comma. A cut amount
+  that does not read whole rules that reading out, and a declared layout reads a zero-padded exponent as the screen
+  does. A row with more cells than the header (the widest row without a digit) holds the delimiter unquoted,
+  so that reading is ruled out and such a file is refused unless another reading fits; an amount cut by comma
+  groups counts as one cell, in Indian groups too. So `SYN-0001,31,41,592.65` under `account,mv` is no longer
+  read only as the one number 13141592.65, which left 592.65 out: like `SYN-0001,234,567.89`, it is refused as
+  ambiguous. Timestamps with milliseconds or a time zone, `[1]`
+  and ` 123)` footnotes, `Soll`, `Haben`, `Credit` and `Debit`, a spreadsheet's `="..."`, UTF-16 files and
+  cp1252 files are read. A leading decimal comma too short to be a figure no longer refuses the source. A reading
+  that lists more figures than one snapshot holds (200,000) refuses the source as soon as it does, not after the
+  whole file is read (the one-column check for a leading decimal comma, which lists nothing, is not counted, nor
+  are round figures under `skip`, which lists none and no longer keeps them). That check counts a round figure as
+  the number beside a leading decimal comma under `skip` too, so `347300,00` over `Cash dividend,57891 units` is
+  refused as unscreenable, as `0,12345` over it is; under `skip` it was read and 0.57891 passed the screen: 8 MB of text rows of nine digit groups and a decimal comma took about 100 seconds and 7 GB
+  of memory before the refusal, and now take about a second and 130 MB. A line longer than a csv field may be
+  (131,072 characters by default), without one of the delimiters a reading splits on, refuses the source before any
+  cell is read. Reading a source every way costs more than 0.11.0's one reading did. Measured on one workstation, a
+  4 MB custody export of 198,418 figures takes about 6 seconds and 300 MB, against 1.6 seconds and 110 MB, and a 2 MB
+  export with semicolons and decimal commas about 1.5 seconds, against 0.6.
+- **Running or resuming a stopped workflow run exits 1.** `workflow run` and `workflow resume` on a
+  cancelled or abandoned run returned its report with exit 0, so a script could read a run whose
+  checks never completed as a success. The report now carries `workflow_run_cancelled` or
+  `workflow_run_abandoned` and the command exits 1. `workflow cancel` and `workflow abandon` still
+  exit 0 when they stop the run as asked.
+- **`init --detect` leaves room in the file limit.** `max_file_bytes` was fitted to the largest
+  reviewed source file, rounded up to 16 KiB. That file is often the one changed most, and when its
+  next version grew past the limit it was left out of review, so under `skip-and-report` a range
+  could pass on the rest. The draft now leaves one and a half times the largest file, the room the
+  packet limits already leave, up to 2,000,000 bytes; the evidence gives the size and the factor.
+  Existing configurations and policies are unchanged.
+- **The credential screen finds more, and admits fewer placeholders.** A change that passed before can
+  now be refused; `finassist doctor` names the rule and the lines.
+  - A signed web token is found by decoding its structure, so spaced or empty JSON is found too, and
+    one whose JSON cannot be settled within the screen's bounds is refused rather than passed.
+  - A password in a URL's user information is refused unless it is a complete template, such as
+    `${DB_PASSWORD}`.
+  - Access, auth, refresh, session and bearer token labels are screened, and an unquoted value may
+    hold `!#$%&*?~^`.
+  - A placeholder is a value made only of words from a fixed list, including a marking word such
+    as `YOUR_API_TOKEN_HERE`; text merely affixed to a placeholder word is a credential.
+  - `scripts/secret_screen_accuracy.py` and `scripts/hidden_text_accuracy.py` measure the screens on
+    synthetic labelled corpora.
+- **A `.gitignore` change that only appends ordinary patterns no longer needs separate review.**
+  Each changed rule file must keep its version at the base and the merge base as its exact first
+  bytes, ending at a line boundary, and add only patterns that are not negated, blank lines or
+  comments: such a change can only make more paths ignored. Any removed, edited or reordered line,
+  added negation, deleted or linked file, or added text that is not plain UTF-8 still stops the
+  gate with `gate_ignore_change_requires_review`, in the gate and in `doctor` alike.
 - **One state folder for every command (#120).** Without `--state-dir` or `--audit-dir`, every
   command keeps its private state in the `.finassist` folder of the repository holding `--config`
   (outside a repository, of the folder holding it), or without `--config`, of the repository

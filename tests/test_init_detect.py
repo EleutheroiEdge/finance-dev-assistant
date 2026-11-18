@@ -1,6 +1,9 @@
 """init --detect proposes settings from the committed layout and never runs anything from it."""
 
+import decimal
+from fractions import Fraction
 import json
+import math
 from pathlib import Path
 import subprocess
 
@@ -90,6 +93,42 @@ def test_a_quant_layout_gets_every_adopter_blocker_fixed_in_one_proposal(quant_r
     assert "uv.lock" in config["generated_paths"] and "uv.lock" in config["protected_paths"]
     assert config["profile"] == "quant-review" and policy["profile"] == "quant-review"
     assert proposal["written"] is False and proposal["commands_run"] == []
+
+
+def _expected_file_limit(size: int) -> int:
+    """One and a half times the file, rounded up exactly, then up to 16 KiB, within 48,000 and 2,000,000."""
+    needed = math.ceil(Fraction(size) * Fraction(3, 2))
+    return min(2_000_000, max(48_000, math.ceil(Fraction(needed, 16_384)) * 16_384))
+
+
+@pytest.mark.parametrize("precision", [None, 3], ids=["default-context", "three-digit-context"])
+@pytest.mark.parametrize("size", [20_000, 43_690, 43_691, 43_692, 1_330_000, 1_400_000])
+def test_the_file_limit_is_rounded_up_exactly_at_every_edge(tmp_path, capsys, size, precision):
+    # 43,691 bytes need 65,536.5: the limit is 81,920, never the 65,536 a truncated or context-rounded product
+    # would give. A caller's decimal context must not change the result.
+    repo = _repo(tmp_path, {"core.py": "#" * (size - 1) + "\n"})
+    assert (repo / "core.py").stat().st_size == size
+    with decimal.localcontext() as context:
+        if precision is not None:
+            context.prec = precision
+        proposal = _proposal(capsys, ["init", "--detect", "--repo", str(repo)])
+    assert proposal["config"]["max_file_bytes"] == _expected_file_limit(size)
+
+
+def test_the_file_limit_leaves_room_for_the_largest_module_to_grow(quant_repo, tmp_path, capsys):
+    size = (quant_repo / "engine/walkdown.py").stat().st_size
+    proposal = _proposal(capsys, ["init", "--detect", "--repo", str(quant_repo), "--purpose", "quant"])
+    limit = proposal["config"]["max_file_bytes"]
+    assert limit == _expected_file_limit(size) and limit % 16_384 == 0
+    note = proposal["evidence"]["max_file_bytes"][0]
+    assert note["rule"] == "largest_reviewed_source_file" and note["largest_bytes"] == size and note["headroom"] == 1.5
+    # The module's next version, a third larger, is still under the limit: reviewed, not left out.
+    _commit(quant_repo, {"engine/walkdown.py": "# synthetic\n" + "x = 1\n" * 53_334}, "Synthetic growth")
+    assert size * 4 // 3 <= (quant_repo / "engine/walkdown.py").stat().st_size <= limit
+    # A module near the ceiling is capped at it.
+    (tmp_path / "big").mkdir()
+    big = _repo(tmp_path / "big", {"core.py": "# synthetic\n" + "x = 1\n" * 250_000})  # about 1.5 MB
+    assert _proposal(capsys, ["init", "--detect", "--repo", str(big)])["config"]["max_file_bytes"] == 2_000_000
 
 
 def test_test_commands_are_proposed_with_evidence_and_never_run(quant_repo, capsys):

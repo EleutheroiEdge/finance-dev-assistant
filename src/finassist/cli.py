@@ -43,6 +43,8 @@ from .cli_parser import parser, WORKFLOW_STATE_ACTIONS
 
 def _read_json(path: str, *, max_bytes: int = 2_000_000) -> dict:
     file = regular_path(Path(path))
+    if not file.is_file():
+        raise AssistantError("input_file_not_found")
     if file.stat().st_size > max_bytes:
         raise AssistantError("input_limit_exceeded")
     value = json.loads(read_utf8(file))
@@ -269,7 +271,7 @@ def execute(args, config: Config | None = None) -> int:
                 raise AssistantError("publication_index_unmerged")
             modes[name] = mode
         names = list(modes)
-        from .publication import public_images, verify_public_image
+        from .publication import SCAN_QUALIFICATION, public_images, verify_public_image
 
         images = public_images(args.repo, set(names))
         findings = []
@@ -307,7 +309,7 @@ def execute(args, config: Config | None = None) -> int:
                 "files": len(list(filter(None, names))),
                 "findings": findings,
                 "passed": not findings,
-                "qualification": "Supplementary scan; inspect staged bytes and full history before publication.",
+                "qualification": SCAN_QUALIFICATION,
             }
         )
         return 1 if findings else 0
@@ -346,7 +348,8 @@ def execute(args, config: Config | None = None) -> int:
         from .report_trace import read_trace_input, trace_markdown
         report = read_trace_input(args.report)
         judgments = read_trace_input(args.adjudications) if args.adjudications else None
-        write_private(args.output, trace_markdown(report, judgments).encode("utf-8"))
+        text = trace_markdown(report, judgments, expect_head=getattr(args, "expect_head", None))
+        write_private(args.output, text.encode("utf-8"))
         _emit({"report_hash": report["report_hash"], "written": True, "advisory_only": True})
     elif args.command == "score":
         if args.report:
@@ -463,10 +466,12 @@ def execute(args, config: Config | None = None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """One command. Within it, a text already screened under the same rules is not screened again."""
+    """One command. Within it, a text already screened under the same rules is not screened again, and a Git read
+    addressed by a full object ID is not run again."""
+    from .scope import object_cache
     from .security import screening_cache
 
-    with screening_cache():
+    with screening_cache(), object_cache():
         return _main(argv)
 
 
@@ -510,6 +515,17 @@ def _main(argv: list[str] | None) -> int:
                 _emit(result)
                 outcome["exit_code"] = 0 if result["installer_exit_code"] == 0 else 1
                 return outcome["exit_code"]
+        if args.command == "sarif":
+            # A local conversion of a report already written: no configuration, update notice or command audit.
+            from .sarif import run_sarif
+
+            return run_sarif(args)
+        if args.command == "placeholder-occurrence":
+            # Reads one committed file: no configuration, update notice or command audit.
+            from .placeholder_occurrences import enroll
+
+            _emit(enroll(regular_path(args.repo), args.revision, args.path, args.line))
+            return 0
         if args.command == "state":
             # status and a clean dry run write nothing, so they stay ahead of configuration, the update
             # notice and the command audit. clean --apply records a removal only from run_state_clean.
@@ -631,8 +647,9 @@ def _main(argv: list[str] | None) -> int:
     except AssistantError as exc:
         print(json.dumps(error_record(exc, command, error_fields(exc.code))), file=sys.stderr)
         return 2
-    except (OSError, ValueError, TypeError, KeyError, InvalidOperation, sqlite3.Error) as exc:
-        # Report a stable class, never raw provider errors, source or private paths.
+    except (OSError, ValueError, TypeError, KeyError, InvalidOperation, sqlite3.Error, RecursionError) as exc:
+        # Report a stable class, never raw provider errors, source or private paths. RecursionError is input
+        # nested deeper than a decoder or walker can follow: invalid input too, not a traceback.
         print(
             json.dumps({"status": "error", "code": "invalid_input", "kind": type(exc).__name__,
                         **error_fields("invalid_input")}),

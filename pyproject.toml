@@ -37,6 +37,9 @@ Security = "https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/SE
 
 [project.optional-dependencies]
 dev = ["pytest==9.2.0", "ruff==0.14.3", "PyYAML==6.0.3", "readme-renderer[md]==46.0"]
+# Reads reviewed placeholder values in YAML for the gate (placeholder_credential_occurrences). Only this
+# reviewed version is used; without it, or with another, no such entry applies.
+yaml = ["PyYAML==6.0.3"]
 
 # Hash-locked alongside the dev extra for CI, release builds and wheel smoke checks.
 [dependency-groups]

@@ -1,5 +1,5 @@
 {
-  "$id": "urn:finledgerpoli:schema:gate-policy:2",
+  "$id": "urn:finledgerpoli:schema:gate-policy:16",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -117,16 +117,77 @@
           "minimum": 4,
           "type": "integer"
         },
+        "forbidden_token_round_figures": {
+          "enum": [
+            "skip",
+            "list"
+          ]
+        },
+        "forbidden_token_source_rule": {
+          "enum": [
+            26,
+            27
+          ],
+          "type": "integer"
+        },
         "forbidden_token_sources": {
           "items": {
-            "maxLength": 4096,
-            "minLength": 1,
-            "type": "string"
+            "oneOf": [
+              {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "not": {
+                  "properties": {
+                    "decimal_mark": {
+                      "const": ","
+                    },
+                    "delimiter": {
+                      "const": ","
+                    }
+                  }
+                },
+                "properties": {
+                  "decimal_mark": {
+                    "enum": [
+                      ".",
+                      ","
+                    ]
+                  },
+                  "delimiter": {
+                    "enum": [
+                      ",",
+                      ";",
+                      "\t",
+                      "|",
+                      null
+                    ]
+                  },
+                  "path": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "decimal_mark",
+                  "delimiter",
+                  "path"
+                ],
+                "type": "object"
+              }
+            ]
           },
           "maxItems": 16,
           "minItems": 1,
           "type": "array",
           "uniqueItems": true
+        },
+        "forbidden_token_sources_experimental": {
+          "const": true
         },
         "input_usd_per_million": {
           "maximum": 1000000,
@@ -163,10 +224,40 @@
           "minLength": 1,
           "type": "string"
         },
+        "out_of_scope_ranges": {
+          "enum": [
+            "block",
+            "not-applicable"
+          ]
+        },
         "output_usd_per_million": {
           "maximum": 1000000,
           "minimum": 0,
           "type": "number"
+        },
+        "placeholder_credential_occurrences": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "occurrence_sha256": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "path": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "occurrence_sha256"
+            ],
+            "type": "object"
+          },
+          "maxItems": 64,
+          "type": "array",
+          "uniqueItems": true
         },
         "placeholder_credential_paths": {
           "items": {
@@ -228,6 +319,16 @@
           "maximum": 400000,
           "minimum": 1,
           "type": "integer"
+        },
+        "text_suffixes": {
+          "items": {
+            "pattern": "^\\.[a-z][a-z0-9]{0,15}$",
+            "type": "string"
+          },
+          "maxItems": 128,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
         },
         "timeout_seconds": {
           "maximum": 300,

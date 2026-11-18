@@ -25,14 +25,14 @@ commands and the `doctor --check-updates` network gate.
 | `profiles` | Registry of names to nonempty checklist arrays. Replaces built-ins when supplied; general is required. |
 | `profile_files` | JSON registry files, strict relative POSIX .json paths inside this config directory. Definitions overlay profiles; duplicate paths, names and empty files fail. |
 | `denied_parts` | Lowercase private path component names (matched case-insensitively). Remove portfolios only for approved source code; .git and .finassist remain required. |
-| `text_suffixes` | Lowercase source suffixes including the dot. Add .tf/.cs explicitly. Binary/credential file restrictions remain. |
+| `text_suffixes` | Lowercase source suffixes including the dot. Add .tf/.cs explicitly. Binary/credential file restrictions remain. `init --detect` proposes the default list plus the suffixes of the source languages it finds (C#, C++, Ruby, PHP, Swift and others), and warns `text_suffixes_proposed`; the credential screen reads those as text, with the strict label rules. The same field works in a gate policy's `model_review` object. |
 | `github_host` | GitHub DNS hostname, without scheme, path or port. Defaults to github.com; Enterprise uses existing gh auth. |
 | `allow_network` | Enable potential network use. Each command still needs its own explicit network approval. |
 | `allow_partial_review` | Permit model calls with explicitly accounted-for omissions. Readiness still requires complete coverage. |
 | `related_context` | `none` (default): the packet holds only the changed files. `related`: it also holds signature-only skeletons of unchanged Python code the change calls, is called by or extends. See [related-code context](#related-code-context). |
 | `related_max_bytes` | Byte cap for the related-code block, 1 to 400,000; default 24,000. |
-| `private_paths` | `refuse` (default): a private path in the range, such as a data file or a path under a private directory, refuses the whole review. `skip-and-report`: such a path is never read or sent; the packet carries only how many were withheld, and names appear only in local output. Coverage is then incomplete. See [skipping private paths](#skipping-private-paths). |
-| `unreviewable_paths` | `refuse` (default): a changed file that cannot be reviewed refuses the whole review. `skip-and-report`: such a file is left out unread and the packet names it with the reason, so the rest of the range is reviewed. See [leaving out files that cannot be reviewed](#leaving-out-files-that-cannot-be-reviewed). |
+| `private_paths` | `refuse` (default): a private path in the range, such as a data file or a path under a private directory, refuses the whole review. `skip-and-report`: such a path is never read or sent; the packet carries only how many were withheld, and names appear only in local output. Coverage is then incomplete. `check` leaves such a path out of its snapshot the same way and counts it. See [skipping private paths](#skipping-private-paths). |
+| `unreviewable_paths` | `refuse` (default): a changed file that cannot be reviewed refuses the whole review. `skip-and-report`: such a file is left out unread and the packet names it with the reason, so the rest of the range is reviewed. `check` leaves it out of its snapshot and counts it by reason. See [leaving out files that cannot be reviewed](#leaving-out-files-that-cannot-be-reviewed). |
 | `placeholder_credential_paths` | Files whose credential-named values are placeholders, such as test fixtures: directory prefixes ending in /, exact paths, or patterns with `*`. Empty by default. Under them the credential label rule is not applied; known formats still refuse. See [placeholder credentials in test files](#placeholder-credentials-in-test-files). |
 | `allowed_hosts` | Additional approved MODEL endpoint hostnames; distinct from github_host. |
 | `generated_paths` | Exact relative files or directory prefixes excluded from review and snapshot source. Defaults to src/finassist/resources/dashboard/. No globs; rebuild/integrity CI must verify these artifacts. |
@@ -51,6 +51,10 @@ commands and the `doctor --check-updates` network gate.
 | `output_usd_per_million` | Operator-supplied output token price in USD per million. |
 | `recipes` | Named arrays of literal executable/argument strings. Never shell command strings. |
 | `runner_image` | Prebuilt digest-pinned OCI image used for isolated recipes. |
+| `runner_memory_mb` | Memory for a recipe's container, in MiB: 1024 by default (64 to 65,536). |
+| `runner_cpus` | CPUs for a recipe's container: 2 by default (1 to 64). |
+| `runner_pids` | Processes a recipe's container may run at once: 128 by default (16 to 4,096). |
+| `runner_tmp_mb` | Size of the container's writable `/tmp`, in MiB: 256 by default (16 to 16,384); the rest of its file system is read-only. These four apply to `docker` and `podman` recipes, not to approved local execution, and while at their defaults they leave the configuration hash as it was. |
 | `required_recipes` | Recipe names whose fresh passing check records are required for human review. |
 | `blocking_severities` | Finding severities that block readiness: critical/high/medium/low/info. |
 | `readiness_max_age_seconds` | Maximum age of audited review and check evidence. |
@@ -83,7 +87,8 @@ finassist init --detect --purpose quant --write --output finassist.json
     instruction files when at least three words for one purpose appear there and that purpose leads
     the next by two; the evidence lists the words. Otherwise the default is kept and
     `purpose_not_stated` warns;
-  - `max_file_bytes`: fitted to the largest reviewed source file;
+  - `max_file_bytes`: one and a half times the largest reviewed source file, rounded up to 16 KiB and at
+    most 2,000,000, so that file's next, larger version is still reviewed rather than left out;
   - `max_packet_bytes`: enough for one file's change and for the largest recent change;
   - `max_run_usd`, `daily_budget_usd` and `monthly_budget_usd`, only when you pass a provider, a
     model and both prices and the budget you have is too small for one request at the proposed
@@ -108,8 +113,10 @@ finassist init --detect --purpose quant --write --output finassist.json
   - the packet escapes its text as JSON once, and the provider request escapes the packet again, so tabs, quotes and non-ASCII text grow most;
   - the proposal measures the largest source files that way and adds 64 KiB for instructions;
   - it then sizes the last 40 first-parent changes from Git's object headers, without reading a file
-    and never sizing a private name, and scales them by the escaping it measured. The limits fit the
-    largest, and `recent_change_over_ceiling` warns when that needs more than 8,000,000 bytes;
+    and never sizing a private name, and scales them by the escaping it measured. The limits target
+    one and a half times the largest, up to the 8,000,000-byte ceiling, because a later change can be
+    larger than any recent one; near the ceiling that room is clipped. `recent_change_over_ceiling`
+    warns only when the largest change itself needs more than the ceiling;
   - when even 8,000,000 bytes can't fit one file's change, it warns with `request_cap_cannot_fit_file`.
 - **Proposals stay narrow:**
   - a file name that only looks generated, such as `assets/name-<hash>.js`, must have a digit in its hash, and never widens a generated prefix beyond its own `assets` or `dist` directory;
@@ -389,6 +396,46 @@ a workflow binds.
 Like the other settings added since 0.10.0, an empty list leaves the configuration hash as
 it was.
 
+### Single reviewed values in YAML files
+
+A gate policy can list single YAML values instead of whole files: values a person has reviewed
+as public synthetic fixtures, such as a CI service container's test password. They go in
+`"placeholder_credential_occurrences"` under `model_review`, at most 64. Each entry is
+`{"path": "<exact .yml or .yaml path>", "occurrence_sha256": "<64 lowercase hex>"}`.
+`finassist placeholder-occurrence --revision COMMIT --path FILE --line N` prints the entry for the
+one credential-named value on that line of the committed file. It prints the path, the commit, the
+line and the entry, never the value or any key. A file the commit's ignore rules exclude is refused
+before it is read.
+
+The digest binds the value's parsed place (the mapping keys and sequence indexes from the
+document root), the exact text of its line, its key and the value, its quoting and its type. An
+entry applies to a gate run only when that occurrence is present exactly once in the file at
+base, at the merge base and at head. Then the credential label rules let that one value through,
+in those exact versions of the file. An edit, a move, a copy, a renamed or requoted key, or the
+value present on only one side lapses the entry, and the value is refused as before. Known
+formats, account numbers, URL passwords, `extra_sensitive_patterns` and hidden characters still
+apply. Enrolled values must be safe to disclose: a model may repeat a bare value in its report.
+Existing output screening still applies; an occurrence entry does not authorize
+credential-labelled literal quotes. No listed file is read before the gate's own checks on names,
+file count and rule files have passed.
+
+Only a subset of YAML is read: block mappings and sequences, with a plain or quoted value on the
+same line as its key. A key is read by its YAML type, so `true:` and `"true":` are different
+places. Only text, boolean and null keys are read: a numeric, date or merge key, or two keys YAML
+reads as the same key (`true` and `yes`), puts the file outside the subset. So does an anchor,
+alias, explicit tag or directive, a complex key, or more than one document, and nothing in such a
+file is let through. Neither is a value in a flow collection or a block or multi-line scalar. A
+listed file that the repository's ignore rules exclude, at base or merge base, is never read.
+Reading needs PyYAML 6.0.3, from the `yaml` extra (`pip install "finledgerpoli[yaml]"`). Without
+it, or with another version, no entry applies. `doctor` shows each entry's state on its
+path's row, `live` or `lapsed` with each revision's state or a reason, and
+`placeholder_occurrence_lapsed` beside a refusal. It never shows a value. Only the gate run and
+its preflight use these entries; history suites screen without them.
+
+A value let through is ordinary reviewed source: it is sent to the configured provider. A digest
+is not confidentiality, and a short value is guessable from it. List only values you would commit
+and send in plain text.
+
 ## Confidential figures
 
 `plan`, `review`, `propose` and `doctor` refuse a range that holds a listed confidential figure
@@ -398,12 +445,35 @@ when the configuration names a list:
   worktrees, with one figure per line.
 - **`forbidden_token_hashes`:** up to 1,024 SHA256 hashes of canonical figures. A hash of a
   short number can be guessed, so keep the hashes private too.
-- **`forbidden_token_sources`:** up to 16 delimited files, such as custody exports, whose
-  numeric cells are all listed. Each is an absolute path, or one starting with `~`, outside the
-  repository.
+- **`forbidden_token_sources`:** experimental, and off unless you opt in. It lists the figures in up
+  to 16 delimited files, such as custody exports, but its reader can miss amounts written in shapes
+  it does not read, so it is not a complete screen: list the figures you must never send in
+  `forbidden_token_file` or `forbidden_token_hashes` too. Sources listed without
+  `"forbidden_token_sources_experimental": true` are refused with
+  `forbidden_token_sources_experimental`, never ignored. Opted in, give each source as an object that
+  declares its layout, such as `{"path": "~/exports/positions.csv", "delimiter": ";", "decimal_mark": ","}`;
+  a bare path is refused with `forbidden_token_source_layout_required`, and `doctor` warns while the
+  reader is on. Each path is absolute or `~`, outside the repository. The delimiter is `,`, `;`, a
+  tab, `|`, or `null` for one column, each line a cell; the decimal mark is `.` or `,`; and a comma
+  can't be both. Name each file once. The file is read that way only, and refused if that cuts a cell
+  or meets a number the mark does not read. A cell with fewer significant digits than
+  `forbidden_token_min_digits`, such as a round 250,000.00, is not listed. An
+  amount may carry a sign, brackets, a currency sign or code, a credit or debit mark (`CR`, `DR`,
+  `S`, `H`), an asterisk or a footnote reference such as `1)`; a byte-order mark is ignored. A number
+  with a decimal comma and no digit before it, such as `,57891`, is not recognized in a payload, so
+  a source holding one is refused with `forbidden_token_source_unscreenable`: write `0,57891`.
+  Figures in a text cell, as on a `Total USD 87654.32` line, are listed, and so is each amount the
+  cells of an unquoted comma file may hold: `A,12,345,678.90` lists 12345678.90 and 345678.90. A row
+  with more cells than its header holds the delimiter unquoted, so the file is refused: quote such
+  cells.
 - **`forbidden_token_match`:** `value` (the default) refuses the same value in any notation.
   `digits` also refuses the same significant digits at any scale and a two-place rounding, for
   figures of at least `forbidden_token_min_digits` significant digits (5 unless set).
+  Use `digits` when replacing a guard that matches digit strings; `value` compares numeric values
+  and does not provide equivalent coverage.
+- **`forbidden_token_round_figures`:** `skip` (the default) or `list`, with sources only. `list`
+  also lists their round figures, such as 347,300.00: at least `forbidden_token_min_digits`
+  digits before the point and 4 significant digits, matched by exact value.
 
 With neither set, which is the default, no figure screen runs, and `doctor --base --head` says
 so under `figure_screen`, with the match rule and the number of figures and digit forms listed.
@@ -534,6 +604,7 @@ editor. The CLI reads the installed packaged schema and never fetches an ID.
 | `packet` | Version-1 or version-2 source packet |
 | `gate-report` | Current version-2 model gate report |
 | `gate-report-v1` | Legacy version-1 model gate report |
+| `gate-report-not-applicable` | The model gate's not-applicable report, for a range with nothing in scope under the policy's opt-in |
 | `review-report` | Saved offline or model review report, retaining its existing unversioned envelope |
 | `review-response` | Raw provider response nested inside a model review report |
 | `evaluation-suite` | Synthetic evaluation input |

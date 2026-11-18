@@ -36,6 +36,11 @@ def _detect_proposal(args, configured):
     try:
         proposal = detect(repo, revision=args.revision or "HEAD", purpose=args.purpose, profile=stated)
     except AssistantError as exc:
+        if exc.code == "not_a_git_repository":
+            if not repo.is_dir():
+                raise  # A folder that does not exist keeps the code whose hint says to check the path.
+            # Git said so itself; init keeps its own code, whose hint offers init --template.
+            raise AssistantError("init_repository_required") from None
         if exc.code == "git_read_failed":
             # Name only the known non-repository case. Keep missing tools, corrupt
             # config, permission failures and other Git reads as their own errors.
@@ -67,10 +72,15 @@ def _detect_proposal(args, configured):
         return _empty_proposal(args, configured, head=None)
     detected = proposal["config"]
     packet = max(configured.max_packet_bytes, detected["max_packet_bytes"])
+    # Detection proposes text_suffixes only when the source needs more than the defaults. The person's own
+    # entries are kept: the proposal adds the source's suffixes and never removes one.
+    suffixes = detected.get("text_suffixes")
+    extra = {"text_suffixes": tuple(sorted(set(configured.text_suffixes) | set(suffixes)))} if suffixes else {}
     proposed = replace(configured, allow_paths=tuple(detected["allow_paths"]),
                        generated_paths=tuple(detected["generated_paths"]),
                        protected_paths=tuple(detected["protected_paths"]),
-                       max_file_bytes=detected["max_file_bytes"], max_packet_bytes=packet, profile=detected["profile"])
+                       max_file_bytes=detected["max_file_bytes"], max_packet_bytes=packet, profile=detected["profile"],
+                       **extra)
     budgets = budgets_for_the_packet_limit(proposed)
     proposed = replace(proposed, **budgets)
     proposed.validate()
@@ -79,7 +89,7 @@ def _detect_proposal(args, configured):
     document = config_document(proposed)
     proposal["config"] = {key: document[key] for key in (
         "provider", "model", "profile", "allow_paths", "generated_paths", "protected_paths", "max_file_bytes",
-        "max_packet_bytes", "input_usd_per_million", "output_usd_per_million", *budgets)}
+        "max_packet_bytes", "input_usd_per_million", "output_usd_per_million", *budgets, *extra)}
     for name, value in budgets.items():
         proposal["evidence"].setdefault(name, []).append(
             {"value": value, "rule": "one_packet_at_the_limit", "document": "config"})

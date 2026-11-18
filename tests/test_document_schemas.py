@@ -133,6 +133,8 @@ def test_review_schema_export_preserves_runtime_envelope(repository):
 def test_gate_report_exports_current_and_legacy_contracts(version):
     report = refused_model_report("synthetic_refusal")
     report["schema_version"] = version
+    if version == 1:
+        report.pop("outcome_class")  # A v1 report predates the class.
     report["report_hash"] = digest(canonical({k: v for k, v in report.items() if k != "report_hash"}))
     kind = "gate-report-v1" if version == 1 else "gate-report"
     Draft202012Validator(document_schema(kind)).validate(report)

@@ -18,15 +18,17 @@ import sys
 import threading
 import unicodedata
 
-from .code_text import (MIN_SECRET_LENGTH, code_text, in_block_scalar, is_expansion, is_shell, is_yaml,
-                        looks_like_nested_key, yaml_block_scalars)
+from .code_text import (MIN_SECRET_LENGTH, code_text, in_block_scalar, is_expansion, is_placeholder, is_shell,
+                        is_yaml, looks_like_nested_key, yaml_block_scalars)
 from .errors import AssistantError
 from .hidden_text import Waiting, check_hidden, check_hidden_document, hidden
+from .occurrence_identity import active_allowance, allowance_in_effect
 from .platform_support import canonical_system_path
 from .path_alias_data import ASCII_CONFUSABLES, DEFAULT_IGNORABLE_RANGES
 from .python_annotations import credential_screening_view
 from .python_source import is_python_path, python_screen
 from .reply_quotes import ends_there, read_reply
+from .signed_token import SIGNED_TOKEN
 
 DENIED_PARTS = {
     ".finassist",
@@ -143,18 +145,24 @@ FORMAT_PATTERNS = (
     re.compile(r"\bSG\.[0-9A-Za-z_-]{22}\.[0-9A-Za-z_-]{43}(?![0-9A-Za-z_-])"),
     # A connection string's field names are read in any letter case. The key itself is not changed.
     re.compile(r"(?i:AccountKey)=[0-9A-Za-z/+]{80,}={0,2}"),
+    SIGNED_TOKEN,  # decoded, not guessed from its first characters: see signed_token.py
 )
 # Label rules for text. In parseable Python, code is checked by the AST instead
 # and these rules read only comment and string text.
 LABEL_PATTERNS = (
     re.compile(
-        r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:api[_-]?key|password|secret|access[_-]?token|gh[_-]?token|github[_-](?:enterprise[_-])?token)\b[\"']?\s*(?P<sep>[=:])\s*"
-        r"(?P<value>[\"'][^\"'\n]{12,}[\"']|[A-Za-z0-9][A-Za-z0-9_./+=:@-]{11,})"
+        r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:api[_-]?key|password|secret|(?:access|api|auth|refresh|session|bearer)[_-]?token|gh[_-]?token|github[_-](?:enterprise[_-])?token)\b[\"']?\s*(?P<sep>[=:])\s*"
+        r"(?P<value>[\"'][^\"'\n]{12,}[\"']|[A-Za-z0-9][A-Za-z0-9_./+=:@!#$%&*?~^-]{11,})"
     ),
     CREDENTIAL_KEY_PATTERN,
     re.compile(
         r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:account[_ -]?(?:number|id)|routing[_ -]?number)[\"']?\s*[=:]\s*[\"']?\d{6,}"
     ),
+    # The password field of a URL. A complete template, such as ${NAME}, $NAME, %(name)s, {name}, {{ name }}
+    # or <name>, is left alone; any other value is read as written, dollar signs and percent escapes included.
+    re.compile(r"\b[A-Za-z][0-9A-Za-z+.-]{1,15}://[^\s:/@'\"<>]{1,64}:"
+               r"(?!(?:\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*|%\([A-Za-z_][A-Za-z0-9_]*\)s"
+               r"|\{\{?\s*[A-Za-z_][A-Za-z0-9_.]*\s*\}\}?|<[^<>@\s]{1,64}>)@)[^\s/@'\"<>]{12,}@"),
 )
 SECRET_PATTERNS = (*FORMAT_PATTERNS, *LABEL_PATTERNS)
 # The name a refusal gives its rule in local output. Patterns for one kind of thing share a name.
@@ -162,8 +170,11 @@ _RULES = dict(zip(SECRET_PATTERNS, (
     "private_key_block", "github_token", "github_token", "aws_access_key_id", "sk_prefixed_key",
     "nine_digit_identifier", "private_key_block", "stripe_live_key", "slack_token", "slack_token",
     "google_api_key", "npm_token", "pypi_token", "gitlab_token", "sendgrid_key", "azure_storage_key",
-    "credential_label", "credential_label", "account_label"), strict=True))
+        "signed_web_token",
+    "credential_label", "credential_label", "account_label", "url_password"), strict=True))
 _REFERENCE_PATTERNS = tuple(pattern for pattern in LABEL_PATTERNS if "value" in pattern.groupindex)
+# A login written into text: under a path listed as holding placeholder credentials none of these is applied.
+_LOGIN_PATTERNS = (*_REFERENCE_PATTERNS, LABEL_PATTERNS[-1])
 MAX_PLACEHOLDER_PATHS = 64  # entries a configuration may list as holding placeholder credentials
 PLACEHOLDER_PATTERN = re.compile(r"[A-Za-z0-9_./*-]{1,512}")  # what such an entry may hold when it has a star
 PLACEHOLDER_STARS = re.compile(r"\*+")
@@ -365,11 +376,12 @@ def _check_model_private(path: str) -> None:
         raise AssistantError("gate_private_path")
 
 
-def check_model_path(path: str, *, fixture_roots: tuple[str, ...] = (), source_only: bool = True) -> str:
+def check_model_path(path: str, *, fixture_roots: tuple[str, ...] = (), source_only: bool = True,
+                     text_suffixes=None) -> str:
     """Mandatory model context path screening, including policy-owned profiles."""
     if is_text_fixture(path, fixture_roots):
         check_fixture_private(path)
-    check_path(path, fixture_roots=fixture_roots, source_only=source_only)
+    check_path(path, fixture_roots=fixture_roots, source_only=source_only, text_suffixes=text_suffixes)
     _check_model_private(path)
     return path
 
@@ -516,7 +528,7 @@ def check_credentials(text: str, *, extra_patterns: tuple[str, ...] = (), source
         return
     cache = scope.outcomes
     key = (hashlib.sha256(text.encode("utf-8", "surrogatepass")).digest(), tuple(extra_patterns), source_path,
-           tuple(placeholders))
+           tuple(placeholders), getattr(active_allowance(), "key", None))
     remembered = cache.get(key, _UNSEEN)
     if remembered is not _UNSEEN:
         if remembered is not None:
@@ -550,7 +562,14 @@ def _screen_credentials(text: str, extra_patterns: tuple[str, ...], source_path:
             return
     # Python that does not tokenize and parse is text, and so is every language code_text does not read.
     syntax = _FileSyntax(text, source_path) if source_path is not None else None
-    _screen_text(text, credential_screening_view(text, source_path), extra_patterns, syntax, credential_labels=labels)
+    try:
+        _screen_text(text, credential_screening_view(text, source_path), extra_patterns, syntax,
+                     credential_labels=labels)
+    except AssistantError as exc:
+        allowance = active_allowance()
+        if exc.code == "sensitive_content" and allowance is not None and allowance.explain(source_path):
+            exc.local_details["placeholder_occurrences"] = allowance.explain(source_path)  # no values
+        raise
 
 
 def check_texts(texts, *, extra_patterns: tuple[str, ...] = ()) -> None:
@@ -726,12 +745,22 @@ class _FileSyntax:
     def __init__(self, text: str, path: str | None):
         self._text, self._path, self._code = text, path, self._UNREAD
         self._scalars = None  # the block scalars of a YAML file, read when first needed
+        self._allowed = None  # reviewed placeholder occurrences in this exact text, read when first needed
 
     def excuses(self, match: re.Match) -> bool:
         """True when the matched value names a value kept elsewhere instead of holding one."""
+        allowance = active_allowance()
+        if allowance is not None and match.string == self._text:
+            if self._allowed is None:
+                self._allowed = allowance.permitted_spans(self._path, self._text)
+            if allowance.permits(self._allowed, match):
+                return True  # a reviewed placeholder at this exact place: see occurrence_identity
         value = match.group("value")
         if value[0] in "\"'":
-            return is_expansion(value[1:-1], in_shell=value[0] == '"' and is_shell(self._path))
+            return (is_placeholder(value[1:-1])
+                    or is_expansion(value[1:-1], in_shell=value[0] == '"' and is_shell(self._path)))
+        if is_placeholder(value):
+            return True
         if value[0].isdigit():
             return False  # A number is a literal in every language.
         if is_yaml(self._path):
@@ -768,10 +797,16 @@ def _reference_quotes(text: str, path: str, *, every: bool = False) -> dict[str,
     value.
     """
     quotes: dict[str, set[str]] = {}
+    allowance = active_allowance()
+    admitted = allowance.permitted_spans(path, text) if allowance is not None and not every else {}
     for pattern in _REFERENCE_PATTERNS:
         for match in pattern.finditer(text):
             value = match.group("value")
-            if (every or value[0] not in "\"'"
+            if admitted and allowance.permits(admitted, match):
+                with allowance_in_effect(None):  # a literal an entry admitted is a reference only on its own
+                    if not _FileSyntax(text, path).excuses(match):
+                        continue
+            if (every or value[0] not in "\"'" or is_placeholder(value[1:-1])
                     or is_expansion(value[1:-1], in_shell=value[0] == '"' and is_shell(path))):
                 line_end = text.find("\n", match.end())
                 rest = text[match.end():len(text) if line_end < 0 else line_end].rstrip()
@@ -840,7 +875,8 @@ def _sensitive(rule: str, lines: list[int] | None = None) -> AssistantError:
 
 def refusal_location(error: AssistantError) -> dict:
     """The rule, the lines and the version of a content refusal, for a report that stays on this machine."""
-    return {key: error.local_details[key] for key in ("rule", "version", "lines", "more_lines")
+    return {key: error.local_details[key] for key in ("rule", "version", "lines", "more_lines",
+                                                      "placeholder_occurrences")
             if key in error.local_details}
 
 
@@ -850,7 +886,7 @@ def _screen_text(text: str, credential_text: str, extra_patterns: tuple[str, ...
 
     Known formats read `text`. The label rules read `label_text` when the caller gives one, and
     the key rule reads only `credential_text`, where annotations are blanked. With
-    `credential_labels` off, the two credential label rules are not applied.
+    `credential_labels` off, the two credential label rules and the URL password are not applied.
     """
     if "\0" in text:
         raise AssistantError("binary_input")
@@ -860,7 +896,7 @@ def _screen_text(text: str, credential_text: str, extra_patterns: tuple[str, ...
         return dict.fromkeys(candidates)  # the same text is read once
 
     for pattern in SECRET_PATTERNS:
-        if not credential_labels and pattern in _REFERENCE_PATTERNS:
+        if not credential_labels and pattern in _LOGIN_PATTERNS:
             continue
         if pattern is CREDENTIAL_KEY_PATTERN:
             searched = views(credential_text)
@@ -885,7 +921,7 @@ def _screen_python(text: str, screen, extra_patterns: tuple[str, ...], credentia
             raise _sensitive(_RULES[pattern], lines)
     hits = [(line, "account_label" if kind == "account" else "credential_label") for line, kind in screen.credential_hits
             if credential_labels or kind == "account"]
-    rules = LABEL_PATTERNS if credential_labels else tuple(p for p in LABEL_PATTERNS if p not in _REFERENCE_PATTERNS)
+    rules = LABEL_PATTERNS if credential_labels else tuple(p for p in LABEL_PATTERNS if p not in _LOGIN_PATTERNS)
     for segment, first_line in zip(screen.text_segments, screen.segment_lines, strict=True):
         if len(hits) > _NAMED_LINES:
             break

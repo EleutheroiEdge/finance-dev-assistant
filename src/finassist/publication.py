@@ -13,6 +13,10 @@ import zlib
 from .errors import AssistantError
 from .security import digest, regular_path
 
+# What scan says its result is, and is not.
+SCAN_QUALIFICATION = "Supplementary scan; inspect staged bytes and full history before publication."
+
+
 
 def public_images(repo: Path, tracked: set[str]) -> dict:
     name = "docs/images/manifest.json"
