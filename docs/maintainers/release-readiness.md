@@ -49,21 +49,24 @@ Its publication was cancelled, so 0.11.0 never reached PyPI; its fix first ships
 
 Each row says where its number comes from. A8, A9 and A10 were measured again on the 0.12.0 tree, offline, on
 synthetic data generated at run time. The gates that are tests (A1, A4, A5, B5 and B8) and E2 pass on that tree.
-The rows that need the reference repositories (A2, A3, A11, B1 to B4, B3a, B6 and B9) were not measured again:
-they give the earlier measurement and read "Not re-measured" until they are. Before the tag, every row is to be
-measured on the candidate wheel the release workflow builds (gate C1); this section then names that commit and the
-wheel's SHA-256.
+The rows that need the reference repositories (A2, A3, A11, B1 to B3, B3a, B6 and B9) were measured again on
+18 November, offline, with no model call, on a wheel built locally from the 0.12.0 tree (SHA-256
+`50c4ca05e40c594f3bcfdf20f6eb5dc04d087140db31916ef3a8a77786bb25b8`) and installed by hash into a fresh environment,
+on the same pinned reference set (`471b2dfe27d4dc2a`, 9 of 9 repositories, 25 changes each, none incomplete). That
+wheel is not the one the release workflow builds. B4 was not measured again: its lines were not read, so it gives the
+earlier measurement and reads "Not re-measured". Before the tag, every row is to be measured on the candidate wheel
+the release workflow builds (gate C1); this section then names that commit and the wheel's SHA-256.
 
-The earlier measurement was made on a snapshot of main at `478e70b` (12 November), offline, with no model call, on
-the reference set of 225 changes at pinned commits with the fingerprint `471b2dfe27d4dc2a` (see Commands), unless a
-row names another tree. Every count in it was the same as on `b282da3`, the tree of the measurement before. The
-figures that did not move since the first measurement at `5c1af62` are marked so.
+The earlier measurement, which B4 still gives and the other rows compare with, was made on a snapshot of main at
+`478e70b` (12 November), offline, with no model call, on the reference set of 225 changes at pinned commits with the
+fingerprint `471b2dfe27d4dc2a` (see Commands), unless a row names another tree. Every count in it was the same as on
+`b282da3`, the tree of the measurement before.
 
 | Gate | Result | Met |
 |---|---|---|
 | A1 | The matrix test passes: no miss and no false alarm | Yes |
-| A2 | 1,092 of 1,092 numbers that the reference changes add are refused when listed | Not re-measured (earlier: yes) |
-| A3 | 0 of 6,020 file versions refused with 1,000 control figures listed, and no collision. Measured at `5c1af62`; no change since touches the screen | Not re-measured (earlier: yes) |
+| A2 | 1,092 of 1,092 numbers that the reference changes add are refused when listed, as before | Yes |
+| A3 | 0 of 6,020 file versions refused with 1,000 control figures listed, and no collision, as before | Yes |
 | A4 | 0 escapes in 10,000 generated payloads against a baseline guard (`tests/test_figure_digits.py`) | Yes |
 | A5 | The route tests pass: every path to a provider runs the four screens | Yes |
 | A6 | A reply is screened on the review, gate and proposal routes, hidden characters last | Yes |
@@ -71,17 +74,17 @@ figures that did not move since the first measurement at `5c1af62` are marked so
 | A8 | Experimental feature, off unless opted in (see below). 0 files missing a figure, 0 unexpected refusals and 0 unscreenable files accepted, read every way and declared, on 480 synthetic exports at seed 20261114: the default corpus (`848464313da02461`), each round-amount and cut-cell run in Commands, and the `--hidden-marks` and `--edge-spellings` profiles. Measured on the 0.12.0 tree | Yes |
 | A9 | Recall 1.000 and 0.998 (95% intervals from 0.997 and 0.994), precision 1.000 at both seeds, on 1,140 synthetic credentials and 340 look-alikes. Measured on the 0.12.0 tree | Yes |
 | A10 | 23 of 23 payloads refused, 0 of 16 ordinary texts refused. Measured on the 0.12.0 tree | Yes |
-| A11 | Earlier measurement: 450 of 450 checks byte-identical: `doctor` on each of the 225 reference changes, under both documented setups, gave the same exit status and the same output and error output bytes in all 5 runs, on a development tree before figure sources became opt-in, on the same pinned changes (`471b2dfe27d4dc2a`), 9 of 9 repositories, none incomplete. Not measured on the 0.12.0 tree | Not re-measured |
-| B1 | 9 of 9 drafted policies are accepted by the gate | Not re-measured (earlier: yes) |
-| B2 | 180 of 225 (80%). The threshold is 180 | Not re-measured (earlier: yes, with none to spare) |
-| B3 | 185 of 225 (82%). As drafted, 140, up from 137: `doctor` no longer blocks a file under `generated_paths` | Not re-measured (earlier: yes) |
-| B3a | With test paths listed: gate route 195 (87%), configuration route 202 (90%) | Not re-measured (earlier: reported) |
-| B4 | All 45 distinct lines refused for a credential hold a literal value under a credential label, 40 of them in test files. None is a call, a member expression or an environment lookup | Not re-measured (earlier: yes) |
+| A11 | 450 of 450 checks byte-identical: `doctor` on each of the 225 reference changes, under both documented setups, gave the same exit status and the same output and error output bytes in all 5 runs, as before | Yes |
+| B1 | 9 of 9 drafted policies are accepted by the gate: no change on the gate route as drafted is refused for its policy | Yes |
+| B2 | 185 of 225 (82%), up from 180. The threshold is 180 | Yes, with 5 to spare |
+| B3 | 188 of 225 (84%), up from 185. As drafted, 154, up from 140 | Yes |
+| B3a | With test paths listed: gate route 201 (89%), configuration route 206 (92%), up from 195 and 202 | Reported |
+| B4 | Earlier measurement: all 45 distinct lines refused for a credential hold a literal value under a credential label, 40 of them in test files. None is a call, a member expression or an environment lookup. The lines were not read again on the 0.12.0 wheel | Not re-measured (earlier: yes) |
 | B5 | The labelled set passes | Yes |
-| B6 | Earlier measurement: `doctor` median 0.36 s, 95th percentile 2.39 s, slowest 7.07 s over 1,800 runs, with nothing else running on the host, on a development tree before figure sources became opt-in, on the same pinned changes; on main at `478e70b` the slowest run was 14.52 s (see below). The dense-number test passes on the 0.12.0 tree; the `doctor` timings were not measured on it | Not re-measured |
+| B6 | `doctor` median 0.36 s, 95th percentile 2.44 s, slowest 7.03 s over 1,800 runs, at a load average of 0.1 when the run began and 0.7 when it ended, not sampled in between. Earlier, with nothing else running on the host, on a development tree before figure sources became opt-in: 0.36 s, 2.39 s and 7.07 s, so the 95th percentile is up by 0.05 s; on main at `478e70b` the slowest run was 14.52 s (see below). The dense-number test passes on the 0.12.0 tree | Yes |
 | B7 | The configuration tests pass on the 0.12.0 tree, and the installed upgrade from 0.3.1 and 0.4.0 passed on the 0.11.0 candidate wheel in its release build. `scripts/upgrade_smoke.py` also covers 0.9.0 and 0.10.0, the published versions in use, and passed on wheels of main and of a development tree; it is still to run on the 0.12.0 candidate's wheel | Partly |
 | B8 | 15 of 15 wrong setups, seven on the configuration route and eight on the gate route, give one named blocker; every remedy offered clears it; the first options reach `ready` | Yes |
-| B9 | Following the remedies sets up 189 changes on the configuration route (84%) and 185 on the gate route (82%). No remedy fails, loops or is unexplained, every change a hand-set skip variant reviews is reached, and none grants a capability. The 36 and 40 left need a person: mostly a credential-like value in a test file (32 and 28) | Not re-measured (earlier: yes) |
+| B9 | Following the remedies sets up 189 changes on the configuration route (84%), as before, and 186 on the gate route (83%), up from 185. No remedy fails, loops or is unexplained, every change a hand-set skip variant reviews is reached, and none grants a capability. The 36 and 39 left need a person: mostly a credential-like value (32 and 28) | Yes |
 | C1 | Partly, for 0.11.0. On the workflow's wheel: its 147 package files equal the tagged tree, the screen, first-run and credential measurements (A2, B2, B3, B4, B6) repeated main's, and the upgrade check (B7) passed in the build. A7, D1 to D6, E1 and E3 were not run on it: 0.11.0 is a security release tagged and built ahead of those gates (see "What 0.11.0 is"). The full gate applies to every later candidate. For 0.12.0: not run yet | Partly |
 | D1 to D6 | Not measured. 133 labelled cases (64 defects, 69 controls) are bound to pinned policies and pass the live run's preflight offline; the live run has not been started, and D1 needs 36 more defects | No |
 | E1 | The release workflow attests every file. The README does not give the verifying command yet | No |
@@ -90,7 +93,7 @@ figures that did not move since the first measurement at `5c1af62` are marked so
 
 B6 is wall-clock time and moves with the machine's load. The slowest run fell from 14.52 s on main at `478e70b`
 to 7.82 s on a development tree before this release, which screens each text once per command (#149) among
-later changes. On main, the
+later changes, and was 7.03 s on the 0.12.0 wheel at a light load. On main, the
 slowest run was one change of one repository, about
 14 s on `b282da3` and on main alike; alternating the two trees on that repository gave 13.8 s at a load of about 2,
 and up to 15.4 s at a load of 3 to 5, over the bar. So load alone can decide B6. A profile of that run shows where
@@ -100,12 +103,12 @@ Screening each text once per command took that run from 13.5 and 13.9 s to 10.2 
 a sixth to a quarter, with every status and blocker count the same (work item 1).
 The bar should be read on a quiet machine.
 
-What the gate route still blocks, by number of changes: credential content 28, a change to an ignore file 7, a
-request over the size limit 5, the run budget 3, the packet limit 1, a hidden character 1, the file count 1, a
-range of private files only 1, and nothing to review 1. Some changes have more than one.
+What the gate route (B2) still blocks on the 0.12.0 wheel, by number of changes: credential content 28, a change
+to an ignore file 6, a request over the size limit 1, the packet limit 1, a hidden character 1, the file count 1, a
+range of private files only 1, and nothing to review 1. No change has more than one.
 
-**B2 has nothing to spare.** One reference change fewer would miss it. What it still refuses for credential
-content is a literal under a credential label, and 40 of those 45 lines are in test files.
+**B2 has five to spare.** Six reference changes fewer would miss it. What it refused for credential content at
+the earlier measurement was a literal under a credential label, and 40 of those 45 lines were in test files (B4).
 `placeholder_credential_paths` is the setting for test files that hold only made-up logins; its numbers (B3a)
 are reported beside B2 and B3 and do not count towards them.
 
@@ -229,7 +232,8 @@ Landed since 0.10.0, each with the gates it serves:
 Left, in this order:
 
 1. **B6 headroom:** done. Each text is screened once per command (#149), and on a development tree before this
-   release the slowest run was 7.82 s, about half the bar, on a loaded host. It is to be measured again on 0.12.0.
+   release the slowest run was 7.82 s, about half the bar, on a loaded host, and on the 0.12.0 wheel 7.03 s at a
+   light load. It is to be measured again on the candidate wheel (C1).
 2. **State** (#120): `state clean` (removing only what is certainly safe), then `state archive` for the audit chain.
 3. **Accuracy programme:** gates D1 to D6 and A7.
    - **Done, offline:** for A7, 60 synthetic attack pairs with controls and an offline scorer (#145); 133 labelled cases from six of the maintainers' repositories are bound to pinned
