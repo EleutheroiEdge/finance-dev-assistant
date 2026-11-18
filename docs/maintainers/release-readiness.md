@@ -51,7 +51,7 @@ Each row says where its number comes from. A8, A9 and A10 were measured again on
 synthetic data generated at run time. The gates that are tests (A1, A4, A5, B5 and B8) and E2 pass on that tree.
 The rows that need the reference repositories (A2, A3, A11, B1 to B3, B3a, B6 and B9) were measured again on
 18 November, offline, with no model call, on a wheel built locally from the 0.12.0 tree (SHA-256
-`50c4ca05e40c594f3bcfdf20f6eb5dc04d087140db31916ef3a8a77786bb25b8`) and installed by hash into a fresh environment,
+`45869ddff0284e73347bb6d7f30a9572af3f930fe602090af3cb043206d5ac92`) and installed by hash into a fresh environment,
 on the same pinned reference set (`471b2dfe27d4dc2a`, 9 of 9 repositories, 25 changes each, none incomplete). That
 wheel is not the one the release workflow builds. B4 was not measured again: its lines were not read, so it gives the
 earlier measurement and reads "Not re-measured". Before the tag, every row is to be measured on the candidate wheel
@@ -81,7 +81,7 @@ fingerprint `471b2dfe27d4dc2a` (see Commands), unless a row names another tree. 
 | B3a | With test paths listed: gate route 201 (89%), configuration route 206 (92%), up from 195 and 202 | Reported |
 | B4 | Earlier measurement: all 45 distinct lines refused for a credential hold a literal value under a credential label, 40 of them in test files. None is a call, a member expression or an environment lookup. The lines were not read again on the 0.12.0 wheel | Not re-measured (earlier: yes) |
 | B5 | The labelled set passes | Yes |
-| B6 | `doctor` median 0.36 s, 95th percentile 2.44 s, slowest 7.03 s over 1,800 runs, at a load average of 0.1 when the run began and 0.7 when it ended, not sampled in between. Earlier, with nothing else running on the host, on a development tree before figure sources became opt-in: 0.36 s, 2.39 s and 7.07 s, so the 95th percentile is up by 0.05 s; on main at `478e70b` the slowest run was 14.52 s (see below). The dense-number test passes on the 0.12.0 tree | Yes |
+| B6 | `doctor` median 0.36 s, 95th percentile 2.45 s, slowest 7.16 s over 1,800 runs, at a load average of 0.2 when the run began and 0.9 when it ended, not sampled in between. Earlier, with nothing else running on the host, on a development tree before figure sources became opt-in: 0.36 s, 2.39 s and 7.07 s, so the 95th percentile is up by 0.06 s and the slowest run by 0.09 s; on main at `478e70b` the slowest run was 14.52 s (see below). The dense-number test passes on the 0.12.0 tree | Yes |
 | B7 | The configuration tests pass on the 0.12.0 tree, and the installed upgrade from 0.3.1 and 0.4.0 passed on the 0.11.0 candidate wheel in its release build. `scripts/upgrade_smoke.py` also covers 0.9.0 and 0.10.0, the published versions in use, and passed on wheels of main and of a development tree; it is still to run on the 0.12.0 candidate's wheel | Partly |
 | B8 | 15 of 15 wrong setups, seven on the configuration route and eight on the gate route, give one named blocker; every remedy offered clears it; the first options reach `ready` | Yes |
 | B9 | Following the remedies sets up 189 changes on the configuration route (84%), as before, and 186 on the gate route (83%), up from 185. No remedy fails, loops or is unexplained, every change a hand-set skip variant reviews is reached, and none grants a capability. The 36 and 39 left need a person: mostly a credential-like value (32 and 28) | Yes |
@@ -93,7 +93,7 @@ fingerprint `471b2dfe27d4dc2a` (see Commands), unless a row names another tree. 
 
 B6 is wall-clock time and moves with the machine's load. The slowest run fell from 14.52 s on main at `478e70b`
 to 7.82 s on a development tree before this release, which screens each text once per command (#149) among
-later changes, and was 7.03 s on the 0.12.0 wheel at a light load. On main, the
+later changes, and was 7.16 s on the 0.12.0 wheel at a light load. On main, the
 slowest run was one change of one repository, about
 14 s on `b282da3` and on main alike; alternating the two trees on that repository gave 13.8 s at a load of about 2,
 and up to 15.4 s at a load of 3 to 5, over the bar. So load alone can decide B6. A profile of that run shows where
@@ -232,7 +232,7 @@ Landed since 0.10.0, each with the gates it serves:
 Left, in this order:
 
 1. **B6 headroom:** done. Each text is screened once per command (#149), and on a development tree before this
-   release the slowest run was 7.82 s, about half the bar, on a loaded host, and on the 0.12.0 wheel 7.03 s at a
+   release the slowest run was 7.82 s, about half the bar, on a loaded host, and on the 0.12.0 wheel 7.16 s at a
    light load. It is to be measured again on the candidate wheel (C1).
 2. **State** (#120): `state clean` (removing only what is certainly safe), then `state archive` for the audit chain.
 3. **Accuracy programme:** gates D1 to D6 and A7.
