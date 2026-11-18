@@ -3,6 +3,7 @@ bound to its exact place, and only while it is present exactly once at base, at 
 Synthetic Git, synthetic values and a fake provider only.
 """
 
+import base64
 import json
 
 import pytest
@@ -366,8 +367,15 @@ def test_enrolment_refuses_what_it_cannot_bind_exactly(gate_case, capsys, conten
     assert json.loads(capsys.readouterr().err)["code"] == code
 
 
-def test_enrolment_refuses_a_known_format(gate_case):  # noqa: F811
-    revision = _commit(gate_case["repo"], {PATH: SERVICE.replace(VALUE, _key_value())})
+def _signed_token() -> str:  # its match is zero-width, at the value's start
+    def part(raw: bytes) -> str:
+        return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    return part(b'{"alg":"HS256"}') + "." + part(b'{"sub":"synthetic"}') + "." + "s" * 43
+
+
+@pytest.mark.parametrize("value", [_key_value, _signed_token], ids=["key", "signed-token"])
+def test_enrolment_refuses_a_known_format(gate_case, value):  # noqa: F811
+    revision = _commit(gate_case["repo"], {PATH: SERVICE.replace(VALUE, value())})
     with pytest.raises(AssistantError, match="^placeholder_occurrence_known_format$"):
         enroll(gate_case["repo"], revision, PATH, LINE)
 
