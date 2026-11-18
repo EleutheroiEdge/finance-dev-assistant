@@ -116,6 +116,8 @@ def test_a_placeholder_affix_does_not_exempt_an_opaque_value(value, path, frame)
     "postgresql" + "://app:" + "Qm4vT8zR$2kW6nB9x" + "@db.internal/app",
     "postgresql" + "://app:" + "Qm4vT8zR%212kW6nB9x" + "@db.internal/app",
     "postgresql" + "://user%40example.invalid:" + VALUE + "@db.internal/app",
+    "redis" + "://:" + VALUE + "@cache.internal:6379/0",
+    "rediss" + "://:" + VALUE + "@cache.internal:6380/0",
 ])
 @pytest.mark.parametrize("path,frame", [
     ("src/app/settings.py", 'DATABASE_URL = "{url}"\n'),
@@ -133,6 +135,13 @@ def test_a_url_password_with_marks_or_escapes_is_refused(url, path, frame):
                                       "{{ db_password }}", "<database-password>"])
 def test_a_complete_template_password_is_left_alone(template):
     check_text("url: postgresql" + "://app:" + template + "@db.internal/app\n", source_path="config/db.yaml")
+    check_text("url: redis" + "://:" + template + "@cache.internal:6379/0\n", source_path="config/cache.yaml")
+
+
+@pytest.mark.parametrize("text", ["http" + "://:8080/path@other", "http" + "://host:8080/path@other",
+                                  "ssh" + "://:22/repository@main", "file" + "://:memory:"])
+def test_a_port_or_path_after_an_empty_user_name_is_no_password(text):
+    check_text("We connected with " + text + " once.\n", source_path="docs/notes.md")
 
 
 # A signed web token is found by its structure, however its JSON is spaced or however short it is.

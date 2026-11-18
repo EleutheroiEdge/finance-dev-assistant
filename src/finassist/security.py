@@ -159,9 +159,9 @@ LABEL_PATTERNS = (
     re.compile(
         r"(?i)(?<![A-Za-z0-9_-])[A-Za-z0-9_-]*(?:account[_ -]?(?:number|id)|routing[_ -]?number)[\"']?\s*[=:]\s*[\"']?\d{6,}"
     ),
-    # The password field of a URL. A complete template, such as ${NAME}, $NAME, %(name)s, {name}, {{ name }}
+    # The password field of a URL, its user name perhaps empty. A complete template, such as ${NAME}, $NAME, %(name)s, {name}, {{ name }}
     # or <name>, is left alone; any other value is read as written, dollar signs and percent escapes included.
-    re.compile(r"\b[A-Za-z][0-9A-Za-z+.-]{1,15}://[^\s:/@'\"<>]{1,64}:"
+    re.compile(r"\b[A-Za-z][0-9A-Za-z+.-]{1,15}://[^\s:/@'\"<>]{0,64}:"
                r"(?!(?:\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*|%\([A-Za-z_][A-Za-z0-9_]*\)s"
                r"|\{\{?\s*[A-Za-z_][A-Za-z0-9_.]*\s*\}\}?|<[^<>@\s]{1,64}>)@)[^\s/@'\"<>]{12,}@"),
 )
