@@ -151,6 +151,7 @@ def _valid(case) -> dict:
     lambda r: r.update(coverage_complete=True),
     lambda r: r.update(merge_authority=True),
     lambda r: r.update(schema_version=2),
+    lambda r: r.pop("outcome_class"),
 ])
 def test_a_changed_report_is_refused(gate_case, tamper):  # noqa: F811
     report = deepcopy(_valid(gate_case))

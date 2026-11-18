@@ -85,6 +85,7 @@
     "schema_version",
     "mode",
     "verdict",
+    "outcome_class",
     "reasons",
     "base",
     "head",
