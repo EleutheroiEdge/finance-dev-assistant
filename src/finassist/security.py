@@ -8,6 +8,7 @@ from copy import deepcopy
 from fnmatch import fnmatchcase
 from functools import lru_cache
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -482,13 +483,16 @@ def check_name(name: str, *, extra_patterns: tuple[str, ...] = ()) -> None:
 # copied inside it, by a thread or a task, may outlive the command, but from then on neither reads nor fills it.
 class _ScreeningScope:
     """The outcomes remembered within one command, and whether that command is still running. A lock serializes
-    an insertion with the close, so a screen that finishes as the command ends cannot leave an entry behind."""
+    an insertion with the close, so a screen that finishes as the command ends cannot leave an entry behind.
+    A text is remembered by a digest keyed with bytes drawn for this command alone, so a remembered digest says
+    nothing about a text to anyone who does not hold that key, and the key goes when the command ends."""
 
-    __slots__ = ("open", "outcomes", "_lock")
+    __slots__ = ("open", "outcomes", "key", "_lock")
 
     def __init__(self) -> None:
         self.open = True
         self.outcomes: dict = {}
+        self.key = os.urandom(32)
         self._lock = threading.Lock()
 
     def remember(self, key, outcome) -> None:
@@ -527,8 +531,8 @@ def check_credentials(text: str, *, extra_patterns: tuple[str, ...] = (), source
         _screen_credentials(text, extra_patterns, source_path, placeholders)
         return
     cache = scope.outcomes
-    key = (hashlib.sha256(text.encode("utf-8", "surrogatepass")).digest(), tuple(extra_patterns), source_path,
-           tuple(placeholders), getattr(active_allowance(), "key", None))
+    key = (hmac.digest(scope.key, text.encode("utf-8", "surrogatepass"), "sha256"), tuple(extra_patterns),
+           source_path, tuple(placeholders), getattr(active_allowance(), "key", None))
     remembered = cache.get(key, _UNSEEN)
     if remembered is not _UNSEEN:
         if remembered is not None:
