@@ -67,8 +67,7 @@ def _held_decimal(whole: str, fraction: str, exponent: int) -> str | None:
     return integer + ("." + fractional if fractional else "") if written <= MAX_FIGURE_DIGITS else None
 
 
-# The readings of each cell, kept for one `_source_figures` call only: its readings and their checks read the same
-# cells and pieces many times. Nothing is kept after the call.
+# The readings of each cell, kept for one `_source_figures` call only, which reads the same cells many times.
 _CELL_MEMO: ContextVar[dict | None] = ContextVar("figure_source_cells", default=None)
 _NO_NUMBERS = (frozenset(), frozenset(), frozenset())  # what a text cell with no figure holds, kept once
 
@@ -191,14 +190,16 @@ _CODE_BEFORE = re.compile(r"(?<![A-Za-z])[A-Z]{3}\Z")  # a currency code ends th
 _INNER_COMMA = re.compile(r",(\d+)(?!\d|[,.]\d)")  # a fraction ends there: `USD,1,234,560.00` is a group
 
 
-def _inner_leading_commas(cell: str, min_digits: int, after_words: bool = False) -> tuple[str, bool] | None:
+def _inner_leading_commas(cell: str, min_digits: int, after_words: bool = False,
+                          rounds: bool = False) -> tuple[str, bool] | None:
     """A text cell's figures written with a decimal comma and no digit before it, as in `Total EUR,57891` or
     `Balance: ,57891`: the cell with each one blanked. None when it holds none; one too short to be a figure is left.
 
     The comma must follow the cell's start, a space, a colon, a bracket, a sign or currency sign, or a three-letter
     code; right after a digit, a point, a delimiter or another letter it is a column break or a group, as in
     `A,12345`. With a space before it, as in `Rate ,82317`, it belongs to the number. after_words counts one right
-    after a letter too, as in `TotalEUR,57891 units`, where the comma can't be the reading's column break.
+    after a letter too, as in `TotalEUR,57891 units`, where the comma can't be the reading's column break. rounds:
+    as `_leading_comma`.
     """
     kept, last, figure = [], 0, None
     for match in _INNER_COMMA.finditer(cell):
@@ -206,7 +207,9 @@ def _inner_leading_commas(cell: str, min_digits: int, after_words: bool = False)
         if mark and not mark.isspace() and (mark.isdigit() or mark in ".,;\t|" or mark.isalpha() and not after_words
                                             and not _CODE_BEFORE.search(cell[:match.start()])):
             continue
-        if not _digit_forms("0", match.group(1), min_digits):
+        power = _POWER.match(cell, match.end())
+        if not (_digit_forms("0", match.group(1), min_digits) or rounds and power and _counts(
+                _cell_readings("0," + match.group(1) + power.group()), min_digits, True)):
             continue
         figure = True
         kept += [cell[last:match.start()], " "]
@@ -215,6 +218,13 @@ def _inner_leading_commas(cell: str, min_digits: int, after_words: bool = False)
 
 
 _OTHER_BREAKS = re.compile(r"[;\t|]")
+_POWER = re.compile(r"[eE][+-]?\d+")
+
+
+def _counts(readings, min_digits: int, rounds: bool) -> bool:
+    """Whether a reading is a figure, or with rounds a round figure."""
+    return any(_digit_forms(*reading, min_digits) or rounds and _round_figure(*reading, min_digits)
+               for reading in readings)
 
 
 def _may_be_leading_comma(before: str) -> bool:
@@ -235,21 +245,21 @@ def _glued(cell: str, min_digits: int, split: bool = False) -> bool:
                .split(unglued) for reading in _cell_readings(piece))
 
 
-def _leading_comma(cell: str, min_digits: int) -> bool | None:
+def _leading_comma(cell: str, min_digits: int, rounds: bool = False) -> bool | None:
     """None when a cell is not one number written with a decimal comma and no digit before it, as `,57891` or
     `EUR -,5`; otherwise whether that number is a figure.
 
     The payload screen reads a leading point and never a leading comma, so such a figure can't be listed: listed as
     0.57891, the spelling `,57891` would pass the screen. One with too few digits to be a figure is harmless. A comma
     right after a letter, as in `A,12345`, is a column break, not a decimal mark; after a currency code, as in
-    `EUR,57891`, it may be either, so the number counts.
+    `EUR,57891`, it may be either, so the number counts. With rounds, so does a round figure, as `,3473e6`.
     """
     lead = _CELL_EDGE.match(cell).end()
     if (cell[lead:lead + 1] != "," or not cell[lead + 1:lead + 2].isdigit()
             or cell[lead - 1:lead].isalpha() and not _CODE_BEFORE.search(cell[:lead])):
         return None
     readings = _cell_readings(cell[:lead] + "0" + cell[lead:])
-    return any(_digit_forms(*reading, min_digits) for reading in readings) if readings else None
+    return _counts(readings, min_digits, rounds) if readings else None
 
 
 # Amounts a comma file cut into cells because it did not quote them: comma groups, as `1,234,567.89`, or a decimal
@@ -512,7 +522,6 @@ def _round_figure(whole: str, fraction: str, min_digits: int, bare: bool = False
             and not _digit_forms(whole, fraction, min_digits) and not (bare and not fraction and _is_date(magnitude)))
 
 
-
 def _header_width(rows: list[list[str]]) -> int:
     """The widest row of more than one cell with no digit, the header, or 0 when there is none."""
     return max((len(row) for row in rows if len(row) > 1 and not any(map(str.isdigit, "".join(row)))), default=0)
@@ -609,7 +618,7 @@ def _interpretation(text: str, delimiter: str | None, min_digits: int, decimal_m
                 elif any(map(str.isalpha, cell)):
                     take_text(cell)
             cell = stripped
-            leading = _leading_comma(cell, min_digits)
+            leading = _leading_comma(cell, min_digits, round_figures and not whether)
             if leading is not None:
                 unscreenable |= leading  # read on: if this reading is not ruled out, a figure here refuses the source
                 continue
@@ -630,7 +639,8 @@ def _interpretation(text: str, delimiter: str | None, min_digits: int, decimal_m
                 # comma reading lists 57891 alone, it would let 0.57891 through.
                 # Wherever decimal commas are declared, one after a word is a leading decimal comma, in rows of one
                 # cell too: `Cash dividend,57891 units` declared with `;` is refused as unscreenable.
-                if (masked := _inner_leading_commas(cell, min_digits, split or decimal_mark == ",")) is not None:
+                if (masked := _inner_leading_commas(cell, min_digits, split or decimal_mark == ",",
+                                                    round_figures and not whether)) is not None:
                     cell, figure = masked
                     unscreenable |= figure
                 if _glued(cell, min_digits, split):
@@ -698,7 +708,7 @@ def _read_source(raw: bytes, min_digits: int, layout: tuple[str, str] | None,
     (delimiter, decimal mark), is the one reading tried. A cell with fewer significant digits than min_digits, or eight
     bare digits that name a day (`_classify`), is not a figure.
     """
-    text = decode_source(raw)  # UTF-8, UTF-16 or UTF-32 with its mark, or a plain Windows export; else refused
+    text = decode_source(raw)  # UTF-8, UTF-16 or UTF-32 by its mark, or Windows-1252, read whole or refused
     refuse_hidden_marks(text, layout)  # a mark inside a figure, which a reading would list in part (rules 26, 27)
     ways = [layout] if layout is not None else [(delimiter, None) for delimiter in (*_DELIMITERS, None)]
     # A line longer than a csv field may be, without one of the delimiters a reading splits on, is one field too long

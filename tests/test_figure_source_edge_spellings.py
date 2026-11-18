@@ -3,8 +3,8 @@
 A bracketed amount grouped by spaces, whose last group reads like a footnote `432)`; an amount whose eight digits
 name a day, written with groups, cents, a sign or a code; a file that mixes UTF-8 with bytes that are not UTF-8, or
 holds a byte Windows-1252 does not define; a visible look-alike of a grouping or decimal mark between two digits; a
-currency sign, bracket or percent sign beside a mark inside a number; and a dash as an exponent's sign. Each is
-listed whole or refused by name, never listed in part.
+currency sign, bracket or percent sign beside a mark inside a number; a dash as an exponent's sign; and a file marked
+UTF-16 or UTF-32 that does not decode whole. Each is listed whole or refused by name, never listed in part.
 """
 import codecs
 
@@ -107,12 +107,31 @@ def test_a_file_marked_utf_16_or_utf_32_is_read(codec):
     assert "98765.43" in _source_figures(raw, 5, None)[0]
 
 
-@pytest.mark.parametrize("raw", [b"Account;Amount\nSYN-1;98\xef\xbf\xbd765.43\n",
-                                 codecs.BOM_UTF16_LE + "Account;Amount\nSYN-1;98".encode("utf-16-le") + b"\x00\xd8"
-                                 + "765.43\n".encode("utf-16-le")])
-def test_a_replacement_character_between_digits_is_a_hidden_mark(tmp_path, raw):
+def test_a_replacement_character_between_digits_is_a_hidden_mark(tmp_path):
     with pytest.raises(AssistantError, match="^forbidden_token_source_hidden_mark$"):
-        _load(tmp_path, raw)
+        _load(tmp_path, b"Account;Amount\nSYN-1;98\xef\xbf\xbd765.43\n")
+
+
+_ROWS = "Account;Amount\nSYN-1;3141592.65\nSYN-2;2718281.83\n"
+
+
+@pytest.mark.parametrize("raw", [
+    codecs.BOM_UTF16_LE + "Account;Amount\nSYN-1;98".encode("utf-16-le") + b"\x00\xd8" + "765.43\n".encode("utf-16-le"),
+    codecs.BOM_UTF16_LE + _ROWS.encode("utf-16-le")[:-1],
+    codecs.BOM_UTF16_BE + _ROWS.encode("utf-16-be") + b"\x31",
+    codecs.BOM_UTF16_LE + _ROWS.encode("utf-16-le")[:40] + _ROWS.encode("utf-16-le")[41:],
+    codecs.BOM_UTF16_BE + _ROWS.encode("utf-16-be")[:40] + _ROWS.encode("utf-16-be")[41:],
+    codecs.BOM_UTF16_BE + _ROWS.encode("utf-16-be") + b"\xdc\x00",
+    codecs.BOM_UTF32_LE + _ROWS.encode("utf-32-le")[:-2],
+    codecs.BOM_UTF32_BE + _ROWS.encode("utf-32-be") + b"\x00\x11\x00\x00",
+], ids=["lone-surrogate-between-digits", "cut-short", "odd-byte", "byte-dropped-le", "byte-dropped-be",
+        "lone-low-surrogate", "utf-32-cut-short", "utf-32-past-the-last-character"])
+@pytest.mark.parametrize("layout", [None, (";", ".")])
+def test_a_utf16_or_utf32_file_that_does_not_decode_whole_is_refused(tmp_path, raw, layout):
+    # Read as far as it goes, with what it can't read replaced, a damaged file lists its figures in part: one byte
+    # dropped turns the rest into other characters. Refused as other encodings are.
+    with pytest.raises(AssistantError, match="^forbidden_token_source_encoding$"):
+        _load(tmp_path, raw, layout)
 
 
 # Look-alikes of a grouping or decimal mark that no reading takes for one: a middle dot, a low quote, small,

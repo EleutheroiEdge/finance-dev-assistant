@@ -359,9 +359,10 @@ def test_utf16_text_with_a_byte_order_mark_is_read(encoded):
     assert _reads(encoded, AMOUNTS)
 
 
-def test_broken_utf16_is_read_as_far_as_it_goes_and_never_crashes():
+def test_broken_utf16_is_refused_and_never_crashes():
+    # Read as far as it goes, a damaged file would list its figures in part: it is refused (encoding, below).
     encoded = codecs.BOM_UTF16_LE + "value\n3141592.65\n".encode("utf-16-le") + b"\x00\xd8\x41"
-    assert _reads(encoded, {"3141592.65"})
+    assert _figures(encoded) is REFUSED
     for empty in (codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE + b"\x00"):
         assert _figures(empty) in (set(), REFUSED)
 

@@ -124,6 +124,29 @@ def test_digits_that_go_on_as_a_decimal_are_not_a_leading_comma(tmp_path):
     assert _refused("123456.78", snapshot) and not _refused("0.12345", snapshot)
 
 
+# A leading decimal comma before an exponent may write a round figure: `,3473e6` is 347300. Listed, the spelling
+# `,3473e6` would pass the screen, so where round figures are listed the source is refused; under skip none is
+# listed, so it is read.
+@pytest.mark.parametrize("text,layout", [
+    ("Name;Amount\nA;,3473e6\nB;12345,67\n", (";", ",")),
+    ("Name;Amount\nA;EUR -,3473E+06 CR\nB;12345,67\n", (";", ",")),
+    ("Name\tAmount\nA\t(,1002e6)\nB\t12345,67\n", ("\t", ",")),
+    ("Amount\n,3473e6\n12345,67\n", (None, ",")),
+    ("Name;Amount\nA;,3473e6\nB;12345.67\n", (";", ".")),
+    ("Name;Note\nA;Total ,3473e6 net\nB;12345,67\n", (";", ",")),
+    ("Name|Note\nA|Total EUR,3473e6\nB|12345,67\n", ("|", ",")),
+    ("Name;Note\nA;Cash dividend,3473e6 units\nB;12345,67\n", (";", ",")),
+    ("Name;Amount\nA;,3473e6\nB;12345,67\n", None),
+], ids=["cell", "cell-code-sign-mark", "cell-brackets-tab", "one-column", "cell-point-declared", "in-a-label",
+        "after-a-code-bar", "glued-to-a-word", "read-every-way"])
+def test_a_leading_decimal_comma_round_figure_is_refused_where_round_figures_are_listed(tmp_path, text, layout):
+    entry = _entry(_source(tmp_path, text), layout)
+    with pytest.raises(AssistantError, match="^forbidden_token_source_unscreenable$"):
+        load_token_snapshot({"forbidden_token_sources": [entry], "forbidden_token_round_figures": "list"}, ())
+    if layout is not None:
+        assert _refused("12345.67", load_token_snapshot({"forbidden_token_sources": [entry]}, ()))
+
+
 def test_a_leading_point_is_read_as_the_payload_screen_reads_it(tmp_path):
     source = _source(tmp_path, "Name;Amount\nA;.57891\n")
     for layout in (None, (";", ".")):

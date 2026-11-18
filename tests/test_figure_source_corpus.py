@@ -93,7 +93,7 @@ def test_the_cut_cell_profile_catches_both_earlier_readings_and_the_default_corp
     assert code == 1 and "files missing a figure 0" not in shown
 
 
-@pytest.mark.parametrize("defect", ["footnote", "date", "encoding", "look-alike"])
+@pytest.mark.parametrize("defect", ["footnote", "date", "encoding", "utf-16", "look-alike"])
 def test_the_edge_spelling_profile_catches_each_earlier_reading(capsys, monkeypatch, defect):
     import codecs
 
@@ -113,6 +113,10 @@ def test_the_edge_spelling_profile_catches_each_earlier_reading(capsys, monkeypa
             except UnicodeDecodeError:
                 return raw.decode("cp1252", errors="replace")
         monkeypatch.setattr(figure_sources, "decode_source", decode)
+    elif defect == "utf-16":  # a file marked UTF-16 read as far as it goes, what it can't read replaced
+        real_decode = figure_sources.decode_source
+        monkeypatch.setattr(figure_sources, "decode_source", lambda raw: raw.decode("utf-16", errors="replace")
+                            if raw.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)) else real_decode(raw))
     else:  # a look-alike of a mark read as a letter
         monkeypatch.setattr(figure_source_marks, "_look_alike", lambda character: False)
     code, _, shown = _run(capsys, "--edge-spellings", files="240")

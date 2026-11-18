@@ -36,7 +36,8 @@ class HiddenMarkSource(ValueError):
 
 class EncodingSource(ValueError):
     """A figure source that is neither UTF-8 nor plain Windows-1252 text: one that mixes characters written as UTF-8
-    with bytes that are not UTF-8, or holds a byte Windows-1252 does not define."""
+    with bytes that are not UTF-8, or holds a byte Windows-1252 does not define; or one marked UTF-16 or UTF-32 that
+    does not decode whole."""
 
 
 # A character written as UTF-8 in more than one byte; the bytes Windows-1252 does not define.
@@ -50,12 +51,15 @@ def decode_source(raw: bytes) -> str:
     """The text of a figure source: UTF-32 or UTF-16 after its byte-order mark, a spreadsheet's "Unicode text";
     otherwise UTF-8, a UTF-8 byte-order mark left out; otherwise Windows-1252, a Windows export, only when no
     character is written as UTF-8 writes one and no byte is one that code page leaves undefined. Raises EncodingSource
-    for any other text. A unit UTF-16 or UTF-32 can't read becomes the replacement character, a hidden mark between
-    digits (`_FILLERS`)."""
-    if raw.startswith((codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE)):
-        return raw.decode("utf-32", errors="replace")
-    if raw.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
-        return raw.decode("utf-16", errors="replace")
+    for any other text, and for a file marked UTF-16 or UTF-32 that does not decode whole, as one cut short, shifted
+    by a byte or holding a lone surrogate: read as far as it goes, it would list its figures in part."""
+    try:
+        if raw.startswith((codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE)):
+            return raw.decode("utf-32")
+        if raw.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+            return raw.decode("utf-16")
+    except UnicodeDecodeError:
+        raise EncodingSource from None
     try:
         return raw.decode("utf-8-sig")
     except UnicodeDecodeError:

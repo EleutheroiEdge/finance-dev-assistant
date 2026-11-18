@@ -55,8 +55,8 @@ a visible look-alike of a grouping or decimal mark between two digits, as `EUR 9
 sign, bracket or percent sign beside a decimal or grouping mark or an exponent mark, as `EUR 98765<euro>.43`, a
 look-alike between an ASCII space and a hidden mark, a quoted break or a sign, a dash as an exponent's sign or beside
 a hidden mark (figure_source_edge_marks.py), or a byte Windows-1252 does not define, which must refuse the file as
-hidden_mark or encoding; a byte that is not UTF-8 in a
-note, which must refuse a file holding UTF-8 characters as encoding and leave any other read as before; or a dash or
+hidden_mark or encoding; a UTF-16 file cut short inside its last row, which must refuse the file as encoding;
+a byte that is not UTF-8 in a note, which must refuse a file holding UTF-8 characters as encoding and leave any other read as before; or a dash or
 times sign between numbers, which changes nothing.
 Each run prints its settings and the generator's digest above the corpus fingerprint.
 
@@ -506,7 +506,11 @@ def edge(export: Export, rng: random.Random, min_digits: int) -> None:
                                    (f"Total {rng.choice(('EUR-', 'USD+', 'Haben ', 'Credit '))}{day}", day)))
         export.text += row(cell)
         listed(figure, cell)
-    elif choice < 0.6 and style.encoding != "utf-16":
+    elif choice < 0.6 and style.encoding == "utf-16":  # cut short inside its last row: refused by name, never read in part
+        export.tail = row(f"EUR {whole}{mark}{fraction}").encode("utf-16")[2:-1]  # the file's byte order, its mark left out
+        export.refusal = "encoding"
+        listed(value)
+    elif choice < 0.6:
         if rng.random() < 0.5:  # a byte Windows-1252 does not define, inside a figure: refused by name
             line = row(f"EUR {whole[:2]}\x01{whole[2:]}{mark}{fraction}")
             export.tail = line.encode("ascii").replace(b"\x01", bytes([rng.choice(UNDEFINED)]))
@@ -588,7 +592,7 @@ def main(argv: list[str] | None = None) -> int:
                              "field, and marks inside words")
     parser.add_argument("--edge-spellings", action="store_true",
                         help="also append rows a reader once listed in part: bracketed space groups, amounts whose "
-                             "digits name a day, look-alike marks, bytes that are not UTF-8")
+                             "digits name a day, look-alike marks, bytes that are not UTF-8, UTF-16 cut short")
     options = parser.parse_args(argv)
     listing = options.round_figures == "list"
     rng = random.Random(options.seed)
