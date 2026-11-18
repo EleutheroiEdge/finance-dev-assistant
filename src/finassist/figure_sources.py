@@ -29,7 +29,7 @@ _CELL_EDGE = re.compile(r"[\s$\u00a2-\u00a5\u20a0-\u20c0%()+\-\u2212\"'*=]*"
                         r"[\s$\u00a2-\u00a5\u20a0-\u20c0%()+\-\u2212\"'*=]*){0,2}")
 
 
-_FOOTNOTE = re.compile(r"(?:\s+\d{1,3}\)|\s*\[\d{1,3}\])\s*\Z")
+_FOOTNOTE = re.compile(r"(?:(?<!\s)\s+\d{1,3}\)|(?<!\s)\s*\[\d{1,3}\])\s*\Z")
 _SPACED_NOTE = re.compile(r"\d\s+\d{3}\)\s*\Z")
 _EDGE_WORDS = frozenset({"Soll", "Haben", "SOLL", "HABEN", "Credit", "Debit"})
 

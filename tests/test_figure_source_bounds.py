@@ -8,6 +8,7 @@ from pathlib import Path
 import random
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -272,3 +273,19 @@ def test_each_cell_of_a_source_is_read_once_however_many_readings_and_checks_sha
     except ValueError:
         pass  # refused is as good as read here: what counts is how often each cell was read
     assert calls and len(calls) == len(set(calls))
+
+
+@pytest.mark.parametrize("cell", ["x" + " " * 120_000 + "y", " " * 120_000 + "y)", "x" + " \t" * 60_000 + "[12"])
+def test_a_long_run_of_spaces_in_a_cell_is_passed_over_in_one_pass(cell):
+    # A footnote mark is looked for only from the start of a run of spaces, so the time grows with the cell, not
+    # with its square: tried from every space of the run, a cell this long took most of a minute.
+    began = time.monotonic()
+    assert figure_sources._FOOTNOTE.sub("", cell) == cell
+    assert time.monotonic() - began < 5
+
+
+@pytest.mark.parametrize("cell, kept", [("1,234.56 1)", "1,234.56"), ("1,234.56  [12] ", "1,234.56"),
+                                        ("1,234.56[3]", "1,234.56"), ("1,234.56 1234)", "1,234.56 1234)"),
+                                        ("(1,234.56)", "(1,234.56)"), ("12 [1] [2]", "12 [1]")])
+def test_a_footnote_mark_is_still_taken_off_the_end_of_a_cell(cell, kept):
+    assert figure_sources._FOOTNOTE.sub("", cell) == kept

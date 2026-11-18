@@ -363,6 +363,15 @@ def test_ready_gate_with_warnings_renders_as_designed():
     assert render(READY_GATE) == EXPECTED_READY_GATE
 
 
+def test_a_range_with_nothing_in_scope_renders_as_not_applicable_and_never_as_ready_or_blocked():
+    report = {**READY_GATE, "status": "not_applicable", "blockers": []}
+    text = render(report)
+    assert text.splitlines()[:2] == ["finassist doctor - gate preflight",
+                                     "Verdict: NOT APPLICABLE - nothing in scope, nothing reviewed"]
+    assert "READY" not in text and "BLOCKED" not in text
+    assert "\x1b[33m" in render(report, color=True)
+
+
 def test_no_line_exceeds_the_width():
     for report in ALL_REPORTS:
         for width in (60, 80, 100):
