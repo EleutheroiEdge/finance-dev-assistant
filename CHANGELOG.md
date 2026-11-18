@@ -42,7 +42,8 @@ also new to users of 0.10.0; read its Upgrading section with this one.
   report document, instead of `BLOCKED` with `empty_model_context`. It is not a review or a pass:
   nothing is read for review or sent. The default is unchanged. A consumer that treats every gate
   report as a review must check `mode`; `report-trace` refuses a not-applicable report with
-  `trace_report_not_a_review`.
+  `trace_report_not_a_review`. The report always carries `outcome_class: not_applicable`, which its
+  schema requires.
 - **The state folder can move to the repository root.** If you ran `review`, `propose`,
   `evaluate`, `evidence`, `audit`, `reconcile-budget`, `doctor` or `init` from a subfolder, or with
   a `--config` kept elsewhere, their spending ledger is in that folder's `.finassist`. Such a
@@ -81,7 +82,10 @@ also new to users of 0.10.0; read its Upgrading section with this one.
   eight bare digits are a date now, so `20,170,520.00`, `20170520.00`, `USD 19991231` and `(20170520)` are figures.
   A file that mixes UTF-8 characters with a byte that is not UTF-8, or holds a byte Windows-1252 does not define,
   was read as Windows-1252, its UTF-8 grouping spaces and digits turned into letters: it is refused as
-  `forbidden_token_source_encoding`, and a file marked UTF-32 is read. A visible look-alike of a grouping or
+  `forbidden_token_source_encoding`, and a file marked UTF-32 is read. A file marked UTF-16 or UTF-32 that does
+  not decode whole, as one cut short, shifted by a byte or holding a lone surrogate, was read as far as it went, so
+  its figures were listed in part: it is refused as `forbidden_token_source_encoding` too. A visible
+  look-alike of a grouping or
   decimal mark inside a number, such as a middle dot, a low quote, an ideographic or Arabic comma, a prime, an
   accent or a modifier letter, or one number that writes two marks of one class, as the Arabic thousands separator
   beside a point, listed the amount in part: such a source is refused as `forbidden_token_source_hidden_mark`
@@ -111,17 +115,17 @@ also new to users of 0.10.0; read its Upgrading section with this one.
   setting without sources and an unknown value are refused before any source is read or any request
   or reservation is made. A source of round figures only is read under `list` and refused as invalid
   under `skip`. The parse cache keeps each setting apart.
-- **A figure source can declare its layout.** An entry of `forbidden_token_sources`, in a
-  configuration or a gate policy, may be an object such as
-  `{"path": "~/exports/positions.csv", "delimiter": ";", "decimal_mark": ","}` instead of a path.
-  The file is then read with that delimiter and decimal mark only, and refused as invalid when that
+- **A figure source declares its layout.** Each entry of `forbidden_token_sources`, in a
+  configuration or a gate policy, is an object such as
+  `{"path": "~/exports/positions.csv", "delimiter": ";", "decimal_mark": ","}`; a bare path is
+  refused with `forbidden_token_source_layout_required` (see Upgrading).
+  The file is read with that delimiter and decimal mark only, and refused as invalid when that
   reading cuts a cell or finds a number the mark does not read, so a layout that does not fit the
   file fails closed. This reads a file the automatic reading refuses as ambiguous. A `null`
   delimiter declares one column, each line a cell. A comma can't be both the delimiter and the
-  decimal mark, and a file named twice, in either form or under two spellings, is refused. A
-  configuration whose entries are all paths keeps its hash; a declared layout is part of the hash,
-  of the parse cache's key and of the screen's identity, so a changed declaration needs a new
-  approval.
+  decimal mark, and a file named twice, under one spelling or two, is refused. A declared layout
+  is part of the hash, of the parse cache's key and of the screen's identity, so a changed
+  declaration needs a new approval.
 - **A gate report names the kind of stop: `outcome_class`.** `pass`, `fail`, `refused` when every
   reason is a rule that stopped the change on purpose (a content or privacy screen, an edited
   governance file, a size, count or budget limit, the fork rule, nothing left to review), `incomplete`
@@ -290,7 +294,9 @@ also new to users of 0.10.0; read its Upgrading section with this one.
   code (`EUR,57891`) and inside a text label (`Total EUR ,57891`, `Balance: ,57891`), and glued to a word,
   with or without a word after it (`TotalEUR,57891 units`), where that comma can't be a column break: a line
   split on another mark, a quoted cell, a layout declared with decimal commas, or a file that reads as one
-  column with decimal commas and has no header above its data.
+  column with decimal commas and has no header above its data. Where round figures are listed, so is a number
+  that an exponent makes a round figure, as `,3473e6` (347300), in a cell or a label: listed, that spelling
+  would pass the screen. Still source rules 26 and 27.
 - **The configuration guide says which match mode covers a digit-string guard.** Use `digits` when
   replacing a guard that matches digit strings; `value` compares numeric values and does not provide
   equivalent coverage.
@@ -321,9 +327,11 @@ also new to users of 0.10.0; read its Upgrading section with this one.
   right after a comma that may be a decimal one, as in `Lot ,5 345 678.90`, also lists what a text cell would.
   Numbers are listed up to the 260 digits the payload screen reads, and an exponent past 128 hides nothing that a
   spelling within it shows: `12,345,678.90e129` refuses `123456789e128`. Indian groups, as in `12,34,567.89`, are
-  read in a source and in a change (as with groups of three, a compact list such as `[9,99,999]` reads as one
-  number too), any currency sign may stand beside an amount, and a decimal-comma amount whose
-  digits underscores join, as `1_234,56`, is listed. A decimal-comma amount that starts inside a row of digit
+  read in a change (as with groups of three, a compact list such as `[9,99,999]` reads as one number too),
+  and in a source where an unquoted comma file cuts them into cells; a cell holding them in any other
+  declared layout, and a cell of one amount whose digits underscores join, as `1_234,56`, hold a number the
+  declared mark does not read, so the source is refused with `forbidden_token_source_invalid`. Any currency
+  sign may stand beside an amount. A decimal-comma amount that starts inside a row of digit
   groups, as 234,56 in `1 234,56` or in `1.234,56`, is listed up to nine groups, as far as the payload screen
   reads from such a start; a later start of more groups refuses the source. A quoted field is one cell, so no
   comma cuts an amount inside it: `"EUR 1.234,56"` lists 1234.56 alone.
@@ -365,7 +373,7 @@ also new to users of 0.10.0; read its Upgrading section with this one.
   - A signed web token is found by decoding its structure, so spaced or empty JSON is found too, and
     one whose JSON cannot be settled within the screen's bounds is refused rather than passed.
   - A password in a URL's user information is refused unless it is a complete template, such as
-    `${DB_PASSWORD}`.
+    `${DB_PASSWORD}`, also after an empty user name, as in `redis://:password@host`.
   - Access, auth, refresh, session and bearer token labels are screened, and an unquoted value may
     hold `!#$%&*?~^`.
   - A placeholder is a value made only of words from a fixed list, including a marking word such
