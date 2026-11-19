@@ -26,8 +26,8 @@ from .errors import AssistantError
 from .forbidden_tokens import screen_packet, screen_source
 from .model_gate import (NoReviewScope, ignore_change_needs_review, name_outcome, placeholder_occurrence_allowance,
                          prepare_model_source, prepare_token_guard)
-from .model_policy import (_PROPERTIES, _SCHEMA, ModelGatePolicy, _prefix, _profile, load_model_policy,
-                           policy_config_fields, source_rule_issue, stated_source_rule)
+from .model_policy import (_PROPERTIES, _SCHEMA, ModelGatePolicy, _prefix, _profile, coverage_issues,
+                           load_model_policy, policy_config_fields, source_rule_issue, stated_source_rule)
 from .occurrence_identity import allowance_in_effect, occurrence_notes
 from .policy_fixtures import fixture_settings, load_policy_config
 from .policy_ignores import ignored_paths, screen_ignores
@@ -428,6 +428,9 @@ class _Preflight:
         except AssistantError as exc:
             usable = False
             self.failed(exc, field="/")
+        for code, field in coverage_issues(model):  # the gate's own check, so it refuses before reading anything
+            usable = False
+            self.block(code, field=field)
         roots = tuple(model.get("fixture_roots", ()))
         for name in ("allow_paths", "deny_paths"):
             for index, prefix in enumerate(model[name]):

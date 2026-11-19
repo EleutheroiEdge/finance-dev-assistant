@@ -136,9 +136,28 @@ def missing_fields(document: dict) -> list[str]:
     return sorted(set(_PROPERTIES) - set(model)) + ([] if "schema_version" in document else ["schema_version"])
 
 
+def coverage_issues(model: dict) -> list[tuple[str, str]]:
+    """(code, field) for each coverage setting the gate refuses once the schema passes: a data or binary format in
+    `text_suffixes`, which is never reviewable, and a `placeholder_credential_occurrences` entry that names no exact
+    repository path to a YAML file. The gate, doctor and the draft check all judge them here, and read nothing."""
+    issues = []
+    if set(model.get("text_suffixes", ())) & DENIED_SUFFIXES:
+        issues.append(("gate_policy_invalid", "/model_review/text_suffixes"))
+    for index, entry in enumerate(model.get("placeholder_credential_occurrences", ())):
+        try:
+            check_path(entry["path"], source_only=False)
+            exact = is_yaml_path(entry["path"]) and "*" not in entry["path"]
+        except AssistantError:
+            exact = False
+        if not exact:
+            issues.append(("invalid_placeholder_credential_occurrences",
+                           f"/model_review/placeholder_credential_occurrences/{index}"))
+    return issues
+
+
 def check_draft(document: dict) -> None:
-    """The source rule beside the sources, first, as the gate and doctor check it, then the schema: nothing is read
-    from a repository and no price or path rule runs."""
+    """The source rule beside the sources, first, as the gate and doctor check it, then the schema and the coverage
+    settings: nothing is read from a repository and no price rule or allow or deny path rule runs."""
     if source_rule_issue(document):
         raise AssistantError("gate_policy_source_rule_required")
     try:
@@ -146,6 +165,9 @@ def check_draft(document: dict) -> None:
     except jsonschema.ValidationError as exc:
         raise AssistantError("gate_policy_invalid") from exc
     check_opt_in(document["model_review"])  # experimental figure sources, as the gate and doctor check them
+    issues = coverage_issues(document["model_review"])
+    if issues:
+        raise AssistantError(issues[0][0])
 
 
 @dataclass(frozen=True)
@@ -250,15 +272,9 @@ def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePo
     # The only key material accepted by a policy is a variable NAME. All other
     # fields are screened, including unknown fields rejected by the schema.
     check_text(canonical(document).decode())
-    if set(model.get("text_suffixes", ())) & DENIED_SUFFIXES:
-        raise AssistantError("gate_policy_invalid")  # a data or binary format is never reviewable
-    for entry in model.get("placeholder_credential_occurrences", ()):
-        try:
-            check_path(entry["path"], source_only=False)
-        except AssistantError as exc:
-            raise AssistantError("invalid_placeholder_credential_occurrences") from exc
-        if not is_yaml_path(entry["path"]) or "*" in entry["path"]:
-            raise AssistantError("invalid_placeholder_credential_occurrences")
+    issues = coverage_issues(model)
+    if issues:
+        raise AssistantError(issues[0][0])
     settings = fixture_settings(repo, base, model)
     for name in ("allow_paths", "deny_paths"):
         for prefix in model[name]:
