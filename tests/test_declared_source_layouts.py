@@ -28,6 +28,10 @@ from finassist.model_policy import check_draft
 from finassist.review import review_packet
 from finassist.scope import build_packet, config_token_guard
 
+# The reader's own tests: figure sources are not available in this release, so they turn them on, as only
+# code can.
+pytestmark = pytest.mark.usefixtures("sources_available")
+
 # Configuration hashes of figure-source settings that name paths only, under source rule 26 (under rule 1 they were
 # e300b939...991fa and f2b64430...4ea58). Such a configuration is refused now: figure sources are experimental and
 # opted in only with a declared layout, so these hashes name no configuration that loads.

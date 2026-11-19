@@ -16,6 +16,10 @@ from finassist.figure_sources import SOURCE_RULE
 from finassist.model_policy import check_draft
 from finassist.security import canonical
 
+# The reader's own tests: figure sources are not available in this release, so they turn them on, as only
+# code can.
+pytestmark = pytest.mark.usefixtures("sources_available")
+
 SOURCE = "Name;Amount\nA;12.345,67\n"
 
 

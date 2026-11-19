@@ -11,8 +11,11 @@ from .forbidden_tokens import MAX_SOURCE_FILES
 
 _LAYOUT_KEYS = frozenset({"path", "delimiter", "decimal_mark"})
 
-# The figure-source reader is experimental: it has missed amounts written in shapes it does not read. Sources are
-# read only beside this setting, `true`, in a configuration or a gate policy, and then only by a declared layout.
+# The figure-source reader has missed amounts written in shapes it does not read, so in this release it is not
+# available: a configuration or gate policy that lists sources is refused whatever else it sets, and no released
+# route reads one. Only code turns it on (the reader's own tests do); no setting, variable or option does.
+SOURCES_AVAILABLE = False
+# Where sources are available, they are read only beside this setting, `true`, and then only by a declared layout.
 OPT_IN = "forbidden_token_sources_experimental"
 EXPERIMENTAL_WARNING = ("Figure sources are opted in. The reader is experimental: it can miss amounts written in "
                         "shapes it does not read, so it is not a complete screen. List the figures you must never "
@@ -49,7 +52,8 @@ def source_format(item):
 
 
 def check_opt_in(rules) -> None:
-    """Refuse the figure sources these settings list unless they are opted in, each with a declared layout.
+    """Refuse any figure sources these settings list: in this release always (see check_opted_in), and where
+    sources are available unless they are opted in, each with a declared layout.
 
     Listed without `"forbidden_token_sources_experimental": true` they are refused by name, never ignored, so no one
     believes a source screens what it does not. Opted in, each declares its layout: the reading-every-way guess
@@ -62,10 +66,14 @@ def check_opt_in(rules) -> None:
 
 
 def check_opted_in(rules) -> None:
-    """The first half of check_opt_in: sources listed without `"forbidden_token_sources_experimental": true`, or
-    with any other value, are refused by that name. A gate policy is checked for it before anything else in it."""
-    sources = rules.get("forbidden_token_sources") if isinstance(rules, Mapping) else None
-    if sources and isinstance(sources, (list, tuple)) and rules.get(OPT_IN) is not True:
+    """The first half of check_opt_in, and the settings' first check. Figure sources are not available in this
+    release: any `forbidden_token_sources` in these settings, whatever its value and whatever else is set, is refused
+    as `forbidden_token_sources_experimental`. A configuration's rules hold it for any value but an empty list. Where
+    sources are available, a list of them without `"forbidden_token_sources_experimental": true` is refused so."""
+    if not isinstance(rules, Mapping) or "forbidden_token_sources" not in rules:
+        return
+    sources = rules["forbidden_token_sources"]
+    if not SOURCES_AVAILABLE or sources and isinstance(sources, (list, tuple)) and rules.get(OPT_IN) is not True:
         raise AssistantError("forbidden_token_sources_experimental")
 
 

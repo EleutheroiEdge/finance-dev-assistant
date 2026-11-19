@@ -142,7 +142,7 @@ class Config:
     # list: the sources' round figures too, as 347300.00, which the digit minimum leaves out (source rule 27).
     forbidden_token_round_figures: str = field(default=ROUND_OPTIONS[0], metadata={
         "identity": "when-set", "json_schema": {"enum": list(ROUND_OPTIONS)}})
-    # true: read forbidden_token_sources, an experimental reader that can miss figures. Without it sources are refused.
+    # Figure sources are not available in this release: sources are refused even with this set to true.
     forbidden_token_sources_experimental: bool = field(default=False, metadata={"identity": "when-set"})
     max_file_bytes: int = field(default=48_000, metadata={"json_schema": {"minimum": 1, "maximum": 2_000_000}})
     max_packet_bytes: int = field(default=120_000, metadata={"json_schema": {"minimum": 1, "maximum": MAX_PACKET_BYTES}})
@@ -344,7 +344,7 @@ class Config:
             raise AssistantError("forbidden_token_hashes_invalid")
         if type(self.forbidden_token_sources_experimental) is not bool:
             raise AssistantError("forbidden_token_sources_experimental")
-        check_opted_in(self.forbidden_token_rules)  # sources listed without the opt-in, by that name first
+        check_opted_in(self.forbidden_token_rules)  # any sources but an empty list, by that name first
         # Loaded, a declared layout is a SourceFormat: a configuration holds no mutable entry.
         source_entries(self.forbidden_token_sources)
         if any(not isinstance(item, (str, SourceFormat)) for item in self.forbidden_token_sources):
@@ -449,9 +449,10 @@ class Config:
             rules["forbidden_token_file"] = self.forbidden_token_file
         if self.forbidden_token_hashes:
             rules["forbidden_token_hashes"] = list(self.forbidden_token_hashes)
-        if self.forbidden_token_sources:
-            rules["forbidden_token_sources"] = [asdict(item) if isinstance(item, SourceFormat) else item
-                                                for item in self.forbidden_token_sources]
+        sources = self.forbidden_token_sources
+        if not isinstance(sources, (tuple, list)) or sources:  # any value but an empty list, stated as it is
+            rules["forbidden_token_sources"] = ([asdict(item) if isinstance(item, SourceFormat) else item
+                                                 for item in sources] if isinstance(sources, (tuple, list)) else sources)
             if self.forbidden_token_sources_experimental is True:
                 rules[OPT_IN] = True
         if rules:  # How to match belongs to the list: a screen built with another rule is another screen.

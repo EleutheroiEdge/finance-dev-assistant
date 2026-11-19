@@ -1,4 +1,6 @@
-"""Figure sources are experimental: off unless explicitly opted in, and then every source declares its layout.
+"""Where figure sources are available, they are off unless explicitly opted in, and then every source declares
+its layout. They are not available in this release (tests/test_figure_sources_unavailable.py), so these tests turn
+them on, as only code can.
 
 A configuration or gate policy that lists a figure source without the opt-in is refused by name, never ignored, so
 no one believes a source screens what it does not. Synthetic only."""
@@ -27,6 +29,7 @@ from finassist.model_policy import check_draft
 from finassist.scope import config_token_guard
 from finassist.security import canonical
 
+pytestmark = pytest.mark.usefixtures("sources_available")
 ONE_COLUMN = "12.345,67\n98.765,43\n"
 LAYOUT = {"path": "/synthetic/positions.csv", "delimiter": None, "decimal_mark": ","}
 
@@ -95,14 +98,10 @@ def test_every_route_reads_a_source_through_the_guard():
                      ("figure_sources", "_source_figures", "_read_source")}
 
 
-def test_the_refusal_says_experimental_names_the_limit_and_the_exact_setting():
-    hint = error_fields("forbidden_token_sources_experimental")["hint"]
-    assert "experimental" in hint and "miss" in hint
-    assert '"forbidden_token_sources_experimental": true' in hint
-    assert "delimiter" in hint and "decimal_mark" in hint
-    entry = hints()["forbidden_token_sources_experimental"]
-    assert "experimental" in entry["summary"]
+def test_the_layout_refusal_names_the_layout():
+    # The opt-in refusal's own hint is this release's, and says sources are not available: see the other module.
     assert "layout" in error_fields("forbidden_token_source_layout_required")["hint"]
+    assert "layout" in hints()["forbidden_token_source_layout_required"]["summary"]
 
 
 @pytest.mark.parametrize("sources", [["/synthetic/positions.csv"], [LAYOUT, "/synthetic/balances.csv"]],
@@ -146,7 +145,7 @@ def test_doctor_names_the_refusal_for_a_configuration_listing_sources(tmp_path, 
     assert main(["--config", str(path), "doctor"]) == 2
     record = json.loads(capsys.readouterr().err)
     assert record["code"] == "forbidden_token_sources_experimental"
-    assert OPT_IN in record["hint"]
+    assert "forbidden_token_file" in record["hint"]
 
 
 def test_a_gate_policy_listing_sources_without_the_opt_in_stops_before_any_request(gate_case, tmp_path):  # noqa: F811
@@ -210,7 +209,7 @@ def test_doctor_on_a_policy_names_the_refusal_and_reads_no_source(gate_case, tmp
     report = _doctor_policy(gate_case, tmp_path, capsys,
                             forbidden_token_sources=[_layout("/synthetic/absent/positions.csv")])
     blockers = [item for item in report["blockers"] if item["code"] == "forbidden_token_sources_experimental"]
-    assert blockers and blockers[0]["field"] == "/model_review/" + OPT_IN and OPT_IN in blockers[0]["hint"]
+    assert blockers and blockers[0]["field"] == "/model_review/" + OPT_IN and "forbidden_token_file" in blockers[0]["hint"]
     assert not any(item["code"].startswith("forbidden_token_source_") for item in report["blockers"])
 
 
@@ -220,24 +219,6 @@ def test_doctor_on_an_opted_in_policy_warns(gate_case, tmp_path, capsys):  # noq
     assert not any(item["code"] == "forbidden_token_sources_experimental" for item in report["blockers"])
     warning = next(row for row in report["warnings"] if row["code"] == "forbidden_token_sources_experimental_in_use")
     assert "experimental" in warning["hint"]
-
-
-def test_init_detect_proposes_no_figure_source(tmp_path, capsys):
-    repo = tmp_path / "repository"
-    repo.mkdir()
-    command(repo, "init", "-q", "-b", "main")
-    command(repo, "config", "user.name", "Synthetic Tester")
-    command(repo, "config", "user.email", "tester@example.invalid")
-    (repo / "src").mkdir()
-    (repo / "src/app.py").write_text("def total(a, b):\n    return a + b\n", encoding="utf-8")
-    (repo / "tests/fixtures").mkdir(parents=True)
-    (repo / "tests/fixtures/positions.csv").write_text("Name;Amount\nSYN-1;12.345,67\n", encoding="utf-8")
-    command(repo, "add", "-A")
-    command(repo, "commit", "-q", "-m", "Synthetic layout")
-    assert main(["--audit-dir", str(tmp_path / "audit"), "init", "--detect", "--repo", str(repo)]) == 0
-    proposal = json.loads(capsys.readouterr().out)
-    drafted = canonical({"config": proposal["config"], "policy": proposal["gate_policy_draft"]}).decode()
-    assert "forbidden_token" not in drafted
 
 
 _ABSENT = _layout("/synthetic/absent/positions.csv")

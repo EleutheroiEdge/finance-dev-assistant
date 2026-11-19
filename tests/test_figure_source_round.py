@@ -17,6 +17,10 @@ from finassist.figure_sources import ROUND_LIST, ROUND_RULE, SOURCE_RULE, _round
 from finassist.forbidden_tokens import load_token_snapshot
 from finassist.security import canonical
 
+# The reader's own tests: figure sources are not available in this release, so they turn them on, as only
+# code can.
+pytestmark = pytest.mark.usefixtures("sources_available")
+
 SOURCE = "Name;Amount\nA;347.300,00\nB;12.345,67\n"
 LIST = {"forbidden_token_round_figures": ROUND_LIST}
 SKIP = {"forbidden_token_round_figures": "skip"}

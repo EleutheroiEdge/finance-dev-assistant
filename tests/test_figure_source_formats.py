@@ -16,6 +16,10 @@ from finassist.errors import AssistantError
 from finassist.figure_sources import SOURCE_RULE
 from finassist.forbidden_tokens import TokenSnapshot, load_token_snapshot, screen_text
 
+# The reader's own tests: figure sources are not available in this release, so they turn them on, as only
+# code can.
+pytestmark = pytest.mark.usefixtures("sources_available")
+
 
 def _source(tmp_path, text: str) -> str:
     path = tmp_path / "exports" / "positions.csv"

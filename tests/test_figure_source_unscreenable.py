@@ -14,6 +14,10 @@ from finassist.errors import AssistantError
 from finassist.figure_sources import SOURCE_RULE
 from finassist.forbidden_tokens import load_token_snapshot
 
+# The reader's own tests: figure sources are not available in this release, so they turn them on, as only
+# code can.
+pytestmark = pytest.mark.usefixtures("sources_available")
+
 
 def _entry(path: str, layout):
     return path if layout is None else {"path": path, "delimiter": layout[0], "decimal_mark": layout[1]}

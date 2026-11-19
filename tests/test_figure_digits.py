@@ -22,6 +22,10 @@ from finassist.forbidden_tokens import (MAX_SOURCE_FILES, TokenGuard, TokenSnaps
 from finassist.scope import build_packet
 from test_model_gate import change_policy, run
 
+# The reader's own tests: figure sources are not available in this release, so they turn them on, as only
+# code can.
+pytestmark = pytest.mark.usefixtures("sources_available")
+
 pytest_plugins = ("test_model_gate", "test_model_policy")
 
 DIGITS = {"forbidden_token_match": "digits"}

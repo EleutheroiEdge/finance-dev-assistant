@@ -14,6 +14,10 @@ from finassist.errors import AssistantError
 from finassist.figure_sources import SOURCE_RULE
 from finassist.forbidden_tokens import load_token_snapshot, screen_text
 
+# The reader's own tests: figure sources are not available in this release, so they turn them on, as only
+# code can.
+pytestmark = pytest.mark.usefixtures("sources_available")
+
 HEAD = "Account,Quantity,Cost\n"
 CUT = "SYN-1,12,345,678.90\n"
 FRAGMENT = "SYN-9,1.2.3\n"  # rules the comma reading out: 1.2.3 reads as no one number

@@ -21,6 +21,10 @@ from finassist.figure_sources import (_MAX_RUN_PIECES, SOURCE_RULE, _cell_readin
                                       _run_readings)
 from finassist.forbidden_tokens import load_token_snapshot
 
+# The reader's own tests: figure sources are not available in this release, so they turn them on, as only
+# code can.
+pytestmark = pytest.mark.usefixtures("sources_available")
+
 HEAD, TAIL = "Account,Quantity,Cost\n", "SYN-2,15,98.7654\n"
 
 

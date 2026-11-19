@@ -65,7 +65,7 @@ _TOKEN_PROPERTIES = {
     "forbidden_token_source_rule": {"type": "integer", "enum": [SOURCE_RULE, ROUND_RULE]},
     # list: the sources' round figures too, read by rule 27; only with sources.
     "forbidden_token_round_figures": {"enum": list(ROUND_OPTIONS)},
-    # true: read the sources, an experimental reader that can miss figures. Without it a policy with sources is refused.
+    # Figure sources are not available in this release: a policy with sources is refused even with this set to true.
     OPT_IN: {"const": True},
 }
 # Optional. refuse (the default) keeps today's behaviour; skip-and-report withholds private paths.
@@ -166,7 +166,7 @@ def check_draft(document: dict) -> None:
         jsonschema.Draft202012Validator(_SCHEMA).validate(document)
     except jsonschema.ValidationError as exc:
         raise AssistantError("gate_policy_invalid") from exc
-    check_opt_in(document["model_review"])  # experimental figure sources, as the gate and doctor check them
+    check_opt_in(document["model_review"])  # figure sources, as the gate and doctor check them
     issues = coverage_issues(document["model_review"])
     if issues:
         raise issues[0][0]
@@ -258,7 +258,7 @@ def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePo
     document = decode_document(raw, "gate_policy_invalid")
     if document.get("schema_version") == 1:
         raise AssistantError("gate_model_opt_in_required")
-    check_opted_in(document.get("model_review"))  # sources listed without the opt-in are refused by that name
+    check_opted_in(document.get("model_review"))  # figure sources, not available in this release, by that name first
     if source_rule_issue(document):
         raise AssistantError("gate_policy_source_rule_required")
     try:

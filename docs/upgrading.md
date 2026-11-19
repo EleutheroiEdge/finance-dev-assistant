@@ -106,8 +106,7 @@ your own repository, and replace the installed program only when they report wha
 |---|---|---|
 | A configuration without `forbidden_token_sources` | Nothing. It loads unchanged and keeps its hash, so saved records still count | Run `finassist doctor` |
 | A gate policy without `forbidden_token_sources` | Nothing. Its bytes and its `--policy-sha256` pin stay valid | Preflight a recent range with `finassist doctor --policy` |
-| A configuration or gate policy with `forbidden_token_sources` | Figure sources are experimental and off unless opted in, so it is refused before any source is read | Remove the sources, or opt in as the steps below say |
-| A configuration that keeps `forbidden_token_sources` | Its hash changes once, so saved records go stale | Renew them, as in "Evidence after an upgrade" |
+| A configuration or gate policy with `forbidden_token_sources` | Figure sources are not available in this release, so it is refused before any file is read | Remove the sources, as the steps below say |
 | Commands run from a subfolder, or with a `--config` kept elsewhere | They stop with `state_location_moved` before writing | Pass `--state-dir` naming the folder to keep |
 | A pin on a schema identifier | The configuration schema is `urn:finledgerpoli:schema:config:2`, the gate policy schema `urn:finledgerpoli:schema:gate-policy:16` and the CI policy schema `urn:finledgerpoli:schema:ci-policy:2` | Update the pin. Documents keep their `schema_version` |
 
@@ -116,54 +115,36 @@ for a development build, and these steps are for it.
 
 ### A configuration or gate policy that lists figure sources
 
-In this release, figure sources are experimental and off unless opted in. The reader lists the
-figures in the delimited exports it can read, but it can miss amounts written in shapes it does
-not read, so it is not a complete screen. Listed sources are never ignored: without the opt-in,
-the configuration or policy is refused with `forbidden_token_sources_experimental` before any
-source is read and before any request is made.
+Figure sources are not available in 0.12.0, and no setting turns them on. Their reader, planned for
+a later release, can miss amounts written in shapes it does not read, so it is not a complete
+screen. Listed sources are never ignored: a configuration that sets `forbidden_token_sources` to
+anything but an empty list, and a gate policy that holds the key at all, is refused with
+`forbidden_token_sources_experimental` before any file is read and before any request is made,
+even beside `"forbidden_token_sources_experimental": true`.
 
-1. **Choose whether to keep them.** Either way, list the figures you must never send in
-   `forbidden_token_file` or `forbidden_token_hashes`, which do not depend on the reader. To stop
-   using sources, remove `forbidden_token_sources`, `forbidden_token_round_figures` and, in a gate
-   policy, `forbidden_token_source_rule`, then preflight as for a file without sources. The other
-   steps are for keeping them.
-2. **Opt in, and declare each source's layout.** Add `"forbidden_token_sources_experimental": true`,
-   in a gate policy under `model_review`. Give each source as an object that says how it is read:
-   `{"path": "~/exports/positions.csv", "delimiter": ";", "decimal_mark": ","}`. The delimiter is
-   `,`, `;`, a tab, `|`, or `null` for one column; the decimal mark is `.` or `,`, and a comma can't
-   be both. A bare path, which development builds read every way, is refused with
-   `forbidden_token_source_layout_required`.
-3. **In a gate policy, add the rule to `model_review`:** `"forbidden_token_source_rule": 26`, or
-   `"forbidden_token_source_rule": 27` together with `"forbidden_token_round_figures": "list"`.
-   No other value is accepted, and a policy without sources must not state either. Otherwise the
-   policy is refused with `gate_policy_source_rule_required` before anything is read or sent.
-   A configuration states no rule.
-4. **Try the edited file before you commit it,** with the new release:
+1. **List the figures you must never send in `forbidden_token_file` or `forbidden_token_hashes`,**
+   which do not depend on the reader.
+2. **Remove the source settings:** remove `forbidden_token_sources`, `forbidden_token_round_figures`,
+   `forbidden_token_sources_experimental` and, in a gate policy, `forbidden_token_source_rule`.
+   A gate policy that keeps `forbidden_token_source_rule` or `forbidden_token_round_figures` without
+   sources is refused with `gate_policy_source_rule_required`, and a configuration that keeps
+   `"forbidden_token_round_figures": "list"` with `forbidden_token_round_figures_invalid`.
+3. **Try the edited file before you commit it,** with the new release:
 
    ```sh
    finassist doctor --policy-file gate-policy.json --repo . --base BASE --head HEAD \
        --policy-sha256 SHA256_OF_THE_EDITED_FILE
    ```
 
-   This authorizes nothing and sends nothing. It reads the sources only with the pin, and reports
-   a source the reader refuses (`forbidden_token_source_invalid` or
-   `forbidden_token_source_unscreenable`) and a range the screen refuses
-   (`forbidden_token_present`). Fix or quote the source cells it names, and repeat until the
-   ranges you expect to pass are ready. For a configuration, run
-   `finassist --config finassist.json doctor`. While sources are on, `doctor` warns
-   `forbidden_token_sources_experimental_in_use`: a ready range means no figure the reader listed
-   was found, not that the reader listed them all.
-5. **Commit the policy on base through your usual review, and update the pin in the same
+   This authorizes nothing and sends nothing. It reports a range the screen refuses
+   (`forbidden_token_present`). For a configuration, run `finassist --config finassist.json doctor`.
+4. **Commit the policy on base through your usual review, and update the pin in the same
    change:** the `--policy-sha256` your gate job passes, or the action's `policy-sha256` input.
-6. **Replace the installed program at the same time.** There is no policy with sources that both
-   the old and the new reader accept: an earlier build refuses the new fields, with
-   `gate_policy_invalid` or `gate_policy_source_rule_required`, and the new release refuses a
-   policy without them. The gate reads its
-   policy at `--base`, so a pull request whose base is older than the policy commit is refused
-   until it is updated with that base.
+5. **Replace the installed program once the edited policy is on base.** The new release refuses a
+   policy that still lists sources, and the gate reads its policy at `--base`, so a pull request
+   whose base is older than the policy commit is refused until it is updated with that base.
 
-To roll back, reinstall the earlier release and revert the policy commit together, for the same
-reason.
+To roll back, reinstall the earlier release and preflight the policy with it before the gate runs.
 
 ## Version floors and migrations
 

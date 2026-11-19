@@ -684,7 +684,7 @@ class TokenGuard:
     def load(cls, rules: dict, roots: tuple[Path, ...]) -> "TokenGuard":
         from .figure_source_entries import check_opt_in  # no cycle
 
-        check_opt_in(rules)  # every route's guard, so none reads a source not opted in with a declared layout
+        check_opt_in(rules)  # every route's guard: no source is read in this release, nor later unless opted in
         parsed: dict = {}
         return cls(dict(rules), tuple(roots), load_token_snapshot(rules, tuple(roots), parsed), parsed)
 
