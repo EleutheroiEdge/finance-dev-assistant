@@ -693,15 +693,14 @@ and other encodings, and, outside `.py` files, hexadecimal.
 
 Two optional settings:
 
-- **`forbidden_token_sources`**, experimental, names up to 16 delimited files of at most 8 MB,
-  by absolute or `~` path outside every checkout. Its reader can miss amounts in shapes it does
-  not read.
-  - A number with at least `forbidden_token_min_digits` significant digits (5 unless set,
-    from 4 to 18) is a figure, in a cell or in text, unless it is eight bare digits naming a day.
-  - A source with no figure is refused with `forbidden_token_source_invalid`.
-  - A policy with sources states `"forbidden_token_sources_experimental": true`, a layout for
-    each (see the configuration guide) and the rule it is read by, `"forbidden_token_source_rule":
-    26`, or 27 with round figures listed, or is refused unread; one without states no rule.
+- **`forbidden_token_sources`** is not available in 0.12.0, and it cannot be turned on: its reader,
+  planned for a later release, can miss amounts in shapes it does not read. A policy whose
+  `model_review` holds the key at all, whatever its value and even beside
+  `"forbidden_token_sources_experimental": true`, is refused with `forbidden_token_sources_experimental`
+  before anything is read or sent, and `doctor --policy-file` names the field. A policy without
+  sources states no `forbidden_token_source_rule` and no `forbidden_token_round_figures`, or is
+  refused with `gate_policy_source_rule_required`. List the figures in `forbidden_token_file` or
+  `forbidden_token_hashes`.
 - **`forbidden_token_match`** is `value` unless set: a listed figure refuses the same value in
   any notation. With `digits` it also refuses:
   - the same significant digits at any scale: listed `48213.57` refuses `4821357`, `48.21357`
@@ -709,7 +708,7 @@ Two optional settings:
   - a two-place rounding, in either direction: listed `48213.5712` refuses `48,213.57`, and
     listed `905.13` refuses `905.125`.
 
-  Digit matching applies to `forbidden_token_file` entries and to sources. An entry in
+  Digit matching applies to `forbidden_token_file` entries. An entry in
   `forbidden_token_hashes` is always matched by value.
 
 Digit matching leaves two things out, so that it does not refuse ordinary code:
@@ -722,9 +721,9 @@ It still refuses more unrelated numbers than value matching does. A list of 1,00
 with five significant digits matches about one five-digit number in a hundred by chance.
 Raise `forbidden_token_min_digits` when a large list refuses code that holds none of its figures.
 
-Both settings work alike in a configuration and a gate policy. `doctor` opens a policy's
-sources only with `--policy-sha256`, as it does the token file; the budget ledger records how
-many sources and figures were screened, never a path, a digest or a figure.
+Both settings work alike in a configuration and a gate policy. `doctor` opens a policy's token
+file only with `--policy-sha256`; the budget ledger records how many figures were screened, never
+a path, a digest or a figure.
 
 Every file is screened as text, because what leaves the machine is text: the tuple
 `(6,729,102.50)` in Python code still reads as the figure. In `.py`/`.pyi` files, each

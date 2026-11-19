@@ -445,35 +445,19 @@ when the configuration names a list:
   worktrees, with one figure per line.
 - **`forbidden_token_hashes`:** up to 1,024 SHA256 hashes of canonical figures. A hash of a
   short number can be guessed, so keep the hashes private too.
-- **`forbidden_token_sources`:** experimental, and off unless you opt in. It lists the figures in up
-  to 16 delimited files, such as custody exports, but its reader can miss amounts written in shapes
-  it does not read, so it is not a complete screen: list the figures you must never send in
-  `forbidden_token_file` or `forbidden_token_hashes` too. Sources listed without
-  `"forbidden_token_sources_experimental": true` are refused with
-  `forbidden_token_sources_experimental`, never ignored. Opted in, give each source as an object that
-  declares its layout, such as `{"path": "~/exports/positions.csv", "delimiter": ";", "decimal_mark": ","}`;
-  a bare path is refused with `forbidden_token_source_layout_required`, and `doctor` warns while the
-  reader is on. Each path is absolute or `~`, outside the repository. The delimiter is `,`, `;`, a
-  tab, `|`, or `null` for one column, each line a cell; the decimal mark is `.` or `,`; and a comma
-  can't be both. Name each file once. The file is read that way only, and refused if that cuts a cell
-  or meets a number the mark does not read. A cell with fewer significant digits than
-  `forbidden_token_min_digits`, such as a round 250,000.00, is not listed. An
-  amount may carry a sign, brackets, a currency sign or code, a credit or debit mark (`CR`, `DR`,
-  `S`, `H`), an asterisk or a footnote reference such as `1)`; a byte-order mark is ignored. A number
-  with a decimal comma and no digit before it, such as `,57891`, is not recognized in a payload, so
-  a source holding one is refused with `forbidden_token_source_unscreenable`: write `0,57891`.
-  Figures in a text cell, as on a `Total USD 87654.32` line, are listed, and so is each amount the
-  cells of an unquoted comma file may hold: `A,12,345,678.90` lists 12345678.90 and 345678.90. A row
-  with more cells than its header holds the delimiter unquoted, so the file is refused: quote such
-  cells.
+- **`forbidden_token_sources`:** not available in 0.12.0, and it cannot be turned on. It is planned
+  for a later release, to list the figures in delimited files such as custody exports; its reader can
+  still miss amounts written in shapes it does not read. A configuration that sets it to anything but
+  an empty list, the default, is refused with `forbidden_token_sources_experimental` before any file is
+  read, even beside `"forbidden_token_sources_experimental": true`: listed sources are never ignored.
+  List the figures in `forbidden_token_file` or `forbidden_token_hashes` instead.
 - **`forbidden_token_match`:** `value` (the default) refuses the same value in any notation.
   `digits` also refuses the same significant digits at any scale and a two-place rounding, for
   figures of at least `forbidden_token_min_digits` significant digits (5 unless set).
   Use `digits` when replacing a guard that matches digit strings; `value` compares numeric values
   and does not provide equivalent coverage.
-- **`forbidden_token_round_figures`:** `skip` (the default) or `list`, with sources only. `list`
-  also lists their round figures, such as 347,300.00: at least `forbidden_token_min_digits`
-  digits before the point and 4 significant digits, matched by exact value.
+- **`forbidden_token_round_figures`:** belongs to figure sources, so in this release only `skip`,
+  the default, is accepted: `list` is refused with `forbidden_token_round_figures_invalid`.
 
 With neither set, which is the default, no figure screen runs, and `doctor --base --head` says
 so under `figure_screen`, with the match rule and the number of figures and digit forms listed.

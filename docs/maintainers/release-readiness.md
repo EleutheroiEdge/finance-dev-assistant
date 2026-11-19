@@ -67,11 +67,11 @@ fingerprint `471b2dfe27d4dc2a` (see Commands), unless a row names another tree. 
 | A1 | The matrix test passes: no miss and no false alarm | Yes |
 | A2 | 1,092 of 1,092 numbers that the reference changes add are refused when listed, as before | Yes |
 | A3 | 0 of 6,020 file versions refused with 1,000 control figures listed, and no collision, as before | Yes |
-| A4 | 0 escapes in 10,000 generated payloads against a baseline guard (`tests/test_figure_digits.py`) | Yes |
+| A4 | Not a gate for 0.12.0 (see below). 0 escapes in 10,000 generated payloads against a baseline guard (`tests/test_figure_digits.py`) | Yes |
 | A5 | The route tests pass: every path to a provider runs the four screens | Yes |
 | A6 | A reply is screened on the review, gate and proposal routes, hidden characters last | Yes |
 | A7 | Not measured. It needs live calls | No |
-| A8 | Experimental feature, off unless opted in (see below). 0 files missing a figure, 0 unexpected refusals and 0 unscreenable files accepted, read every way and declared, on 480 synthetic exports at seed 20261114: the default corpus (`848464313da02461`), each round-amount and cut-cell run in Commands, and the `--hidden-marks` and `--edge-spellings` profiles. Measured on the 0.12.0 tree | Yes |
+| A8 | Not reachable in 0.12.0, so not a gate for this release (see below); a measurement of the reader's code. 0 files missing a figure, 0 unexpected refusals and 0 unscreenable files accepted, read every way and declared, on 480 synthetic exports at seed 20261114: the default corpus (`848464313da02461`), each round-amount and cut-cell run in Commands, and the `--hidden-marks` and `--edge-spellings` profiles. Measured on the 0.12.0 tree | Yes |
 | A9 | Recall 1.000 and 0.998 (95% intervals from 0.997 and 0.994), precision 1.000 at both seeds, on 1,140 synthetic credentials and 340 look-alikes. Measured on the 0.12.0 tree | Yes |
 | A10 | 23 of 23 payloads refused, 0 of 16 ordinary texts refused. Measured on the 0.12.0 tree | Yes |
 | A11 | 450 of 450 checks byte-identical: `doctor` on each of the 225 reference changes, under both documented setups, gave the same exit status and the same output and error output bytes in all 5 runs, as before | Yes |
@@ -133,11 +133,13 @@ measurement is not passed.
 | A10. Hidden characters | Every payload of the published attack types (bidirectional controls, tag characters, zero-width and other invisible characters) is refused, and no ordinary text in other scripts is | `scripts/hidden_text_accuracy.py`, exit status 0 |
 | A11. The same answer every time | `doctor` on every reference change, under both documented setups (test paths listed, on the configuration and on the gate route), gives the same exit status and the same output and error output bytes in each of 5 runs | `scripts/doctor_stability.py`, exit status 0 |
 
-A4 and A8 measure the figure-source reader, an experimental feature that is off unless a
-configuration or gate policy sets `"forbidden_token_sources_experimental": true`. They count only
-the synthetic shapes they generate, and review has found amounts in other shapes that the reader
-misses, so passing them is no claim that a source lists every figure, and release notes must not
-say it does. A1 to A3, A5 to A7 and A9 to A11 do not use figure sources.
+A4 and A8 measure the figure-source reader. It is not reachable in 0.12.0: a configuration or gate
+policy that lists a figure source is refused whatever else it sets, `"forbidden_token_sources_experimental":
+true` included, so no released route reads one, and A4 and A8 do not gate this release. Their results
+stand as measurements of the reader's code, which is kept for a later release. They count only the
+synthetic shapes they generate, and amounts in other shapes have been found that the reader misses, so
+passing them is no claim that a source lists every figure, and release notes must not say it does. A1 to
+A3, A5 to A7 and A9 to A11 do not use figure sources.
 
 ### B. A stranger's repository works
 

@@ -15,26 +15,21 @@ relative `PATH` entry, is now reported missing: name its directory in full in `P
 this matters only where `PATH` holds an empty or relative entry. Everything in the 0.11.0 notes below is
 also new to users of 0.10.0; read its Upgrading section with this one.
 
-- **Figure sources are experimental and off unless opted in: `forbidden_token_sources_experimental`.**
-  The figure-source reader lists the figures in delimited exports, but review keeps finding amounts it
-  misses when they are written in shapes it does not read, so it is not a complete screen, and nothing
-  below claims it is. A configuration or gate policy that lists `forbidden_token_sources` is now refused
-  by name with `forbidden_token_sources_experimental` before any source is read or any request or
-  reservation is made: listed sources are never ignored. To keep using them, add
-  `"forbidden_token_sources_experimental": true` (in a gate policy under `model_review`, then pin the
-  new policy bytes) and give every source as an object that declares its layout,
-  `{"path": "~/exports/positions.csv", "delimiter": ";", "decimal_mark": ","}`. A bare path, which
-  was read every way, is refused with `forbidden_token_source_layout_required`. `doctor` warns while
-  the reader is on, and `init --detect` proposes no figure source. The opt-in is part of a
-  configuration's identity, so its hash changes and records saved under the old one stop counting; a
-  configuration without sources keeps its hash. Otherwise remove the sources and list the figures in
-  `forbidden_token_file` or `forbidden_token_hashes`. The entries below describe the reader as it is
-  when opted in.
+- **Figure sources are not available in this release, and cannot be turned on:
+  `forbidden_token_sources_experimental`.** The figure-source reader, planned for a later release, still
+  misses amounts written in shapes it does not read, so 0.12.0 does not offer it. A configuration that sets
+  `forbidden_token_sources` to anything but an empty list, and a gate policy that holds the key at all, is
+  refused by name with `forbidden_token_sources_experimental` before any file is read or any request or
+  reservation is made, even beside `"forbidden_token_sources_experimental": true`: listed sources are never
+  ignored, and no setting, variable or option turns the reader on. Remove the sources and list the figures in
+  `forbidden_token_file` or `forbidden_token_hashes`. A configuration without sources keeps its hash, and
+  `init --detect` proposes no figure source. The figure-source entries in the 0.11.0 notes below do not apply
+  to this release.
 - **The upgrading guide says what an upgrade from 0.10.0 asks of you.** `finassist guide upgrading`
   has an "Upgrading from 0.10.0" section: a table of what changes for a configuration or gate policy
   with and without figure sources, a moved state folder and the new schema identifiers, and the steps
-  for a file that lists figure sources, which are experimental and off unless opted in: remove them, or
-  opt in, declare each layout and, in a gate policy, state the source rule. Its rule numbers, schema
+  for a file that lists figure sources, which are not available in this release: list the figures in
+  `forbidden_token_file` or `forbidden_token_hashes` and remove the source settings. Its schema
   identifiers and refusal codes are tested against the code.
 - **A gate policy may opt in to `NOT_APPLICABLE` for a range with nothing in scope.** With
   `model_review.out_of_scope_ranges: "not-applicable"` and `unreviewable_paths: "skip-and-report"`,
@@ -53,79 +48,18 @@ also new to users of 0.10.0; read its Upgrading section with this one.
 - **Three schema identifiers change for the source rule and the round-figure setting.** The configuration schema
   becomes `urn:finledgerpoli:schema:config:2`, the gate policy schema `urn:finledgerpoli:schema:gate-policy:16` and
   the CI policy schema, which refers to the configuration schema, `urn:finledgerpoli:schema:ci-policy:2`.
-  Documents keep their `schema_version`. A configuration without figure sources keeps its hash; one with
-  sources, and a gate policy listing them, move to the new source rule below, whether or not they set round
-  figures. Update a pin on a schema identifier or digest.
+  Documents keep their `schema_version`, and a configuration without figure sources keeps its hash. Update a
+  pin on a schema identifier or digest.
 
 ### Added
-- **A figure source that hides part of an amount is refused: `forbidden_token_source_hidden_mark`.** An
-  invisible character between the digits of an amount, such as a zero-width space or joiner, a direction mark or
-  bidirectional control, a variation selector or tag character, a soft hyphen, a filler, a control character or
-  a space that groups no digits, shows one number but reads as two, so `98<zero-width space>765.43` listed only
-  765.43. So did a line break inside a quoted field between the parts of an amount, as `"Total 1,234,` and
-  `567.89"` on the next line, or a tab between them in a source declared with another
-  delimiter. A mark beside an exponent mark or its sign (`1.2345<mark>e6`), or after a decimal mark that
-  starts a number (`.<mark>57891`, `USD.<mark>57891`), is inside the number too; read every way,
-  so is a mark right after a comma, which another reading may take as a decimal comma. Such a source is now refused before it is read. The grouping spaces the screen
-  reads (space, no-break, figure, thin and narrow no-break spaces) and apostrophes still list the whole amount,
-  and a mark beside an amount or inside a word changes nothing. A source whose quoting can't be read strictly,
-  with each delimiter the readings try, is refused as `forbidden_token_source_malformed_quotes`: a quote left open
-  at the end, a closing quote followed by anything but that reading's delimiter or a line end, another delimiter
-  included, or two readings that disagree about where a quoted field begins or ends. With another delimiter, csv
-  runs a cell on past its closing quote, so `"1,234"<tab>567.89` listed only 567.89. A file quoted from a line's
-  first cell, as `"SYN-1","98765.43"`, is therefore refused unless its layout is declared: declare the layout to
-  read such a file by its own delimiter only. Declared as one column, only a line end may follow a closing
-  quote. This is source rules 26 and 27.
-- **A figure source is read whole in four more shapes, or refused by name.** A bracketed amount grouped by spaces,
-  as `(98 765 432)`, lost its last group as if it were a footnote `432)`: it is listed whole now, beside the
-  footnote reading. An amount whose eight digits name a day was left out as a date however it was written; only
-  eight bare digits are a date now, so `20,170,520.00`, `20170520.00`, `USD 19991231` and `(20170520)` are figures.
-  A file that mixes UTF-8 characters with a byte that is not UTF-8, or holds a byte Windows-1252 does not define,
-  was read as Windows-1252, its UTF-8 grouping spaces and digits turned into letters: it is refused as
-  `forbidden_token_source_encoding`, and a file marked UTF-32 is read. A file marked UTF-16 or UTF-32 that does
-  not decode whole, as one cut short, shifted by a byte or holding a lone surrogate, was read as far as it went, so
-  its figures were listed in part: it is refused as `forbidden_token_source_encoding` too. A visible
-  look-alike of a grouping or
-  decimal mark inside a number, such as a middle dot, a low quote, an ideographic or Arabic comma, a prime, an
-  accent or a modifier letter, or one number that writes two marks of one class, as the Arabic thousands separator
-  beside a point, listed the amount in part: such a source is refused as `forbidden_token_source_hidden_mark`
-  wherever an invisible mark would be, beside a grouping or hidden space, a quoted line break or tab, an exponent
-  mark or its sign, or after a decimal mark that starts a number; so is a replacement character between digits.
-  One right before digits, as in `USD<middle dot>57891`, also lists their fraction, 0.57891; beside another mark
-  there, as in `Total <middle dot><zero-width space>57891`, the source is refused. One beside an ASCII space parts
-  two numbers, as `, ` does in `98, 765.43`, unless a hidden mark, a quoted break or a sign stands on its other
-  side; so do dashes, minus and times signs and fraction slashes, except as an exponent's sign, as in
-  `1.2345e<minus>6`, or beside a hidden mark. A currency sign, bracket or percent sign is a mark wherever no letter,
-  space or delimiter stands beside it, as in `5<euro>50`, `98765<euro>.43` or `1.2345<euro>e6`: a decimal or
-  grouping mark, an exponent mark or sign or the grave accent does not part it from the number. A comma parts it
-  as the declared delimiter, or, read every way, where a letter, space or delimiter stands beyond the comma, as in
-  `Cash,<euro>75`; `SYN-1,<euro>75 929 683`, where the comma may be a decimal mark inside the number, is refused
-  read every way and reads as before declared. Still source rules 26 and 27.
-- **A figure source can also list its round figures: `forbidden_token_round_figures`.** The digit
-  minimum leaves out an amount such as 347,300.00, whose significant digits, 3473, are fewer than
-  `forbidden_token_min_digits`. With `"forbidden_token_round_figures": "list"`, in a configuration or a
-  gate policy that lists sources, a source also lists each number with at least
-  `forbidden_token_min_digits` digits before the point and at least 4 significant digits that is not
-  already a figure, matched by its exact value in either match mode: for a source holding 347,300.00, a
-  change writing `347300`, `347,300.00` or `3.473e5` is refused, and one writing `3473`, `34730` or
-  `3473000` is not. Dates are left out as before. The default, `skip`, lists what it listed before.
-  `list` is read by source rule 27: a configuration carries rule 27 and the setting in its identity, so
-  its hash changes, and a gate policy must state
-  `"forbidden_token_source_rule": 27` with the setting; a policy whose rule and setting disagree, a
-  setting without sources and an unknown value are refused before any source is read or any request
-  or reservation is made. A source of round figures only is read under `list` and refused as invalid
-  under `skip`. The parse cache keeps each setting apart.
-- **A figure source declares its layout.** Each entry of `forbidden_token_sources`, in a
-  configuration or a gate policy, is an object such as
-  `{"path": "~/exports/positions.csv", "delimiter": ";", "decimal_mark": ","}`; a bare path is
-  refused with `forbidden_token_source_layout_required` (see Upgrading).
-  The file is read with that delimiter and decimal mark only, and refused as invalid when that
-  reading cuts a cell or finds a number the mark does not read, so a layout that does not fit the
-  file fails closed. This reads a file the automatic reading refuses as ambiguous. A `null`
-  delimiter declares one column, each line a cell. A comma can't be both the delimiter and the
-  decimal mark, and a file named twice, under one spelling or two, is refused. A declared layout
-  is part of the hash, of the parse cache's key and of the screen's identity, so a changed
-  declaration needs a new approval.
+- **The figure-source reader's code is in the tree, but no released route reaches it.** It is kept, with
+  its tests and its seeded corpus (`scripts/figure_source_corpus.py`), for a later release; in this one any
+  setting that lists a source is refused before the file is opened (see Upgrading). The schemas describe its
+  settings, `forbidden_token_sources`, `forbidden_token_sources_experimental`, `forbidden_token_round_figures`
+  and, in a gate policy, `forbidden_token_source_rule`. Without sources, a gate policy that states
+  `forbidden_token_source_rule` or `forbidden_token_round_figures` is refused with
+  `gate_policy_source_rule_required`, and a configuration that sets `forbidden_token_round_figures` to `list`
+  with `forbidden_token_round_figures_invalid`, before anything is read or sent.
 - **A gate report names the kind of stop: `outcome_class`.** `pass`, `fail`, `refused` when every
   reason is a rule that stopped the change on purpose (a content or privacy screen, an edited
   governance file, a size, count or budget limit, the fork rule, nothing left to review), `incomplete`
@@ -268,95 +202,9 @@ also new to users of 0.10.0; read its Upgrading section with this one.
   `docker` or `podman` recipe. They were fixed in code and undocumented; the defaults are the old
   values (1 GiB, 2 CPUs, 128 processes, 256 MiB), and at their defaults they leave the configuration
   hash as it was.
-- **Figure sources written with decimal commas are read as they are.** A source whose columns are
-  separated by semicolons and whose amounts use decimal commas was split on the comma when commas
-  outnumbered semicolons. It then listed fragments of the amounts, such as 12345 for 12.345,67, and the
-  amounts themselves went unscreened. The whole source is now read with each separator, and as one cell
-  per line; a reading that leaves a fragment, a cell with digits that reads as no one number, is not the
-  file's. When the readings left agree, their figures are listed; when none is left the source is refused
-  as before; when they disagree, as with one column of `12.345,67`, it is refused with
-  `forbidden_token_source_ambiguous`, before any request, instead of being listed in a way that may miss
-  its amounts. The parse cache is also keyed by `forbidden_token_min_digits`.
-- **A figure source lists amounts written with a mark.** An amount followed by a credit or debit mark
-  (`CR`, `DR`, or `S` and `H` in German exports), by a currency code and such a mark, by an asterisk or by
-  a footnote reference such as ` 1)` was read as text and not listed, or made the source unreadable. Such
-  amounts are now listed. A byte-order mark at the start of a figure source or figure file is no longer
-  read as part of the first cell, so a headerless export saved as UTF-8 by a spreadsheet lists its first
-  amount instead of dropping it or being refused. A name column beside comma-grouped amounts in a tab,
-  semicolon or bar file, as in `Alice<tab>12,345.67`, is no longer refused as ambiguous: a reading that
-  leaves a column break beside a number inside a cell did not split that line, and is ruled out. A seeded
-  corpus of synthetic exports measures all of this: release gate A8, `scripts/figure_source_corpus.py`.
-- **A figure source holding a number with a decimal comma and no digit before it is refused.** With its
-  layout declared, `,57891` was listed as 0.57891, but a payload spelling it `,57891` was not refused. Read
-  every way, the source could instead be split on the comma and list 57891. The payload screen reads a
-  leading point and never a leading comma, so such a source is now refused with
-  `forbidden_token_source_unscreenable`, before any request: write `0,57891`. This holds after a currency
-  code (`EUR,57891`) and inside a text label (`Total EUR ,57891`, `Balance: ,57891`), and glued to a word,
-  with or without a word after it (`TotalEUR,57891 units`), where that comma can't be a column break: a line
-  split on another mark, a quoted cell, a layout declared with decimal commas, or a file that reads as one
-  column with decimal commas and has no header above its data. Where round figures are listed, so is a number
-  that an exponent makes a round figure, as `,3473e6` (347300), in a cell or a label: listed, that spelling
-  would pass the screen. Still source rules 26 and 27.
 - **The configuration guide says which match mode covers a digit-string guard.** Use `digits` when
   replacing a guard that matches digit strings; `value` compares numeric values and does not provide
   equivalent coverage.
-- **What a figure source lists is bound to the rule it is read by.** The same source settings now list other
-  figures than in 0.11.0, so they no longer share its hashes. A configuration that lists sources carries
-  `forbidden_token_source_rule: 26` in its identity, so its hash changes once and records saved under the old
-  rule go stale; no setting chooses the rule, and one without sources keeps its hash. A gate policy that
-  lists sources must state `"forbidden_token_source_rule": 26` in `model_review`, and one without sources
-  must not. Otherwise, or with 2 to 25 from a development build, it is refused with
-  `gate_policy_source_rule_required` before anything is read or sent, and `doctor --policy-file` names the
-  field. The gate policy schema's identifier becomes `urn:finledgerpoli:schema:gate-policy:16`, with the
-  round-figure setting; policies keep `schema_version` 2. Upgrading: add the line, check
-  the sources with `doctor`, commit the policy on base through review and update the pin.
-- **A figure source lists figures in text and in amounts a comma file cut, and checks whole records.** A total
-  beside its label in one cell, as `Total USD 87654.32` or `Kontostand: 87.654,32 EUR`, was skipped as text; an
-  unquoted comma file cut `1,234,567.89` or `123,45` into cells and listed fragments. Figures in a text cell, and
-  amounts a comma cut, with their whole exponent (`1,234,567.89e2`, `e0002`), are now listed, and so is each
-  shorter amount the cut cells may hold: under `Account,Quantity,Cost`, `SYN-1,12,345,678.90` may hold a cost of
-  345,678.90, while an amount inside a quoted field, read as the csv module quotes, is in one cell. An amount
-  cut into more than seven cells refuses the file, which is never read in part: quote such cells. These amounts
-  are listed whichever way the file is read, so a cell elsewhere that rules the comma reading out, or a layout
-  declared with another delimiter, does not drop them; the cut amount is listed whole too, and its first cell may
-  follow a colon, a slash or a date's dash, as in `Rate:12,345,678.90`, but never a point: `1.5,345,678.90`
-  holds 1.5 and 345,678.90. A text cell lists every number the payload screen reads in it, a number inside a
-  longer reading included: `Lot 1.5 345 678.90` holds 345,678.90 though its digits also read as 5,345,678.90,
-  and `Lots 25 157 435.77` may be 25 lots at 157,435.77. A cell of one number, as `USD 1 345 678.90`, is still
-  read as one. A cut amount may start after a letter, as in `x12,345,678.90`, and in a comma reading a number
-  right after a comma that may be a decimal one, as in `Lot ,5 345 678.90`, also lists what a text cell would.
-  Numbers are listed up to the 260 digits the payload screen reads, and an exponent past 128 hides nothing that a
-  spelling within it shows: `12,345,678.90e129` refuses `123456789e128`. Indian groups, as in `12,34,567.89`, are
-  read in a change (as with groups of three, a compact list such as `[9,99,999]` reads as one number too),
-  and in a source where an unquoted comma file cuts them into cells; a cell holding them in any other
-  declared layout, and a cell of one amount whose digits underscores join, as `1_234,56`, hold a number the
-  declared mark does not read, so the source is refused with `forbidden_token_source_invalid`. Any currency
-  sign may stand beside an amount. A decimal-comma amount that starts inside a row of digit
-  groups, as 234,56 in `1 234,56` or in `1.234,56`, is listed up to nine groups, as far as the payload screen
-  reads from such a start; a later start of more groups refuses the source. A quoted field is one cell, so no
-  comma cuts an amount inside it: `"EUR 1.234,56"` lists 1234.56 alone.
-  The refusal holds in a file of any delimiter: a tab or bar
-  file holding an amount of more than seven comma groups is refused too. Quoting is read as a comma file quotes, so
-  in a file of another delimiter a quoted field counts as one cell only where a comma file would open one: at the
-  start of a line or after a comma. A cut amount
-  that does not read whole rules that reading out, and a declared layout reads a zero-padded exponent as the screen
-  does. A row with more cells than the header (the widest row without a digit) holds the delimiter unquoted,
-  so that reading is ruled out and such a file is refused unless another reading fits; an amount cut by comma
-  groups counts as one cell, in Indian groups too. So `SYN-0001,31,41,592.65` under `account,mv` is no longer
-  read only as the one number 13141592.65, which left 592.65 out: like `SYN-0001,234,567.89`, it is refused as
-  ambiguous. Timestamps with milliseconds or a time zone, `[1]`
-  and ` 123)` footnotes, `Soll`, `Haben`, `Credit` and `Debit`, a spreadsheet's `="..."`, UTF-16 files and
-  cp1252 files are read. A leading decimal comma too short to be a figure no longer refuses the source. A reading
-  that lists more figures than one snapshot holds (200,000) refuses the source as soon as it does, not after the
-  whole file is read (the one-column check for a leading decimal comma, which lists nothing, is not counted, nor
-  are round figures under `skip`, which lists none and no longer keeps them). That check counts a round figure as
-  the number beside a leading decimal comma under `skip` too, so `347300,00` over `Cash dividend,57891 units` is
-  refused as unscreenable, as `0,12345` over it is; under `skip` it was read and 0.57891 passed the screen: 8 MB of text rows of nine digit groups and a decimal comma took about 100 seconds and 7 GB
-  of memory before the refusal, and now take about a second and 130 MB. A line longer than a csv field may be
-  (131,072 characters by default), without one of the delimiters a reading splits on, refuses the source before any
-  cell is read. Reading a source every way costs more than 0.11.0's one reading did. Measured on one workstation, a
-  4 MB custody export of 198,418 figures takes about 6 seconds and 300 MB, against 1.6 seconds and 110 MB, and a 2 MB
-  export with semicolons and decimal commas about 1.5 seconds, against 0.6.
 - **Running or resuming a stopped workflow run exits 1.** `workflow run` and `workflow resume` on a
   cancelled or abandoned run returned its report with exit 0, so a script could read a run whose
   checks never completed as a success. The report now carries `workflow_run_cancelled` or
