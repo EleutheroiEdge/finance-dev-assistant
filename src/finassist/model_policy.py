@@ -136,13 +136,13 @@ def missing_fields(document: dict) -> list[str]:
     return sorted(set(_PROPERTIES) - set(model)) + ([] if "schema_version" in document else ["schema_version"])
 
 
-def coverage_issues(model: dict) -> list[tuple[str, str]]:
-    """(code, field) for each coverage setting the gate refuses once the schema passes: a data or binary format in
+def coverage_issues(model: dict) -> list[tuple[AssistantError, str]]:
+    """(refusal, field) for each coverage setting the gate refuses once the schema passes: a data or binary format in
     `text_suffixes`, which is never reviewable, and a `placeholder_credential_occurrences` entry that names no exact
     repository path to a YAML file. The gate, doctor and the draft check all judge them here, and read nothing."""
     issues = []
     if set(model.get("text_suffixes", ())) & DENIED_SUFFIXES:
-        issues.append(("gate_policy_invalid", "/model_review/text_suffixes"))
+        issues.append((AssistantError("gate_policy_invalid"), "/model_review/text_suffixes"))
     for index, entry in enumerate(model.get("placeholder_credential_occurrences", ())):
         try:
             check_path(entry["path"], source_only=False)
@@ -150,7 +150,7 @@ def coverage_issues(model: dict) -> list[tuple[str, str]]:
         except AssistantError:
             exact = False
         if not exact:
-            issues.append(("invalid_placeholder_credential_occurrences",
+            issues.append((AssistantError("invalid_placeholder_credential_occurrences"),
                            f"/model_review/placeholder_credential_occurrences/{index}"))
     return issues
 
@@ -169,7 +169,7 @@ def check_draft(document: dict) -> None:
     check_opt_in(document["model_review"])  # experimental figure sources, as the gate and doctor check them
     issues = coverage_issues(document["model_review"])
     if issues:
-        raise AssistantError(issues[0][0])
+        raise issues[0][0]
 
 
 @dataclass(frozen=True)
@@ -277,7 +277,7 @@ def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePo
     check_text(canonical(document).decode())
     issues = coverage_issues(model)
     if issues:
-        raise AssistantError(issues[0][0])
+        raise issues[0][0]
     settings = fixture_settings(repo, base, model)
     for name in ("allow_paths", "deny_paths"):
         for prefix in model[name]:

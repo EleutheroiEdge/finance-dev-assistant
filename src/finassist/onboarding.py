@@ -435,9 +435,9 @@ class _Preflight:
         except AssistantError as exc:
             usable = False
             self.failed(exc, field="/")
-        for code, field in coverage_issues(model):  # the gate's own check, so it refuses before reading anything
+        for refusal, field in coverage_issues(model):  # the gate's own check, so it refuses before reading anything
             usable = False
-            self.block(code, field=field)
+            self.failed(refusal, field=field)
         roots = tuple(model.get("fixture_roots", ()))
         for name in ("allow_paths", "deny_paths"):
             for index, prefix in enumerate(model[name]):
