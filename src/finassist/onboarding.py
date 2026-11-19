@@ -37,7 +37,7 @@ from .review import review_schema, spend_estimate
 from .error_hints import error_fields
 from .remedies import applied, attach_remedies
 from .scope import WITHHELD_REASON, git, omission_for, read_entry, read_sides, require_regular, resolve
-from .figure_source_entries import EXPERIMENTAL_WARNING, OPT_IN, check_opt_in
+from .figure_source_entries import EXPERIMENTAL_WARNING, OPT_IN, check_opt_in, check_opted_in
 from .hidden_text import Waiting
 from .security import (TEXT_FIXTURE_SUFFIXES, canonical, local_name, check_fixture_private, check_name,
                        check_path, check_text, digest, refusal_location, regular_path)
@@ -397,15 +397,22 @@ class _Preflight:
             return self.block("gate_policy_is_configuration")
         if document.get("schema_version") == 1:
             return self.block("gate_model_opt_in_required")
+        try:  # the gate's first check of a policy with sources; the other refusals are still listed
+            check_opted_in(document.get("model_review"))
+            opted_out = False
+        except AssistantError as exc:
+            opted_out = True
+            self.failed(exc, field="/model_review/" + OPT_IN)
         field = "/model_review/forbidden_token_source_rule"
         rule_issue = source_rule_issue(document)
         if rule_issue:  # the gate refuses it before reading anything, so nothing further is read here either
             model = document.get("model_review") if isinstance(document.get("model_review"), dict) else {}
             self.block("gate_policy_source_rule_required", field=field, allowed={"const": stated_source_rule(model)})
-        issues = [issue for issue in _schema_issues(document) if issue["field"] != field]
+        skipped = {field, "/model_review/" + OPT_IN} if opted_out else {field}
+        issues = [issue for issue in _schema_issues(document) if issue["field"] not in skipped]
         for issue in issues:
             self.block("gate_policy_invalid", **issue)
-        if issues or rule_issue:
+        if issues or rule_issue or opted_out:
             return None
         model = document["model_review"]
         try:

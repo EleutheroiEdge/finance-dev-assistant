@@ -114,7 +114,7 @@ def test_an_invalid_entry_is_refused_by_the_loader_the_configuration_and_a_gate_
         _config(entry)
     document = model_policy()
     document["model_review"]["forbidden_token_sources"] = [entry]
-    document["model_review"]["forbidden_token_source_rule"] = SOURCE_RULE  # so that only the entry is wrong
+    document["model_review"].update({"forbidden_token_source_rule": SOURCE_RULE, OPT_IN: True})  # only the entry is wrong
     with pytest.raises(AssistantError, match="^gate_policy_invalid$"):
         check_draft(document)
 

@@ -46,7 +46,8 @@ def _layout(path):
     return {"path": path, "delimiter": None, "decimal_mark": ","}
 
 
-@pytest.mark.parametrize("sources", [["/synthetic/positions.csv"], [LAYOUT]], ids=["path", "layout"])
+@pytest.mark.parametrize("sources", [["/synthetic/positions.csv"], [LAYOUT], [{**LAYOUT, "delimiter": ","}]],
+                         ids=["path", "layout", "comma-twice"])  # the opt-in is judged before the entries
 def test_a_configuration_listing_sources_without_the_opt_in_is_refused_by_name(sources):
     with pytest.raises(AssistantError, match="^forbidden_token_sources_experimental$"):
         _config({"forbidden_token_sources": sources})
@@ -180,7 +181,8 @@ def test_an_opted_in_gate_policy_with_layouts_screens_and_runs(gate_case, tmp_pa
 
 @pytest.mark.parametrize("changes,code", [
     ({}, "forbidden_token_sources_experimental"),
-    ({OPT_IN: "true"}, "gate_policy_invalid"),
+    ({OPT_IN: "true"}, "forbidden_token_sources_experimental"),
+    ({OPT_IN: False}, "forbidden_token_sources_experimental"),
     ({OPT_IN: True, "forbidden_token_sources": ["~/exports/a.csv"]}, "forbidden_token_source_layout_required"),
 ])
 def test_a_draft_gets_the_gate_s_code(changes, code):
@@ -240,8 +242,15 @@ def test_init_detect_proposes_no_figure_source(tmp_path, capsys):
 
 _ABSENT = _layout("/synthetic/absent/positions.csv")
 ROUTE_CASES = {  # name: (policy changes, the one code, the field doctor names)
-    "no-rule": ({"forbidden_token_sources": [_ABSENT]}, "gate_policy_source_rule_required",
-                "/model_review/forbidden_token_source_rule"),
+    # Listed without the opt-in, sources are refused by that name before the rule is judged, as documented.
+    "no-rule": ({"forbidden_token_sources": [_ABSENT]}, "forbidden_token_sources_experimental",
+                "/model_review/" + OPT_IN),
+    "development-rule": ({"forbidden_token_sources": [_ABSENT], "forbidden_token_source_rule": 25},
+                         "forbidden_token_sources_experimental", "/model_review/" + OPT_IN),
+    "opted-out": ({"forbidden_token_sources": [_ABSENT], "forbidden_token_source_rule": SOURCE_RULE, OPT_IN: False},
+                  "forbidden_token_sources_experimental", "/model_review/" + OPT_IN),
+    "opted-out-no-rule": ({"forbidden_token_sources": [_ABSENT], OPT_IN: False},
+                          "forbidden_token_sources_experimental", "/model_review/" + OPT_IN),
     "no-rule-opted-in-bare-path": ({"forbidden_token_sources": [_ABSENT["path"]], OPT_IN: True},
                                    "gate_policy_source_rule_required", "/model_review/forbidden_token_source_rule"),
     "not-opted-in": ({"forbidden_token_sources": [_ABSENT], "forbidden_token_source_rule": SOURCE_RULE},
@@ -265,6 +274,10 @@ def test_the_draft_check_doctor_and_the_gate_give_one_code(name, gate_case, tmp_
           "--head", gate_case["head"]])
     blockers = json.loads(capsys.readouterr().out)["blockers"]
     assert [(item["code"], item["field"]) for item in blockers[:1]] == [(code, field)]
+    if code == "forbidden_token_sources_experimental":  # every other refusal is listed with it
+        assert [item["code"] for item in blockers[1:]] == (
+            ["gate_policy_source_rule_required"] if "forbidden_token_source_rule" not in changes
+            or changes["forbidden_token_source_rule"] != SOURCE_RULE else [])
     change_policy(gate_case, **{OPT_IN: None, **changes})
     report, calls = run(gate_case)
     assert not calls and report["reasons"] == [code] and report["spend"]["reserved_usd"] is None

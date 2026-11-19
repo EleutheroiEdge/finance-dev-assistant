@@ -15,7 +15,8 @@ from urllib.parse import urlsplit
 from .errors import AssistantError
 from .config_compat import check_min_version, compatible_document, decode_config, unknown_option
 from .hidden_text import Waiting
-from .figure_source_entries import OPT_IN, SOURCE_ENTRY_SCHEMA, SourceFormat, check_opt_in, source_entries, source_format
+from .figure_source_entries import (OPT_IN, SOURCE_ENTRY_SCHEMA, SourceFormat, check_opt_in, check_opted_in,
+                                    source_entries, source_format)
 from .figure_sources import ROUND_LIST, ROUND_OPTIONS, source_rule
 from .forbidden_tokens import DEFAULT_MIN_DIGITS, MATCHES, MAX_MIN_DIGITS, MAX_SOURCE_FILES, MAX_TOKENS, MIN_DIGITS
 from .security import (
@@ -341,12 +342,13 @@ class Config:
         if (len(hashes) > MAX_TOKENS or len(set(hashes)) != len(hashes)
                 or any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in hashes)):
             raise AssistantError("forbidden_token_hashes_invalid")
+        if type(self.forbidden_token_sources_experimental) is not bool:
+            raise AssistantError("forbidden_token_sources_experimental")
+        check_opted_in(self.forbidden_token_rules)  # sources listed without the opt-in, by that name first
         # Loaded, a declared layout is a SourceFormat: a configuration holds no mutable entry.
         source_entries(self.forbidden_token_sources)
         if any(not isinstance(item, (str, SourceFormat)) for item in self.forbidden_token_sources):
             raise AssistantError("forbidden_token_source_invalid")
-        if type(self.forbidden_token_sources_experimental) is not bool:
-            raise AssistantError("forbidden_token_sources_experimental")
         check_opt_in(self.forbidden_token_rules)
         if (self.forbidden_token_match not in MATCHES or type(self.forbidden_token_min_digits) is not int
                 or not MIN_DIGITS <= self.forbidden_token_min_digits <= MAX_MIN_DIGITS):

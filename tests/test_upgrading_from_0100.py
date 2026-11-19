@@ -160,9 +160,10 @@ def test_removing_the_sources_is_the_other_documented_path():
 
 @pytest.mark.parametrize("model", [
     {"forbidden_token_source_rule": SOURCE_RULE},
-    {"forbidden_token_sources": ["/synthetic/exports/positions.csv"], "forbidden_token_source_rule": ROUND_RULE},
+    {"forbidden_token_sources": ["/synthetic/exports/positions.csv"], "forbidden_token_source_rule": ROUND_RULE,
+     OPT_IN: True},
     {"forbidden_token_sources": ["/synthetic/exports/positions.csv"], "forbidden_token_source_rule": SOURCE_RULE,
-     "forbidden_token_round_figures": "list"},
+     "forbidden_token_round_figures": "list", OPT_IN: True},
 ])
 def test_a_rule_that_disagrees_with_the_policy_is_refused(model):
     with pytest.raises(AssistantError) as refused:

@@ -55,13 +55,18 @@ def check_opt_in(rules) -> None:
     believes a source screens what it does not. Opted in, each declares its layout: the reading-every-way guess
     is not reachable from a configuration or a gate policy. Other damage is left to the schema and source_entries.
     """
+    check_opted_in(rules)
     sources = rules.get("forbidden_token_sources") if isinstance(rules, Mapping) else None
-    if not sources or not isinstance(sources, (list, tuple)):
-        return
-    if rules.get(OPT_IN) is not True:
-        raise AssistantError("forbidden_token_sources_experimental")
-    if any(isinstance(item, str) for item in sources):
+    if sources and isinstance(sources, (list, tuple)) and any(isinstance(item, str) for item in sources):
         raise AssistantError("forbidden_token_source_layout_required")
+
+
+def check_opted_in(rules) -> None:
+    """The first half of check_opt_in: sources listed without `"forbidden_token_sources_experimental": true`, or
+    with any other value, are refused by that name. A gate policy is checked for it before anything else in it."""
+    sources = rules.get("forbidden_token_sources") if isinstance(rules, Mapping) else None
+    if sources and isinstance(sources, (list, tuple)) and rules.get(OPT_IN) is not True:
+        raise AssistantError("forbidden_token_sources_experimental")
 
 
 def source_entries(sources) -> tuple[tuple[str, tuple[str, str] | None], ...]:

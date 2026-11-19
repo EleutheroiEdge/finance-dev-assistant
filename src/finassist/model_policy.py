@@ -15,7 +15,7 @@ from .errors import AssistantError, prices_required
 from .policy_fixtures import FIXTURE_PROPERTIES, fixture_settings, load_policy_config
 from .profiles import PROFILES
 from .scope import read_entry
-from .figure_source_entries import OPT_IN, SOURCE_ENTRY_SCHEMA, check_opt_in
+from .figure_source_entries import OPT_IN, SOURCE_ENTRY_SCHEMA, check_opt_in, check_opted_in
 from .figure_sources import ROUND_OPTIONS, ROUND_RULE, SOURCE_RULE, source_rule
 from .forbidden_tokens import MATCHES, MAX_MIN_DIGITS, MAX_SOURCE_FILES, MAX_TOKENS, MIN_DIGITS
 from .hidden_text import check_hidden
@@ -156,8 +156,10 @@ def coverage_issues(model: dict) -> list[tuple[str, str]]:
 
 
 def check_draft(document: dict) -> None:
-    """The source rule beside the sources, first, as the gate and doctor check it, then the schema and the coverage
-    settings: nothing is read from a repository and no price rule or allow or deny path rule runs."""
+    """The opt-in for figure sources and the rule beside them, first, as the gate and doctor check them, then the
+    schema and the coverage settings: nothing is read from a repository and no price rule or allow or deny path rule
+    runs."""
+    check_opted_in(document.get("model_review"))
     if source_rule_issue(document):
         raise AssistantError("gate_policy_source_rule_required")
     try:
@@ -256,6 +258,7 @@ def load_model_policy(repo: Path, base: str, path: str, pin: str) -> ModelGatePo
     document = decode_document(raw, "gate_policy_invalid")
     if document.get("schema_version") == 1:
         raise AssistantError("gate_model_opt_in_required")
+    check_opted_in(document.get("model_review"))  # sources listed without the opt-in are refused by that name
     if source_rule_issue(document):
         raise AssistantError("gate_policy_source_rule_required")
     try:
