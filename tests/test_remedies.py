@@ -424,8 +424,11 @@ def test_a_path_that_cannot_be_named_or_a_long_list_gets_no_scope_remedy():
     many = _report([{"code": "scope_incomplete", "count": len(rows)}], rows)
     attach_remedies(many, "configuration")
     assert many["remedies"] == []
-    attach_remedies(_report([{"code": "scope_incomplete", "count": 1}],
-                            [{"path": "x.bin", "status": "omitted", "reason": "generated_path"}]), "configuration")
+    for reason in ("generated_path", "generated_artifact_excluded"):
+        generated = _report([{"code": "scope_incomplete", "count": 1}],
+                            [{"path": "x.bin", "status": "omitted", "reason": reason}])
+        attach_remedies(generated, "configuration")
+        assert generated["remedies"] == []
 
 
 def test_a_budget_is_rounded_up_to_a_cent_and_a_bad_amount_proposes_nothing():

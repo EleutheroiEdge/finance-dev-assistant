@@ -35,7 +35,7 @@ NOT_JSON = {
     "deep_and_closed": "[" * DEEP + "]" * DEEP,
     "key_twice": '{"a": 1, "a": 2}',
     "key_twice_inside": '[{"a": {"b": 1, "b": 1}}]',
-    # Not an integer as written, and one once Python has rounded it: Codex P111-1.
+    # Not an integer as written, and one once Python has rounded it.
     "just_over_an_integer": "[2.0000000000000001]",
     "just_under_an_integer": "[1.9999999999999999]",
     "a_half_too_large_to_keep": "[9007199254740993.5]",
@@ -145,7 +145,7 @@ def test_a_review_reads_a_line_written_with_a_point_as_that_line(repository, tmp
 
 @pytest.mark.parametrize("written", ["2.0000000000000001", "1.9999999999999999"])
 def test_a_line_that_only_rounding_makes_an_integer_is_not_a_line(gate_case, repository, tmp_path, monkeypatch, written):
-    """Codex P111-1: the first version of this reader took both for line 2 and a gate passed them."""
+    """The first version of this reader took both for line 2 and a gate passed them."""
     report, calls = run(gate_case, lambda packet: envelope(_with_lines_written(packet, written)))
     assert report["verdict"] == "BLOCKED" and report["reasons"] == ["review_json_invalid"] and len(calls) == 1
     monkeypatch.setenv("OPENAI_API_KEY", "fictional")
@@ -186,7 +186,7 @@ def test_a_token_count_written_with_a_point_is_a_count(repository, tmp_path, mon
 
 
 def test_a_token_count_that_only_rounding_makes_a_count_is_not_one(repository, tmp_path, monkeypatch):
-    """Codex P111-1: such a count closed the reservation. It is no count, and the spend stays open."""
+    """Such a count closed the reservation. It is no count, and the spend stays open."""
     monkeypatch.setenv("OPENAI_API_KEY", "fictional")
     repo, base, head = repository
     packet = build_packet(repo, base, head, Config())

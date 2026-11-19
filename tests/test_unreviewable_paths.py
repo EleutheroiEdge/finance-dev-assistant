@@ -261,13 +261,19 @@ def test_a_private_name_with_an_unreviewable_suffix_is_private_first(gate_case, 
 @pytest.mark.parametrize("files, policy, code", [
     ({"tools/build.py": b"print('synthetic')\n"}, {"deny_paths": ["tools/"]}, "gate_denied_path"),
     ({"src/events.jsonl": b"{}\n"}, {"deny_paths": ["src/events.jsonl"]}, "gate_denied_path"),
-    ({"tools/.gitignore": b"*.log\n"}, {}, "gate_ignore_change_requires_review"),
+    ({"tools/.gitignore": b"!*.log\n"}, {}, "gate_ignore_change_requires_review"),
     ({"src/keys.py": b"API_KEY = 'synthetic-" + b"a" * 30 + b"'\n"}, {}, "sensitive_content"),
 ])
 def test_what_the_gate_still_refuses_whatever_the_setting(gate_case, files, policy, code):
     _gate(gate_case, files, unreviewable_paths="skip-and-report", **policy)
     report, calls = run(gate_case)
     assert report["verdict"] == "BLOCKED" and report["reasons"] == [code] and not calls
+
+
+def test_an_appended_ordinary_ignore_pattern_is_no_longer_held_for_review(gate_case):
+    _gate(gate_case, {"tools/.gitignore": b"*.log\n"}, unreviewable_paths="skip-and-report")
+    report, _calls = run(gate_case)
+    assert "gate_ignore_change_requires_review" not in report["reasons"]
 
 
 def test_a_range_with_nothing_left_to_review_is_refused(gate_case):

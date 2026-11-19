@@ -38,7 +38,10 @@ def _read(connection) -> dict | None:
     row = connection.execute("SELECT value FROM update_check WHERE id=1").fetchone()
     if row is None:
         return None
-    data = json.loads(row[0])
+    try:
+        data = json.loads(row[0])
+    except RecursionError as exc:  # nested past the decoder's limit: damaged like any other invalid value
+        raise ValueError("invalid update cache") from exc
     if (not isinstance(data, dict) or set(data) != {"claim", "started", "state", "latest"}
             or not isinstance(data["claim"], str) or not re.fullmatch(r"[a-f0-9]{32}", data["claim"])
             or type(data["started"]) not in {int, float} or not 0 <= data["started"] < 100_000_000_000

@@ -18,7 +18,7 @@ inputs:
     default: .
 outputs:
   status:
-    description: Checks use passed/blocked/error; model-review uses PASS/FAIL/BLOCKED. Only passed or PASS succeeds.
+    description: Checks use passed/blocked/error; model-review uses PASS/FAIL/BLOCKED, or NOT_APPLICABLE when the policy opts in for a range with nothing in scope. Only passed, PASS or NOT_APPLICABLE succeeds.
     value: ${{ steps.gate.outputs.status }}
   report-hash:
     description: Hash of the metadata-only report, excluding its hash field.
@@ -27,11 +27,14 @@ outputs:
     description: Private report path under RUNNER_TEMP; raw artifacts are not uploaded.
     value: ${{ steps.gate.outputs.report-path }}
   withheld-count:
-    description: Model review only. Changed files withheld unread by private_paths skip-and-report; 0 otherwise.
+    description: Model review only. Changed files not reviewed (withheld, left out, or all of them under NOT_APPLICABLE); 0 otherwise.
     value: ${{ steps.gate.outputs.withheld-count }}
   coverage-complete:
-    description: Model review only. false when files were withheld, so a PASS covered only the rest.
+    description: Model review only. false when files were not reviewed, so a PASS covered only the rest; always false under NOT_APPLICABLE.
     value: ${{ steps.gate.outputs.coverage-complete }}
+  outcome-class:
+    description: What stopped or passed the change, whatever the status - pass, fail, refused (a rule stopped it), incomplete (the review or a check did not run to a result) or not_applicable; unclassified for a report written before the field.
+    value: ${{ steps.gate.outputs.outcome-class }}
 runs:
   using: composite
   steps:

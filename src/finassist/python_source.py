@@ -18,7 +18,7 @@ import sys
 import tokenize
 import warnings
 
-from .code_text import is_expansion
+from .code_text import is_expansion, is_placeholder
 
 PYTHON_SUFFIXES = frozenset({".py", ".pyi"})
 # Comment and string text is still screened with the ordinary text rules.
@@ -29,7 +29,7 @@ _ENVIRONMENT_READERS = frozenset({"getenv", "getenvb"})
 # must end with the credential word; any other characters may come before it,
 # including non-ASCII letters. Only a bounded tail is searched.
 _SECRET_SUFFIX = re.compile(
-    r"(?:api[_-]?key|password|secret|access[_-]?token|gh[_-]?token|github[_-](?:enterprise[_-])?token"
+    r"(?:api[_-]?key|password|secret|(?:access|api|auth|refresh|session|bearer)[_-]?token|gh[_-]?token|github[_-](?:enterprise[_-])?token"
     r"|(?:secret|private|signing|encryption|access|client|master|auth|api)[_-]?(?:access[_-]?)?key)\Z",
     re.IGNORECASE)
 _ACCOUNT_SUFFIX = re.compile(r"(?:account[_ -]?(?:number|id)|routing[_ -]?number)\Z", re.IGNORECASE)
@@ -413,7 +413,8 @@ def credential_literals(tree: ast.AST, source: str) -> list[tuple[int, str]]:
                 found.add((value.lineno, kind))
             continue
         text = _value_text(value, index)
-        if text is not None and len(text) >= _MIN_SECRET_LENGTH and not is_expansion(text):
+        if (text is not None and len(text) >= _MIN_SECRET_LENGTH and not is_expansion(text)
+                    and not is_placeholder(text)):
             found.add((value.lineno, kind))
     return sorted(found)
 

@@ -423,20 +423,20 @@ def test_shipped_resource_bytes_survive_autocrlf_checkouts(tmp_path):
     assert all((root / name).read_bytes() == data for name, data in expected.items())
 
 
-def test_ci_and_protection_proposal_cover_each_native_python_version():
+def test_ci_covers_each_native_python_version_and_the_protection_proposal_requires_the_gate():
     import json
     import yaml
 
     root = Path(__file__).resolve().parents[1]
-    rows = yaml.safe_load((root / ".github/workflows/ci.yml").read_text(encoding="utf-8"))["jobs"]["test"][
-        "strategy"
-    ]["matrix"]["include"]
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_text(encoding="utf-8"))["jobs"]
+    rows = [row for job in ("test", "platform") for row in jobs[job]["strategy"]["matrix"]["include"]]
     for system in ("ubuntu-24.04", "windows-latest", "macos-latest"):
         assert {row["python"] for row in rows if row["os"] == system} == {"3.11", "3.12", "3.13"}
     proposal = json.loads((root / "docs/maintainers/branch-protection-proposal.json").read_text(encoding="utf-8"))
-    assert {row["check_name"] for row in rows} | {"isolation"} <= {
-        row["context"] for row in proposal["body"]["required_status_checks"]["checks"]
-    }
+    # One required check, the gate that needs every job: a row a private draft skips reports as one skipped check
+    # under an unexpanded name, so a required row would wait forever, and a skipped row never reads as passed.
+    assert [row["context"] for row in proposal["body"]["required_status_checks"]["checks"]] == ["all-checks"]
+    assert set(jobs["all-checks"]["needs"]) == set(jobs) - {"all-checks"}
     assert proposal["applied"] is False
 
 

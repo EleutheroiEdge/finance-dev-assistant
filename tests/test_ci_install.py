@@ -38,7 +38,7 @@ def test_all_python_tools_are_exact_hash_pins_with_platform_dependencies():
     requirements = locked_requirements()
     assert project["build-system"]["requires"] == ["setuptools==84.2.1", "wheel==0.48.0"]
     for group in [project["build-system"]["requires"], project["project"]["dependencies"],
-                  project["project"]["optional-dependencies"]["dev"], project["dependency-groups"]["ci"]]:
+                  *project["project"]["optional-dependencies"].values(), project["dependency-groups"]["ci"]]:
         for item in group:
             requirement = Requirement(item)
             assert requirements[canonicalize_name(requirement.name)].specifier == requirement.specifier
@@ -63,8 +63,10 @@ def test_workflows_keep_hash_verification_and_existing_check_identities():
             if "uses" in step:
                 assert re.fullmatch(r"[^@]+@[a-f0-9]{40}", step["uses"].split()[0])
         if name == "ci.yml":
-            assert set(workflow["jobs"]) == {"lint", "test", "dashboard", "isolation"}
-            assert [item["check_name"] for item in workflow["jobs"]["test"]["strategy"]["matrix"]["include"]] == [
+            assert set(workflow["jobs"]) == {"lint", "test", "platform", "dashboard", "dashboard-platform", "isolation",
+                                             "all-checks"}
+            assert [item["check_name"] for job in ("test", "platform")
+                    for item in workflow["jobs"][job]["strategy"]["matrix"]["include"]] == [
                 "test (3.11)", "test (3.12)", "test (3.13)", "platform (Windows, 3.11)",
                 "platform (Windows, 3.12)", "platform (Windows)", "platform (macOS, 3.11)",
                 "platform (macOS, 3.12)", "platform (macOS)",
@@ -111,10 +113,12 @@ def test_the_wheel_tool_installs_exactly_one_built_wheel(tmp_path, monkeypatch):
 
 def test_native_upgrade_checks_have_a_bounded_windows_time_allowance():
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
-    job = workflow["jobs"]["test"]
-    assert job["timeout-minutes"] == "${{ matrix.timeout_minutes }}"
-    for item in job["strategy"]["matrix"]["include"]:
-        assert item["timeout_minutes"] == {"windows-latest": 45, "macos-latest": 25}.get(item["os"], 15)
+    for job in (workflow["jobs"]["test"], workflow["jobs"]["platform"]):
+        assert job["timeout-minutes"] == "${{ matrix.timeout_minutes }}"
+        for item in job["strategy"]["matrix"]["include"]:
+            # A private repository's Windows runners have half the cores, and the tests run one group per core.
+            assert item["timeout_minutes"] == {"windows-latest": 90, "macos-latest": 25}.get(item["os"], 15)
+    assert workflow["jobs"]["dashboard"]["timeout-minutes"] == workflow["jobs"]["dashboard-platform"]["timeout-minutes"]
     assert workflow["jobs"]["dashboard"]["timeout-minutes"] == 15
     assert workflow["jobs"]["isolation"]["timeout-minutes"] == 15
 

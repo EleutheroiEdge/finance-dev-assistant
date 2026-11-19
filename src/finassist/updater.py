@@ -38,7 +38,8 @@ def installation() -> dict:
                 manager_environment["UV_TOOL_DIR"] = str(prefix.parent)
         elif installer in {"pip", "uv"}:
             method = "pip"
-    except (metadata.PackageNotFoundError, OSError, ValueError, TypeError, AttributeError):
+    except (metadata.PackageNotFoundError, OSError, ValueError, TypeError, AttributeError, RecursionError):
+        # Damaged metadata, including JSON nested past the decoder's limit, is metadata not available.
         reason = "installer-metadata-unavailable"
     manager = {"pipx": "pipx", "uv tool": "uv"}.get(method)
     if manager:

@@ -95,6 +95,57 @@ To replace an existing pipx installation with a chosen older release, use
 with the Python interpreter for the intended environment. Reinstalling a package
 does not restore state or authorize an automatic rollback of data.
 
+## Upgrading from 0.10.0
+
+0.10.0 is the last release published to PyPI before this one: 0.11.0 was tagged but never
+published, so its changes reach PyPI with this release. What an upgrade from 0.10.0 asks of you
+depends on what your project uses. Try the new release in a fresh environment first, run the checks below against
+your own repository, and replace the installed program only when they report what you expect.
+
+| You have | What changes | What to do |
+|---|---|---|
+| A configuration without `forbidden_token_sources` | Nothing. It loads unchanged and keeps its hash, so saved records still count | Run `finassist doctor` |
+| A gate policy without `forbidden_token_sources` | Nothing. Its bytes and its `--policy-sha256` pin stay valid | Preflight a recent range with `finassist doctor --policy` |
+| A configuration or gate policy with `forbidden_token_sources` | Figure sources are not available in this release, so it is refused before any file is read | Remove the sources, as the steps below say |
+| Commands run from a subfolder, or with a `--config` kept elsewhere | They stop with `state_location_moved` before writing | Pass `--state-dir` naming the folder to keep |
+| A pin on a schema identifier | The configuration schema is `urn:finledgerpoli:schema:config:2`, the gate policy schema `urn:finledgerpoli:schema:gate-policy:16` and the CI policy schema `urn:finledgerpoli:schema:ci-policy:2` | Update the pin. Documents keep their `schema_version` |
+
+0.10.0 itself did not read figure sources. A policy or configuration that lists them was written
+for a development build, and these steps are for it.
+
+### A configuration or gate policy that lists figure sources
+
+Figure sources are not available in 0.12.0, and no setting turns them on. Their reader, planned for
+a later release, can miss amounts written in shapes it does not read, so it is not a complete
+screen. Listed sources are never ignored: a configuration that sets `forbidden_token_sources` to
+anything but an empty list, and a gate policy that holds the key at all, is refused with
+`forbidden_token_sources_experimental` before any file is read and before any request is made,
+even beside `"forbidden_token_sources_experimental": true`.
+
+1. **List the figures you must never send in `forbidden_token_file` or `forbidden_token_hashes`,**
+   which do not depend on the reader.
+2. **Remove the source settings:** remove `forbidden_token_sources`, `forbidden_token_round_figures`,
+   `forbidden_token_sources_experimental` and, in a gate policy, `forbidden_token_source_rule`.
+   A gate policy that keeps `forbidden_token_source_rule` or `forbidden_token_round_figures` without
+   sources is refused with `gate_policy_source_rule_required`, and a configuration that keeps
+   `"forbidden_token_round_figures": "list"` with `forbidden_token_round_figures_invalid`.
+3. **Try the edited file before you commit it,** with the new release:
+
+   ```sh
+   finassist doctor --policy-file gate-policy.json --repo . --base BASE --head HEAD \
+       --policy-sha256 SHA256_OF_THE_EDITED_FILE
+   ```
+
+   This authorizes nothing and sends nothing. It reports a range the screen refuses
+   (`forbidden_token_present`). For a configuration, run `finassist --config finassist.json doctor`.
+4. **Commit the policy on base through your usual review, and update the pin in the same
+   change:** the `--policy-sha256` your gate job passes, or the action's `policy-sha256` input.
+5. **Replace the installed program once the edited policy is on base.** The new release refuses a
+   policy that still lists sources, and the gate reads its policy at `--base`, so a pull request
+   whose base is older than the policy commit is refused until it is updated with that base.
+
+To roll back, reinstall the earlier release and preflight the policy with it before the gate runs.
+
 ## Version floors and migrations
 
 A project may set `min_version` to a stable `X.Y.Z`. Versions starting with

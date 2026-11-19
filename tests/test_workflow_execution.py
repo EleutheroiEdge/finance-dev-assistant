@@ -23,7 +23,7 @@ from finassist.scope import build_packet
 from finassist.security import canonical, digest
 from finassist.workflow import build_workflow_plan
 from finassist.workflow_execution import (
-    cancel_run, create_run, execute_run, inspect_run, reconcile_run, retry_step,
+    abandon_run, cancel_run, create_run, execute_run, inspect_run, reconcile_run, retry_step,
 )
 from finassist.workflow_state import WorkflowStore, replay_workflows, unfinished_workflows, workflow_lock
 
@@ -521,6 +521,33 @@ def test_cli_pause_status_resume_and_cancel_are_local_and_audited(execution_case
     assert main(["audit", "--state-dir", str(state)]) == 0
     report = json.loads(capsys.readouterr().out)
     assert not report["unfinished_workflows"] and not report["incomplete_runs"]
+
+
+@pytest.mark.parametrize("stop", ["cancel", "abandon"])
+def test_resuming_a_stopped_run_is_not_a_success(execution_case, tmp_path, capsys, monkeypatch, dispatches, stop):
+    repo, config, packet, plan = execution_case
+    state, config_path = tmp_path / "state", tmp_path / "config.json"
+    save_config(config_path, config)
+    monkeypatch.setattr("finassist.providers.invoke", lambda *_a, **_k: pytest.fail("no provider"))
+    with WorkflowStore(state, create=True) as store:
+        identifier = new_run(store, execution_case)
+        if stop == "cancel":
+            cancel_run(store, identifier, approved_plan=plan["plan_hash"])
+        else:
+            # Abandon is for a damaged run: one step done, its plan file lost, then the file comes back.
+            run(store, identifier, execution_case, max_steps=1)
+            saved = store.run_directory(identifier) / "plan.json"
+            original = saved.read_bytes()
+            saved.unlink()
+            abandon_run(store, identifier, approved_plan=plan["plan_hash"])
+            saved.write_bytes(original)
+    # Stopping a run is not an error; running or resuming the stopped run reports that its checks did not complete.
+    assert main(["--config", str(config_path), "workflow", "resume", "--state-dir", str(state), "--run-id", identifier,
+                 "--repo", str(repo), "--approve-plan", plan["plan_hash"], "--approve-local"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["recorded_status"] == report["status"] == ("cancelled" if stop == "cancel" else "abandoned")
+    assert report["blocking_reasons"] == ["workflow_run_" + report["recorded_status"]]
+    assert not report["check_records"] and dispatches == ([] if stop == "cancel" else ["unit"])
 
 
 @pytest.mark.parametrize("identifier", ["../outside", "a" * 31, "a" * 32 + "\n", "A" * 32])

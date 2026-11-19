@@ -176,6 +176,10 @@ def execute_run(store: WorkflowStore, identifier: str, repo: Path, config: Confi
                 if preflight["blocking_reasons"]:
                     report.update(status="blocked", blocking_reasons=sorted(
                         set(report["blocking_reasons"]) | set(preflight["blocking_reasons"])))
+                if report["recorded_status"] in {"abandoned", "cancelled"}:
+                    # A stopped run did not complete its checks: running or resuming it is never a success.
+                    report["blocking_reasons"] = sorted(
+                        {*report["blocking_reasons"], "workflow_run_" + report["recorded_status"]})
                 return report
             preflight = preflight_workflow(plan, packet, repo, config)
             if preflight["blocking_reasons"]:

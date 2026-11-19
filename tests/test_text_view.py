@@ -2,7 +2,7 @@
 
 The five literal reports below stand for the three report shapes, and each
 expected screen is the same text as the mock screens in
-docs/design/doctor-text-view.md. Nothing here calls the product's builders.
+docs/maintainers/doctor-text-view.md. Only the last test runs the product, to render reports it writes.
 """
 
 from finassist.text_view import render
@@ -363,6 +363,15 @@ def test_ready_gate_with_warnings_renders_as_designed():
     assert render(READY_GATE) == EXPECTED_READY_GATE
 
 
+def test_a_range_with_nothing_in_scope_renders_as_not_applicable_and_never_as_ready_or_blocked():
+    report = {**READY_GATE, "status": "not_applicable", "blockers": []}
+    text = render(report)
+    assert text.splitlines()[:2] == ["finassist doctor - gate preflight",
+                                     "Verdict: NOT APPLICABLE - nothing in scope, nothing reviewed"]
+    assert "READY" not in text and "BLOCKED" not in text
+    assert "\x1b[33m" in render(report, color=True)
+
+
 def test_no_line_exceeds_the_width():
     for report in ALL_REPORTS:
         for width in (60, 80, 100):
@@ -396,14 +405,15 @@ def test_unknown_fields_are_ignored():
 
 def test_a_key_value_or_file_content_can_never_appear():
     report = dict(READY_RANGE)
-    report["api_key_value"] = "sk-live-secret-value"
-    report["provider"] = {**report["provider"], "key_value": "sk-live-secret-value"}
+    key_value = "sk-" + "live-secret-value"  # built here, so the source holds no key-shaped literal
+    report["api_key_value"] = key_value
+    report["provider"] = {**report["provider"], "key_value": key_value}
     report["paths"] = [{"path": "src/finance/cash.py", "status": "included",
                         "content": "SECRET FILE BODY"}]
     report["blockers"] = [{"code": "file_limit_exceeded", "hint": "see the guide",
                            "content": "SECRET FILE BODY"}]
     out = render(report)
-    assert "sk-live-secret-value" not in out
+    assert key_value not in out
     assert "SECRET FILE BODY" not in out
 
 

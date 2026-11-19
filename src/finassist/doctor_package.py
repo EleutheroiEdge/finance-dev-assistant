@@ -8,6 +8,7 @@ import sys
 import jsonschema
 
 from . import __version__
+from .document_schemas import SCHEMA_FILES
 from .error_hints import error_fields, hints
 from .guides import GUIDES
 
@@ -32,11 +33,15 @@ def package_status() -> dict:
                     if not text.lstrip().startswith("#") or "\0" in text:
                         raise ValueError("malformed guide")
             else:
-                expected = ("finassist", "review", "model-gate-report", "model-gate-report-v1",
-                            "triage-request", "triage-result", "triage-gold")
+                # Every packaged schema: the review and triage ones, and each document schema `config schema`
+                # exports, one of which (review-report) is a union with no top-level type.
+                expected = dict.fromkeys(("review.schema.json", "triage-request.schema.json",
+                                          "triage-result.schema.json", "triage-gold.schema.json",
+                                          *SCHEMA_FILES.values()))
                 for name in expected:
-                    schema = json.loads(resources.joinpath(name + ".schema.json").read_text(encoding="utf-8"))
-                    if not isinstance(schema, dict) or schema.get("type") != "object":
+                    schema = json.loads(resources.joinpath(name).read_text(encoding="utf-8"))
+                    if not isinstance(schema, dict) or (schema.get("type") != "object"
+                                                        and not isinstance(schema.get("oneOf"), list)):
                         raise ValueError("malformed schema")
                     jsonschema.Draft202012Validator.check_schema(schema)
             results[kind] = "ok"

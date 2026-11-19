@@ -19,6 +19,7 @@ from finassist.errors import AssistantError
 from finassist.history_evaluation import evaluate_history
 from finassist.history_suite import prepare_history_case
 from finassist.model_gate import prepare_model_request
+from finassist.platform_support import find_tool
 from finassist.providers import reply_json
 from finassist.review import validate_review
 from finassist.security import canonical, digest
@@ -71,7 +72,7 @@ def fixture_git(repo: Path, *args: str, data: bytes | None = None) -> str:
                GIT_AUTHOR_EMAIL="a7@example.invalid", GIT_COMMITTER_EMAIL="a7@example.invalid",
                GIT_AUTHOR_DATE="2000-01-01T00:00:00+0000", GIT_COMMITTER_DATE="2000-01-01T00:00:00+0000")
     result = subprocess.run(
-        ["git", "-C", str(repo), "-c", "core.hooksPath=" + str(repo / "empty-hooks"),
+        [find_tool("git"), "-C", str(repo), "-c", "core.hooksPath=" + str(repo / "empty-hooks"),
          "-c", "commit.gpgSign=false", *args], input=data, capture_output=True, check=True, env=env)
     return result.stdout.decode("utf-8").strip()
 

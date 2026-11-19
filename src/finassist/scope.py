@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
 import os
 import re
 import subprocess
+import threading
 
 from .config import Config
 from .platform_support import find_tool, clean_environment
@@ -130,7 +133,7 @@ def _offline_git_options(repo: Path, executable: str) -> list[str]:
     if result.returncode == 0:
         raise AssistantError("git_partial_clone_unsupported")
     if result.returncode != 1:
-        raise AssistantError("git_read_failed")
+        raise _git_failure(result.stderr, repo)
     return []
 
 
@@ -154,7 +157,125 @@ def git_command(repo: Path, *args: str) -> list[str]:
     ]
 
 
+# Reads addressed by a full object ID can never change, so within one command each is run once. The preflight reads
+# every changed file's objects to classify it and again to build the packet; on Git before 2.45 every call also runs
+# a partial-clone probe of its own, which stays uncached, as it must. A remembered read starts no Git process at all,
+# so nothing can be fetched. Outside `object_cache()` nothing is kept, and a context copied inside it that outlives
+# the command neither reads nor fills it.
+class _ObjectScope:
+    """The Git reads remembered within one command, their size, and whether that command is still running. A lock
+    serializes an insertion with the close, so a read that finishes as the command ends cannot leave an entry."""
+
+    __slots__ = ("open", "reads", "size", "_lock")
+
+    def __init__(self) -> None:
+        self.open = True
+        self.reads: dict = {}
+        self.size = 0
+        self._lock = threading.Lock()
+
+    def remember(self, key, value) -> None:
+        with self._lock:
+            if self.open and self.size + len(value) <= _OBJECT_BYTES:
+                self.reads[key] = value
+                self.size += len(value)
+
+    def close(self) -> None:
+        with self._lock:
+            self.open = False
+            self.reads.clear()
+            self.size = 0
+
+
+_OBJECTS: ContextVar[_ObjectScope | None] = ContextVar("finassist_git_objects", default=None)
+_OBJECT_BYTES = 64 * 1024 * 1024  # A command stops remembering past this many bytes of output.
+_FULL_OID = re.compile(REVISION_PATTERN)
+
+
+@contextmanager
+def object_cache():
+    """For the duration of one command: `git` remembers reads addressed by a full object ID."""
+    scope = _ObjectScope()
+    token = _OBJECTS.set(scope)
+    try:
+        yield
+    finally:
+        scope.close()  # seen by every context copied inside the command
+        _OBJECTS.reset(token)
+
+
+def _addressed_by_object(args: tuple[str, ...]) -> bool:
+    if len(args) == 3 and args[0] == "cat-file" and args[1] in {"-s", "blob"}:
+        return _FULL_OID.fullmatch(args[2]) is not None
+    if len(args) == 6 and args[:3] == ("--literal-pathspecs", "ls-tree", "-z") and args[4] == "--":
+        return _FULL_OID.fullmatch(args[3]) is not None
+    return False
+
+
+def _device(item: Path) -> int:
+    return os.stat(item).st_dev
+
+
+def _git_entry_at_or_above(folder: Path) -> bool:
+    """Whether a `.git` entry exists at folder or above it, searched as Git does: up to a mount point.
+
+    Only an entry that is absent counts as absent; any other error reading it reaches the caller.
+    """
+    device = _device(folder)
+    for item in (folder, *folder.parents):
+        if _device(item) != device:
+            return False
+        try:
+            (item / ".git").lstat()
+            return True
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+    return False
+
+
+def _git_failure(stderr, repo: Path) -> AssistantError:
+    """not_a_git_repository only when Git says so and the folder confirms it; anything else is git_read_failed.
+
+    Git's fatal line is read case-insensitively (older Git capitalizes it); git_environment keeps it in
+    English. "cannot change to" counts only when the folder is missing, never for a permission or I/O
+    error, and "not a git repository" only when no `.git` entry exists at the folder or above it, so a
+    damaged checkout keeps its own code. Git entered the folder then, so it is read as Git read it: links
+    followed before `..`, not the folder it was written from.
+    """
+    lines = (stderr if isinstance(stderr, bytes) else b"").lower().splitlines()
+    folder = Path(repo).absolute()
+    if any(line.startswith(b"fatal: cannot change to") for line in lines):
+        try:
+            folder.stat()
+        except (FileNotFoundError, NotADirectoryError):
+            return AssistantError("not_a_git_repository")
+        except OSError:
+            pass
+        return AssistantError("git_read_failed")
+    if any(line.startswith(b"fatal: not a git repository") for line in lines):
+        try:
+            entered = Path(os.path.realpath(folder))
+            if entered.is_dir() and not _git_entry_at_or_above(entered):
+                return AssistantError("not_a_git_repository")
+        except OSError:
+            pass
+    return AssistantError("git_read_failed")
+
+
 def git(repo: Path, *args: str, binary: bool = False):
+    scope = _OBJECTS.get()
+    if scope is None or not scope.open or not _addressed_by_object(args):
+        return _run_git(repo, *args, binary=binary)
+    key = (str(Path(repo).absolute()), args, binary)
+    remembered = scope.reads.get(key)  # a read's output is text or bytes, never None
+    if remembered is not None:
+        return remembered
+    value = _run_git(repo, *args, binary=binary)
+    scope.remember(key, value)
+    return value
+
+
+def _run_git(repo: Path, *args: str, binary: bool = False):
     try:
         done = subprocess.run(
             git_command(repo, *args),
@@ -164,6 +285,8 @@ def git(repo: Path, *args: str, binary: bool = False):
             check=True,
         )
         return done.stdout if binary else done.stdout.decode("utf-8", errors="strict").strip()
+    except subprocess.CalledProcessError as exc:
+        raise _git_failure(exc.stderr, repo) from exc
     except (subprocess.SubprocessError, OSError, UnicodeError) as exc:
         raise AssistantError("git_read_failed") from exc
 
@@ -184,7 +307,7 @@ def resolve(repo: Path, ref: str) -> str:
     if result.returncode == 1:
         raise AssistantError("git_commit_unavailable")
     if result.returncode != 0:
-        raise AssistantError("git_read_failed")
+        raise _git_failure(result.stderr, repo)
     if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", sha):
         raise AssistantError("invalid_revision")
     return sha
@@ -415,9 +538,12 @@ def checkout_roots(repo: Path) -> tuple[Path, ...]:
 
 def config_token_guard(config: Config, repo: Path) -> TokenGuard | None:
     """The figure screen a configuration asks for, or None when it lists no figures."""
+    from .figure_source_entries import check_opt_in
+
     rules = config.forbidden_token_rules
     if not rules:
         return None
+    check_opt_in(rules)
     return TokenGuard.load(rules, checkout_roots(repo))
 
 
@@ -604,6 +730,12 @@ def plan_packet(repo: Path, base: str, head: str, config: Config, config_path: P
         summary["withheld_paths"] = [local_name(name, config.extra_sensitive_patterns) for name in withheld]
     if warnings:
         summary["config_warnings"] = warnings
+    if not packet["changed_paths"] and not withheld and not packet.get("withheld"):
+        # Not an error (a no-op range is valid in CI), but never silent: on its own branch the
+        # usual first try, --base main --head HEAD, compares a commit with itself.
+        from .error_hints import error_fields
+
+        summary["warnings"] = [{"code": "empty_review_scope", **error_fields("empty_review_scope")}]
     return packet, summary
 
 

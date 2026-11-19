@@ -10,6 +10,7 @@ import pytest
 from conftest import command
 from test_model_policy import model_policy, policy_case  # noqa: F401 - fixture registration
 from test_providers_review import envelope, response
+from finassist.figure_source_entries import OPT_IN
 from finassist.ledger import Ledger
 from finassist.model_gate import EXIT_CODES, model_gate, validate_model_report
 from finassist.security import canonical, digest
@@ -44,6 +45,9 @@ def run(case, handler=None, **kwargs):
 
 def change_policy(case, **changes):
     document = model_policy()
+    # A policy listing figure sources opts in to the experimental reader, unless a test passes the setting as None.
+    if "forbidden_token_sources" in changes and changes.setdefault(OPT_IN, True) is None:
+        del changes[OPT_IN]
     document["model_review"].update(changes)
     (case["repo"] / "gate-policy.json").write_bytes(canonical(document))
     command(case["repo"], "add", "gate-policy.json")

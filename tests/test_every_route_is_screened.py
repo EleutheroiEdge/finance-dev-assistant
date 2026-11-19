@@ -351,7 +351,7 @@ def answered(route, repository, tmp_path, monkeypatch, name, **reply):
 
 
 def test_a_review_with_a_hidden_character_and_a_listed_figure_is_refused_for_the_figure(repository, tmp_path, monkeypatch):
-    """Codex H2 on output: the figure screen reads a reply after the credential screen, and before this one."""
+    """On output, the figure screen reads a reply after the credential screen, and before this one."""
     for name, summary, code in (("figure", "The limit is " + FIGURE + ".", "forbidden_token_present"),
                                 ("both", "The li" + ZERO_WIDTH_SPACE + "mit is " + FIGURE + ".", "forbidden_token_present"),
                                 ("hidden", "The li" + ZERO_WIDTH_SPACE + "mit is unchanged.", "hidden_characters"),

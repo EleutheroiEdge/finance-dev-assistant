@@ -26,7 +26,7 @@ It reads only what is committed and prints a proposal with the file and rule beh
 setting:
 - which directories and root files hold source, tests, docs and other reviewable text;
 - which files are generated or protected;
-- a file limit that fits your largest source module, and packet limits that fit your recent changes;
+- a file limit with room above your largest source module, and packet limits that fit your recent changes;
 - a gate policy draft, whole once you pass your provider, model, key variable name and prices;
 - your test commands.
 

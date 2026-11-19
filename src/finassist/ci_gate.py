@@ -5,9 +5,10 @@ from pathlib import Path
 
 from .config import config_hash
 from .ci_policy import load_ci_policy, repository_name
-from .errors import OperationOutcomeUnknown
+from .errors import AssistantError, OperationOutcomeUnknown
 from .github_context import PullRequestContext, verify_origin
 from .ledger import Ledger
+from .outcome_class import check_cause, ci_outcome_class
 from .scope import build_packet, git, resolve, review_omissions
 from .security import canonical, digest, regular_path, is_text_fixture
 from .policy_ignores import screen_ignores
@@ -66,7 +67,7 @@ def ci_gate(repo: Path, context: PullRequestContext, policy_path: str, policy_sh
             screened.update(path for path in paths if path and is_text_fixture(path, fixture_roots))
         if screened:
             screen_ignores(repo, {context.base_sha, ancestor}, sorted(screened))
-    packet, plan, identifier, execution = None, None, None, None
+    packet, plan, identifier, execution, causes = None, None, None, None, []
     if not blockers:
         packet = build_packet(repo, context.base_sha, context.head_sha, config)
         # Packets describe merge-base..head. Also compare the current base tree
@@ -105,6 +106,16 @@ def ci_gate(repo: Path, context: PullRequestContext, policy_path: str, policy_sh
                 blockers.update(execution["blocking_reasons"])
                 if execution["status"] != "completed-checks" or len(execution["check_records"]) != steps:
                     blockers.add("ci_checks_incomplete")
+                for row in execution["steps"]:  # what ended each failed check, from its own receipt
+                    if row["state"] == "failed":
+                        try:
+                            artifact, artifact_hash = store.artifact(identifier, row["attempt_id"])
+                            # Only the artifact the run recorded speaks for the check; a changed one is unknown.
+                            recorded = row.get("artifact_hash")
+                            causes.append(check_cause(artifact.get("receipt"))
+                                          if recorded and artifact_hash == recorded else "unknown")
+                        except (AssistantError, OSError, ValueError, TypeError, AttributeError):
+                            causes.append("unknown")
     if resolve(repo, "HEAD") != context.head_sha or _dirty(repo):
         blockers.add("ci_source_changed")
     report = {
@@ -120,7 +131,9 @@ def ci_gate(repo: Path, context: PullRequestContext, policy_path: str, policy_sh
         "correctness. Trusted CI wiring and protected base policy are prerequisites. Recipes run candidate source "
         "in the configured isolated image; check semantics require independent review. GitHub merge queues and "
         "unattended model calls are not supported by this policy version.",
+        "failed_check_causes": sorted(causes),
     }
+    report["outcome_class"] = ci_outcome_class(report["status"], report["blocking_reasons"], report["failed_check_causes"])
     report["report_hash"] = digest(canonical(report))
     if identifier:
         with Ledger(Path(state_dir) / "audit.sqlite") as ledger:

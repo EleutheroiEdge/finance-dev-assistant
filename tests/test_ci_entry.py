@@ -53,18 +53,21 @@ def test_the_fast_lock_checks_pass_on_the_tree_and_fail_on_drift(tmp_path):
 
 def test_the_linter_runs_once_and_the_test_matrix_waits_for_it():
     jobs = _workflow()["jobs"]
-    assert jobs["test"]["needs"] == "lint"
+    assert jobs["test"]["needs"] == jobs["platform"]["needs"] == "lint"
+    assert _commands(jobs["platform"]) == _commands(jobs["test"])
     assert jobs["lint"]["runs-on"] == "ubuntu-24.04" and jobs["lint"]["timeout-minutes"] == 5
     assert "strategy" not in jobs["lint"] and "needs" not in jobs["lint"]
     others = [command for name, job in jobs.items() if name != "lint" for command in _commands(job)]
     assert not any("ruff" in command or "ci.py" in command for command in others)
     # The checks that branch protection requires keep their names; isolation still starts at once.
     assert "needs" not in jobs["isolation"] and "name" not in jobs["isolation"]
-    assert jobs["test"]["name"] == "${{ matrix.check_name }}"
+    assert jobs["test"]["name"] == jobs["platform"]["name"] == "${{ matrix.check_name }}"
 
 
 def test_python_installs_are_cached_by_the_hash_of_the_lock_they_install():
     for name, job in _workflow()["jobs"].items():
+        if name == "all-checks":
+            continue  # it reads the other jobs' results only, with the runner's own Python
         setups = [step for step in job["steps"] if step.get("uses", "").startswith("actions/setup-python@")]
         assert len(setups) == 1, name
         assert setups[0]["with"]["cache"] == "pip"

@@ -131,7 +131,7 @@ def verify_connection(connection) -> dict:
         try:
             document = json.loads(payload)
             identity = tuple(document[key] for key in ("entity", "metric", "unit", "period_start", "period_end", "period_kind"))
-        except (ValueError, TypeError, KeyError) as exc:
+        except (ValueError, TypeError, KeyError, RecursionError) as exc:
             raise AssistantError("evidence_store_integrity_failed") from exc
         if supersedes is not None:
             if supersedes not in entries or supersedes in children or entries[supersedes][2] != identity:

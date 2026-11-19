@@ -20,3 +20,5 @@ dashboard/node_modules/
 dashboard/test-results/
 dashboard/playwright-report/
 dashboard/.cache/
+# A local code graph's output: never part of the repository or its packages.
+graphify-out/

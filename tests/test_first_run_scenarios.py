@@ -262,7 +262,7 @@ def _sibling_with_another_private_file(repo, tip):
 
 
 def test_a_replacement_ref_cannot_put_other_changes_in_the_place_of_the_pinned_ones(repository, tmp_path, capsys):
-    """Codex P114-1: with a replacement for the saved commit, a run read other changes under the same fingerprint."""
+    """With a replacement for the saved commit, a run read other changes under the same fingerprint."""
     repo, _base, _head = repository
     _history(repo)
     first, again = tmp_path / "first", tmp_path / "again"
@@ -284,7 +284,7 @@ def test_a_replacement_ref_cannot_put_other_changes_in_the_place_of_the_pinned_o
 
 
 def test_a_repository_with_a_grafts_file_is_not_measured(repository, tmp_path, capsys):
-    """Codex P114-2: a graft gave the pinned commit another parent, under the same tips and fingerprint."""
+    """A graft gave the pinned commit another parent, under the same tips and fingerprint."""
     repo, _base, _head = repository
     _history(repo)
     first = tmp_path / "first"
