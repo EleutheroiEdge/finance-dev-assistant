@@ -11,6 +11,7 @@ from test_model_policy import model_policy, policy_case  # noqa: F401 - fixture 
 from finassist.cli import main
 from finassist.config import Config, config_hash, config_identity, load_config
 from finassist.errors import AssistantError
+from finassist.figure_source_entries import OPT_IN
 from finassist.figure_sources import SOURCE_RULE
 from finassist.model_policy import check_draft
 from finassist.security import canonical
@@ -98,6 +99,7 @@ def test_a_policy_stating_the_rule_with_its_sources_runs(gate_case, tmp_path):  
 def test_doctor_names_the_rule_and_reads_no_source(gate_case, tmp_path, capsys):  # noqa: F811
     document = model_policy()
     document["model_review"]["forbidden_token_sources"] = ["/synthetic/absent/positions.csv"]
+    document["model_review"][OPT_IN] = True  # opted in, so that only the rule is wrong
     policy = tmp_path / "policy.json"
     policy.write_bytes(canonical(document))
     main(["doctor", "--policy-file", str(policy), "--repo", str(gate_case["repo"]), "--base", gate_case["base"],

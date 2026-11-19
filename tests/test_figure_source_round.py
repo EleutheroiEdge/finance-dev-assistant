@@ -12,6 +12,7 @@ from test_model_policy import model_policy, policy_case  # noqa: F401 - fixture 
 from finassist.cli import main
 from finassist.config import Config, config_hash, config_identity, load_config
 from finassist.errors import AssistantError
+from finassist.figure_source_entries import OPT_IN
 from finassist.figure_sources import ROUND_LIST, ROUND_RULE, SOURCE_RULE, _round_figure
 from finassist.forbidden_tokens import load_token_snapshot
 from finassist.security import canonical
@@ -157,7 +158,7 @@ def test_a_listed_round_figure_in_a_change_stops_the_gate_before_any_request(gat
 def test_doctor_names_the_list_rule_for_a_policy_listing_round_figures(gate_case, tmp_path, capsys):  # noqa: F811
     document = model_policy()
     document["model_review"].update(forbidden_token_sources=["/synthetic/absent/positions.csv"],
-                                    forbidden_token_source_rule=SOURCE_RULE, **LIST)
+                                    forbidden_token_source_rule=SOURCE_RULE, **LIST, **{OPT_IN: True})  # only the rule
     policy = tmp_path / "policy.json"
     policy.write_bytes(canonical(document))
     main(["doctor", "--policy-file", str(policy), "--repo", str(gate_case["repo"]), "--base", gate_case["base"],
