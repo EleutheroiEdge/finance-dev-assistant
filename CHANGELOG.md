@@ -2,7 +2,7 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## 0.12.0 - DATE
+## 0.12.0 - 2026-11-23
 
 ### Upgrading
 
