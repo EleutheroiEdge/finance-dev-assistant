@@ -25,7 +25,7 @@ classifiers = [
 requires-python = ">=3.11"
 license = "MIT"
 readme = "README.md"
-dependencies = ["httpx==0.28.1", "jsonschema==4.25.1"]
+dependencies = ["httpx==0.28.1", "jsonschema==4.26.0"]
 
 [project.urls]
 Homepage = "https://github.com/EleutheroiEdge/finance-dev-assistant"
@@ -36,14 +36,14 @@ Changelog = "https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/C
 Security = "https://github.com/EleutheroiEdge/finance-dev-assistant/blob/main/SECURITY.md"
 
 [project.optional-dependencies]
-dev = ["pytest==9.2.0", "ruff==0.14.3", "PyYAML==6.0.3", "readme-renderer[md]==46.0"]
+dev = ["pytest==9.2.0", "ruff==0.17.6", "PyYAML==6.0.3", "readme-renderer[md]==46.0"]
 # Reads reviewed placeholder values in YAML for the gate (placeholder_credential_occurrences). Only this
 # reviewed version is used; without it, or with another, no such entry applies.
 yaml = ["PyYAML==6.0.3"]
 
 # Hash-locked alongside the dev extra for CI, release builds and wheel smoke checks.
 [dependency-groups]
-ci = ["build==1.6.1", "twine==7.0.0", "setuptools==84.2.1", "wheel==0.48.0", "maturin==1.15.0", "uv==0.13.4"]
+ci = ["build==1.6.1", "twine==7.0.0", "setuptools==84.2.1", "wheel==0.48.0", "maturin==1.16.0", "uv==0.13.9"]
 
 [project.scripts]
 finassist = "finassist.cli:main"
