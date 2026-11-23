@@ -210,6 +210,32 @@ def test_packaged_resource_damage_is_warning(kind, damage, monkeypatch):
     assert any(row.get("resource_kind") == kind for row in report["warnings"])
 
 
+@pytest.mark.parametrize("target", ["gate-policy.schema.json", "review-report.schema.json",
+                                    "history-suite.schema.json"])
+@pytest.mark.parametrize("damage", ["missing", "malformed"])
+def test_every_packaged_document_schema_is_checked(target, damage, monkeypatch):
+    real = doctor_package.files("finassist").joinpath("resources")
+    class Resource:
+        def joinpath(self, name):
+            if name != target:
+                return real.joinpath(name)
+            class Broken:
+                def read_text(self, **_kwargs):
+                    if damage == "missing":
+                        raise FileNotFoundError()
+                    return "[]"
+            return Broken()
+    class Package:
+        def joinpath(self, _name):
+            return Resource()
+    monkeypatch.setattr(doctor_package, "files", lambda _: Package())
+    assert doctor_package.package_status()["resources"]["schemas"] == "unavailable"
+
+
+def test_undamaged_schemas_union_included_are_ok():
+    assert doctor_package.package_status()["resources"]["schemas"] == "ok"
+
+
 def test_damaged_hints_do_not_crash_package_diagnostic(monkeypatch):
     from finassist import error_hints
     class Broken:

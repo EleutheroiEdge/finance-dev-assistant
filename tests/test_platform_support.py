@@ -112,7 +112,7 @@ def test_no_subprocess_call_uses_a_shell_and_ci_covers_native_platforms():
             for node in ast.walk(tree)
         )
     workflow = yaml.safe_load((root / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
-    rows = workflow["jobs"]["test"]["strategy"]["matrix"]["include"]
+    rows = [row for job in ("test", "platform") for row in workflow["jobs"][job]["strategy"]["matrix"]["include"]]
     assert {row["os"] for row in rows} == {"ubuntu-24.04", "windows-latest", "macos-latest"}
     assert {"test (3.11)", "test (3.12)", "test (3.13)"} <= {row["check_name"] for row in rows}
     assert workflow["jobs"]["isolation"]["runs-on"] == "ubuntu-24.04"

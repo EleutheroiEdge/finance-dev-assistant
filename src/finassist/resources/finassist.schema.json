@@ -1,5 +1,5 @@
 {
-  "$id": "urn:finledgerpoli:schema:config:1",
+  "$id": "urn:finledgerpoli:schema:config:2",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "allOf": [
@@ -184,17 +184,76 @@
       "title": "Forbidden token min digits",
       "type": "integer"
     },
+    "forbidden_token_round_figures": {
+      "default": "skip",
+      "enum": [
+        "skip",
+        "list"
+      ],
+      "title": "Forbidden token round figures",
+      "type": "string"
+    },
     "forbidden_token_sources": {
       "default": [],
       "items": {
-        "maxLength": 4096,
-        "minLength": 1,
-        "type": "string"
+        "oneOf": [
+          {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "not": {
+              "properties": {
+                "decimal_mark": {
+                  "const": ","
+                },
+                "delimiter": {
+                  "const": ","
+                }
+              }
+            },
+            "properties": {
+              "decimal_mark": {
+                "enum": [
+                  ".",
+                  ","
+                ]
+              },
+              "delimiter": {
+                "enum": [
+                  ",",
+                  ";",
+                  "\t",
+                  "|",
+                  null
+                ]
+              },
+              "path": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "decimal_mark",
+              "delimiter",
+              "path"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "maxItems": 16,
       "title": "Forbidden token sources",
       "type": "array",
       "uniqueItems": true
+    },
+    "forbidden_token_sources_experimental": {
+      "default": false,
+      "title": "Forbidden token sources experimental",
+      "type": "boolean"
     },
     "generated_paths": {
       "default": [
@@ -452,10 +511,38 @@
       "type": "array",
       "uniqueItems": true
     },
+    "runner_cpus": {
+      "default": 2,
+      "maximum": 64,
+      "minimum": 1,
+      "title": "Runner cpus",
+      "type": "integer"
+    },
     "runner_image": {
       "default": "",
       "title": "Runner image",
       "type": "string"
+    },
+    "runner_memory_mb": {
+      "default": 1024,
+      "maximum": 65536,
+      "minimum": 64,
+      "title": "Runner memory mb",
+      "type": "integer"
+    },
+    "runner_pids": {
+      "default": 128,
+      "maximum": 4096,
+      "minimum": 16,
+      "title": "Runner pids",
+      "type": "integer"
+    },
+    "runner_tmp_mb": {
+      "default": 256,
+      "maximum": 16384,
+      "minimum": 16,
+      "title": "Runner tmp mb",
+      "type": "integer"
     },
     "schema_version": {
       "const": 1,

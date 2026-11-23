@@ -34,7 +34,7 @@ requiring code-owner approval; a sole author cannot approve their own PR. Do not
 change approval counts or protections as a side effect of enabling scanners.
 The [release guide](releasing.md) describes the protected publishing environment.
 
-Ask the owner before applying any of these settings or changing account access.
+Ask the repository's maintainers before applying any of these settings or changing account access.
 See GitHub's guides for [push protection](https://docs.github.com/en/code-security/how-tos/secure-your-secrets/prevent-future-leaks/enable-push-protection),
 [private reporting](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository)
 and [CodeQL setup](https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/configure-code-scanning/configuring-advanced-setup-for-code-scanning).
@@ -88,7 +88,9 @@ claim a finding cleared until a new scan reports it.
 Python CI/release dependencies are exact pins with distribution hashes in
 `requirements-dev.lock`, resolved for supported Python versions and platforms.
 Regenerate from `pyproject.toml` with the command in the lockfile header, review
-version/hash changes and run the full native matrix. Installs use
+version/hash changes and run the full native matrix: in a private repository a draft pull request runs the Linux
+jobs only, so mark it ready for review to run Windows and macOS too. Branch protection can require the one check
+`all-checks`, which passes only when every job ran and passed. Installs use
 `pip --require-hashes` with wheels required by default. The sole source-build
 exception is comrak on Windows/Python 3.11–3.13: its sdist hash is checked,
 Maturin is first installed from the same hash lock, build isolation is disabled,

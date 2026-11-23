@@ -2,6 +2,8 @@
 
 Every token here is made up and is put together at run time, so that this file holds none.
 """
+import base64
+
 import pytest
 
 from finassist.errors import AssistantError
@@ -11,6 +13,14 @@ from finassist.security import check_context_document, check_output_document, ch
 def run(length: int) -> str:
     """Letters and digits of that length, with no meaning."""
     return ("aB3dE6gH9" * length)[:length]
+
+
+def web_token() -> str:
+    """Three base64url parts: a header naming its algorithm, a claims object and a made-up signature."""
+    def part(raw: bytes) -> str:
+        return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+    return part(b'{"alg":"HS256","typ":"JWT"}') + "." + part(b'{"sub":"12345"}') + "." + run(43)
 
 
 FORMATS = {
@@ -25,12 +35,13 @@ FORMATS = {
     "gitlab": ("gitlab_token", "gl" + "pat-" + run(20)),
     "sendgrid": ("sendgrid_key", "SG" + "." + run(22) + "." + run(43)),
     "azure storage": ("azure_storage_key", "Account" + "Key=" + run(86) + "=="),
-    # Codex P113-1: the field name is read in any letter case, as the service's own parser reads it.
+    # The field name is read in any letter case, as the service's own parser reads it.
     "azure storage, lower case": ("azure_storage_key", "account" + "key=" + run(86) + "=="),
     "azure storage, upper case": ("azure_storage_key", "ACCOUNT" + "KEY=" + run(86) + "=="),
     "azure storage, mixed case": ("azure_storage_key", "aCcOuNt" + "KeY=" + run(86) + "=="),
     "encrypted key block": ("private_key_block", "-----BEGIN " + "ENCRYPTED PRIVATE KEY-----"),
     "pgp key block": ("private_key_block", "-----BEGIN PGP " + "PRIVATE KEY BLOCK-----"),
+    "signed web token": ("signed_web_token", web_token()),
 }
 NEAR = {
     "stripe test key": "sk_" + "test_" + run(24),
@@ -52,6 +63,12 @@ NEAR = {
     "public key block": "-----BEGIN " + "PUBLIC KEY-----",
     "pgp public key block": "-----BEGIN PGP " + "PUBLIC KEY BLOCK-----",
     "pgp message": "-----BEGIN PGP " + "MESSAGE-----",
+    "web token, unsigned": "ey" + "J" + run(20) + ".ey" + "J" + run(30) + ".",
+    "web token, one part": "ey" + "J" + run(40),
+    "url, short password": "postgres" + "://postgres:postgres@localhost:5432/app",
+    "url, password from a variable": "postgres" + "://app:${DB_PASSWORD}@db:5432/app",
+    "url, placeholder password": "postgres" + "://app:<password-goes-here>@db:5432/app",
+    "url, no password": "https" + "://deploy@example.com/path/to/repository",
 }
 each_format = pytest.mark.parametrize("rule,token", FORMATS.values(), ids=FORMATS.keys())
 PLACES = {

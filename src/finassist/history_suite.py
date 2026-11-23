@@ -7,7 +7,7 @@ import re
 from .config import Config
 from .document_contracts import validate_document_shape
 from .errors import AssistantError
-from .model_gate import _scope_path, _screen_ignores, prepare_model_source
+from .model_gate import NoReviewScope, _scope_path, _screen_ignores, prepare_model_source
 from .model_policy import load_model_policy
 from .scope import build_packet, git, resolve
 from .security import canonical, check_text, digest, regular_path
@@ -85,7 +85,7 @@ def history_policy_binding(case: dict, suite_directory: Path) -> HistoryPolicyBi
     try:
         top = regular_path(Path(git(repo, "rev-parse", "--show-toplevel")))
     except AssistantError as exc:
-        if exc.code == "git_read_failed":
+        if exc.code in {"git_read_failed", "not_a_git_repository"}:
             raise AssistantError("history_policy_repository_invalid") from exc
         raise
     if not top.samefile(repo):
@@ -128,6 +128,10 @@ def prepare_history_case(case: dict, root: Path, config: Config) -> dict:
         if policy.config.profile != case["profile"]:
             raise AssistantError("history_policy_profile_mismatch")
         packet = prepare_model_source(repo, base, head, policy, policy_repo=binding.repo)
+        if isinstance(packet, NoReviewScope):
+            # The case's pinned policy puts its whole range out of scope: there is nothing to evaluate a model
+            # on, and a range nothing was reviewed in is never a negative control. Refused before any key.
+            raise AssistantError("history_case_not_applicable")
         result.update(binding=binding, policy=policy)
     else:
         local = replace(config, provider="offline", allow_network=False, profile=case["profile"])

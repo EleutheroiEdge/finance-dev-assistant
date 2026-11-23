@@ -321,7 +321,7 @@ def rollback_patch(repo: Path, patch_hash: str, config: Config | None = None) ->
     try:
         saved = json.loads(read_utf8(path))
         receipt = json.loads(read_utf8(path.with_suffix(".receipt.json")))
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         raise AssistantError("patch_backup_unavailable") from exc
     if (
         digest(path.read_bytes()) != receipt.get("backup_hash")

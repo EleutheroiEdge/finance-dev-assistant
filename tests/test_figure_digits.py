@@ -15,19 +15,24 @@ from figure_cases import SURROUNDINGS, _framed
 from finassist.config import Config, load_config
 from finassist.config_preflight import config_preflight
 from finassist.errors import AssistantError
-from finassist import forbidden_tokens
+from finassist import figure_sources, forbidden_tokens
+from finassist.figure_source_entries import SourceFormat
 from finassist.forbidden_tokens import (MAX_SOURCE_FILES, TokenGuard, TokenSnapshot, load_token_snapshot,
                                         screen_source, screen_text, token_file_audit)
 from finassist.scope import build_packet
 from test_model_gate import change_policy, run
+
+# The reader's own tests: figure sources are not available in this release, so they turn them on, as only
+# code can.
+pytestmark = pytest.mark.usefixtures("sources_available")
 
 pytest_plugins = ("test_model_gate", "test_model_policy")
 
 DIGITS = {"forbidden_token_match": "digits"}
 CUSTODY = (
     "account,description,market_value,price,quantity,as_of,reference\n"
-    '"SYN-0001","Synthetic Fund A","1,234,567.89",48213.5712,7.5,20261110,00012345\n'
-    '"SYN-0002","Synthetic Fund B","(905.13)",$73026.00,250000,2026-11-10,"USD 6,729,102.50"\n'
+    'SYN-0001,"Synthetic Fund A","1,234,567.89",48213.5712,7.5,20261110,00012345\n'
+    'SYN-0002,"Synthetic Fund B","(905.13)",$73026.00,250000,2026-11-10,"USD 6,729,102.50"\n'
 )
 
 
@@ -99,9 +104,9 @@ def test_a_source_cell_with_an_exponent_or_a_leading_point_is_listed(tmp_path):
             assert _refused("total " + value + " due", snapshot), (match, value)
     # A leading point is a fraction: the cell is not also listed as the whole number its digits spell.
     assert not _refused("4821399", _snapshot(str(path), match="value"))
-    # An exponent too large to be a figure is not one, and the other cells still load.
+    # An exponent too large to be a figure is not one: the cell is text, and the other cells still load.
     path.write_text("value\n48213.57\n123456e678\n", encoding="utf-8", newline="\n")
-    assert _snapshot(str(path)).source_figures == 1
+    assert _refused("48213.57", _snapshot(str(path)))
 
 
 @pytest.mark.parametrize("text", [
@@ -200,14 +205,17 @@ def test_a_source_may_be_given_relative_to_the_home_directory(custody, tmp_path,
 
 
 def test_a_guard_parses_an_unchanged_source_once_and_refuses_a_changed_one(custody, monkeypatch):
-    parses, real = [], forbidden_tokens._source_figures
-    monkeypatch.setattr(forbidden_tokens, "_source_figures", lambda raw, minimum: parses.append(1) or real(raw, minimum))
-    guard = TokenGuard.load({"forbidden_token_sources": [custody], **DIGITS}, ())
+    parses, real = [], figure_sources._source_figures
+    monkeypatch.setattr(figure_sources, "_source_figures",
+                        lambda raw, minimum, layout=None, rounds=False: parses.append(1) or real(raw, minimum, layout,
+                                                                                    rounds))
+    guard = TokenGuard.load({"forbidden_token_sources": [{"path": custody, "delimiter": ",", "decimal_mark": "."}],
+                             "forbidden_token_sources_experimental": True, **DIGITS}, ())
     for _ in range(3):
         guard.recheck({"files": []}, "synthetic instructions")
     assert len(parses) == 1
     with open(custody, "a", encoding="utf-8", newline="\n") as handle:
-        handle.write('"SYN-0003","Synthetic Fund C",31415.92,1.00,3,2026-11-10,7\n')
+        handle.write('SYN-0003,"Synthetic Fund C",31415.92,1.00,3,2026-11-10,7\n')
     with pytest.raises(AssistantError, match="^forbidden_token_configuration_changed$"):
         guard.recheck({"files": []}, "synthetic instructions")
 
@@ -217,20 +225,24 @@ def test_plan_and_doctor_use_sources_and_digit_matching(repository, custody):
     (repo / "src/cash.py").write_text("OPENING = 48_213.57  # rounded\n", encoding="utf-8", newline="\n")
     command(repo, "commit", "-q", "-am", "Synthetic change with a rounded figure")
     head = command(repo, "rev-parse", "HEAD")
-    config = replace(Config(), forbidden_token_sources=(custody,), **DIGITS)
+    config = replace(Config(), forbidden_token_sources=(SourceFormat(custody, ",", "."),),
+                     forbidden_token_sources_experimental=True, **DIGITS)
     with pytest.raises(AssistantError, match="^forbidden_token_present$"):
         build_packet(repo, base, head, config)
     assert build_packet(repo, base, head, replace(config, **{"forbidden_token_match": "value"}))["files"]
     report = config_preflight(repo, base, head, config)
     assert report["figure_screen"] == {"configured": True, "listed": 6, "match": "digits", "digit_forms": 7}
     assert [item["code"] for item in report["blockers"]] == ["forbidden_token_present"]
-    loaded = load_config(content=('{"forbidden_token_sources": ["%s"], "forbidden_token_match": "digits", '
+    loaded = load_config(content=('{"forbidden_token_sources": [{"path": "%s", "delimiter": ",", "decimal_mark": "."}], '
+                                  '"forbidden_token_sources_experimental": true, "forbidden_token_match": "digits", '
                                   '"forbidden_token_min_digits": 6}' % custody.replace("\\", "/")).encode())
     assert loaded.forbidden_token_rules["forbidden_token_min_digits"] == 6
 
 
 def test_a_gate_uses_sources_and_digit_matching(gate_case, custody):
-    change_policy(gate_case, forbidden_token_sources=[custody], **DIGITS)
+    change_policy(gate_case, forbidden_token_sources=[{"path": custody, "delimiter": ",", "decimal_mark": "."}],
+                  forbidden_token_source_rule=figure_sources.SOURCE_RULE,
+                  **DIGITS)
     (gate_case["repo"] / "src/cash.py").write_text("OPENING = 4821357  # cents\n", encoding="utf-8", newline="\n")
     command(gate_case["repo"], "commit", "-q", "-am", "Synthetic change with a rescaled figure")
     gate_case["head"] = command(gate_case["repo"], "rev-parse", "HEAD")

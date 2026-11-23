@@ -2,17 +2,94 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.12.0 - DATE
 
 ### Upgrading
+
+**Coming from 0.10.0.** 0.11.0 was tagged but never published, so 0.12.0 is the first release on PyPI
+after 0.10.0, and its security fix reaches users only now. Every release up to 0.10.0 looked for Git,
+GitHub CLI, Docker and Podman in the directory the command runs in before `PATH`. Run inside a checkout
+that held a file named `git.exe`, it ran that file. These tools are now taken only from the absolute
+entries of `PATH`. A tool that was reachable only through the current directory, or through an empty or
+relative `PATH` entry, is now reported missing: name its directory in full in `PATH`. On other systems
+this matters only where `PATH` holds an empty or relative entry. Everything in the 0.11.0 notes below is
+also new to users of 0.10.0; read its Upgrading section with this one.
+
+- **Figure sources are not available in this release, and cannot be turned on:
+  `forbidden_token_sources_experimental`.** The figure-source reader, planned for a later release, still
+  misses amounts written in shapes it does not read, so 0.12.0 does not offer it. A configuration that sets
+  `forbidden_token_sources` to anything but an empty list, and a gate policy that holds the key at all, is
+  refused by name with `forbidden_token_sources_experimental` before any file is read or any request or
+  reservation is made, even beside `"forbidden_token_sources_experimental": true`: listed sources are never
+  ignored, and no setting, variable or option turns the reader on. Remove the sources and list the figures in
+  `forbidden_token_file` or `forbidden_token_hashes`. A configuration without sources keeps its hash, and
+  `init --detect` proposes no figure source. The figure-source entries in the 0.11.0 notes below do not apply
+  to this release.
+- **The upgrading guide says what an upgrade from 0.10.0 asks of you.** `finassist guide upgrading`
+  has an "Upgrading from 0.10.0" section: a table of what changes for a configuration or gate policy
+  with and without figure sources, a moved state folder and the new schema identifiers, and the steps
+  for a file that lists figure sources, which are not available in this release: list the figures in
+  `forbidden_token_file` or `forbidden_token_hashes` and remove the source settings. Its schema
+  identifiers and refusal codes are tested against the code.
+- **A gate policy may opt in to `NOT_APPLICABLE` for a range with nothing in scope.** With
+  `model_review.out_of_scope_ranges: "not-applicable"` and `unreviewable_paths: "skip-and-report"`,
+  a range whose every changed file is outside `allow_paths` exits 0 as `NOT_APPLICABLE`, its own
+  report document, instead of `BLOCKED` with `empty_model_context`. It is not a review or a pass:
+  nothing is read for review or sent. The default is unchanged. A consumer that treats every gate
+  report as a review must check `mode`; `report-trace` refuses a not-applicable report with
+  `trace_report_not_a_review`. The report always carries `outcome_class: not_applicable`, which its
+  schema requires.
 - **The state folder can move to the repository root.** If you ran `review`, `propose`,
   `evaluate`, `evidence`, `audit`, `reconcile-budget`, `doctor` or `init` from a subfolder, or with
   a `--config` kept elsewhere, their spending ledger is in that folder's `.finassist`. Such a
   command now stops with `state_location_moved` before writing anything, and
   `finassist state status` names both folders. Pass `--state-dir` naming the folder to keep, or
   move the other aside. An explicit `--state-dir` or `--audit-dir` works as before.
+- **Three schema identifiers change for the source rule and the round-figure setting.** The configuration schema
+  becomes `urn:finledgerpoli:schema:config:2`, the gate policy schema `urn:finledgerpoli:schema:gate-policy:16` and
+  the CI policy schema, which refers to the configuration schema, `urn:finledgerpoli:schema:ci-policy:2`.
+  Documents keep their `schema_version`, and a configuration without figure sources keeps its hash. Update a
+  pin on a schema identifier or digest.
 
 ### Added
+- **The figure-source reader's code is in the tree, but no released route reaches it.** It is kept, with
+  its tests and its seeded corpus (`scripts/figure_source_corpus.py`), for a later release; in this one any
+  setting that lists a source is refused before the file is opened (see Upgrading). The schemas describe its
+  settings, `forbidden_token_sources`, `forbidden_token_sources_experimental`, `forbidden_token_round_figures`
+  and, in a gate policy, `forbidden_token_source_rule`. Without sources, a gate policy that states
+  `forbidden_token_source_rule` or `forbidden_token_round_figures` is refused with
+  `gate_policy_source_rule_required`, and a configuration that sets `forbidden_token_round_figures` to `list`
+  with `forbidden_token_round_figures_invalid`, before anything is read or sent.
+- **A gate report names the kind of stop: `outcome_class`.** `pass`, `fail`, `refused` when every
+  reason is a rule that stopped the change on purpose (a content or privacy screen, an edited
+  governance file, a size, count or budget limit, the fork rule, nothing left to review), `incomplete`
+  when the review did not run to a result (a provider failure, an invalid reply, an outcome or
+  spend not reconciled, a setup problem), or `not_applicable`. An unlisted or mixed set of reasons
+  is `incomplete`, never a pass. Verdicts and exit codes are unchanged; a report written before the
+  field still validates, and one whose class does not match its verdict and reasons is refused. A stop
+  raised while validating the model's reply, such as a hidden character or a credential-shaped claim
+  in it, carries `outcome_phase: reply` and is `incomplete`: the same codes on the change itself are
+  `refused`.
+  The checks-only gate reports the same classes and `failed_check_causes`, taken from each failed
+  check's receipt (`nonzero_exit`, `killed`, `timed_out`, `output_limit_exceeded` or `unknown`): a
+  failed run is `fail` only when every failed check ran and exited nonzero, so a timed-out or killed
+  check is `incomplete`. A cause is read only from the artifact the run recorded; a changed one is
+  `unknown`, and only a blocked report may name failed checks. The Action has a new `outcome-class`
+  output.
+- **A gate policy can let one reviewed YAML value through the credential label rules.**
+  `model_review.placeholder_credential_occurrences` lists values a person reviewed as public
+  synthetic fixtures, such as a CI service container's test password, each bound to its exact
+  parsed place and text by a digest that `finassist placeholder-occurrence` prints, never
+  printing the value. An entry applies only while that occurrence is present exactly once at
+  base, at the merge base and at head; an edit, move or copy lapses it, and the preflight names
+  each entry's state. Every other screen still applies. A value let through is sent to the
+  provider, and a model may repeat it bare in its report: enrol only values safe to disclose. Needs PyYAML 6.0.3, from the new `yaml` extra; without it, or with another version,
+  nothing applies.
+- **A seeded finance evaluation suite.** `examples/seeded-finance-cases.json` holds 20 small finance
+  routines, each once with one seeded defect and once as a behaviour-preserving twin, for measuring
+  recall and false alarms with `finassist evaluate` and `score` (release gate D8). A test runs both
+  versions of every case on probe inputs, so each label is shown by execution: every defect changes
+  a result and every twin changes none.
 - **`finassist state status`: what the tool keeps on this machine, read-only.** Each store in the state
   folder (the audit chain, the evidence stores, patches, workflow runs and locks, history, configuration
   backups, setup) with its size, its tables' row counts or its file count, and its oldest and newest entry;
@@ -20,6 +97,14 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   writes nothing at all, not even an audit entry: a database with a journal or write-ahead file is read from a
   private copy. A store it cannot read in full is listed with its error, never as a smaller count. The first
   part of #120; archiving and cleaning come next.
+- **`finassist sarif`: gate and scan results for code scanning.** Converts the report `gate run` wrote,
+  or `scan`'s output, into a SARIF 2.1.0 log for an upload step such as
+  `github/codeql-action/upload-sarif`. A gate report's schema and own hash are checked first; findings
+  keep their severity, file, line and claim, the verdict travels as tool notifications, and the
+  upload step computes the alert fingerprint from the checked-out source. With `--expect-head SHA`, a
+  report for any other commit is refused (`sarif_head_mismatch`), so a stale report is not uploaded
+  against the wrong commit. `finassist report trace --expect-head SHA` refuses the same way
+  (`trace_head_mismatch`) before writing the trace.
 - **`finassist state clean`: remove what is certainly safe, list the rest.** A dry run unless
   `--apply`. It removes only configuration backups beyond the newest ten of each kind and this
   tool's own temporary leftovers older than a day, and lists every other store with the reason it
@@ -78,6 +163,77 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   build preflight now requires the `pypi` environment to deploy only `v*` tags, and two tag rulesets: one that keeps
   release tags from being moved or deleted, with no bypass, and another that restricts creating them. A required
   reviewer is optional. Forks that publish need the same environment rule and rulesets.
+- **`plan` warns on an empty range, and two first-run refusals are named.** A range that changes no
+  files still exits 0 and writes its packet, and its summary now carries
+  `warnings: [{code: "empty_review_scope", hint}]`; the hint says that on the branch itself the base
+  is the commit before the change, such as `HEAD~1`. A JSON input file that does not exist, or is not
+  a regular file, is `input_file_not_found` instead of `invalid_input`, without echoing the path. A
+  folder that does not exist or is not inside a Git checkout is `not_a_git_repository`, when Git says
+  so and no `.git` entry is found at the folder or above it; any other Git failure stays
+  `git_read_failed`, and `init` keeps `init_repository_required`.
+- **The branch-protection template requires one check, `all-checks`.** It passes only when every job ran and
+  passed, so a job its condition skips, as the Windows and macOS jobs of a private repository's draft, is never
+  a required check that waits forever or reads as passed. The template stays unapplied; adapt it to your own
+  check names.
+- **`doctor` names the request size when a change has too many files.** A gate preflight that stops
+  with `gate_file_count_exceeded` reads no file content. It now also warns
+  `request_lower_bound_exceeded` when the files it would send are already larger, in both
+  versions together, than `max_request_bytes`, read from Git's size metadata alone. So one run
+  names both limits. No warning when another path is refused, a rule file changed or a file
+  would be ignored; the gate's verdict is unchanged.
+- **`check` takes the two skip settings the review routes have.** With `private_paths: skip-and-report`
+  a private name, such as a CSV fixture, is left out of the recipe's snapshot unread and counted
+  (`withheld`); with `unreviewable_paths: skip-and-report` a file that cannot be reviewed is left out
+  and counted by reason (`omitted`). As on the review routes, a name that matches a configured
+  sensitive pattern still refuses rather than being withheld, and a link or a submodule still refuses
+  rather than being left out. Under the defaults the export refuses as before, and its manifest is
+  unchanged.
+- **`init --detect` reviews a repository in any common language, and a gate policy can say which
+  suffixes it reviews.** Detection knew 11 source suffixes, so a C#, C++, Ruby, PHP or Swift
+  repository got `no_source_detected` and `--write` was refused; and the gate always used the built-in
+  `text_suffixes`, so even Kotlin, which the credential screen reads as code, was refused there.
+  Detection now recognises 55 source suffixes. When a repository's source uses some outside the
+  default list, both drafts propose `text_suffixes` with them added, and the warning
+  `text_suffixes_proposed` names those the credential screen reads with the strict text rules. A gate
+  policy's `model_review` takes `text_suffixes` like the configuration; a data or binary format there
+  is refused. Drafts for repositories in the default languages are unchanged.
+- **A recipe container's limits are settings.** `runner_memory_mb`, `runner_cpus`, `runner_pids` and
+  `runner_tmp_mb` set the memory, CPUs, process count and `/tmp` size that `check` gives a
+  `docker` or `podman` recipe. They were fixed in code and undocumented; the defaults are the old
+  values (1 GiB, 2 CPUs, 128 processes, 256 MiB), and at their defaults they leave the configuration
+  hash as it was.
+- **The configuration guide says which match mode covers a digit-string guard.** Use `digits` when
+  replacing a guard that matches digit strings; `value` compares numeric values and does not provide
+  equivalent coverage.
+- **Running or resuming a stopped workflow run exits 1.** `workflow run` and `workflow resume` on a
+  cancelled or abandoned run returned its report with exit 0, so a script could read a run whose
+  checks never completed as a success. The report now carries `workflow_run_cancelled` or
+  `workflow_run_abandoned` and the command exits 1. `workflow cancel` and `workflow abandon` still
+  exit 0 when they stop the run as asked.
+- **`init --detect` leaves room in the file limit.** `max_file_bytes` was fitted to the largest
+  reviewed source file, rounded up to 16 KiB. That file is often the one changed most, and when its
+  next version grew past the limit it was left out of review, so under `skip-and-report` a range
+  could pass on the rest. The draft now leaves one and a half times the largest file, the room the
+  packet limits already leave, up to 2,000,000 bytes; the evidence gives the size and the factor.
+  Existing configurations and policies are unchanged.
+- **The credential screen finds more, and admits fewer placeholders.** A change that passed before can
+  now be refused; `finassist doctor` names the rule and the lines.
+  - A signed web token is found by decoding its structure, so spaced or empty JSON is found too, and
+    one whose JSON cannot be settled within the screen's bounds is refused rather than passed.
+  - A password in a URL's user information is refused unless it is a complete template, such as
+    `${DB_PASSWORD}`, also after an empty user name, as in `redis://:password@host`.
+  - Access, auth, refresh, session and bearer token labels are screened, and an unquoted value may
+    hold `!#$%&*?~^`.
+  - A placeholder is a value made only of words from a fixed list, including a marking word such
+    as `YOUR_API_TOKEN_HERE`; text merely affixed to a placeholder word is a credential.
+  - `scripts/secret_screen_accuracy.py` and `scripts/hidden_text_accuracy.py` measure the screens on
+    synthetic labelled corpora.
+- **A `.gitignore` change that only appends ordinary patterns no longer needs separate review.**
+  Each changed rule file must keep its version at the base and the merge base as its exact first
+  bytes, ending at a line boundary, and add only patterns that are not negated, blank lines or
+  comments: such a change can only make more paths ignored. Any removed, edited or reordered line,
+  added negation, deleted or linked file, or added text that is not plain UTF-8 still stops the
+  gate with `gate_ignore_change_requires_review`, in the gate and in `doctor` alike.
 - **One state folder for every command (#120).** Without `--state-dir` or `--audit-dir`, every
   command keeps its private state in the `.finassist` folder of the repository holding `--config`
   (outside a repository, of the folder holding it), or without `--config`, of the repository
@@ -163,7 +319,7 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   policy has no such setting. On the gate route the hint now names `max_request_bytes`, and so
   does the remedy. Found by following the remedies on a real 45-file change.
 
-## 0.11.0 - 2026-11-12
+## 0.11.0 - 2026-11-12 (tagged, never published)
 
 ### Upgrading
 

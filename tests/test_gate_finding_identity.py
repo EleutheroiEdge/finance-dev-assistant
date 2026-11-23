@@ -45,6 +45,7 @@ def test_legacy_report_remains_readable_but_cannot_claim_v2_ids(gate_case):
     report, _ = run(gate_case)
     legacy = deepcopy(report)
     legacy["schema_version"] = 1
+    legacy.pop("outcome_class")  # A v1 report predates the class.
     for finding in legacy["findings"]:
         del finding["id"]
     validate_model_report(signed(legacy))

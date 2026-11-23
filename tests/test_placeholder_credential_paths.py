@@ -193,7 +193,7 @@ def one_file_patch(path, body, lines=1):
 
 
 def test_a_proposed_patch_cannot_bring_a_new_labelled_value_into_a_listed_file():
-    """Codex P107-1: the patch's own post-image is screened as source and lends no quote there."""
+    """The patch's own post-image is screened as source and lends no quote there."""
     config = replace(Config(), placeholder_credential_paths=TESTS).validate()
     script, settings = "tests/test_login.py", "tests/fixtures/users.yml"
     supplied = [{"path": script, "before": "x = 1\n", "after": "x = 2\n"}]

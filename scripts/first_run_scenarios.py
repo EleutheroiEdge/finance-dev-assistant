@@ -248,11 +248,12 @@ def scenario(command: list[str], label: str, repo: Path, revision: str, changes:
     return result, tip
 
 
-def prepare(argv: list[str] | None, description: str):
+def prepare(argv: list[str] | None, description: str, extend=None):
     """Read and check the arguments the measuring scripts share, and create the private output folder.
 
-    Returns the arguments, the output folder, the repositories under their anonymous labels, and the
-    pinned commits or None.
+    extend, if given, adds a script's own arguments to the parser first, so a wrong one is refused
+    before anything is created. Returns the arguments, the output folder, the repositories under their
+    anonymous labels, and the pinned commits or None.
     """
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("repositories", nargs="+", type=Path)
@@ -265,6 +266,8 @@ def prepare(argv: list[str] | None, description: str):
                              "that repository, not from --branch, so that the same changes are measured again")
     parser.add_argument("--python", default=sys.executable,
                         help="Interpreter that has the finassist under test installed (default: this one)")
+    if extend is not None:
+        extend(parser)
     args = parser.parse_args(argv)
     if args.changes < 1:
         parser.error("--changes must be at least 1")

@@ -115,6 +115,35 @@ def is_shell(path: str | None) -> bool:
     return path is not None and PurePosixPath(path).suffix.lower() in SHELL_SUFFIXES
 
 
+# A whole value that says it stands for a credential instead of being one: an instruction or a blank that a
+# person fills in. It is made only of words from a fixed list and holds one that marks a placeholder, so no
+# generated value is ever one, whatever it is written beside. One digit may end it, as in dummy_password_1.
+_PLACEHOLDER_WORDS = frozenset("""
+your insert enter replace put add set use here goes me change changeme placeholder dummy example sample redacted
+the a an this that my own real actual valid new default value values key keys api token tokens secret secrets
+password passwords passwd pass pwd passphrase access auth authentication authorization bearer client private
+credential credentials id user username login account app application service database db host url
+production prod dev development staging test testing local before after in for with of to from
+""".split())
+_PLACEHOLDER_MARKS = frozenset({"your", "insert", "enter", "replace", "here", "changeme", "placeholder", "dummy",
+                                "example", "sample", "redacted"})
+_PLACEHOLDER_TEXT = re.compile(r"[A-Za-z0-9_ .-]{1,80}")
+_PLACEHOLDER_SPLIT = re.compile(r"[_ .-]+")
+
+
+def is_placeholder(value: str) -> bool:
+    """True when the whole value is a placeholder such as YOUR_API_TOKEN_HERE, <your-api-key> or changeme."""
+    inner = value[1:-1] if len(value) > 2 and value[0] == "<" and value[-1] == ">" else value
+    if _PLACEHOLDER_TEXT.fullmatch(inner) is None:
+        return False
+    words = [word.lower() for word in _PLACEHOLDER_SPLIT.split(inner.strip("_ .-")) if word]
+    if len(words) > 1 and len(words[-1]) == 1 and words[-1].isdigit():
+        words = words[:-1]
+    if not words or len(words) > 10 or any(word not in _PLACEHOLDER_WORDS for word in words):
+        return False
+    return any(word in _PLACEHOLDER_MARKS for word in words) or "change me" in " ".join(words)
+
+
 def is_expansion(value: str, *, in_shell: bool = False) -> bool:
     """True when the whole value is one variable or command expansion.
 

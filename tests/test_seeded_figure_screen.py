@@ -267,7 +267,7 @@ def test_no_git_command_here_may_take_the_optional_lock(repository, capsys, monk
 
 
 def test_a_replacement_ref_does_not_change_what_a_pinned_commit_adds(repository, tmp_path, capsys):
-    """Codex P114-1: a replacement for the saved commit changed the count under the same fingerprint."""
+    """A replacement for the saved commit changed the count under the same fingerprint."""
     repo, _base, _head = repository
     _change(repo, {"src/cash.py": "OPENING = 48_213.57\n"})
     tip = command(repo, "rev-parse", "HEAD")
@@ -288,7 +288,7 @@ def test_a_replacement_ref_does_not_change_what_a_pinned_commit_adds(repository,
 
 
 def test_a_repository_with_a_grafts_file_is_not_measured_here_either(repository, tmp_path, capsys):
-    """Codex P114-2: a graft from the pinned commit to an earlier parent changed the count from 1 to 3."""
+    """A graft from the pinned commit to an earlier parent changed the count from 1 to 3."""
     repo, _base, _head = repository
     _change(repo, {"src/fees.py": "FEE = 6729102.50\nRATE = 31415.926\n"})
     _change(repo, {"src/cash.py": "OPENING = 48_213.57\n"})

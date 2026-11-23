@@ -11,6 +11,7 @@ from .ci_gate import ci_gate
 from .ci_policy import read_document
 from .errors import AssistantError
 from .github_context import pull_request_context
+from .outcome_class import CAUSES, ci_outcome_class
 from .security import canonical, digest, regular_path, write_private
 
 
@@ -35,9 +36,26 @@ def _report_identity(report: dict) -> None:
             raise AssistantError("ci_report_invalid")
     elif not report["blocking_reasons"]:
         raise AssistantError("ci_report_invalid")
+    causes = report.get("failed_check_causes", [])
+    if not isinstance(causes, list) or any(cause not in CAUSES for cause in causes) or (
+            causes and report["status"] != "blocked") or (
+            "outcome_class" in report
+            and report["outcome_class"] != ci_outcome_class(report["status"], report["blocking_reasons"], causes)):
+        raise AssistantError("ci_report_invalid")
 
 
 def summary_markdown(report: dict) -> str:
+    if report.get("mode") == "model-review-not-applicable":
+        from .model_gate import validate_model_report
+
+        validate_model_report(report)
+        lines = ["## finledgerpoli model review gate", "", "Result: **NOT_APPLICABLE**.", "",
+                 "No changed file is in this policy's scope (`allow_paths`), so nothing was reviewed. This is not "
+                 "a review or a pass: the policy opted in with `out_of_scope_ranges: not-applicable`.", "",
+                 "Coverage: **none**. " + str(report["scope"]["changed"])
+                 + " changed file(s), all outside `allow_paths`; 0 reviewed.", "",
+                 "Report hash: `" + report["report_hash"] + "`."]
+        return "\n".join(lines) + "\n"
     if report.get("mode") == "model-review":
         from .model_gate import validate_model_report
 
@@ -75,13 +93,17 @@ def publish_action_report(report: dict, report_path: Path, summary_path: Path, o
     with selected_summary.open("a", encoding="utf-8", newline="\n") as stream:
         stream.write(summary)
     with selected_outputs.open("a", encoding="utf-8", newline="\n") as stream:
-        status = report["verdict"] if report.get("mode") == "model-review" else report["status"]
+        model = report.get("mode") in {"model-review", "model-review-not-applicable"}
+        status = report["verdict"] if model else report["status"]
         stream.write("status=" + status + "\nreport-hash=" + report["report_hash"] +
-                     "\nreport-path=" + path_value + "\n")
+                     "\nreport-path=" + path_value + "\noutcome-class=" + report.get("outcome_class", "unclassified")
+                     + "\n")
         if report.get("mode") == "model-review":
             withheld = report.get("coverage", {}).get("withheld", 0)
             stream.write("withheld-count=" + str(withheld) + "\ncoverage-complete="
                          + ("false" if withheld else "true") + "\n")
+        elif model:  # nothing was in scope: every changed file is unreviewed, and coverage is never complete
+            stream.write("withheld-count=" + str(report["scope"]["changed"]) + "\ncoverage-complete=false\n")
 
 
 def _run_github_action(environment) -> int:
@@ -114,7 +136,7 @@ def _run_github_action(environment) -> int:
             code = "ci_action_failed"
         report = {"schema_version": 1, "mode": "checks-only", "status": "error", "blocking_reasons": [code],
                   "model_review": "not-run", "readiness_evaluated": False, "merge_authority": False,
-                  "deployment_authority": False}
+                  "deployment_authority": False, "outcome_class": "incomplete"}
         report["report_hash"] = digest(canonical(report))
         # Report failures only when the runner's private output root is valid.
         private_root = regular_path(Path(environment["RUNNER_TEMP"]))

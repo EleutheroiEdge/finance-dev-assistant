@@ -2,6 +2,8 @@
 
 import ast
 import io
+import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -164,6 +166,8 @@ def test_every_test_that_times_itself_is_marked_to_run_alone():
         "test_code_text.py::test_hostile_code_is_screened_in_bounded_time",
         "test_credential_references.py::test_a_reply_made_of_quotes_is_screened_in_bounded_time",
         "test_figure_matrix.py::test_dense_numeric_text_is_screened_in_bounded_time",
+        "test_figure_source_cut_runs.py::test_a_cell_of_many_numbers_is_read_in_time",
+        "test_figure_source_inner_spans.py::test_long_rows_of_digit_groups_are_read_in_time",
         "test_hidden_text.py::test_a_million_characters_are_screened_in_bounded_time",
         "test_python_screening.py::test_long_zero_runs_screen_in_linear_time",
         "test_python_screening.py::test_many_numeric_credential_values_screen_in_linear_time",
@@ -188,9 +192,10 @@ def test_the_group_count_is_bounded(capsys):
 def test_the_workflow_checks_a_pull_request_commit_once_and_cancels_what_it_replaces():
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
     triggers = workflow.get("on", workflow.get(True))  # YAML reads a bare `on` key as true.
-    assert triggers == {"push": {"branches": ["main"]}, "pull_request": None}
+    assert triggers == {"push": {"branches": ["main"]}, "merge_group": None,
+                        "pull_request": {"types": ["opened", "synchronize", "reopened", "ready_for_review"]}}
     assert workflow["concurrency"] == {
-        "group": "checks-${{ github.event.pull_request.number || github.sha }}",
+        "group": "${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}",
         "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
     }
 
@@ -199,7 +204,74 @@ def test_the_workflow_runs_the_suite_through_the_parallel_runner_on_every_platfo
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
     commands = [step.get("run") for step in workflow["jobs"]["test"]["steps"]]
     assert "python scripts/ci_test.py" in commands and "python -m pytest -q" not in commands
-    assert len(workflow["jobs"]["test"]["strategy"]["matrix"]["include"]) == 9  # One step serves all nine rows.
+    # The Linux rows and the Windows and macOS rows run the same steps, nine rows in all.
+    assert workflow["jobs"]["platform"]["steps"] == workflow["jobs"]["test"]["steps"]
+    assert sum(len(workflow["jobs"][job]["strategy"]["matrix"]["include"]) for job in ("test", "platform")) == 9
+
+
+def test_a_private_repositorys_draft_runs_the_linux_rows_and_a_ready_pull_request_runs_them_all():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    jobs = workflow["jobs"]
+    gate = ("${{ !github.event.repository.private || github.event_name != 'pull_request'"
+            " || !github.event.pull_request.draft }}")
+    triggers = workflow[True]  # PyYAML reads the key `on` as true
+    assert set(triggers["pull_request"]["types"]) == {"opened", "synchronize", "reopened", "ready_for_review"}
+    assert triggers["push"] == {"branches": ["main"]} and "merge_group" in triggers
+    # Windows and macOS sit in their own jobs under one condition, with the Linux jobs' steps and check names.
+    assert jobs["platform"]["if"] == jobs["dashboard-platform"]["if"] == gate
+    assert not any("if" in jobs[name] for name in set(jobs) - {"platform", "dashboard-platform", "all-checks"})
+    assert {row["os"] for row in jobs["test"]["strategy"]["matrix"]["include"]} == {"ubuntu-24.04"}
+    assert {row["os"] for row in jobs["platform"]["strategy"]["matrix"]["include"]} == {
+        "windows-latest", "macos-latest"}
+    assert jobs["dashboard"]["strategy"]["matrix"]["os"] == ["ubuntu-24.04"]
+    assert jobs["dashboard-platform"]["strategy"]["matrix"]["os"] == ["windows-latest", "macos-latest"]
+    # Each gated job is its Linux job but for the keys the split changes, and keeps the Linux job's check names.
+    split = {"if", "needs", "strategy", "name", "timeout-minutes"}
+    for linux, other in (("test", "platform"), ("dashboard", "dashboard-platform")):
+        assert {key: value for key, value in jobs[other].items() if key not in split} == {
+            key: value for key, value in jobs[linux].items() if key not in split}, other
+        assert jobs[other]["strategy"]["fail-fast"] is jobs[linux]["strategy"]["fail-fast"] is False
+    assert jobs["platform"]["needs"] == jobs["dashboard-platform"]["needs"] == "lint"  # no minutes after a lint error
+    assert jobs["platform"]["name"] == jobs["test"]["name"] == "${{ matrix.check_name }}"
+    assert jobs["dashboard-platform"]["name"] == "dashboard (${{ matrix.os }})" and "name" not in jobs["dashboard"]
+    assert "name" not in jobs["all-checks"]  # the check is named all-checks
+    # continue-on-error, on a job or a step, would report a failure as a pass.
+    assert not any("continue-on-error" in job for job in jobs.values())
+    assert not any("continue-on-error" in step for job in jobs.values() for step in job.get("steps", []))
+    assert len(jobs["all-checks"]["steps"]) == 1
+    # The one check to require passes only when every job ran and passed: a skipped job is not a pass.
+    checks = jobs["all-checks"]
+    assert checks["if"] == "${{ always() }}" and set(checks["needs"]) == set(jobs) - {"all-checks"}
+    assert checks["steps"][0]["env"]["RESULTS"] == "${{ toJSON(needs) }}"
+    assert " ".join(checks["steps"][0]["env"]["PRIVATE_DRAFT"].split()) == (
+        "${{ github.event.repository.private && github.event_name == 'pull_request'"
+        " && github.event.pull_request.draft }}")
+
+
+@pytest.mark.parametrize("results,draft,passed,hint", [
+    ({"lint": "success", "test": "success", "platform": "success"}, "false", True, False),
+    ({"lint": "success", "test": "success", "platform": "skipped"}, "true", False, True),  # a private draft's run
+    ({"lint": "success", "test": "failure", "platform": "success"}, "false", False, False),
+    ({"lint": "success", "test": "cancelled", "platform": "success"}, "false", False, False),
+    ({"lint": "failure", "test": "skipped", "platform": "skipped"}, "false", False, False),  # skipped after lint
+    ({"lint": "failure", "test": "skipped", "platform": "skipped"}, "true", False, False),
+    ({"lint": "success", "test": "failure", "platform": "skipped"}, "true", False, False),
+    ({"lint": "cancelled", "test": "cancelled", "platform": "skipped"}, "true", False, False),
+    ({"lint": "success", "test": "cancelled", "platform": "skipped"}, "true", False, False),  # cancelled midway
+    ({}, "false", False, False),  # no result at all fails closed
+], ids=["all-passed", "draft", "failed", "cancelled", "after-lint-failed", "draft-after-lint-failed",
+        "draft-linux-failed", "draft-cancelled", "draft-cancelled-midway", "none"])
+def test_all_checks_passes_only_when_every_job_ran_and_passed(results, draft, passed, hint):
+    run = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))["jobs"]["all-checks"][
+        "steps"][0]["run"]
+    script = run.split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+    environment = {**os.environ, "RESULTS": json.dumps({job: {"result": result} for job, result in results.items()}),
+                   "PRIVATE_DRAFT": draft}
+    completed = subprocess.run([sys.executable, "-c", script], env=environment, capture_output=True, text=True,
+                               check=False)
+    assert (completed.returncode == 0) is passed, completed.stdout + completed.stderr
+    # The draft hint only for a private draft whose jobs all passed or were skipped by their condition.
+    assert ("mark it ready" in completed.stdout) is hint
 
 
 def _flaky(failures: int, error: Exception, calls: list):

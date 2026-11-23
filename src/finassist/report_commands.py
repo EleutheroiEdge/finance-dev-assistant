@@ -18,3 +18,5 @@ def add_report_commands(commands) -> None:
     trace.add_argument("--report", required=True, type=Path)
     trace.add_argument("--adjudications", type=Path)
     trace.add_argument("--output", required=True, type=Path)
+    trace.add_argument("--expect-head", metavar="SHA",
+                       help="Refuse a gate report for any other commit: the full SHA of the head being traced")

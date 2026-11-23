@@ -43,40 +43,58 @@ directory on Windows (see the changelog). 0.11.0 fixes that. Its tag and its can
 made before the gates below that are still open were met. It holds everything merged up to that fix.
 It makes no claim about review accuracy, gates D1 to D6 are not measured, and no adopter is told to
 rely on it for that. The bar on this page still stands for the release that does make such a claim.
+Its publication was cancelled, so 0.11.0 never reached PyPI; its fix first ships in 0.12.0.
 
-## Where the next release stands
+## Where 0.12.0 stands
 
-Measured on a snapshot of main at `478e70b` (12 November), offline, with no model call, on the reference set of
-225 changes at pinned commits with the fingerprint `471b2dfe27d4dc2a` (see Commands). Every count below is the same
-as on `b282da3`, the tree of the previous measurement. The figures that did not move
-since the first measurement at `5c1af62` are marked so.
+Each row says where its number comes from. A8, A9 and A10 were measured again on the 0.12.0 tree, offline, on
+synthetic data generated at run time. The gates that are tests (A1, A4, A5, B5 and B8) and E2 pass on that tree.
+The rows that need the reference repositories (A2, A3, A11, B1 to B3, B3a, B6 and B9) were measured again on
+18 November, offline, with no model call, on a wheel built locally from the 0.12.0 tree (SHA-256
+`45869ddff0284e73347bb6d7f30a9572af3f930fe602090af3cb043206d5ac92`) and installed by hash into a fresh environment,
+on the same pinned reference set (`471b2dfe27d4dc2a`, 9 of 9 repositories, 25 changes each, none incomplete). That
+wheel is not the one the release workflow builds. B4 was not measured again: its lines were not read, so it gives the
+earlier measurement and reads "Not re-measured". Before the tag, every row is to be measured on the candidate wheel
+the release workflow builds (gate C1); this section then names that commit and the wheel's SHA-256.
+
+The earlier measurement, which B4 still gives and the other rows compare with, was made on a snapshot of main at
+`478e70b` (12 November), offline, with no model call, on the reference set of 225 changes at pinned commits with the
+fingerprint `471b2dfe27d4dc2a` (see Commands), unless a row names another tree. Every count in it was the same as on
+`b282da3`, the tree of the measurement before.
 
 | Gate | Result | Met |
 |---|---|---|
 | A1 | The matrix test passes: no miss and no false alarm | Yes |
-| A2 | 1,092 of 1,092 numbers that the reference changes add are refused when listed | Yes |
-| A3 | 0 of 6,020 file versions refused with 1,000 control figures listed, and no collision. Measured at `5c1af62`; no change since touches the screen | Yes |
-| A4 | 0 escapes in 10,000 generated payloads against a baseline guard (`tests/test_figure_digits.py`) | Yes |
+| A2 | 1,092 of 1,092 numbers that the reference changes add are refused when listed, as before | Yes |
+| A3 | 0 of 6,020 file versions refused with 1,000 control figures listed, and no collision, as before | Yes |
+| A4 | Not a gate for 0.12.0 (see below). 0 escapes in 10,000 generated payloads against a baseline guard (`tests/test_figure_digits.py`) | Yes |
 | A5 | The route tests pass: every path to a provider runs the four screens | Yes |
 | A6 | A reply is screened on the review, gate and proposal routes, hidden characters last | Yes |
 | A7 | Not measured. It needs live calls | No |
-| B1 | 9 of 9 drafted policies are accepted by the gate | Yes |
-| B2 | 180 of 225 (80%). The threshold is 180 | Yes, with none to spare |
-| B3 | 185 of 225 (82%). As drafted, 140, up from 137: `doctor` no longer blocks a file under `generated_paths` | Yes |
-| B3a | With test paths listed: gate route 195 (87%), configuration route 202 (90%) | Reported |
-| B4 | All 45 distinct lines refused for a credential hold a literal value under a credential label, 40 of them in test files. None is a call, a member expression or an environment lookup | Yes |
+| A8 | Not reachable in 0.12.0, so not a gate for this release (see below); a measurement of the reader's code. 0 files missing a figure, 0 unexpected refusals and 0 unscreenable files accepted, read every way and declared, on 480 synthetic exports at seed 20261114: the default corpus (`848464313da02461`), each round-amount and cut-cell run in Commands, and the `--hidden-marks` and `--edge-spellings` profiles. Measured on the 0.12.0 tree | Yes |
+| A9 | Recall 1.000 and 0.998 (95% intervals from 0.997 and 0.994), precision 1.000 at both seeds, on 1,140 synthetic credentials and 340 look-alikes. Measured on the 0.12.0 tree | Yes |
+| A10 | 23 of 23 payloads refused, 0 of 16 ordinary texts refused. Measured on the 0.12.0 tree | Yes |
+| A11 | 450 of 450 checks byte-identical: `doctor` on each of the 225 reference changes, under both documented setups, gave the same exit status and the same output and error output bytes in all 5 runs, as before | Yes |
+| B1 | 9 of 9 drafted policies are accepted by the gate: no change on the gate route as drafted is refused for its policy | Yes |
+| B2 | 185 of 225 (82%), up from 180. The threshold is 180 | Yes, with 5 to spare |
+| B3 | 188 of 225 (84%), up from 185. As drafted, 154, up from 140 | Yes |
+| B3a | With test paths listed: gate route 201 (89%), configuration route 206 (92%), up from 195 and 202 | Reported |
+| B4 | Earlier measurement: all 45 distinct lines refused for a credential hold a literal value under a credential label, 40 of them in test files. None is a call, a member expression or an environment lookup. The lines were not read again on the 0.12.0 wheel | Not re-measured (earlier: yes) |
 | B5 | The labelled set passes | Yes |
-| B6 | `doctor`: median 0.52 s, 95th percentile 2.78 s, slowest 14.52 s over 1,800 runs. The dense-number test passes. The slowest run is one change of one repository and sits under the bar by less than a second; see below | Yes, with almost none to spare |
-| B7 | The configuration tests pass, and the installed upgrade from 0.3.1 and 0.4.0 passed on the 0.11.0 candidate wheel in its release build | Yes |
+| B6 | `doctor` median 0.36 s, 95th percentile 2.45 s, slowest 7.16 s over 1,800 runs, at a load average of 0.2 when the run began and 0.9 when it ended, not sampled in between. Earlier, with nothing else running on the host, on a development tree before figure sources became opt-in: 0.36 s, 2.39 s and 7.07 s, so the 95th percentile is up by 0.06 s and the slowest run by 0.09 s; on main at `478e70b` the slowest run was 14.52 s (see below). The dense-number test passes on the 0.12.0 tree | Yes |
+| B7 | The configuration tests pass on the 0.12.0 tree, and the installed upgrade from 0.3.1 and 0.4.0 passed on the 0.11.0 candidate wheel in its release build. `scripts/upgrade_smoke.py` also covers 0.9.0 and 0.10.0, the published versions in use, and passed on wheels of main and of a development tree; it is still to run on the 0.12.0 candidate's wheel | Partly |
 | B8 | 15 of 15 wrong setups, seven on the configuration route and eight on the gate route, give one named blocker; every remedy offered clears it; the first options reach `ready` | Yes |
-| B9 | Following the remedies sets up 189 changes on the configuration route (84%) and 185 on the gate route (82%). No remedy fails, loops or is unexplained, every change a hand-set skip variant reviews is reached, and none grants a capability. The 36 and 40 left need a person: mostly a credential-like value in a test file (32 and 28) | Yes |
-| C1 | Partly, for 0.11.0. On the workflow's wheel: its 147 package files equal the tagged tree, the screen, first-run and credential measurements (A2, B2, B3, B4, B6) repeated main's, and the upgrade check (B7) passed in the build. A7, D1 to D6, E1 and E3 were not run on it: 0.11.0 is a security release tagged and built ahead of those gates (see "What 0.11.0 is"). The full gate applies to every later candidate | Partly |
+| B9 | Following the remedies sets up 189 changes on the configuration route (84%), as before, and 186 on the gate route (83%), up from 185. No remedy fails, loops or is unexplained, every change a hand-set skip variant reviews is reached, and none grants a capability. The 36 and 39 left need a person: mostly a credential-like value (32 and 28) | Yes |
+| C1 | Partly, for 0.11.0. On the workflow's wheel: its 147 package files equal the tagged tree, the screen, first-run and credential measurements (A2, B2, B3, B4, B6) repeated main's, and the upgrade check (B7) passed in the build. A7, D1 to D6, E1 and E3 were not run on it: 0.11.0 is a security release tagged and built ahead of those gates (see "What 0.11.0 is"). The full gate applies to every later candidate. For 0.12.0: not run yet | Partly |
 | D1 to D6 | Not measured. 133 labelled cases (64 defects, 69 controls) are bound to pinned policies and pass the live run's preflight offline; the live run has not been started, and D1 needs 36 more defects | No |
 | E1 | The release workflow attests every file. The README does not give the verifying command yet | No |
 | E2 | `scripts/action_lock.py --check` passes | Yes |
 | E3 | 6.2 on main at `edf4439` (Scorecard 5.6.0, read on 12 November). The checks at 0: no approved reviews, a repository under 90 days old, GitHub releases without signed files or provenance, no fuzzing, no best-practices badge, and no contributing company or organization detected. Branch protection was not readable by the workflow's token, so it is not scored. Two uv advisories (Vulnerabilities 8) are fixed by #140, and the private-reporting link now in SECURITY.md should lift Security-Policy from 4 to 10: about 6.7 with both | No |
 
-B6 is wall-clock time and moves with the machine's load. Its slowest run is one change of one repository, about
+B6 is wall-clock time and moves with the machine's load. The slowest run fell from 14.52 s on main at `478e70b`
+to 7.82 s on a development tree before this release, which screens each text once per command (#149) among
+later changes, and was 7.16 s on the 0.12.0 wheel at a light load. On main, the
+slowest run was one change of one repository, about
 14 s on `b282da3` and on main alike; alternating the two trees on that repository gave 13.8 s at a load of about 2,
 and up to 15.4 s at a load of 3 to 5, over the bar. So load alone can decide B6. A profile of that run shows where
 the time goes: the gate preflight reads and screens every changed file twice, once to classify it and once to build
@@ -85,12 +103,12 @@ Screening each text once per command took that run from 13.5 and 13.9 s to 10.2 
 a sixth to a quarter, with every status and blocker count the same (work item 1).
 The bar should be read on a quiet machine.
 
-What the gate route still blocks, by number of changes: credential content 28, a change to an ignore file 7, a
-request over the size limit 5, the run budget 3, the packet limit 1, a hidden character 1, the file count 1, a
-range of private files only 1, and nothing to review 1. Some changes have more than one.
+What the gate route (B2) still blocks on the 0.12.0 wheel, by number of changes: credential content 28, a change
+to an ignore file 6, a request over the size limit 1, the packet limit 1, a hidden character 1, the file count 1, a
+range of private files only 1, and nothing to review 1. No change has more than one.
 
-**B2 has nothing to spare.** One reference change fewer would miss it. What it still refuses for credential
-content is a literal under a credential label, and 40 of those 45 lines are in test files.
+**B2 has five to spare.** Six reference changes fewer would miss it. What it refused for credential content at
+the earlier measurement was a literal under a credential label, and 40 of those 45 lines were in test files (B4).
 `placeholder_credential_paths` is the setting for test files that hold only made-up logins; its numbers (B3a)
 are reported beside B2 and B3 and do not count towards them.
 
@@ -110,6 +128,18 @@ measurement is not passed.
 | A5. One screen, every route | Every path to `providers.invoke` passes the credential, private-path, figure and hidden-character screens. A request without them is refused, not sent | `pytest tests/test_every_route_is_screened.py tests/test_hidden_text.py` |
 | A6. Output is screened | Free text a model returns is screened on every route before it is shown or saved | route table test |
 | A7. Injection | Across at least 60 adversarial packets, 0 changed verdicts and 0 echoes of screened data | needs live calls; see D |
+| A8. Figure sources in export layouts | Across 480 seeded synthetic custody exports (holdings, tax lots, realized gains, account lists, name and amount lists and one-column files; every delimiter, both decimal marks, five kinds of grouping, quoting, totals, byte-order marks, currency codes, credit and debit marks, footnotes, fractions with no zero before the decimal mark, totals beside a label, spreadsheet text markers, timestamps, UTF-16 and cp1252, and files that quote nothing): 0 files that miss a figure, read every way or with the layout declared; every file holding a number with a decimal comma and no digit before it refused in both modes, a file that quotes nothing refused or read whole; no other declared file refused; read every way, otherwise only one-column files refused, and only as ambiguous. The same for two profiles, each with its own fingerprints and its settings printed: round amounts (`--round-amounts`) under each round-figure setting, and amounts cut into cells after a short quantity (`--cut-cell-amounts`) under each round-figure setting and match mode | `scripts/figure_source_corpus.py`, exit status 0 for the default corpus and each run below |
+| A9. Credential screen accuracy | On a labelled synthetic corpus of credential-shaped values in the formats real credentials take, and of look-alikes that must pass: recall at least 0.88 and precision at least 0.75, the bar the best single tools reach on a public labelled set | `scripts/secret_screen_accuracy.py`, exit status 0, at two seeds |
+| A10. Hidden characters | Every payload of the published attack types (bidirectional controls, tag characters, zero-width and other invisible characters) is refused, and no ordinary text in other scripts is | `scripts/hidden_text_accuracy.py`, exit status 0 |
+| A11. The same answer every time | `doctor` on every reference change, under both documented setups (test paths listed, on the configuration and on the gate route), gives the same exit status and the same output and error output bytes in each of 5 runs | `scripts/doctor_stability.py`, exit status 0 |
+
+A4 and A8 measure the figure-source reader. It is not reachable in 0.12.0: a configuration or gate
+policy that lists a figure source is refused whatever else it sets, `"forbidden_token_sources_experimental":
+true` included, so no released route reads one, and A4 and A8 do not gate this release. Their results
+stand as measurements of the reader's code, which is kept for a later release. They count only the
+synthetic shapes they generate, and amounts in other shapes have been found that the reader misses, so
+passing them is no claim that a source lists every figure, and release notes must not say it does. A1 to
+A3, A5 to A7 and A9 to A11 do not use figure sources.
 
 ### B. A stranger's repository works
 
@@ -149,6 +179,8 @@ the code is free of defects.
 | D4. Clean changes | At most 10% get FAIL | benchmark practice |
 | D5. Repeat trials | Three runs per case; the verdict is the same in at least 90% of cases | benchmark practice |
 | D6. Side by side | The same cases through an adopter's existing reviewer, scored the same way | `finassist score --compare` |
+| D7. Public benchmark | Recall on the high-severity defects of a published code-review benchmark, with a 95% interval | not started: the benchmark is not chosen yet |
+| D8. Seeded defects | On the 20 seeded finance defects, recall reported with a 95% interval; on their 20 behaviour-preserving twins, at most 2 get a finding | `finassist evaluate --suite examples/seeded-finance-cases.json`, then `score`; the labels are proven by `pytest tests/test_seeded_finance_suite.py` |
 
 ### E. The release itself can be trusted
 
@@ -157,6 +189,19 @@ the code is free of defects.
 | E1. Provenance | Every release file carries a PEP 740 attestation, and the README gives the command that verifies it |
 | E2. Workflows | Least-privilege permissions and actions pinned by commit, checked by `scripts/action_lock.py` |
 | E3. Scorecard | OpenSSF Scorecard at 8 or above |
+
+### F. The verdict can be wired into a merge
+
+A required check is only as good as its worst exit. These gates hold whatever the review finds: they are about what
+the gate does when it cannot finish, and about who decides the rules. The status table above gains them at the next
+measurement.
+
+| Gate | Threshold | How it is measured |
+|---|---|---|
+| F1. Code scanning | A gate report becomes a SARIF 2.1.0 log. An edited report is refused, and with `--expect-head` so is a report for another commit | `pytest tests/test_sarif.py` |
+| F2. Never a silent pass | A timeout, a failed connection, a provider error, an empty or shapeless reply, a reply that skipped a file, or an unexpected failure ends BLOCKED with its own reason. Where the call's cost is unknown the spend stays held; a reply whose usage is known is settled, even when the reply is refused. A check that exits nonzero, is killed, times out, overflows its output or leaves its cleanup unverified never completes, whatever it prints. Only PASS exits 0, and NOT_APPLICABLE under the policy's explicit opt-in | `pytest tests/test_gate_outcome_contract.py tests/test_never_silently_pass.py` |
+| F3. Trigger safety | Under model review, a change from a fork ends BLOCKED with a named reason before the policy or a key is read. The checks-only gate runs a fork's checks only when its pinned base policy says `forks: checks-only`, and never with provider access. The example workflow runs on `pull_request`, with read-only contents, no persisted credentials and actions pinned by commit | `pytest tests/test_model_gate.py tests/test_ci_gate.py -k fork`; `python scripts/action_lock.py --check` |
+| F4. Policy from base | A change that edits the gate policy does not decide its own verdict: the policy is read at the base, pinned by its hash, and a change to it is BLOCKED for review | `pytest tests/test_model_gate.py tests/test_ci_gate.py -k "head_policy or policy_changes"` |
 
 ## Work, in order
 
@@ -188,8 +233,9 @@ Landed since 0.10.0, each with the gates it serves:
 
 Left, in this order:
 
-1. **B6 headroom:** screen each text once per command, and keep the slowest run well under the bar on a quiet
-   machine.
+1. **B6 headroom:** done. Each text is screened once per command (#149), and on a development tree before this
+   release the slowest run was 7.82 s, about half the bar, on a loaded host, and on the 0.12.0 wheel 7.16 s at a
+   light load. It is to be measured again on the candidate wheel (C1).
 2. **State** (#120): `state clean` (removing only what is certainly safe), then `state archive` for the audit chain.
 3. **Accuracy programme:** gates D1 to D6 and A7.
    - **Done, offline:** for A7, 60 synthetic attack pairs with controls and an offline scorer (#145); 133 labelled cases from six of the maintainers' repositories are bound to pinned
@@ -210,6 +256,20 @@ python -m pytest tests/test_figure_matrix.py
 # A2 and A3: each REPO is a local checkout; nothing is written and nothing is sent
 python scripts/seeded_figure_screen.py --changes 25 REPO [REPO ...]
 
+# A9 and A10: synthetic, generated at run time
+python scripts/secret_screen_accuracy.py --seed 20261114
+python scripts/secret_screen_accuracy.py --seed 7
+python scripts/hidden_text_accuracy.py
+
+# A8: synthetic exports written to a temporary folder and removed after the run
+python scripts/figure_source_corpus.py --files 480 --seed 20261114
+python scripts/figure_source_corpus.py --files 480 --seed 20261114 --round-amounts
+python scripts/figure_source_corpus.py --files 480 --seed 20261114 --round-amounts --round-figures list
+python scripts/figure_source_corpus.py --files 480 --seed 20261114 --cut-cell-amounts
+python scripts/figure_source_corpus.py --files 480 --seed 20261114 --cut-cell-amounts --round-figures list
+python scripts/figure_source_corpus.py --files 480 --seed 20261114 --cut-cell-amounts --match digits
+python scripts/figure_source_corpus.py --files 480 --seed 20261114 --cut-cell-amounts --match digits --round-figures list
+
 # B5
 python -m pytest tests/test_credential_references.py
 
@@ -224,6 +284,10 @@ python scripts/seeded_figure_screen.py --changes 25 --tips /private/new-folder/t
 # B9, on the same changes
 python scripts/remedy_scenarios.py --changes 25 --tips /private/new-folder/tips.txt \
     --output /private/a-third-folder REPO [REPO ...]
+
+# A11, on the same changes: doctor 5 times on each, under both documented setups
+python scripts/doctor_stability.py --runs 5 --changes 25 --tips /private/new-folder/tips.txt \
+    --output /private/a-fourth-folder REPO [REPO ...]
 ```
 
 The scripts print codes, setting names, counts and timings only, under an anonymous number for each

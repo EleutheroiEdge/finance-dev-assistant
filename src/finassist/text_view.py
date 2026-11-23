@@ -152,6 +152,8 @@ def _preflight(report, mode, pen):
     ready = report.get("status") == "ready"
     count = f"{len(blockers)} blocker" + ("s" if len(blockers) != 1 else "")
     verdict = pen.paint("READY" if ready else f"BLOCKED - {count}", "32" if ready else "31")
+    if report.get("status") == "not_applicable":
+        verdict = pen.paint("NOT APPLICABLE - nothing in scope, nothing reviewed", "33")
     pen.add("Verdict: " + verdict)
     _range_line(report, pen)
     policy = report.get("policy")

@@ -179,7 +179,7 @@ base policy only. See the [fixture policy contract](pre-merge-gate.md#policy-own
 for structural roots, base-only `.finledgerpoli-synthetic` markers, literal scope,
 the 48,000-byte default and 2,000,000-byte hard ceiling. This is a synthetic-data
 attestation, never permission for client/private/data paths. Existing guard paths
-still apply; the owner must review the intended fixture-change scope explicitly.
+still apply; a maintainer must review the intended fixture-change scope explicitly.
 CI checks retain isolated execution and never gain model/network authority.
 
 

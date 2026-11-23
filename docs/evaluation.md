@@ -36,6 +36,15 @@ Scoring rejects changed evaluations, partial labels, label/type conflicts and
 offline runs. It reports case recall, negative-control false-alarm rate and
 unresolved cases.
 
+The seeded finance suite, `examples/seeded-finance-cases.json`, holds 40 cases: 20 small routines of the kind a
+finance codebase has (basis points, cent rounding, tax-lot order and fills, a concentration cap, a wash-sale
+window, a holding period, a day count, a currency direction, a tie between two ratios, a minimum trade and
+others), each twice with the same earlier version. One later version seeds one defect; the other is a
+behaviour-preserving twin, so a finding on it is a false alarm. The labels hold by execution, not by assertion:
+`tests/test_seeded_finance_suite.py` runs both versions of every case on probe inputs, and each defect changes a
+result while each twin changes none. The probes stay in the test, never in the suite, so nothing in a packet hints
+at the answer. Report recall on the defects and the false-alarm rate on the twins separately.
+
 For an adoption decision, also compare severity calibration, reproducible tests,
 coverage gaps, prompt-injection behavior, dollars per confirmed defect and elapsed
 time on identical frozen tasks. Retain failures and repeated trials. A second

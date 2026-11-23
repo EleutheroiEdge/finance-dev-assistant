@@ -1,11 +1,14 @@
 """Portable policy-approved model review. PASS is component completion, not merge authority."""
 
+from contextlib import ExitStack
+from dataclasses import dataclass
 from decimal import Decimal
 from importlib.resources import files
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import stat
 
 import jsonschema
 
@@ -18,14 +21,20 @@ from .hidden_text import Waiting
 from .github_context import pull_request_context, verify_origin
 from .ledger import Ledger
 from .model_policy import load_model_policy
+from .occurrence_identity import DeferredAllowance, OccurrenceAllowance, allowance_in_effect
+from .outcome_class import model_outcome_class
+from .placeholder_occurrences import build_allowance
 from .providers import HTTP_ERROR_CODES, reply_json, request_identity, request_shape
 from .review import PolicyRequestApproval, call_model, review_schema, validate_review
 from .scope import (WITHHELD_CODES, build_packet, checkout_roots, git, left_out, omission_reason, require_regular,
                     resolve)
-from .policy_ignores import ignored_paths, screen_ignores as _screen_ignores
+from .policy_ignores import ignored_paths, only_appends_patterns, screen_ignores as _screen_ignores
 from .security import canonical, check_model_path as _scope_path, digest, regular_path
 
-EXIT_CODES = {"PASS": 0, "FAIL": 1, "BLOCKED": 2}
+# NOT_APPLICABLE exits 0 only because a base-pinned policy opted in to it; it is never a review or a pass.
+EXIT_CODES = {"PASS": 0, "FAIL": 1, "BLOCKED": 2, "NOT_APPLICABLE": 0}
+NOT_APPLICABLE_MODE = "model-review-not-applicable"
+_NOT_APPLICABLE_DOMAIN = "finledgerpoli/model-gate-not-applicable/v1"
 
 
 def _contains_key(value, key: str) -> bool:
@@ -39,8 +48,41 @@ def _contains_key(value, key: str) -> bool:
     return False
 
 
+@dataclass(frozen=True)
+class NoReviewScope:
+    """A range the base-pinned policy declares not applicable to model review: every changed path was left out as
+    outside allow_paths, none was withheld or refused, and no governance rule file changed. Nothing was read for
+    review. Only the count and a digest of the classified manifest leave this object."""
+    changed: int
+    manifest_sha256: str
+
+
+def _evaluation_digest(base: str, head: str, policy_sha256: str, manifest_sha256: str) -> str:
+    return digest(canonical({"domain": _NOT_APPLICABLE_DOMAIN, "mode": NOT_APPLICABLE_MODE, "schema_version": 1,
+                             "base": base, "head": head, "policy_sha256": policy_sha256,
+                             "manifest_sha256": manifest_sha256}))
+
+
+def _validate_not_applicable(report: dict) -> None:
+    schema = json.loads(files("finassist").joinpath("resources/model-gate-not-applicable.schema.json")
+                        .read_text(encoding="utf-8"))
+    try:
+        jsonschema.Draft202012Validator(schema).validate(report)
+    except jsonschema.ValidationError as exc:
+        raise AssistantError("gate_report_invalid") from exc
+    if (report["report_hash"] != digest(canonical({k: v for k, v in report.items() if k != "report_hash"}))
+            or report["scope"]["changed"] != report["scope"]["outside_allow_paths"]
+            or report["evaluation_sha256"] != _evaluation_digest(report["base"], report["head"],
+                                                                 report["policy_sha256"], report["manifest_sha256"])):
+        raise AssistantError("gate_report_invalid")
+
+
 def validate_model_report(report: dict) -> None:
     if not isinstance(report, dict):
+        raise AssistantError("gate_report_invalid")
+    if report.get("mode") == NOT_APPLICABLE_MODE:
+        return _validate_not_applicable(report)
+    if report.get("mode") != "model-review":
         raise AssistantError("gate_report_invalid")
     resource = ("model-gate-report-v1.schema.json" if report.get("schema_version") == 1
                 else "model-gate-report.schema.json")
@@ -57,6 +99,11 @@ def validate_model_report(report: dict) -> None:
         raise AssistantError("gate_report_invalid")
 
     if any(detail["code"] not in report["reasons"] for detail in report.get("reason_details", [])):
+        raise AssistantError("gate_report_invalid")
+    if "outcome_phase" in report and (report["outcome_phase"] != "reply" or report["verdict"] != "BLOCKED"):
+        raise AssistantError("gate_report_invalid")
+    if "outcome_class" in report and report["outcome_class"] != model_outcome_class(
+            report["verdict"], report["reasons"], report.get("outcome_phase")):
         raise AssistantError("gate_report_invalid")
 
     if report["schema_version"] == 2:
@@ -95,15 +142,19 @@ def refused_model_report(code: str) -> dict:
     report = _blank_report()
     report["reasons"] = [code if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,80}", code)
                          else "gate_action_refused"]
+    report["outcome_class"] = model_outcome_class(report["verdict"], report["reasons"])
     report["report_hash"] = digest(canonical(report))
     validate_model_report(report)
     return report
 
 
 def prepare_token_guard(policy, source_repo: Path | None = None) -> TokenGuard | None:
+    from .figure_source_entries import check_opt_in
+
     rules = policy.document["model_review"]
     if not any(name in rules for name in LIST_RULES):
         return None
+    check_opt_in(rules)
     # A linked checkout is part of the same repository, even when its path is outside the
     # current checkout and common Git directory.
     roots = tuple(root for repo in dict.fromkeys((source_repo, policy.repo)) if repo is not None
@@ -128,7 +179,7 @@ def name_outcome(path: str, config, deny_paths) -> tuple[str, str | None]:
         private = True  # skip-and-report: withheld by name and never read.
     if not private:
         try:
-            _scope_path(path, fixture_roots=roots)
+            _scope_path(path, fixture_roots=roots, text_suffixes=getattr(config, "text_suffixes", None))
         except AssistantError as exc:
             reason = left_out(config, exc.code)
             if reason is None:
@@ -147,7 +198,19 @@ def name_outcome(path: str, config, deny_paths) -> tuple[str, str | None]:
     return ("left-out", omission_reason(config, path) or reason) if reason else ("review", None)
 
 
-def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_repo: Path | None = None) -> dict:
+def ignore_change_needs_review(repo: Path, revisions: set[str], head: str, path: str, config, deny_paths) -> bool:
+    """Whether a changed .gitignore needs a person before the gate goes on. One that only appends ordinary patterns
+    can only make more paths ignored, so it does not. The name rules decide first: a denied, private or refused
+    name is never read, and still needs review."""
+    try:
+        outcome, _reason = name_outcome(path, config, deny_paths)
+    except AssistantError:
+        return True
+    return outcome == "withheld" or not only_appends_patterns(repo, revisions, head, path)
+
+
+def prepare_model_source(repo: Path, base: str, head: str, policy, *,
+                         policy_repo: Path | None = None) -> dict | NoReviewScope:
     """Shared offline source construction; never reads a provider key or ledger."""
     rules, config = policy.document["model_review"], policy.config
     ancestor = git(repo, "merge-base", base, head)
@@ -170,7 +233,9 @@ def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_rep
         raise AssistantError("gate_fixture_marker_change_requires_review")
     if policy.profile_path in guarded and source_profile_paths:
         raise AssistantError("gate_profile_change_requires_review")
-    if any(PurePosixPath(path).name == ".gitignore" for path in guarded):
+    if any(PurePosixPath(path).name == ".gitignore"
+           and ignore_change_needs_review(repo, {base, ancestor}, head, path, config, rules["deny_paths"])
+           for path in guarded):
         raise AssistantError("gate_ignore_change_requires_review")
     withhold, left = set(), set()
     for path in paths:
@@ -194,7 +259,8 @@ def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_rep
             kept = []
             for path in candidates:
                 try:
-                    _scope_path(path, fixture_roots=getattr(config, "fixture_roots", ()))
+                    _scope_path(path, fixture_roots=getattr(config, "fixture_roots", ()),
+                                text_suffixes=config.text_suffixes)
                 except AssistantError:
                     continue
                 if not any(path.startswith(prefix) if prefix.endswith("/") else path == prefix
@@ -217,8 +283,102 @@ def prepare_model_source(repo: Path, base: str, head: str, policy, *, policy_rep
             or len(packet["files"]) + len(omitted) != len(paths) - len(withhold)):
         raise AssistantError("scope_incomplete")
     if not packet["files"]:
+        scope = _no_review_scope(rules, paths, packet, guarded, policy)
+        if scope is not None:
+            return scope
         raise AssistantError("empty_model_context" if omitted else "review_scope_entirely_withheld")
     return packet
+
+
+def placeholder_occurrence_allowance(repo: Path, base: str, head: str, policy,
+                                     policy_repo: Path | None = None) -> DeferredAllowance | None:
+    """The policy's reviewed placeholder occurrences, checked at base, the merge base and head; None without any.
+    A path the gate would not review by its name, or that the committed ignore rules exclude (the source's at
+    base and merge base, and a separate policy repository's at its base), is never read, changed or not.
+    Nothing is read here: the checks run when the screen first asks about a listed file, which is after the
+    gate's guards on names, file count and rule files have passed."""
+    rules = policy.document["model_review"]
+    entries = rules.get("placeholder_credential_occurrences") or []
+    if not entries:
+        return None
+    key = digest(canonical({"entries": entries, "base": base, "head": head, "policy": policy.sha256,
+                            "policy_repo": None if policy_repo is None else str(policy_repo)}))
+    return DeferredAllowance({entry["path"] for entry in entries}, key,
+                             lambda: _built_allowance(repo, base, head, policy, policy_repo, entries))
+
+
+def _built_allowance(repo: Path, base: str, head: str, policy, policy_repo, entries) -> OccurrenceAllowance:
+    rules = policy.document["model_review"]
+
+    def named(path: str) -> bool:
+        try:
+            return name_outcome(path, policy.config, rules["deny_paths"])[0] == "review"
+        except AssistantError:
+            return False
+
+    ancestor = git(repo, "merge-base", base, head)
+    candidates = sorted({entry["path"] for entry in entries if named(entry["path"])})
+    try:
+        ignored = ignored_paths(repo, {base, ancestor}, candidates) if candidates else set()
+        if candidates and policy_repo is not None and (policy_repo != repo or policy.base != base):
+            ignored |= ignored_paths(policy_repo, {policy.base}, candidates)
+    except (AssistantError, OSError, ValueError):
+        ignored = set(candidates)  # the ignore rules could not be read: nothing listed is read
+    readable = set(candidates) - ignored
+    return build_allowance(repo, (("base", base), ("merge_base", ancestor), ("head", head)), entries,
+                           policy.config, readable.__contains__)
+
+
+def _no_review_scope(rules: dict, paths: list[str], packet: dict, guarded: set[str], policy) -> NoReviewScope | None:
+    """The explicitly classified no-review outcome, or None. Only under the policy's own opt-in, after every
+    identity, policy, privacy, name and entry check has run; only when every changed path was left out as
+    outside allow_paths with nothing withheld; never when a governance rule file changed in either comparison."""
+    if rules.get("out_of_scope_ranges", "block") != "not-applicable":
+        return None
+    omitted = {row["path"]: row["reason"] for row in packet["omitted"]}
+    governance = {policy.path, policy.profile_path, *getattr(policy.config, "fixture_markers", {})} - {None}
+    if (not paths or packet.get("withheld", {}).get("count", 0) or set(omitted) != set(paths)
+            or len(omitted) != len(paths) or any(reason != "outside_allowlist" for reason in omitted.values())
+            or any(PurePosixPath(name).name == ".gitignore" or name in governance for name in guarded)):
+        return None
+    manifest = [{"path": path, "reason": omitted[path]} for path in sorted(paths)]
+    return NoReviewScope(changed=len(paths), manifest_sha256=digest(canonical(manifest)))
+
+
+def _check_retained_audit(state_dir: Path) -> None:
+    """The retained audit, read only. Absent is a fresh state folder, and nothing is created. Anything else must
+    be an ordinary file that verifies and holds no open reservation; a link, dangling or not, is not absence."""
+    path = regular_path(Path(state_dir) / "audit.sqlite")
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise AssistantError("gate_audit_unavailable") from exc
+    if not stat.S_ISREG(info.st_mode):
+        raise AssistantError("gate_audit_unavailable")
+    try:
+        with Ledger(path, read_only=True) as ledger, ledger.transaction():
+            ledger.verify()
+            held = bool(ledger.open_reservations())
+    except Exception as exc:
+        raise AssistantError("gate_audit_unavailable") from exc
+    if held:
+        raise AssistantError("unreconciled_model_usage")
+
+
+def _not_applicable_report(base: str, head: str, policy_sha256: str, scope: NoReviewScope) -> dict:
+    report = {"schema_version": 1, "mode": NOT_APPLICABLE_MODE, "verdict": "NOT_APPLICABLE",
+              "reasons": ["nothing_in_scope"], "base": base, "head": head, "policy_sha256": policy_sha256,
+              "scope": {"changed": scope.changed, "outside_allow_paths": scope.changed, "reviewed": 0},
+              "coverage_complete": False, "manifest_sha256": scope.manifest_sha256,
+              "evaluation_sha256": _evaluation_digest(base, head, policy_sha256, scope.manifest_sha256),
+              "merge_authority": False, "deployment_authority": False,
+              "summary": "No changed file is in this policy's scope, so nothing was reviewed. Not a review or a pass.",
+              "outcome_class": "not_applicable"}
+    report["report_hash"] = digest(canonical(report))
+    validate_model_report(report)
+    return report
 
 
 def prepare_model_request(policy, packet: dict, *, source_repo: Path | None = None,
@@ -257,7 +417,8 @@ def _evaluate_model_gate(repo: Path, base: str, head: str, policy_loader, state_
     No retry or fallback occurs, including after missing usage or a timeout.
     """
     report = _blank_report()
-    ledger_path, reservation = None, None
+    ledger_path, reservation, replied = None, None, False
+    occurrences = ExitStack()  # the policy's reviewed placeholder occurrences, for this run only
     try:
         revision(base)
         revision(head)
@@ -271,7 +432,16 @@ def _evaluate_model_gate(repo: Path, base: str, head: str, policy_loader, state_
         policy, policy_repo = policy_loader(repo)
         report["policy_sha256"] = policy.sha256
         rules, config = policy.document["model_review"], policy.config
+        occurrences.enter_context(allowance_in_effect(
+            placeholder_occurrence_allowance(repo, base, head, policy, policy_repo)))
         packet = prepare_model_source(repo, base, head, policy, policy_repo=policy_repo)
+        if isinstance(packet, NoReviewScope):
+            # The policy's own opt-in, after every check above. No key, transport, reservation or receipt;
+            # a supplied request hash cannot match a request that is never made.
+            if expected_request_hash is not None:
+                raise AssistantError("gate_request_hash_mismatch")
+            _check_retained_audit(Path(state_dir))
+            return _not_applicable_report(base, head, policy.sha256, packet)
         not_reviewed = packet.get("withheld", {}).get("count", 0) + len(packet["omitted"])
         if not_reviewed:
             # A count only, of every changed file left out of the review: private ones withheld by
@@ -291,6 +461,7 @@ def _evaluate_model_gate(repo: Path, base: str, head: str, policy_loader, state_
             policy_approval=PolicyRequestApproval(policy.sha256, request_hash), transport=transport,
             token_guard=token_guard,
         )
+        replied = True  # from here on, a stop is about the reply, not the change
         report["usage"] = {"input_tokens": result.input_tokens, "output_tokens": result.output_tokens}
         if result.input_tokens is None or result.output_tokens is None:
             raise AssistantError("unreconciled_model_usage")
@@ -323,6 +494,8 @@ def _evaluate_model_gate(repo: Path, base: str, head: str, policy_loader, state_
     except AssistantError as exc:
         code = exc.code if re.fullmatch(r"[a-z][a-z0-9_]{0,80}", exc.code) else "gate_failed"
         report["reasons"] = [code]
+        if replied:
+            report["outcome_phase"] = "reply"
         status = exc.public_details.get("http_status")
         if code in HTTP_ERROR_CODES.values() and type(status) is int and 100 <= status <= 599:
             report["reason_details"] = [{"code": code, "http_status": status}]
@@ -330,6 +503,8 @@ def _evaluate_model_gate(repo: Path, base: str, head: str, policy_loader, state_
         # A malformed input, provider transport, audit or output failure never
         # returns success or exposes exception strings/paths/source/credentials.
         report["reasons"] = ["gate_input_or_audit_unavailable"]
+    finally:
+        occurrences.close()
     if ledger_path is not None and ledger_path.exists():
         try:
             with Ledger(ledger_path, read_only=True) as ledger, ledger.transaction():
@@ -345,6 +520,9 @@ def _evaluate_model_gate(repo: Path, base: str, head: str, policy_loader, state_
             report.update(verdict="BLOCKED", reasons=["gate_audit_unavailable"], findings=[])
     if "reason_details" in report and report["reason_details"][0]["code"] not in report["reasons"]:
         del report["reason_details"]
+    if report["verdict"] != "BLOCKED":
+        report.pop("outcome_phase", None)
+    report["outcome_class"] = model_outcome_class(report["verdict"], report["reasons"], report.get("outcome_phase"))
     report["report_hash"] = digest(canonical(report))
     validate_model_report(report)
     return report

@@ -1,5 +1,5 @@
 {
-  "$id": "urn:finledgerpoli:schema:ci-policy:1",
+  "$id": "urn:finledgerpoli:schema:ci-policy:2",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -25,7 +25,7 @@
       "uniqueItems": true
     },
     "config": {
-      "$ref": "urn:finledgerpoli:schema:config:1"
+      "$ref": "urn:finledgerpoli:schema:config:2"
     },
     "events": {
       "const": [

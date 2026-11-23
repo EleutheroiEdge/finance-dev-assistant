@@ -280,13 +280,14 @@ finassist doctor --policy gate-policy.json --repo . --base BASE --head HEAD
 ```
 
 It reports every blocker the gate would hit for that range in one run, each with a
-`hint`, and exits 0 when the range is ready and 1 when it is blocked. It also lists:
+`hint`, and exits 0 when the range is ready or not applicable and 1 when it is blocked. It also lists:
 - **Each changed path** as `included`, `refused` (with the code and any limit or size)
   or `unchecked`. A path is `unchecked` when a screening step can't run, for example an
   unreadable token file, too many files, an ignored profile or fixture marker, or a
   change in the range to the policy, its profile, a fixture marker or a `.gitignore`
-  file. These stop the gate before it reads content, so the preflight reads none
-  either. An ignored changed file is refused and named. At most
+  file, unless that `.gitignore` change only appends ordinary patterns (no `!`) at
+  its end, which can only ignore more. These stop the gate before it reads content,
+  so the preflight reads none either. An ignored changed file is refused and named. At most
   2,000 paths are listed. Path refusals are grouped by code, each with a `count` and
   up to 20 example `paths`. A changed name that isn't UTF-8 is counted, never shown.
 - **Every policy schema error,** with its field and allowed values. Current values are never echoed.
@@ -405,6 +406,27 @@ before enabling paid unattended review. Do not restore budget/audit state from
 untrusted PR-controlled caches. No persistence backend, secret or workflow is
 created by this feature. Default `mode: checks-only` preserves the v1 adapter.
 
+## Code scanning
+
+`finassist sarif` turns the report `gate run --output` wrote into a SARIF 2.1.0 log that a code-scanning upload
+step accepts:
+
+```bash
+finassist sarif gate-report.json --output gate.sarif --expect-head "$HEAD_SHA"
+```
+
+Each finding keeps its severity (critical and high become `error`, medium `warning`, low and info `note`), its file
+and line, and its claim. Its id is bound to the request it came from, so it travels as trace metadata, not as an alert
+fingerprint: check out the source before the upload step, and the upload step computes the location fingerprint
+that matches a finding across pushes. The verdict and its reasons are tool notifications, because they name no
+file. The report is checked against its schema and its own hash first: a report whose hash does not match its
+content is refused. The hash shows the report is consistent, not where it came from; `--expect-head` refuses one
+for another commit. It also converts the JSON `scan` printed, after checking its whole shape.
+
+In GitHub Actions, give the upload step `security-events: write` and pin its action by commit. Upload only where
+the people who can see code-scanning results may read the claims, which are the model's screened words about
+your code. The gate's own verdict, not the upload, is what blocks a merge.
+
 ## Withheld private paths
 
 A policy can set `"private_paths": "skip-and-report"` in `model_review`. Private paths in
@@ -433,11 +455,34 @@ left out instead of refusing the run. The default, `refuse`, keeps the run block
 - **The count is one number:** `coverage.withheld` counts every changed file that was not reviewed,
   private or left out, and the Actions summary and the `withheld-count` output carry it.
 - **What still refuses:** `deny_paths`; a change to the policy, the profile, a fixture marker or a
-  `.gitignore`; credential content; a listed figure; and a range with nothing left to review.
+  `.gitignore` beyond appended ordinary patterns; credential content; a listed figure; and a range with nothing left to review,
+  unless the policy opts in as below.
 - **The preflight** lists each file left out as `omitted` with its reason, warns with
   `unreviewable_paths_left_out`, and doesn't treat them as blockers.
 
 See [leaving out files that cannot be reviewed](configuration.md#leaving-out-files-that-cannot-be-reviewed).
+
+## A range with nothing in scope
+
+A policy can also set `"out_of_scope_ranges": "not-applicable"` in `model_review`, with
+`"unreviewable_paths": "skip-and-report"`. A range whose every changed file is outside
+`allow_paths` then ends `NOT_APPLICABLE` and exits 0, instead of `BLOCKED` with
+`empty_model_context`, so a required check does not hold a change the policy puts out of scope.
+The default, `block`, keeps such a range blocked.
+- **It is not a review or a pass.** No provider key is read, and nothing is sent, reserved or
+  receipted. The report is its own document, mode `model-review-not-applicable`
+  (`schemas/model-gate-not-applicable.schema.json`): counts, a digest of the classified paths, and
+  an evaluation digest that binds them to the base, head and policy. It names no file.
+- **Only a plain out-of-scope range qualifies.** Every check runs first. A file left out for any
+  other reason, a withheld private file, a denied path, a changed `.gitignore`, policy, profile or
+  fixture marker, or a caller-supplied request hash keeps the range blocked.
+- **Retained state still counts.** An existing audit file must verify and hold no open
+  reservation; it is only read. An absent one is a fresh state folder and is not created.
+- **The Action** outputs `status=NOT_APPLICABLE`, `coverage-complete=false` and the changed-file
+  count as `withheld-count`, and its summary says nothing was reviewed. `finassist doctor` reports
+  `not_applicable` for such a range and exits 0.
+- **The policy author decides what is reviewed.** Code outside `allow_paths` is not reviewed; this
+  option makes that choice visible, not safer.
 
 ## Placeholder credentials in test files
 
@@ -449,7 +494,7 @@ numbers, listed figures and `extra_sensitive_patterns` still refuse there, and t
 are sent as they are. The preflight lists each such file with
 `credential_labels: not_screened` and warns with `credential_labels_not_screened`.
 
-See [placeholder credentials in test files](configuration.md#placeholder-credentials-in-test-files).
+See [placeholder credentials](configuration.md#placeholder-credentials-in-test-files), including single YAML values.
 
 ## Example policies
 
@@ -614,9 +659,9 @@ fractional zeros are removed; integer trailing zeros are preserved.
 In screened text, the screen reads runs of digits and the single characters between them,
 and compares every number they can form with the list:
 
-- **A whole part** is one run of digits, runs joined by underscores, or groups of three
-  joined by one separator: a comma, a point, an apostrophe, or a space (ASCII, no-break,
-  narrow no-break, thin or figure space).
+- **A whole part** is one run of digits, runs joined by underscores, groups of three joined
+  by one comma, point, apostrophe or space (ASCII, no-break, narrow no-break, thin or
+  figure space), or Indian groups, as in `12,34,567`.
 - **A fraction** follows a point or a decimal comma, so `6.729.102,50` and `6 729 102,50`
   are read as `6729102.5`. A leading point is read too, as in `.5`.
 - **An exponent** may follow, as in `6.7291025e6`.
@@ -646,19 +691,16 @@ and other encodings, and, outside `.py` files, hexadecimal.
 
 ### Figure sources and digit matching
 
-Two optional settings build the list from files you already hold, and match more than the
-exact value:
+Two optional settings:
 
-- **`forbidden_token_sources`** names up to 16 delimited text files, such as custody exports:
-  comma, semicolon, tab or bar separated, at most 8 MB each. Each is an absolute path, or one
-  starting with `~`, outside every checkout of the repository.
-  - Every cell that holds exactly one number becomes a listed figure, whatever its notation,
-    sign, currency sign or code, brackets or percent sign.
-  - A cell is not a figure when it has fewer significant digits than
-    `forbidden_token_min_digits` (5 unless set, from 4 to 18), when it is a date, or when it
-    holds other text.
-  - A source with no figure is refused with `forbidden_token_source_invalid`. It is never
-    treated as an empty list.
+- **`forbidden_token_sources`** is not available in 0.12.0, and it cannot be turned on: its reader,
+  planned for a later release, can miss amounts in shapes it does not read. A policy whose
+  `model_review` holds the key at all, whatever its value and even beside
+  `"forbidden_token_sources_experimental": true`, is refused with `forbidden_token_sources_experimental`
+  before anything is read or sent, and `doctor --policy-file` names the field. A policy without
+  sources states no `forbidden_token_source_rule` and no `forbidden_token_round_figures`, or is
+  refused with `gate_policy_source_rule_required`. List the figures in `forbidden_token_file` or
+  `forbidden_token_hashes`.
 - **`forbidden_token_match`** is `value` unless set: a listed figure refuses the same value in
   any notation. With `digits` it also refuses:
   - the same significant digits at any scale: listed `48213.57` refuses `4821357`, `48.21357`
@@ -666,7 +708,7 @@ exact value:
   - a two-place rounding, in either direction: listed `48213.5712` refuses `48,213.57`, and
     listed `905.13` refuses `905.125`.
 
-  Digit matching applies to `forbidden_token_file` entries and to sources. An entry in
+  Digit matching applies to `forbidden_token_file` entries. An entry in
   `forbidden_token_hashes` is always matched by value.
 
 Digit matching leaves two things out, so that it does not refuse ordinary code:
@@ -679,9 +721,9 @@ It still refuses more unrelated numbers than value matching does. A list of 1,00
 with five significant digits matches about one five-digit number in a hundred by chance.
 Raise `forbidden_token_min_digits` when a large list refuses code that holds none of its figures.
 
-Both settings work the same way in a configuration and in a gate policy. `doctor` opens a
-policy's sources only with `--policy-sha256`, as it does the token file, and the budget ledger
-records how many sources and figures were screened, never a path, a digest or a figure.
+Both settings work alike in a configuration and a gate policy. `doctor` opens a policy's token
+file only with `--policy-sha256`; the budget ledger records how many figures were screened, never
+a path, a digest or a figure.
 
 Every file is screened as text, because what leaves the machine is text: the tuple
 `(6,729,102.50)` in Python code still reads as the figure. In `.py`/`.pyi` files, each

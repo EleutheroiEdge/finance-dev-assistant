@@ -308,7 +308,7 @@ def test_a_ready_preflight_names_the_state_folder_of_its_review(repository, tmp_
 
 def test_the_suggested_commands_use_the_state_folder_the_preflight_checked(repository, tmp_path, capsys,
                                                                            monkeypatch):
-    # Codex on #143: with --audit-dir, the preflight checked that folder, so the commands it suggests must use it too.
+    # With --audit-dir, the preflight checked that folder, so the commands it suggests must use it too.
     from finassist.cli_parser import parser
     from finassist.state_location import state_location
 

@@ -142,7 +142,8 @@ def test_nonrepo_and_missing_commit_have_distinct_codes(repository, tmp_path):
         resolve(repo, "1" * 40)
     nonrepo = tmp_path / "not-a-repo"
     nonrepo.mkdir()
-    with pytest.raises(AssistantError, match="^git_read_failed$"):
+    # A folder outside Git has its own first-run code (it was git_read_failed before).
+    with pytest.raises(AssistantError, match="^not_a_git_repository$"):
         resolve(nonrepo, "1" * 40)
 
 

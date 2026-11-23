@@ -132,7 +132,7 @@ def test_the_methodology_documents_of_a_workflow(repository, texts, expected):
     assert code_of(lambda: build_workflow_plan(template, packet, repo, config)) == expected
 
 
-# --- Codex P112-1: the packs of a workflow bundle, read through a helper ------
+# --- The packs of a workflow bundle, read through a helper ------------------
 
 TOKEN = "token " + "ghp_" + "a" * 36  # a known format, which a pack's text shows as it is written
 
@@ -168,7 +168,7 @@ def test_a_hidden_character_in_a_pack_waits_for_the_other_checks_of_its_bundle(p
     assert code_of(lambda: resolve_bundle(bundle, repo, config)) == "workflow_recipe_binding_unused"
 
 
-# --- Codex P112-2: a checklist's credential keeps its place ------------------
+# --- A checklist's credential keeps its place ------------------------------
 
 @pytest.mark.parametrize("later,code", [
     ({"Not-A-Name": ["An item."]}, "invalid_profile_name"),
@@ -186,7 +186,7 @@ def test_a_credential_in_a_checklist_comes_before_a_later_profile_that_is_not_va
 # --- A configuration as a whole ----------------------------------------------
 
 @pytest.mark.parametrize("change,code", [
-    # The project's own pattern, matched in another profile. Codex noted this one on the change before.
+    # The project's own pattern, matched in another profile.
     ({"extra_sensitive_patterns": ("PROJECT-[0-9]{4}",), "profiles": {"second": ["See PROJECT-1234."]}},
      "project_content_blocked"),
     ({"max_file_bytes": -1}, None),

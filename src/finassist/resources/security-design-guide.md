@@ -30,7 +30,7 @@ A saved record binds an action to hashes. Readiness requires matching configurat
 
 A local patch guard and a live server policy protect different boundaries. The read-only GitHub inspector reports classic PR, CI, administrator, force-push and deletion controls. A zero formal-approval count is an explicit policy observation. Your team must independently verify actual reviews, discussions and current server rules.
 
-Adapt the [branch-protection template](maintainers/branch-protection-proposal.json) to your check identities, including native platform and isolation checks. Require up-to-date successful CI, PRs, resolved conversations, administrator enforcement and linear history; prevent force pushes and deletion. Require an independent formal approval when an eligible reviewer exists. With a sole author, select a workable approval policy explicitly; model comments are not GitHub approvals. See the [settings checklist](maintainers/repository-settings.md).
+Adapt the [branch-protection template](maintainers/branch-protection-proposal.json) to your check identities: it requires the one check `all-checks`, which passes only when every job, the native platform and isolation checks included, ran and passed. Require up-to-date successful CI, PRs, resolved conversations, administrator enforcement and linear history; prevent force pushes and deletion. Require an independent formal approval when an eligible reviewer exists. With a sole author, select a workable approval policy explicitly; model comments are not GitHub approvals. See the [settings checklist](maintainers/repository-settings.md).
 
 ## Limits
 
@@ -153,6 +153,15 @@ rules and the project's own patterns are applied there as everywhere, and a mode
 repeat a labelled value from such a file only exactly, as it stands in the file it was
 sent. What its own patch writes into a listed file lends it nothing to repeat.
 
+A gate policy can instead list single reviewed YAML values in
+`placeholder_credential_occurrences`. Each is bound to its exact place and text, and applies
+only while it is present exactly once at base, at the merge base and at head; then the label
+rules let that one value through, in those exact file versions and nowhere else. Every other
+rule is applied as usual. An entry never lets a model quote the value with its label, but a
+model may repeat the bare value, so an enrolled value must be safe to disclose. A value let
+through is sent to the provider, and its digest is not confidentiality. See
+[reviewed placeholder values in YAML files](configuration.md#single-reviewed-values-in-yaml-files).
+
 Credential key screening requires a credential word in the label: secret,
 private, signing, encryption, access, client, master, auth or api, optionally
 followed by access and then key (underscore/hyphen separators are supported).
@@ -164,6 +173,13 @@ end of input and annotation punctuation (`[`, `]`, `)`, `,`, `;`) can end such a
 identifier; `/`, `+`, `=`, `-`, `:` and `@` continue a candidate literal.
 Uppercase-leading unquoted literals containing digits are screened too.
 Source/request bytes are never rewritten.
+
+A constant named like a credential, such as `API_KEY`, that holds the name of an
+environment variable is read like any other value under that label, and refused: the
+screen does not infer from a value's shape that it is a name. Name the constant for what it
+holds, as in `API_KEY_ENV = "GEMINI_API_KEY"` or `API_KEY_NAME`, or read the variable
+where it is used, as in `os.environ["GEMINI_API_KEY"]` or `os.getenv("GEMINI_API_KEY")`;
+both pass.
 
 Review output may quote an exact credential-label match from a screened Python
 annotation in its hash-bound request; a value merely occurring elsewhere in source

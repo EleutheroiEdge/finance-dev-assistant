@@ -1,0 +1,285 @@
+{
+ "version": 1,
+ "cases": [
+  {
+   "id": "bps-defect",
+   "path": "src/rates.py",
+   "before": "from decimal import Decimal\n\n\ndef bps_to_fraction(bps):\n    \"\"\"Basis points to a fraction: 25 bps is 0.0025.\"\"\"\n    return Decimal(bps) / Decimal(10000)\n",
+   "after": "from decimal import Decimal\n\n\ndef bps_to_fraction(bps):\n    \"\"\"Basis points to a fraction: 25 bps is 0.0025.\"\"\"\n    return Decimal(bps) / Decimal(1000)\n",
+   "expected_defect": true
+  },
+  {
+   "id": "bps-twin",
+   "path": "src/rates.py",
+   "before": "from decimal import Decimal\n\n\ndef bps_to_fraction(bps):\n    \"\"\"Basis points to a fraction: 25 bps is 0.0025.\"\"\"\n    return Decimal(bps) / Decimal(10000)\n",
+   "after": "from decimal import Decimal\n\nBPS_PER_UNIT = Decimal(10000)\n\n\ndef bps_to_fraction(bps):\n    \"\"\"Basis points to a fraction: 25 bps is 0.0025.\"\"\"\n    return Decimal(bps) / BPS_PER_UNIT\n",
+   "expected_defect": false
+  },
+  {
+   "id": "cents-defect",
+   "path": "src/money.py",
+   "before": "from decimal import ROUND_HALF_UP, Decimal\n\n\ndef round_cents(amount):\n    \"\"\"Round a dollar amount to cents, halves away from zero.\"\"\"\n    return Decimal(amount).quantize(Decimal(\"0.01\"), rounding=ROUND_HALF_UP)\n",
+   "after": "from decimal import ROUND_DOWN, Decimal\n\n\ndef round_cents(amount):\n    \"\"\"Round a dollar amount to cents, halves away from zero.\"\"\"\n    return Decimal(amount).quantize(Decimal(\"0.01\"), rounding=ROUND_DOWN)\n",
+   "expected_defect": true
+  },
+  {
+   "id": "cents-twin",
+   "path": "src/money.py",
+   "before": "from decimal import ROUND_HALF_UP, Decimal\n\n\ndef round_cents(amount):\n    \"\"\"Round a dollar amount to cents, halves away from zero.\"\"\"\n    return Decimal(amount).quantize(Decimal(\"0.01\"), rounding=ROUND_HALF_UP)\n",
+   "after": "from decimal import ROUND_HALF_UP, Decimal\n\nCENT = Decimal(\"0.01\")\n\n\ndef round_cents(amount):\n    \"\"\"Round a dollar amount to cents, halves away from zero.\"\"\"\n    value = Decimal(amount)\n    return value.quantize(CENT, rounding=ROUND_HALF_UP)\n",
+   "expected_defect": false
+  },
+  {
+   "id": "hifo-defect",
+   "path": "src/lots.py",
+   "before": "def sale_order(lots):\n    \"\"\"Highest cost first; equal costs by lot id.\"\"\"\n    return [lot[\"id\"] for lot in sorted(lots, key=lambda lot: (-lot[\"cost\"], lot[\"id\"]))]\n",
+   "after": "def sale_order(lots):\n    \"\"\"Highest cost first; equal costs by lot id.\"\"\"\n    return [lot[\"id\"] for lot in sorted(lots, key=lambda lot: (lot[\"cost\"], lot[\"id\"]))]\n",
+   "expected_defect": true
+  },
+  {
+   "id": "hifo-twin",
+   "path": "src/lots.py",
+   "before": "def sale_order(lots):\n    \"\"\"Highest cost first; equal costs by lot id.\"\"\"\n    return [lot[\"id\"] for lot in sorted(lots, key=lambda lot: (-lot[\"cost\"], lot[\"id\"]))]\n",
+   "after": "def _sale_key(lot):\n    return (-lot[\"cost\"], lot[\"id\"])\n\n\ndef sale_order(lots):\n    \"\"\"Highest cost first; equal costs by lot id.\"\"\"\n    ordered = sorted(lots, key=_sale_key)\n    return [lot[\"id\"] for lot in ordered]\n",
+   "expected_defect": false
+  },
+  {
+   "id": "cap-defect",
+   "path": "src/limits.py",
+   "before": "def buy_allowed(position, buy, portfolio, cap):\n    \"\"\"Whether the position after this buy is at most `cap` of the portfolio.\"\"\"\n    return position + buy <= portfolio * cap\n",
+   "after": "def buy_allowed(position, buy, portfolio, cap):\n    \"\"\"Whether the position after this buy is at most `cap` of the portfolio.\"\"\"\n    return position <= portfolio * cap\n",
+   "expected_defect": true
+  },
+  {
+   "id": "cap-twin",
+   "path": "src/limits.py",
+   "before": "def buy_allowed(position, buy, portfolio, cap):\n    \"\"\"Whether the position after this buy is at most `cap` of the portfolio.\"\"\"\n    return position + buy <= portfolio * cap\n",
+   "after": "def buy_allowed(position, buy, portfolio, cap):\n    \"\"\"Whether the position after this buy is at most `cap` of the portfolio.\"\"\"\n    after = position + buy\n    limit = portfolio * cap\n    return after <= limit\n",
+   "expected_defect": false
+  },
+  {
+   "id": "wash-defect",
+   "path": "src/wash.py",
+   "before": "def in_wash_window(sale_date, buy_date):\n    \"\"\"A buy within 30 days before or after a loss sale.\"\"\"\n    return abs((buy_date - sale_date).days) <= 30\n",
+   "after": "def in_wash_window(sale_date, buy_date):\n    \"\"\"A buy within 30 days before or after a loss sale.\"\"\"\n    return 0 <= (buy_date - sale_date).days <= 30\n",
+   "expected_defect": true
+  },
+  {
+   "id": "wash-twin",
+   "path": "src/wash.py",
+   "before": "def in_wash_window(sale_date, buy_date):\n    \"\"\"A buy within 30 days before or after a loss sale.\"\"\"\n    return abs((buy_date - sale_date).days) <= 30\n",
+   "after": "def in_wash_window(sale_date, buy_date):\n    \"\"\"A buy within 30 days before or after a loss sale.\"\"\"\n    days = (buy_date - sale_date).days\n    return -30 <= days <= 30\n",
+   "expected_defect": false
+  },
+  {
+   "id": "weight-defect",
+   "path": "src/weights.py",
+   "before": "from decimal import Decimal\n\n\ndef weight(position, total):\n    \"\"\"A position's share of the total; an empty account has no weights.\"\"\"\n    if total == 0:\n        return Decimal(0)\n    return Decimal(position) / Decimal(total)\n",
+   "after": "from decimal import Decimal\n\n\ndef weight(position, total):\n    \"\"\"A position's share of the total; an empty account has no weights.\"\"\"\n    return Decimal(position) / Decimal(total)\n",
+   "expected_defect": true
+  },
+  {
+   "id": "weight-twin",
+   "path": "src/weights.py",
+   "before": "from decimal import Decimal\n\n\ndef weight(position, total):\n    \"\"\"A position's share of the total; an empty account has no weights.\"\"\"\n    if total == 0:\n        return Decimal(0)\n    return Decimal(position) / Decimal(total)\n",
+   "after": "from decimal import Decimal\n\n\ndef weight(position, total):\n    \"\"\"A position's share of the total; an empty account has no weights.\"\"\"\n    return Decimal(0) if total == 0 else Decimal(position) / Decimal(total)\n",
+   "expected_defect": false
+  },
+  {
+   "id": "tie-defect",
+   "path": "src/ranking.py",
+   "before": "from fractions import Fraction\n\n\ndef same_overweight(value_a, target_a, value_b, target_b):\n    \"\"\"Whether two holdings are exactly equally overweight (value over target), as decimal strings.\"\"\"\n    return Fraction(value_a) / Fraction(target_a) == Fraction(value_b) / Fraction(target_b)\n",
+   "after": "def same_overweight(value_a, target_a, value_b, target_b):\n    \"\"\"Whether two holdings are exactly equally overweight (value over target), as decimal strings.\"\"\"\n    return float(value_a) / float(target_a) == float(value_b) / float(target_b)\n",
+   "expected_defect": true
+  },
+  {
+   "id": "tie-twin",
+   "path": "src/ranking.py",
+   "before": "from fractions import Fraction\n\n\ndef same_overweight(value_a, target_a, value_b, target_b):\n    \"\"\"Whether two holdings are exactly equally overweight (value over target), as decimal strings.\"\"\"\n    return Fraction(value_a) / Fraction(target_a) == Fraction(value_b) / Fraction(target_b)\n",
+   "after": "from fractions import Fraction\n\n\ndef _ratio(value, target):\n    return Fraction(value) / Fraction(target)\n\n\ndef same_overweight(value_a, target_a, value_b, target_b):\n    \"\"\"Whether two holdings are exactly equally overweight (value over target), as decimal strings.\"\"\"\n    return _ratio(value_a, target_a) == _ratio(value_b, target_b)\n",
+   "expected_defect": false
+  },
+  {
+   "id": "lotkey-defect",
+   "path": "src/costs.py",
+   "before": "def unit_cost(lots, symbol, ref):\n    \"\"\"Cost per share of one lot; lot references repeat across symbols.\"\"\"\n    costs = {(lot[\"symbol\"], lot[\"ref\"]): lot[\"cost\"] / lot[\"qty\"] for lot in lots}\n    return costs[(symbol, ref)]\n",
+   "after": "def unit_cost(lots, symbol, ref):\n    \"\"\"Cost per share of one lot; lot references repeat across symbols.\"\"\"\n    costs = {lot[\"ref\"]: lot[\"cost\"] / lot[\"qty\"] for lot in lots}\n    return costs[ref]\n",
+   "expected_defect": true
+  },
+  {
+   "id": "lotkey-twin",
+   "path": "src/costs.py",
+   "before": "def unit_cost(lots, symbol, ref):\n    \"\"\"Cost per share of one lot; lot references repeat across symbols.\"\"\"\n    costs = {(lot[\"symbol\"], lot[\"ref\"]): lot[\"cost\"] / lot[\"qty\"] for lot in lots}\n    return costs[(symbol, ref)]\n",
+   "after": "def unit_cost(lots, symbol, ref):\n    \"\"\"Cost per share of one lot; lot references repeat across symbols.\"\"\"\n    costs = {}\n    for lot in lots:\n        key = (lot[\"symbol\"], lot[\"ref\"])\n        costs[key] = lot[\"cost\"] / lot[\"qty\"]\n    return costs[(symbol, ref)]\n",
+   "expected_defect": false
+  },
+  {
+   "id": "unpriced-defect",
+   "path": "src/gains.py",
+   "before": "def sale_gain(lot, quote):\n    \"\"\"Gain if this lot were sold now, or None when the symbol has no price.\"\"\"\n    try:\n        price = quote(lot[\"symbol\"])\n    except LookupError:\n        return None\n    return (price - lot[\"cost\"]) * lot[\"qty\"]\n",
+   "after": "def sale_gain(lot, quote):\n    \"\"\"Gain if this lot were sold now, or None when the symbol has no price.\"\"\"\n    try:\n        price = quote(lot[\"symbol\"])\n    except LookupError:\n        return 0\n    return (price - lot[\"cost\"]) * lot[\"qty\"]\n",
+   "expected_defect": true
+  },
+  {
+   "id": "unpriced-twin",
+   "path": "src/gains.py",
+   "before": "def sale_gain(lot, quote):\n    \"\"\"Gain if this lot were sold now, or None when the symbol has no price.\"\"\"\n    try:\n        price = quote(lot[\"symbol\"])\n    except LookupError:\n        return None\n    return (price - lot[\"cost\"]) * lot[\"qty\"]\n",
+   "after": "def sale_gain(lot, quote):\n    \"\"\"Gain if this lot were sold now, or None when the symbol has no price.\"\"\"\n    try:\n        price = quote(lot[\"symbol\"])\n    except LookupError:\n        return None\n    gain_per_share = price - lot[\"cost\"]\n    return gain_per_share * lot[\"qty\"]\n",
+   "expected_defect": false
+  },
+  {
+   "id": "restricted-defect",
+   "path": "src/candidates.py",
+   "before": "def buy_candidates(names, restricted, wash_blocked):\n    \"\"\"Names that may be bought: neither restricted nor blocked by a wash sale.\"\"\"\n    return [name for name in names if name not in restricted and name not in wash_blocked]\n",
+   "after": "def buy_candidates(names, restricted, wash_blocked):\n    \"\"\"Names that may be bought: neither restricted nor blocked by a wash sale.\"\"\"\n    return [name for name in names if name not in wash_blocked]\n",
+   "expected_defect": true
+  },
+  {
+   "id": "restricted-twin",
+   "path": "src/candidates.py",
+   "before": "def buy_candidates(names, restricted, wash_blocked):\n    \"\"\"Names that may be bought: neither restricted nor blocked by a wash sale.\"\"\"\n    return [name for name in names if name not in restricted and name not in wash_blocked]\n",
+   "after": "def _may_buy(name, restricted, wash_blocked):\n    return name not in restricted and name not in wash_blocked\n\n\ndef buy_candidates(names, restricted, wash_blocked):\n    \"\"\"Names that may be bought: neither restricted nor blocked by a wash sale.\"\"\"\n    return [name for name in names if _may_buy(name, restricted, wash_blocked)]\n",
+   "expected_defect": false
+  },
+  {
+   "id": "mintrade-defect",
+   "path": "src/orders.py",
+   "before": "def order_shares(amount, price, minimum):\n    \"\"\"Whole shares for an amount; an order under the minimum trade value is dropped.\"\"\"\n    shares = int(amount // price)\n    return shares if shares * price >= minimum else 0\n",
+   "after": "def order_shares(amount, price, minimum):\n    \"\"\"Whole shares for an amount; an order under the minimum trade value is dropped.\"\"\"\n    shares = int(amount // price)\n    return shares if amount >= minimum else 0\n",
+   "expected_defect": true
+  },
+  {
+   "id": "mintrade-twin",
+   "path": "src/orders.py",
+   "before": "def order_shares(amount, price, minimum):\n    \"\"\"Whole shares for an amount; an order under the minimum trade value is dropped.\"\"\"\n    shares = int(amount // price)\n    return shares if shares * price >= minimum else 0\n",
+   "after": "def order_shares(amount, price, minimum):\n    \"\"\"Whole shares for an amount; an order under the minimum trade value is dropped.\"\"\"\n    shares = int(amount // price)\n    value = shares * price\n    return shares if value >= minimum else 0\n",
+   "expected_defect": false
+  },
+  {
+   "id": "fees-defect",
+   "path": "src/cash.py",
+   "before": "def ending_cash(opening, sells, buys, fees):\n    \"\"\"Cash after a rebalance: sale proceeds in, purchases and fees out.\"\"\"\n    return opening + sells - buys - fees\n",
+   "after": "def ending_cash(opening, sells, buys, fees):\n    \"\"\"Cash after a rebalance: sale proceeds in, purchases and fees out.\"\"\"\n    return opening + sells - buys + fees\n",
+   "expected_defect": true
+  },
+  {
+   "id": "fees-twin",
+   "path": "src/cash.py",
+   "before": "def ending_cash(opening, sells, buys, fees):\n    \"\"\"Cash after a rebalance: sale proceeds in, purchases and fees out.\"\"\"\n    return opening + sells - buys - fees\n",
+   "after": "def ending_cash(opening, sells, buys, fees):\n    \"\"\"Cash after a rebalance: sale proceeds in, purchases and fees out.\"\"\"\n    cash = opening + sells\n    cash -= buys\n    cash -= fees\n    return cash\n",
+   "expected_defect": false
+  },
+  {
+   "id": "longterm-defect",
+   "path": "src/holding.py",
+   "before": "def is_long_term(acquired, sold):\n    \"\"\"Held more than one year: sold after the first anniversary of the acquisition.\"\"\"\n    return sold > acquired.replace(year=acquired.year + 1)\n",
+   "after": "def is_long_term(acquired, sold):\n    \"\"\"Held more than one year: sold after the first anniversary of the acquisition.\"\"\"\n    return sold >= acquired.replace(year=acquired.year + 1)\n",
+   "expected_defect": true
+  },
+  {
+   "id": "longterm-twin",
+   "path": "src/holding.py",
+   "before": "def is_long_term(acquired, sold):\n    \"\"\"Held more than one year: sold after the first anniversary of the acquisition.\"\"\"\n    return sold > acquired.replace(year=acquired.year + 1)\n",
+   "after": "def is_long_term(acquired, sold):\n    \"\"\"Held more than one year: sold after the first anniversary of the acquisition.\"\"\"\n    anniversary = acquired.replace(year=acquired.year + 1)\n    return sold > anniversary\n",
+   "expected_defect": false
+  },
+  {
+   "id": "gaintax-defect",
+   "path": "src/tax.py",
+   "before": "def estimated_tax(proceeds, basis, rate):\n    \"\"\"Tax on a sale's gain; a loss owes nothing.\"\"\"\n    gain = proceeds - basis\n    return max(gain, 0) * rate\n",
+   "after": "def estimated_tax(proceeds, basis, rate):\n    \"\"\"Tax on a sale's gain; a loss owes nothing.\"\"\"\n    gain = proceeds - basis\n    return max(proceeds, 0) * rate\n",
+   "expected_defect": true
+  },
+  {
+   "id": "gaintax-twin",
+   "path": "src/tax.py",
+   "before": "def estimated_tax(proceeds, basis, rate):\n    \"\"\"Tax on a sale's gain; a loss owes nothing.\"\"\"\n    gain = proceeds - basis\n    return max(gain, 0) * rate\n",
+   "after": "def estimated_tax(proceeds, basis, rate):\n    \"\"\"Tax on a sale's gain; a loss owes nothing.\"\"\"\n    gain = proceeds - basis\n    taxable = max(gain, 0)\n    return taxable * rate\n",
+   "expected_defect": false
+  },
+  {
+   "id": "percent-defect",
+   "path": "src/drift.py",
+   "before": "def drift(weight, target_percent):\n    \"\"\"Actual weight (a fraction) minus the target (given in percent).\"\"\"\n    return weight - target_percent / 100\n",
+   "after": "def drift(weight, target_percent):\n    \"\"\"Actual weight (a fraction) minus the target (given in percent).\"\"\"\n    return weight - target_percent\n",
+   "expected_defect": true
+  },
+  {
+   "id": "percent-twin",
+   "path": "src/drift.py",
+   "before": "def drift(weight, target_percent):\n    \"\"\"Actual weight (a fraction) minus the target (given in percent).\"\"\"\n    return weight - target_percent / 100\n",
+   "after": "def drift(weight, target_percent):\n    \"\"\"Actual weight (a fraction) minus the target (given in percent).\"\"\"\n    target = target_percent / 100\n    return weight - target\n",
+   "expected_defect": false
+  },
+  {
+   "id": "annual-defect",
+   "path": "src/returns.py",
+   "before": "def annualized(total_return, years):\n    \"\"\"Compound annual rate for a total return over a number of years.\"\"\"\n    return (1 + total_return) ** (1 / years) - 1\n",
+   "after": "def annualized(total_return, years):\n    \"\"\"Compound annual rate for a total return over a number of years.\"\"\"\n    return total_return / years\n",
+   "expected_defect": true
+  },
+  {
+   "id": "annual-twin",
+   "path": "src/returns.py",
+   "before": "def annualized(total_return, years):\n    \"\"\"Compound annual rate for a total return over a number of years.\"\"\"\n    return (1 + total_return) ** (1 / years) - 1\n",
+   "after": "def annualized(total_return, years):\n    \"\"\"Compound annual rate for a total return over a number of years.\"\"\"\n    growth = 1 + total_return\n    return growth ** (1 / years) - 1\n",
+   "expected_defect": false
+  },
+  {
+   "id": "daycount-defect",
+   "path": "src/interest.py",
+   "before": "def accrued(principal, annual_rate, days):\n    \"\"\"Simple interest on the actual/360 day count.\"\"\"\n    return principal * annual_rate * days / 360\n",
+   "after": "def accrued(principal, annual_rate, days):\n    \"\"\"Simple interest on the actual/360 day count.\"\"\"\n    return principal * annual_rate * days / 365\n",
+   "expected_defect": true
+  },
+  {
+   "id": "daycount-twin",
+   "path": "src/interest.py",
+   "before": "def accrued(principal, annual_rate, days):\n    \"\"\"Simple interest on the actual/360 day count.\"\"\"\n    return principal * annual_rate * days / 360\n",
+   "after": "def accrued(principal, annual_rate, days):\n    \"\"\"Simple interest on the actual/360 day count.\"\"\"\n    interest = principal * annual_rate * days\n    return interest / 360\n",
+   "expected_defect": false
+  },
+  {
+   "id": "fx-defect",
+   "path": "src/fx.py",
+   "before": "def to_usd(amount_eur, eur_per_usd):\n    \"\"\"Euros to dollars, given how many euros one dollar buys.\"\"\"\n    return amount_eur / eur_per_usd\n",
+   "after": "def to_usd(amount_eur, eur_per_usd):\n    \"\"\"Euros to dollars, given how many euros one dollar buys.\"\"\"\n    return amount_eur * eur_per_usd\n",
+   "expected_defect": true
+  },
+  {
+   "id": "fx-twin",
+   "path": "src/fx.py",
+   "before": "def to_usd(amount_eur, eur_per_usd):\n    \"\"\"Euros to dollars, given how many euros one dollar buys.\"\"\"\n    return amount_eur / eur_per_usd\n",
+   "after": "def to_usd(amount_eur, eur_per_usd):\n    \"\"\"Euros to dollars, given how many euros one dollar buys.\"\"\"\n    dollars = amount_eur / eur_per_usd\n    return dollars\n",
+   "expected_defect": false
+  },
+  {
+   "id": "period-defect",
+   "path": "src/periods.py",
+   "before": "def in_period(day, start, end):\n    \"\"\"Whether a day falls in the period; the end date is not part of it.\"\"\"\n    return start <= day < end\n",
+   "after": "def in_period(day, start, end):\n    \"\"\"Whether a day falls in the period; the end date is not part of it.\"\"\"\n    return start <= day <= end\n",
+   "expected_defect": true
+  },
+  {
+   "id": "period-twin",
+   "path": "src/periods.py",
+   "before": "def in_period(day, start, end):\n    \"\"\"Whether a day falls in the period; the end date is not part of it.\"\"\"\n    return start <= day < end\n",
+   "after": "def in_period(day, start, end):\n    \"\"\"Whether a day falls in the period; the end date is not part of it.\"\"\"\n    inside = start <= day < end\n    return inside\n",
+   "expected_defect": false
+  },
+  {
+   "id": "fill-defect",
+   "path": "src/fills.py",
+   "before": "def fill(lots, quantity):\n    \"\"\"Shares taken from each lot, highest cost first, until the quantity is met.\"\"\"\n    taken, remaining = {}, quantity\n    for lot in sorted(lots, key=lambda lot: (-lot[\"cost\"], lot[\"id\"])):\n        if remaining <= 0:\n            break\n        take = min(lot[\"qty\"], remaining)\n        taken[lot[\"id\"]] = take\n        remaining -= take\n    return taken\n",
+   "after": "def fill(lots, quantity):\n    \"\"\"Shares taken from each lot, highest cost first, until the quantity is met.\"\"\"\n    taken, remaining = {}, quantity\n    for lot in sorted(lots, key=lambda lot: (-lot[\"cost\"], lot[\"id\"])):\n        if remaining <= 0:\n            break\n        take = lot[\"qty\"]\n        taken[lot[\"id\"]] = take\n        remaining -= take\n    return taken\n",
+   "expected_defect": true
+  },
+  {
+   "id": "fill-twin",
+   "path": "src/fills.py",
+   "before": "def fill(lots, quantity):\n    \"\"\"Shares taken from each lot, highest cost first, until the quantity is met.\"\"\"\n    taken, remaining = {}, quantity\n    for lot in sorted(lots, key=lambda lot: (-lot[\"cost\"], lot[\"id\"])):\n        if remaining <= 0:\n            break\n        take = min(lot[\"qty\"], remaining)\n        taken[lot[\"id\"]] = take\n        remaining -= take\n    return taken\n",
+   "after": "def fill(lots, quantity):\n    \"\"\"Shares taken from each lot, highest cost first, until the quantity is met.\"\"\"\n    taken, remaining = {}, quantity\n    ordered = sorted(lots, key=lambda lot: (-lot[\"cost\"], lot[\"id\"]))\n    for lot in ordered:\n        if remaining <= 0:\n            break\n        share = min(lot[\"qty\"], remaining)\n        taken[lot[\"id\"]] = share\n        remaining -= share\n    return taken\n",
+   "expected_defect": false
+  }
+ ]
+}

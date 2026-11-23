@@ -1,0 +1,103 @@
+{
+  "$id": "urn:finledgerpoli:schema:gate-report-not-applicable:1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "base": {
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      "type": "string"
+    },
+    "coverage_complete": {
+      "const": false
+    },
+    "deployment_authority": {
+      "const": false
+    },
+    "evaluation_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "head": {
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      "type": "string"
+    },
+    "manifest_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "merge_authority": {
+      "const": false
+    },
+    "mode": {
+      "const": "model-review-not-applicable"
+    },
+    "outcome_class": {
+      "const": "not_applicable"
+    },
+    "policy_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "reasons": {
+      "const": [
+        "nothing_in_scope"
+      ]
+    },
+    "report_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "scope": {
+      "additionalProperties": false,
+      "properties": {
+        "changed": {
+          "maximum": 2000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "outside_allow_paths": {
+          "maximum": 2000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "reviewed": {
+          "const": 0
+        }
+      },
+      "required": [
+        "changed",
+        "outside_allow_paths",
+        "reviewed"
+      ],
+      "type": "object"
+    },
+    "summary": {
+      "const": "No changed file is in this policy's scope, so nothing was reviewed. Not a review or a pass."
+    },
+    "verdict": {
+      "const": "NOT_APPLICABLE"
+    }
+  },
+  "required": [
+    "schema_version",
+    "mode",
+    "verdict",
+    "outcome_class",
+    "reasons",
+    "base",
+    "head",
+    "policy_sha256",
+    "scope",
+    "coverage_complete",
+    "manifest_sha256",
+    "evaluation_sha256",
+    "merge_authority",
+    "deployment_authority",
+    "summary",
+    "report_hash"
+  ],
+  "type": "object"
+}

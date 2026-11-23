@@ -13,7 +13,7 @@ import test_dashboard
 import test_readiness
 
 from finassist.cli import main
-from finassist.config import Config, save_config, config_hash
+from finassist.config import MAX_PACKET_BYTES, Config, save_config, config_hash
 from finassist.errors import AssistantError
 from finassist.ledger import Ledger
 from finassist.readiness import verify_gate
@@ -59,9 +59,11 @@ def test_plan_and_check_the_assistants_own_committed_tree(tmp_path, operation):
     # copy matches its source document, and every source document stays in scope.
     # The generated Unicode alias table is excluded too (its generator script stays
     # in scope). SECURITY.md is outside the default allow list, so this test adds it.
-    # The whole tree no longer fits one 2,000,000-byte packet, so it is planned in
-    # parts that split the allow list, src/ and tests/ each on their own; together
-    # they must cover every file, and no file may be in two of them.
+    # The whole tree is planned in parts that split the allow list, src/ and tests/
+    # each on their own; together they must cover every file, and no file may be in
+    # two of them. Each part must fit the largest packet a configuration allows
+    # (MAX_PACKET_BYTES): a fixed smaller ceiling only measured how large tests/ had
+    # grown, as when it passed 2,000,000 bytes.
     from finassist.guides import GUIDES
     copies = {"src/finassist/resources/" + resource: source for _title, source, resource in GUIDES.values()}
     generated = (*Config().generated_paths, "src/finassist/path_alias_data.py", *sorted(copies))
@@ -71,7 +73,7 @@ def test_plan_and_check_the_assistants_own_committed_tree(tmp_path, operation):
     assert sorted(prefix for part in parts for prefix in part) == sorted(allow)
     results = []
     for index, part in enumerate(parts if operation == "plan" else (allow,)):
-        config = replace(Config(), max_packet_bytes=2_000_000, recipes={"scope": [sys.executable, "-c", script]},
+        config = replace(Config(), max_packet_bytes=MAX_PACKET_BYTES, recipes={"scope": [sys.executable, "-c", script]},
                          generated_paths=generated, allow_paths=part)
         path, output = tmp_path / f"configuration-{index}.json", tmp_path / f"result-{index}.json"
         save_config(path, config)

@@ -12,7 +12,9 @@ from __future__ import annotations
 import ast
 import configparser
 from decimal import ROUND_CEILING, Decimal
+from fractions import Fraction
 import json
+import math
 from pathlib import PurePosixPath
 import re
 import shlex
@@ -26,10 +28,11 @@ from .model_policy import missing_fields
 from .review import ENVELOPE_ALLOWANCE, reserved_usd
 from .scope import git, git_command, git_environment, resolve
 from .security import _check_model_private, TEXT_SUFFIXES, check_path, check_text, local_name
+from .source_languages import SOURCE_LANGUAGES, proposed_suffixes
 
 PURPOSES = {"quant": "quant-review", "accounting": "finance-saas", "research": "investment-research",
             "general": "general"}
-SOURCE_SUFFIXES = {".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".go", ".rs", ".java", ".sql", ".sh"}
+SOURCE_SUFFIXES = frozenset(SOURCE_LANGUAGES)  # see source_languages: proposed as text_suffixes when found
 TEST_DIRECTORIES = ("tests/", "test/")
 DOC_DIRECTORIES = ("docs/", "doc/")
 NOT_SOURCE = {"build", "dist", "out", "site", "htmlcov", "vendor", "third_party", "third-party", "node_modules",
@@ -60,6 +63,7 @@ PURPOSE_WORDS = {
                  "10-k", "analyst", "discounted cash flow"),
 }
 _HISTORY = 40  # Recent first-parent changes whose sizes shape the packet and request limits.
+_HEADROOM = 1.5  # A later change may be larger than any recent one: the limits leave this much room.
 _EXAMPLES = 20
 _FENCE = re.compile(r"^(`{3,}|~{3,})\s*([A-Za-z0-9_+-]*)")
 
@@ -82,6 +86,7 @@ class _Detector:
         self.truncated: dict[str, int] = {}
         self.warnings: list[dict] = []
         self.has_source = False
+        self.suffixes = frozenset(TEXT_SUFFIXES)  # what is reviewable: the defaults plus the source found
         self.texts: dict[str, str | None] = {}
         self.ratios = (1.1, 1.25)  # Encoded size per source byte: in a packet, in a request.
 
@@ -160,6 +165,7 @@ class _Detector:
 
     def layout(self) -> dict:
         roots: dict[str, str] = {}
+        found: dict[str, str] = {}  # source suffix -> an example path
         for path in sorted(self.files):
             parts = PurePosixPath(path).parts
             suffix = PurePosixPath(path).suffix.lower()
@@ -167,14 +173,23 @@ class _Detector:
                 continue
             if len(parts) == 1:
                 roots.setdefault(path, path)
+                found.setdefault(suffix, path)
                 continue
             top = parts[0]
             if top.startswith(".") or top.lower() in NOT_SOURCE:
                 continue
+            found.setdefault(suffix, path)
             if top == "src" and len(parts) > 2:
                 roots.setdefault("src/", path)
             else:
                 roots.setdefault(top + "/", path)
+        # The repository's own languages decide what is reviewable: a C# or Ruby repository is not refused.
+        self.suffixes, added, text_only = proposed_suffixes(set(found), TEXT_SUFFIXES)
+        for suffix in added:
+            self.note("text_suffixes", suffix, "source_language", found[suffix],
+                      language=SOURCE_LANGUAGES[suffix])
+        if added:
+            self.warn("text_suffixes_proposed", suffixes=added, text_rules_only=text_only)
         allow = []
         self.has_source = bool(roots)
         if not self.has_source:
@@ -184,7 +199,7 @@ class _Detector:
             self.note("allow_paths", prefix, "source_files" if prefix.endswith("/") else "root_source_file", example)
         for prefix in (*TEST_DIRECTORIES, *DOC_DIRECTORIES, "scripts/"):
             sample = next((path for path in sorted(self.files) if path.startswith(prefix)
-                           and not self.private(path) and PurePosixPath(path).suffix.lower() in TEXT_SUFFIXES), None)
+                           and not self.private(path) and PurePosixPath(path).suffix.lower() in self.suffixes), None)
             if sample and prefix not in allow:
                 allow.append(prefix)
                 self.note("allow_paths", prefix, "tests" if prefix in TEST_DIRECTORIES else "docs_or_scripts", sample)
@@ -203,7 +218,7 @@ class _Detector:
         for path in sorted(self.files):
             parts = PurePosixPath(path).parts
             if (self.private(path) or _refusal(path)
-                    or PurePosixPath(path).suffix.lower() not in TEXT_SUFFIXES
+                    or PurePosixPath(path).suffix.lower() not in self.suffixes
                     or any(character in parts[0] for character in "*?[]")):  # A gate policy refuses such a prefix.
                 continue
             if len(parts) == 1:
@@ -326,19 +341,30 @@ class _Detector:
         return {"private": private, "fixture_roots": sorted(fixtures), "deny_paths": []}
 
     def file_limit(self, allow: list[str], generated: list[str]) -> int:
-        """Fit the largest reviewed source file. Other large text files are reported, not fitted."""
+        """Fit the largest reviewed source file, with the room the packet limits leave. Other large text files are
+        reported, not fitted.
+
+        The largest module is often the one changed most, and it grows. A limit fitted to its size today would
+        leave its next, slightly larger version out of review, and under skip-and-report the range would pass on
+        the rest. So the limit is one and a half times the largest file, rounded up to 16 KiB.
+        """
         reviewed = {path: size for path, size in self.files.items() if _allowed(path, allow)
                     and not self.private(path) and not _allowed(path, generated)
-                    and PurePosixPath(path).suffix.lower() in TEXT_SUFFIXES}
+                    and PurePosixPath(path).suffix.lower() in self.suffixes}
         source = [size for path, size in reviewed.items() if PurePosixPath(path).suffix.lower() in SOURCE_SUFFIXES]
         too_large = [path for path, size in reviewed.items() if size > 2_000_000
                      and PurePosixPath(path).suffix.lower() in SOURCE_SUFFIXES]
         if too_large:
             self.warn("source_file_never_reviewable", count=len(too_large), paths=_examples(too_large),
                       limit=2_000_000)
-        limit = min(2_000_000, max(48_000, -(-max(source, default=0) // 16_384) * 16_384))
+        largest = max(source, default=0)
+        # The room is rounded up exactly, before the 16 KiB rounding: a half byte still needs a whole one. Exact
+        # rational arithmetic, so the caller's decimal context cannot round the product first.
+        needed = math.ceil(Fraction(largest) * Fraction(str(_HEADROOM)))
+        limit = min(2_000_000, max(48_000, -(-needed // 16_384) * 16_384))
         if limit > 48_000:
-            self.note("max_file_bytes", limit, "largest_reviewed_source_file")
+            self.note("max_file_bytes", limit, "largest_reviewed_source_file", largest_bytes=largest,
+                      headroom=_HEADROOM)
         large = [path for path, size in reviewed.items() if size > limit and path not in too_large]
         if large:
             self.warn("large_files_over_limit", count=len(large), paths=_examples(large), limit=limit)
@@ -407,10 +433,10 @@ class _Detector:
                     continue
                 if len(meta) < 5 or self.private(path) or _refusal(path):
                     continue
-                if not _allowed(path, allow) or _unsupported(path):
+                if not _allowed(path, allow) or _unsupported(path, self.suffixes):
                     unreviewable = True  # By its name alone; a private name never counts here.
                 if (not _allowed(path, allow) or _allowed(path, generated)
-                        or PurePosixPath(path).suffix.lower() not in TEXT_SUFFIXES):
+                        or PurePosixPath(path).suffix.lower() not in self.suffixes):
                     continue
                 pair = [oid.decode("ascii") for mode, oid in zip(meta[0:2], meta[2:4], strict=True)
                         if mode.lstrip(b":") in (b"100644", b"100755")]
@@ -440,10 +466,13 @@ class _Detector:
             return packet, request, files
         commit, raw, _paths = max(recent, key=lambda row: row[1])
         once, twice = self.ratios
-        packet_needed, request_needed = int(raw * once) + _ROOM, int(raw * twice) + _ROOM
         why = {"commit": commit[:12], "changes_measured": len(recent)}
-        if request_needed > MAX_PACKET_BYTES:
-            self.warn("recent_change_over_ceiling", limit=MAX_PACKET_BYTES, needed=request_needed, **why)
+        if int(raw * twice) + _ROOM > MAX_PACKET_BYTES:  # the largest change itself, before any room
+            self.warn("recent_change_over_ceiling", limit=MAX_PACKET_BYTES, needed=int(raw * twice) + _ROOM,
+                      **why)
+        packet_needed = int(raw * once * _HEADROOM) + _ROOM
+        request_needed = int(raw * twice * _HEADROOM) + _ROOM
+        why["headroom"] = _HEADROOM
         if _fit(packet_needed) > packet:
             packet = _fit(packet_needed)
             self.note("max_packet_bytes", packet, "largest_recent_change", **why)
@@ -565,7 +594,7 @@ class _Detector:
         if text is not None:
             try:
                 scripts = json.loads(text).get("scripts", {})
-            except (ValueError, AttributeError):
+            except (ValueError, AttributeError, RecursionError):
                 self.warn("detect_file_unreadable", path="package.json")
                 return
             if isinstance(scripts, dict) and isinstance(scripts.get("test"), str):
@@ -594,10 +623,10 @@ def _refusal(path: str) -> str | None:
     return None
 
 
-def _unsupported(path: str) -> bool:
-    """Whether a review refuses this name for its suffix alone. Names only."""
+def _unsupported(path: str, suffixes=None) -> bool:
+    """Whether a review refuses this name for its suffix alone, under the proposed suffixes. Names only."""
     try:
-        check_path(path)
+        check_path(path, text_suffixes=suffixes)
     except AssistantError as exc:
         return exc.code == "unsupported_file_type"
     return False
@@ -772,6 +801,8 @@ def detect(repo, *, revision: str = "HEAD", purpose: str | None = None, profile:
               "fixture_roots": data["fixture_roots"], "max_file_bytes": limit, "max_request_bytes": request,
               "max_files": files, "profile": profile, "max_output_tokens": 4096,
               "timeout_seconds": 300 if request > 1_000_000 else 120, "blocking_severities": ["critical", "high"]}
+    if detector.suffixes != frozenset(TEXT_SUFFIXES):  # only when the repository's languages need more
+        config["text_suffixes"] = policy["text_suffixes"] = sorted(detector.suffixes)
     draft = {"schema_version": 2, "model_review": policy}
     return {
         "schema_version": 1,

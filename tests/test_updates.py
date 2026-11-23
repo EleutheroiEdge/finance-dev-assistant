@@ -316,3 +316,56 @@ def test_custom_named_pipx_environment_refuses_instead_of_upgrading_default(tmp_
     (prefix / "pipx_metadata.json").write_text("never read", encoding="utf-8")
     monkeypatch.setattr(sys, "prefix", str(prefix))
     assert not updater.installation()["can_upgrade"]
+
+
+@pytest.mark.parametrize("value", ["[" * 100_000 + "]" * 100_000, "not json", '{"claim": 1}'])
+def test_a_damaged_cache_never_stops_a_command_or_releases_its_reservation(tmp_path, monkeypatch, value):
+    """A cache value nested past the decoder's limit is damage like any other: the advisory paths ignore it,
+    keep it as it is, send nothing and start no worker."""
+    assert update_check.reserve_check()
+    path = tmp_path / "cache" / "update-check.sqlite"
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE update_check SET value=? WHERE id=1", (value,))
+    connection.close()
+    before = path.read_bytes()
+    assert update_check.cached_check() is None
+    calls = []
+    assert update_check.check_once(network_allowed=True, transport=transport(calls))["reason"] == "cache-unavailable"
+    notify_setting(tmp_path)
+    interactive(monkeypatch)
+
+    def refuse(*args, **kwargs):
+        pytest.fail("a damaged cache must not start a worker")
+
+    monkeypatch.setattr(subprocess, "Popen", refuse)
+    output = TTY()
+    update_check.maybe_notify(network_allowed=True, command="doctor", stderr=output)
+    assert not output.getvalue() and calls == [] and path.read_bytes() == before
+
+
+@pytest.mark.parametrize("direct", ["[" * 8_000 + "]" * 8_000, "not json"])
+def test_damaged_installer_metadata_is_unavailable_and_never_stops_a_command(tmp_path, monkeypatch, direct):
+    """Installer metadata nested past the decoder's limit (within its 16,384-byte bound) is metadata not available,
+    like malformed metadata: no upgrade is offered, and the notice that reads it prints its fallback."""
+    prefix = tmp_path / "finledgerpoli"
+    prefix.mkdir()
+    monkeypatch.setattr(sys, "prefix", str(prefix))
+
+    def read_text(name):
+        return "pip" if name == "INSTALLER" else direct
+
+    monkeypatch.setattr(updater.metadata, "distribution", lambda name: SimpleNamespace(read_text=read_text, version="0.5.0"))
+    report = updater.installation()
+    assert not report["can_upgrade"] and report["upgrade_blocked_reason"] == "installer-metadata-unavailable"
+    assert report["upgrade_argv"] == [] and report["upgrade_command"] is None
+    notify_setting(tmp_path)
+    interactive(monkeypatch)
+    update_check.check_once(network_allowed=True, transport=transport([]))  # a newer version, cached today
+
+    def refuse(*args, **kwargs):
+        pytest.fail("today's check is already reserved, so no worker starts")
+
+    monkeypatch.setattr(subprocess, "Popen", refuse)
+    output = TTY()
+    update_check.maybe_notify(network_allowed=True, command="doctor", stderr=output)
+    assert "0.6.0 is available. Run finassist guide upgrading." in output.getvalue()

@@ -91,6 +91,15 @@ def command(repo: Path, *args: str) -> str:
 
 
 @pytest.fixture
+def sources_available(monkeypatch):
+    """Figure sources on, as only code can turn them on: for the reader's own tests, which request it. In this
+    release they are not available, and a test that does not request this sees them refused."""
+    from finassist import figure_source_entries
+
+    monkeypatch.setattr(figure_source_entries, "SOURCES_AVAILABLE", True)
+
+
+@pytest.fixture
 def repository(tmp_path):
     repo = tmp_path / "repository"
     repo.mkdir()

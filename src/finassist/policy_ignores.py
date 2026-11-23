@@ -52,6 +52,42 @@ def ignored_paths(repo: Path, revisions: set[str], paths: list[str]) -> set[str]
     return ignored
 
 
+def _rule_file(repo: Path, sha: str, path: str) -> bytes | None:
+    """A .gitignore's bytes at a revision: b"" when absent, None when it is not an ordinary file within bounds."""
+    try:
+        raw, _mode = read_entry(repo, sha, path, 128_000)
+    except AssistantError:
+        return None
+    return b"" if raw is None else raw
+
+
+def only_appends_patterns(repo: Path, revisions: set[str], head: str, path: str) -> bool:
+    """Whether a changed .gitignore only appends ordinary patterns, blank lines or comments to its version at each
+    revision, so that it can only make more paths ignored.
+
+    Git uses the last matching pattern, so a pattern added after every existing line keeps each earlier rule's
+    meaning, and an ordinary (not negated) one can only ignore a path that was not. The older version must be the
+    exact first bytes of the newer one, ending at a line boundary. Anything else still needs a person: a removed,
+    edited or reordered line, an added negation, a deleted, emptied or linked file, an older version without a
+    final newline, added text that is not UTF-8 or that holds a byte-order mark (which Git skips at the start of
+    a file, so it could hide a negation) or a NUL. Nothing read here is reported.
+    """
+    newer = _rule_file(repo, head, path)
+    if not newer:
+        return False
+    for sha in revisions:
+        older = _rule_file(repo, sha, path)
+        if older is None or not newer.startswith(older) or (older and not older.endswith(b"\n")):
+            return False
+        try:
+            added = newer[len(older):].decode("utf-8", errors="strict")
+        except UnicodeDecodeError:
+            return False
+        if "\ufeff" in added or "\0" in added or any(line.startswith("!") for line in added.split("\n")):
+            return False
+    return True
+
+
 def screen_ignores(repo: Path, revisions: set[str], paths: list[str]) -> None:
     if not paths:
         return  # Nothing will be read, so no ignore rule can apply.

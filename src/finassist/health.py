@@ -26,6 +26,9 @@ def config_warnings(config: Config, config_path: Path | None = None, *, file_sel
                   "This format can't be admitted as a fixture either; remove it from text_suffixes.")
         warnings.append({"code": "text_suffix_always_denied", "suffix": suffix,
                          "hint": "Files with this suffix are always refused, so listing it has no effect. " + remedy})
+    if config.forbidden_token_sources and config.forbidden_token_sources_experimental is True:
+        from .figure_source_entries import EXPERIMENTAL_WARNING
+        warnings.append({"code": "forbidden_token_sources_experimental_in_use", "hint": EXPERIMENTAL_WARNING})
     prices = {"input_usd_per_million": config.input_usd_per_million,
               "output_usd_per_million": config.output_usd_per_million}
     if config.provider not in {"offline", "ollama"} and any(value <= 0 for value in prices.values()):

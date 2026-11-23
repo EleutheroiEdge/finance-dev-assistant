@@ -449,7 +449,7 @@ def test_the_report_stays_bounded_for_a_large_range(gate_case, monkeypatch):
     for index in range(8):
         target = gate_case["repo"] / f"src/part{index}/.gitignore"
         target.parent.mkdir(parents=True)
-        target.write_text("*.tmp\n", encoding="utf-8")
+        target.write_text("!*.tmp\n", encoding="utf-8")  # a negation: an appended pattern would not stop it
         command(gate_case["repo"], "add", str(target.relative_to(gate_case["repo"])))
     command(gate_case["repo"], "commit", "-m", "Synthetic nested ignore files")
     gate_case["head"] = command(gate_case["repo"], "rev-parse", "HEAD")
@@ -503,7 +503,7 @@ def test_names_that_are_not_utf8_never_stop_or_appear_in_the_report(gate_case):
 @pytest.mark.parametrize("change", ["gitignore", "policy"])
 def test_a_screening_rule_change_in_the_range_stops_content_reads(gate_case, monkeypatch, change):
     if change == "gitignore":
-        (gate_case["repo"] / "src/.gitignore").write_text("*.tmp\n", encoding="utf-8")
+        (gate_case["repo"] / "src/.gitignore").write_text("!*.tmp\n", encoding="utf-8")
         command(gate_case["repo"], "add", "src/.gitignore")
         expected = "gate_ignore_change_requires_review"
     else:

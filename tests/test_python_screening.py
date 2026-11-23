@@ -237,7 +237,7 @@ def test_unterminated_source_never_yields_a_partial_token_stream():
     assert python_tokens("x = 1\r\ny = 2\r") is not None
 
 
-# --- Codex review of #62: findings 1-5 -------------------------------------------
+# --- Review of #62: findings 1-5 -------------------------------------------------
 
 @pytest.mark.parametrize("source", [
     'message = f"{0x2A}"\n',
@@ -316,7 +316,7 @@ def test_tokens_read_numbers_when_the_file_does_not_parse():
         screen_source(f"n = {hex(6729102)}\nif x\n", "src/cash.py", WHOLE)
 
 
-# --- Codex review of #62, round 2: findings 1-6 ----------------------------------
+# --- Review of #62, round 2: findings 1-6 ----------------------------------------
 
 def _listing(*values):
     return TokenSnapshot(frozenset(hashlib.sha256(normalize_numeric_token(v).encode()).hexdigest()
@@ -384,7 +384,7 @@ def test_account_integers_compare_by_magnitude(value, refused):
         check_text(source, source_path="src/settings.py")   # 99,999: under six digits
 
 
-# --- Codex review of #62, round 3: findings 1-3 ----------------------------------
+# --- Review of #62, round 3: findings 1-3 ----------------------------------------
 
 ARABIC_INDIC_PADDED_42 = "٠" * 300 + "٤٢"   # 42, padded with Arabic-Indic zeros
 

@@ -24,17 +24,21 @@ from .config import Config
 from .doctor_environment import key_diagnostic
 from .errors import AssistantError
 from .forbidden_tokens import screen_packet, screen_source
-from .model_gate import name_outcome, prepare_model_source, prepare_token_guard
-from .model_policy import (_PROPERTIES, _SCHEMA, ModelGatePolicy, _prefix, _profile, load_model_policy,
-                           policy_config_fields)
+from .model_gate import (NoReviewScope, ignore_change_needs_review, name_outcome, placeholder_occurrence_allowance,
+                         prepare_model_source, prepare_token_guard)
+from .model_policy import (_PROPERTIES, _SCHEMA, ModelGatePolicy, _prefix, _profile, coverage_issues,
+                           load_model_policy, policy_config_fields, source_rule_issue, stated_source_rule)
+from .occurrence_identity import allowance_in_effect, occurrence_notes
 from .policy_fixtures import fixture_settings, load_policy_config
-from .policy_ignores import screen_ignores
+from .policy_ignores import ignored_paths, screen_ignores
 from .providers import request_payload
 from .preflight_size import largest_versions, size_warning
 from .review import review_schema, spend_estimate
 from .error_hints import error_fields
 from .remedies import applied, attach_remedies
 from .scope import WITHHELD_REASON, git, omission_for, read_entry, read_sides, require_regular, resolve
+from . import figure_source_entries
+from .figure_source_entries import EXPERIMENTAL_WARNING, OPT_IN, check_opt_in, check_opted_in
 from .hidden_text import Waiting
 from .security import (TEXT_FIXTURE_SUFFIXES, canonical, local_name, check_fixture_private, check_name,
                        check_path, check_text, digest, refusal_location, regular_path)
@@ -47,6 +51,8 @@ HINTS = {
     "gate_policy_pin_required": "Pass --policy-sha256 as 64 lowercase hex characters, or omit it to see the value.",
     "gate_policy_pin_mismatch": "The pin must equal the sha256 of the policy bytes at base, shown in policy.sha256.",
     "gate_policy_invalid": "Fix the named field. Allowed values are shown; the current value is never echoed.",
+    "gate_policy_source_rule_required": "With forbidden_token_sources, state forbidden_token_source_rule as this "
+                                        "release's rule, shown in allowed; without sources, leave it out.",
     "gate_model_opt_in_required": "Use schema_version 2 with a model_review object.",
     "sensitive_content": "Remove credential-like text. A policy may name a key variable but never hold a key.",
     "hidden_characters": "Remove the character that is not shown, on the lines listed. It is never left out or skipped.",
@@ -59,12 +65,13 @@ HINTS = {
     "provider_prices_required": "Set both prices above zero, in US dollars per million tokens.",
     "gate_profile_missing_at_base": "Commit the profile file on the base branch.",
     "gate_profile_pin_mismatch": "Update profile_sha256 to the profile bytes at base.",
-    "empty_review_scope": "The range changes no files.",
+    "empty_review_scope": "The range changes no files. On the branch itself, pass an earlier --base, such as HEAD~1.",
     "gate_file_count_exceeded": "Raise max_files (up to 2000) or review a smaller range.",
     "gate_policy_change_requires_review": "The range changes the policy itself. Land the policy change on its own first.",
     "gate_profile_change_requires_review": "The range changes the profile file. Land that change on its own first.",
     "gate_fixture_marker_change_requires_review": "The range changes a fixture marker. Land that change on its own first.",
-    "gate_ignore_change_requires_review": "The range changes a .gitignore file. Land that change on its own first.",
+    "gate_ignore_change_requires_review": "The range changes a .gitignore beyond appending ordinary patterns. "
+                                          "Land that change on its own first.",
     "gate_path_not_allowed": "Add a prefix covering this path to allow_paths, or keep the file out of the range.",
     "gate_denied_path": "deny_paths excludes this path. Keep the file out of the range.",
     "private_or_binary_path": "Data and binary formats are always refused, whatever text_suffixes says.",
@@ -92,6 +99,7 @@ HINTS = {
 }
 _DEFAULT_HINT = "See the pre-merge gate guide for this code."
 WARNINGS = {
+    "forbidden_token_sources_experimental_in_use": EXPERIMENTAL_WARNING,
     "full_revisions_required": "gate run needs the full commit hashes shown in base and head.",
     "policy_pin_not_supplied": "gate run needs --policy-sha256 with the value in policy.sha256.",
     "prefix_matches_nothing": "This prefix matches no tracked file at head, so it has no effect.",
@@ -231,6 +239,7 @@ class _Preflight:
         # Path refusals are grouped by code and hint: a count plus a few example names,
         # so the report stays bounded whatever the size of the range.
         self._grouped: dict[tuple[str, str], dict] = {}
+        self._not_applicable: dict | None = None  # set when the policy's opt-in applies to the range
 
     def block(self, code: str, **details) -> None:
         entry = {"code": code, **details}
@@ -291,6 +300,11 @@ class _Preflight:
                         valid_path=self._allowed, valid_option=self._fits)
         ready = not self.report["blockers"]
         self.report["status"] = "ready" if ready else "blocked"
+        if ready and self._not_applicable is not None:
+            self.report.update(status="not_applicable", not_applicable=self._not_applicable, coverage_complete=False,
+                               next_step="Every changed file is outside allow_paths and the policy opts in: the gate "
+                                         "reports NOT_APPLICABLE, which is not a review or a pass.")
+            return self.report
         if ready and self.policy_file is not None:
             self.report["next_step"] = ("The range passes this policy file, but gate run reads a policy only at --base. "
                                         "Commit it on the base branch through review, then preflight with --policy "
@@ -320,11 +334,17 @@ class _Preflight:
         self.diagnostic_policy = policy
         self._document = policy.document
         self._prefix_warnings(repo, head, policy.document["model_review"])
-        self._paths(repo, base, head, policy)
-        # The gate's own loader and source builder run only once nothing else blocks.
-        # Missing or empty keys do not change the source; still check it for other blockers.
-        if not self._grouped and all(entry["code"] in {"provider_key_missing", "provider_key_empty"} for entry in self.report["blockers"]):
-            self._gate_source(repo, base, head, policy)
+        try:
+            allowance = placeholder_occurrence_allowance(repo, base, head, policy)
+        except AssistantError as exc:
+            return self.failed(exc)
+        with allowance_in_effect(allowance):  # the gate's own reviewed placeholder occurrences
+            self._paths(repo, base, head, policy)
+            # The gate's own loader and source builder run only once nothing else blocks.
+            # Missing or empty keys do not change the source; still check it for other blockers.
+            if not self._grouped and all(entry["code"] in {"provider_key_missing", "provider_key_empty"}
+                                         for entry in self.report["blockers"]):
+                self._gate_source(repo, base, head, policy)
         return None
 
     def _working_tree_policy(self, repo: Path) -> tuple[str, bytes]:
@@ -378,12 +398,35 @@ class _Preflight:
             return self.block("gate_policy_is_configuration")
         if document.get("schema_version") == 1:
             return self.block("gate_model_opt_in_required")
-        issues = _schema_issues(document)
+        # The gate's first check of a policy with sources; the other refusals are still listed. Sources not available
+        # in this release are named at the setting to remove, whose value is then not judged further.
+        opted = "/model_review/" + (OPT_IN if figure_source_entries.SOURCES_AVAILABLE else "forbidden_token_sources")
+        try:
+            check_opted_in(document.get("model_review"))
+            opted_out = False
+        except AssistantError as exc:
+            opted_out = True
+            self.failed(exc, field=opted)
+        field = "/model_review/forbidden_token_source_rule"
+        rule_issue = source_rule_issue(document)
+        if rule_issue:  # the gate refuses it before reading anything, so nothing further is read here either
+            model = document.get("model_review") if isinstance(document.get("model_review"), dict) else {}
+            self.block("gate_policy_source_rule_required", field=field, allowed={"const": stated_source_rule(model)})
+        skipped = {field, opted, "/model_review/" + OPT_IN} if opted_out else {field}
+        issues = [issue for issue in _schema_issues(document) if issue["field"] not in skipped
+                  and not (opted_out and issue["field"].startswith(opted + "/"))]
         for issue in issues:
             self.block("gate_policy_invalid", **issue)
-        if issues:
+        if issues or rule_issue or opted_out:
             return None
         model = document["model_review"]
+        try:
+            check_opt_in(model)
+        except AssistantError as exc:  # the gate refuses it before reading anything, so nothing further is read here
+            setting = OPT_IN if exc.code == "forbidden_token_sources_experimental" else "forbidden_token_sources"
+            return self.failed(exc, field="/model_review/" + setting)
+        if model.get("forbidden_token_sources"):
+            self.warn("forbidden_token_sources_experimental_in_use")
         if type(document["schema_version"]) is not int:
             self.block("gate_policy_invalid", field="/schema_version", rule="integer")
         for field, schema in _PROPERTIES.items():
@@ -397,6 +440,9 @@ class _Preflight:
         except AssistantError as exc:
             usable = False
             self.failed(exc, field="/")
+        for refusal, field in coverage_issues(model):  # the gate's own check, so it refuses before reading anything
+            usable = False
+            self.failed(refusal, field=field)
         roots = tuple(model.get("fixture_roots", ()))
         for name in ("allow_paths", "deny_paths"):
             for index, prefix in enumerate(model[name]):
@@ -497,7 +543,8 @@ class _Preflight:
         for name in sorted(guarded):
             if name in markers:
                 rule_changes.append(("gate_fixture_marker_change_requires_review", name))
-            if PurePosixPath(name).name == ".gitignore":
+            if PurePosixPath(name).name == ".gitignore" and ignore_change_needs_review(
+                    repo, {base, ancestor}, head, name, config, model.get("deny_paths", ())):
                 rule_changes.append(("gate_ignore_change_requires_review", name))
         for code, name in rule_changes:
             self.block_path(code, _shown(name))
@@ -576,6 +623,18 @@ class _Preflight:
             over = [path for path, row in zip(paths, rows, strict=False)
                     if row["status"] == "refused" and row.get("code") == "file_limit_exceeded"]
             self._largest = largest_versions(repo, (ancestor, head), over, read=git)
+        if stopped == "gate_file_count_exceeded" and not rule_changes and not self._grouped:
+            # Too many files to read any: still bound the request from the sizes of the files the names would
+            # send, so that one run names both limits. An ignored one means the gate refuses first: no bound.
+            unread = [path for path, row in zip(paths, rows, strict=False) if row["status"] == "unchecked"]
+            try:
+                clear = bool(unread) and not ignored_paths(repo, {base, ancestor}, unread)
+            except (AssistantError, OSError, ValueError):
+                clear = False
+            warning = size_warning(repo, (ancestor, head), paths, rows, model["max_request_bytes"],
+                                   "max_request_bytes", unread=True) if clear else None
+            if warning is not None:
+                self.report["warnings"].append(warning)
         return None
 
     def _classify(self, repo: Path, revisions: tuple[str, str], path: str, model: dict, config, guard,
@@ -620,7 +679,8 @@ class _Preflight:
             outcome = {**row, "status": "omitted", "reason": reason}  # A version too large, or not UTF-8 text.
         else:
             outcome = {**row, "status": "included",
-                       **({"credential_labels": "not_screened"} if config.placeholder(path) else {})}
+                       **({"credential_labels": "not_screened"} if config.placeholder(path) else {}),
+                       **occurrence_notes(path)}
         if waiting.first is None:
             return outcome
         # Never left out, and never sent.
@@ -636,6 +696,9 @@ class _Preflight:
             packet = prepare_model_source(repo, base, head, gate_policy)
         except AssistantError as exc:
             return self.failed(exc)
+        if isinstance(packet, NoReviewScope):  # nothing to size: no request would be made
+            self._not_applicable = {"changed": packet.changed, "outside_allow_paths": packet.changed, "reviewed": 0}
+            return None
         config, rules = gate_policy.config, gate_policy.document["model_review"]
         system = config.instructions()
         body = canonical(request_payload(config, system, packet, review_schema()))
@@ -693,4 +756,4 @@ def run_policy_doctor(args) -> int:
     from .text_view import doctor_output
 
     print(doctor_output(report, args))
-    return 0 if report["status"] == "ready" else 1
+    return 0 if report["status"] in {"ready", "not_applicable"} else 1
