@@ -51,8 +51,8 @@ HINTS = {
     "gate_policy_pin_required": "Pass --policy-sha256 as 64 lowercase hex characters, or omit it to see the value.",
     "gate_policy_pin_mismatch": "The pin must equal the sha256 of the policy bytes at base, shown in policy.sha256.",
     "gate_policy_invalid": "Fix the named field. Allowed values are shown; the current value is never echoed.",
-    "gate_policy_source_rule_required": "Remove the named field: it belongs to figure sources, which this "
-                                        "release does not read.",
+    "gate_policy_source_rule_required": "With forbidden_token_sources, state forbidden_token_source_rule as this "
+                                        "release's rule, shown in allowed; without sources, leave it out.",
     "gate_model_opt_in_required": "Use schema_version 2 with a model_review object.",
     "sensitive_content": "Remove credential-like text. A policy may name a key variable but never hold a key.",
     "hidden_characters": "Remove the character that is not shown, on the lines listed. It is never left out or skipped.",
