@@ -704,6 +704,14 @@ def test_windows_extended_and_unc_link_targets_are_read_as_plain_paths():
     assert runner._plain_windows("\\\\?\\unc\\server\\share") == "\\\\server\\share"
     assert runner._plain_windows("\\??\\D:\\x") == "D:\\x"
     assert runner._plain_windows("relative\\x") == "relative\\x"
+    assert runner._plain_windows("\\??\\UNC\\server\\share\\x") == "\\\\server\\share\\x"
+    assert runner._plain_windows("\\\\?\\c:") == "c:"
+    # A volume named by its identifier, or any other device path, has no plain form: refused, never read as relative.
+    for device in ("\\\\?\\Volume{01234567-89ab-cdef-0123-456789abcdef}\\repo\\python.exe",
+                   "\\??\\Volume{01234567-89ab-cdef-0123-456789abcdef}\\", "\\\\.\\C:\\x",
+                   "\\\\?\\GLOBALROOT\\Device\\x", "\\\\?\\Cx\\y"):
+        with pytest.raises(ValueError):
+            runner._plain_windows(device)
     from pathlib import PureWindowsPath as W
 
     unc = W(runner._plain_windows("\\\\?\\UNC\\server\\share\\x"))

@@ -127,12 +127,14 @@ def test_what_an_entry_is_comes_from_its_own_record(tmp_path, monkeypatch):
             (record(modes.S_IFLNK | 0o777), True), (record(modes.S_IFDIR | 0o777, junction), True),
             (record(modes.S_IFDIR | 0o755), False), (record(modes.S_IFDIR | 0o755, 0), False),
             (record(modes.S_IFREG | 0o755, alias), False),
+            (record(modes.S_IFDIR | 0o755, 0x9000001A), False), (record(modes.S_IFREG | 0o644, 0x9000701A), False),
             (FileNotFoundError(errno.ENOENT, "synthetic"), False),
             (NotADirectoryError(errno.ENOTDIR, "synthetic"), False)):
         with monkeypatch.context() as patch:
             patch.setattr(os, "lstat", lambda item, found=found: _give(found))
             assert runner._is_link(entry) is expected, found
     for found in (record(modes.S_IFDIR | 0o755, other), record(modes.S_IFREG | 0o644, 0x80000017),
+                  record(modes.S_IFDIR | 0o755, 0x9000001C), record(modes.S_IFDIR | 0o755, 0x8000001A),
                   PermissionError(errno.EACCES, "synthetic"), OSError(errno.ENAMETOOLONG, "synthetic"),
                   OSError(errno.EIO, "synthetic")):
         with monkeypatch.context() as patch:

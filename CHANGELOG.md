@@ -26,7 +26,8 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   must be a folder of the checkout: with the local backend, its Git folder is now refused with
   `git_read_failed`. A folder or link on the way that can't be read is refused with
   `recipe_program_not_found`; on Windows so is a reparse point that is not a symbolic link, a
-  junction or an app-execution alias, unless Windows reads through it by itself.
+  junction, an app-execution alias or a cloud-synced entry, and a path on a volume with neither a
+  drive letter nor a share name.
 - **A `python -m MODULE` recipe whose interpreter lacks MODULE stops before it runs.** `check`
   reports `recipe_python_module_missing`, naming the module, instead of saving a failed check
   record. The lookup runs none of the snapshot's code.

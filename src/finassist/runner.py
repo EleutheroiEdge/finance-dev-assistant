@@ -134,6 +134,7 @@ _MAX_LINK_HOPS = 40
 # Windows reparse tags, which the `stat` module names on Windows only: a directory junction
 # (IO_REPARSE_TAG_MOUNT_POINT) and an app-execution alias (IO_REPARSE_TAG_APPEXECLINK).
 _JUNCTION, _APP_ALIAS = 0xA0000003, 0x8000001B
+_CLOUD_MASK, _CLOUD = 0xFFFF0FFF, 0x9000001A  # the cloud files filter's tags, 0x9000001A to 0x9000F01A
 
 
 def _batch(name: str, *, windows: bool | None = None) -> bool:
@@ -193,8 +194,8 @@ def _is_link(item: Path) -> bool:
     Windows a reparse point of any other kind, which may lead elsewhere in a way this reading can't
     follow. One kind is known and allowed: an app-execution alias, the file through which Windows starts
     an installed app such as the Store's Python. A checkout can't hold one, and it is read as the file
-    it is. A reparse point the system reads through by itself, such as a cloud-synced folder, shows no
-    tag here and is an ordinary folder.
+    it is. So is a file or folder kept by the cloud files filter (a synced folder with files on demand):
+    its tag marks where the content is kept and names no other place, so it is an ordinary entry.
     """
     try:
         found = os.lstat(item)
@@ -203,18 +204,25 @@ def _is_link(item: Path) -> bool:
     tag = getattr(found, "st_reparse_tag", 0)
     if stat.S_ISLNK(found.st_mode) or tag == _JUNCTION:
         return True
-    if tag and tag != _APP_ALIAS:
+    if tag and tag != _APP_ALIAS and tag & _CLOUD_MASK != _CLOUD:
         raise OSError(f"reparse point of an unknown kind: {tag:#x}")
     return False
 
 
 def _plain_windows(text: str) -> str:
-    """A Windows path without its extended-length prefix: \\\\?\\UNC\\server\\share is \\\\server\\share."""
-    if text[:8].upper() == "\\\\?\\UNC\\":
-        return "\\\\" + text[8:]
-    if text[:4] in {"\\\\?\\", "\\??\\"}:
-        return text[4:]
-    return text
+    """A Windows path without its extended-length prefix: \\\\?\\UNC\\server\\share is \\\\server\\share,
+    and \\\\?\\C:\\x is C:\\x, with either spelling of the prefix. A prefixed path that names neither a
+    drive nor a share, such as a volume by its identifier, has no plain form to compare with the repository's, so
+    it is a ValueError, which the caller turns into a refusal."""
+    prefix, rest = text[:4], text[4:]
+    if prefix not in {"\\\\?\\", "\\??\\", "\\\\.\\"}:
+        return text
+    if prefix != "\\\\.\\":
+        if rest[:4].upper() == "UNC\\":
+            return "\\\\" + rest[4:]
+        if len(rest) >= 2 and rest[0].isascii() and rest[0].isalpha() and rest[1] == ":" and rest[2:3] in {"", "\\", "/"}:
+            return rest
+    raise ValueError("a device path that names no drive or share")
 
 
 def _start(target, current):
@@ -229,10 +237,14 @@ def _entries(program: str) -> set[Path]:
     target read from the folder the link is in, and a `..` goes up from the folder the system is really in,
     not from the link it came through. An entry is recorded before it is followed, so a link anywhere (a
     linked folder above, a chain of links, a `..` inside a link's target) leaves every entry it passed. An
-    entry or a link that can't be read, a Windows reparse point that is neither a link nor an
-    app-execution alias, or more links than the system itself would follow, is refused.
+    entry or a link that can't be read, a Windows reparse point of a kind `_is_link` does not know, a Windows
+    path or link target that names no drive or share, or more links than the system itself would follow, is
+    refused.
     """
-    raw = Path(_plain_windows(program) if os.name == "nt" else program)
+    try:
+        raw = Path(_plain_windows(program) if os.name == "nt" else program)
+    except ValueError as exc:
+        raise AssistantError("recipe_program_not_found", {"program": program[:64]}) from exc
     current, pending, hops, seen = Path(raw.anchor), list(raw.parts[1:]), 0, set()
     while pending:
         part = pending.pop(0)
@@ -249,9 +261,9 @@ def _entries(program: str) -> set[Path]:
             if hops > _MAX_LINK_HOPS:
                 raise OSError("too many links")
             target = os.readlink(entry)
+            target = Path(_plain_windows(target) if os.name == "nt" else target)
         except (OSError, ValueError) as exc:
             raise AssistantError("recipe_program_not_found", {"program": program[:64]}) from exc
-        target = Path(_plain_windows(target) if os.name == "nt" else target)
         if target.anchor:
             current, pending = _start(target, current), [*target.parts[1:], *pending]
         else:

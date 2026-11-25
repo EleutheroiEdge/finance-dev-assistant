@@ -85,8 +85,9 @@ but no drive (`\tools\tool.exe`) is refused.
 A folder or link on the way that can't be read, for example for lack of permission, is refused
 with `recipe_program_not_found`. On Windows a junction is followed as a link, and a path without
 a suffix is also checked as the `.exe` it would run. An app-execution alias, such as the Microsoft
-Store's `python.exe`, is read as the file it is. Any other reparse point that Windows does not
-read through by itself is refused; a cloud-synced folder is read through and is an ordinary folder.
+Store's `python.exe`, is read as the file it is, and a cloud-synced folder is an ordinary
+folder. Any other kind of reparse point is refused, and so is a path on a volume that has neither
+a drive letter nor a share name.
 
 `check` and `workflow run` read `recipes` and `recipe_python` from the `--config` file as it is
 on disk when they run, not from the commit being checked. A change that edits that file edits
