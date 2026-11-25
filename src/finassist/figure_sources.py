@@ -222,15 +222,17 @@ def _cells(line: str, delimiter: str, number: int) -> tuple[list[str], list[bool
 # In a comma file, what a comma may have cut out of one amount grouped by commas: a bare cell that is a whole number
 # of one to three digits, with the sign, bracket or currency that may start an amount, and then a bare cell that
 # starts with exactly three digits.
-_CUT_FIRST = re.compile(rf" *\(?[+-]?(?:(?:[{re.escape(CURRENCY_SIGNS)}]|[A-Z]{{3}}) ?)?[0-9]{{1,3}}")
+# A bare cell that ends with one to three digits a grouping comma could follow: not more digits, not a fraction.
+_CUT_FIRST = re.compile(r"(?:.*[^0-9.])?[0-9]{1,3}", re.DOTALL)
 _CUT_NEXT = re.compile(r"[0-9]{3}(?![0-9])")
 
 
 def _check_cut_groups(cells: list[str], bare: list[bool], number: int) -> None:
     """Refuse a comma file in which a comma may be a grouping comma, not a column break: `1,234,567.89` written
-    without quotes is three cells here, and each would read as an amount of its own. The comma is the one delimiter
-    that also groups digits, so such a pair is refused whatever group mark the layout declares; quoted, either cell
-    is its writer's own cell and is read."""
+    without quotes is three cells here, and each would read as an amount of its own. So does `Total 12,345.67`,
+    whose first part may fall in a text column. The comma is the one delimiter that also groups digits, so a bare
+    cell that ends with one to three digits (not a fraction), then a bare cell that starts with exactly three, is refused whatever
+    group mark and text columns the layout declares; quoted, either cell is its writer's own cell and is read."""
     for index in range(1, len(cells)):
         if (bare[index - 1] and bare[index] and _CUT_NEXT.match(cells[index])
                 and _CUT_FIRST.fullmatch(cells[index - 1])):

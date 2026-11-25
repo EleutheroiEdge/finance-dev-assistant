@@ -69,8 +69,9 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
     exponent, a percent sign, a footnote, an `=`, a mark such as `CR`, a date or an identifier in a column not
     declared as text.
   - **In a comma file, a bare comma that may group digits refuses the file.** `1,234,567.89` written without
-    quotes is three cells; such a pair of cells is refused as `forbidden_token_source_ambiguous`, whatever
-    group mark is declared. Quoted, an amount with grouping commas is read.
+    quotes is three cells, and `Total 12,345.67` is two; a bare cell that ends with one to three digits, then a
+    bare cell that starts with exactly three, is refused as `forbidden_token_source_ambiguous`, whatever group
+    mark and text columns are declared. Quoted, an amount with grouping commas is read.
   - **A refusal names a place, never a value.** The error carries the source's place in the list, a line and a
     column. `forbidden_token_source_layout_mismatch` and `forbidden_token_source_cell_unreadable` are new;
     `forbidden_token_source_hidden_mark`, `forbidden_token_source_malformed_quotes`,

@@ -138,6 +138,7 @@ def generate(rng: random.Random) -> Case:
 
     rows = rng.randint(3, 6)
     for row in range(rows + header):
+        bare_before = None  # the cell before, as written, when it stands without quotes
         for index, kind in enumerate(kinds):
             if index:
                 put(layout.delimiter)
@@ -156,7 +157,10 @@ def generate(rng: random.Random) -> Case:
                 span = (whole, fraction)
             needs_quotes = layout.delimiter in cell or '"' in cell
             pad = (rng.choice(["", " "]), rng.choice(["", " "])) if span and rng.random() < 0.2 else ("", "")
-            if needs_quotes or rng.random() < 0.15:
+            # In a comma file a bare cell after one a grouping comma could have cut is refused, so it is quoted.
+            cut = layout.delimiter == "," and bare_before is not None and _reference_cut(bare_before, pad[0] + cell + pad[1])
+            if needs_quotes or cut or rng.random() < 0.15:
+                bare_before = None
                 written = _quote(pad[0] + cell + pad[1])
                 start = length
                 put(written)
@@ -164,6 +168,7 @@ def generate(rng: random.Random) -> Case:
                 if span:
                     case.amounts.append((start + 1 + len(pad[0]), start + 1 + len(pad[0]) + len(cell), *span))
             else:
+                bare_before = pad[0] + cell + pad[1]
                 start = length
                 put(pad[0] + cell + pad[1])
                 if span:
@@ -256,22 +261,14 @@ def _reference_rows(raw: bytes, delimiter: str):
 
 
 def _reference_cut(first: str, second: str) -> bool:
-    """Whether two bare cells of a comma file may be one amount a grouping comma cut: a whole number of one to three
-    digits, with what may start an amount before it, and then exactly three digits."""
+    """Whether two bare cells of a comma file may be one amount a grouping comma cut: a cell that ends with one to
+    three digits that are not a fraction, and then exactly three digits."""
     if len(second) < 3 or any(c not in _DIGITS for c in second[:3]) or second[3:4] in tuple(_DIGITS):
         return False
-    while first[:1] == " ":
-        first = first[1:]
-    if first[:1] == "(":
-        first = first[1:]
-    if first[:1] in ("+", "-"):
-        first = first[1:]
-    before = _reference_currency(first, False)
-    if before:
-        first = first[before:]
-        if first[:1] == " ":
-            first = first[1:]
-    return 1 <= len(first) <= 3 and all(c in _DIGITS for c in first)
+    run = 0
+    while run < len(first) and first[len(first) - 1 - run] in _DIGITS:
+        run += 1
+    return 1 <= run <= 3 and first[len(first) - 1 - run:len(first) - run] != "."
 
 
 def _reference_currency(text: str, at_end: bool) -> int:

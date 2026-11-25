@@ -281,7 +281,7 @@ def test_a_bare_comma_that_may_group_digits_refuses_a_comma_file_under_any_layou
     assert (caught.value.line, caught.value.column) == (2, column)
 
 
-@pytest.mark.parametrize("row", ["SYN-1,1234,567.89", "SYN-1,12, 345", 'SYN-1,"12",345', 'SYN-1,12,"345"', "SYN-001,250,x",
+@pytest.mark.parametrize("row", ["SYN-1,1234,567.89", "SYN-1,12, 345", 'SYN-1,"12",345', 'SYN-1,12,"345"', "SYN-0010,250,x",
                                  "SYN-1,12,3456", "SYN-1,12,34", "SYN-1,12.5,345", "SYN-1,12 ,345", "SYN-1,12 EUR,345"],
                          ids=["four-digits-first", "space-after", "first-quoted", "second-quoted", "identifier-first",
                               "four-digits-next", "two-digits-next", "fraction-first", "space-before-the-comma",
@@ -447,3 +447,14 @@ def test_each_module_can_be_the_first_one_imported(module):
 def test_the_entry_helper_builds_the_layout_the_reader_takes(tmp_path):
     entry = layout("/synthetic/positions.csv", text_columns=["Konto", 2])
     assert as_layout(entry) == SourceLayout(";", ",", ".", True, ("Konto", 2)) and figure_sources.layout_valid(as_layout(entry))
+
+
+@pytest.mark.parametrize("row", ["Total 12,345.67", "Lot 7,345.67", "SYN-1,234,567.89", "Total 12,345", "SYN-001,250"])
+def test_a_grouping_comma_after_text_is_not_read_as_a_column_break(row):
+    """`Total 12,345.67` would be a text cell and the part 345.67: widths agree on every row, so only the pair of
+    cells shows it. A fraction before the comma, or more than three digits, can't be a group's head."""
+    declared = SourceLayout(",", ".", None, False, (1,))
+    with pytest.raises(AmbiguousSource):
+        _amounts(f"{row}\n{row}\n", declared)
+    assert [value for _, _, value in _amounts("Total 12.5,345.67\nTotal 1234,345.67\n", declared)] == ["345.67"] * 2
+    assert [value for _, _, value in _amounts('Total 12,"345.67"\n', declared)] == ["345.67"]
