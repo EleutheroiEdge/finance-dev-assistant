@@ -1,5 +1,5 @@
 {
-  "$id": "urn:finledgerpoli:schema:config:2",
+  "$id": "urn:finledgerpoli:schema:config:3",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "allOf": [
@@ -470,6 +470,12 @@
       "minimum": 1,
       "title": "Readiness max age seconds",
       "type": "integer"
+    },
+    "recipe_python": {
+      "default": "",
+      "maxLength": 4096,
+      "title": "Recipe python",
+      "type": "string"
     },
     "recipes": {
       "additionalProperties": {

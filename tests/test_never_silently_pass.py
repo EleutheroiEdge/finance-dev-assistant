@@ -46,7 +46,7 @@ def test_a_check_killed_by_a_signal_does_not_pass(tmp_path):
 
 
 def _receipt_runner(calls, **receipt):
-    def fake(config, name, _snapshot, *, backend, approve_local):
+    def fake(config, name, _snapshot, *, backend, approve_local, repo=None, head=None):
         calls.append(name)
         output = '{"passed": true}'
         value = {"recipe": name, "argv_hash": digest(canonical(config.recipes[name])),

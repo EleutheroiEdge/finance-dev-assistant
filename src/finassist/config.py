@@ -164,6 +164,9 @@ class Config:
         "identity": "when-set", "json_schema": {"minimum": 16, "maximum": 4096}})
     runner_tmp_mb: int = field(default=256, metadata={
         "identity": "when-set", "json_schema": {"minimum": 16, "maximum": 16384}})
+    # A local recipe's leading `python`: "" finds python, then python3, in an absolute PATH
+    # entry; "finassist" is finassist's own interpreter; otherwise an absolute interpreter path.
+    recipe_python: str = field(default="", metadata={"identity": "when-set", "json_schema": {"maxLength": 4096}})
     required_recipes: tuple[str, ...] = ()
     blocking_severities: tuple[str, ...] = ("critical", "high")
     readiness_max_age_seconds: int = field(default=86400, metadata={"json_schema": {"minimum": 1, "maximum": 2_000_000}})
@@ -189,6 +192,10 @@ class Config:
             unseen.check(text)
         if self.runner_image:
             pinned_image(self.runner_image)
+        if not isinstance(self.recipe_python, str) or "\0" in self.recipe_python or len(self.recipe_python) > 4096 or (
+            self.recipe_python not in {"", "finassist"} and not Path(self.recipe_python).is_absolute()
+        ):
+            raise AssistantError("invalid_recipe_python")
         if type(self.schema_version) is not int or self.schema_version != 1 or self.provider not in PROVIDERS:
             raise AssistantError("unsupported_config")
         if (

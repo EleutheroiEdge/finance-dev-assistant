@@ -53,7 +53,47 @@ also need Git installed in that project image.
 The default container is network-disabled, non-root, capability-dropped and read-only, with scratch temporary storage and resource limits. A test requiring writable project files needs an explicit reviewed adapter; do not grant the real checkout write access.
 
 `--backend local --approve-local` is for trusted recipes only. It receives a
-minimal environment and temporary HOME. Your team owns that decision. Logs stay local; only saved recipe/exit/hash records are
+minimal environment and temporary HOME.
+
+In a container, a recipe's `python` is the image's. On the local backend it is the project's
+interpreter, chosen by `recipe_python`. By default finassist takes the first `python`, then
+`python3`, on an absolute PATH entry, so activate the project's environment (for example
+`source .venv/bin/activate`, or `.venv\Scripts\activate` on Windows) before `check`. This matters
+when finassist itself comes from `pipx` or `uv tool`: its own interpreter has none of the project's
+packages. Set `recipe_python` to an absolute interpreter path to pin one, or to `"finassist"` when
+finassist is installed in the project's environment. Other programs, such as `pytest` or `npm`, are
+also taken from absolute PATH entries only; the current directory and the snapshot are never
+searched, and `.cmd` or `.bat` files are refused however they are named.
+
+Before a `python -m MODULE` recipe runs, the interpreter must find MODULE's top-level package, or
+`check` stops with `recipe_python_module_missing` instead of a failed run. The lookup starts the
+interpreter isolated and outside the snapshot, so none of the snapshot's code runs for it. If the
+lookup fails for another reason and the interpreter works on its own, the recipe runs and its saved
+check record shows the failure.
+
+A program found on PATH, or written with a root, must not be one the change could supply
+(`recipe_program_inside_change`). Every folder and link read on the way to it is checked, links
+followed one at a time and `..` read as the system reads it. None may be in the snapshot, and none
+may be in a top-level entry of the repository that Git tracks, in the index or at the commit being
+checked. Names are compared without regard to case, and a folder reached under another name is
+the same folder. An ignored `.venv` is fine; a folder with any tracked file, link or submodule is
+not. When that can't be decided, the program is not run: `--repo` must be a folder of the checkout,
+not its Git folder. A relative path such as `./run-tests.sh` still names the change's own script
+in the snapshot, as before. On Windows, a path with a drive but no root (`C:tool.exe`) or a root
+but no drive (`\tools\tool.exe`) is refused.
+
+A folder or link on the way that can't be read, for example for lack of permission, is refused
+with `recipe_program_not_found`. On Windows a junction is followed as a link, and a path without
+a suffix is also checked as the `.exe` it would run. An app-execution alias, such as the Microsoft
+Store's `python.exe`, is read as the file it is, and a cloud-synced folder is an ordinary
+folder. Any other kind of reparse point is refused, and so is a path on a volume that has neither
+a drive letter nor a share name.
+
+`check` and `workflow run` read `recipes` and `recipe_python` from the `--config` file as it is
+on disk when they run, not from the commit being checked. A change that edits that file edits
+the commands too, so keep the reviewed configuration outside the change or review it first.
+
+Your team owns that decision. Logs stay local; only saved recipe/exit/hash records are
 intended as reduced evidence. Logs are not automatically sent to a provider.
 
 ## Proposed changes

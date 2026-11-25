@@ -55,6 +55,7 @@ commands and the `doctor --check-updates` network gate.
 | `runner_cpus` | CPUs for a recipe's container: 2 by default (1 to 64). |
 | `runner_pids` | Processes a recipe's container may run at once: 128 by default (16 to 4,096). |
 | `runner_tmp_mb` | Size of the container's writable `/tmp`, in MiB: 256 by default (16 to 16,384); the rest of its file system is read-only. These four apply to `docker` and `podman` recipes, not to approved local execution, and while at their defaults they leave the configuration hash as it was. |
+| `recipe_python` | The interpreter a leading `python` means in a recipe run with `--backend local`: `""` (the default) is the first `python`, then `python3`, on an absolute PATH entry; `"finassist"` is finassist's own interpreter; otherwise the interpreter's absolute path. Containers use the image's `python`. At its default it leaves the configuration hash as it was. See [workflows](workflows.md). |
 | `required_recipes` | Recipe names whose fresh passing check records are required for human review. |
 | `blocking_severities` | Finding severities that block readiness: critical/high/medium/low/info. |
 | `readiness_max_age_seconds` | Maximum age of audited review and check evidence. |
