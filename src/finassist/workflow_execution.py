@@ -201,7 +201,8 @@ def execute_run(store: WorkflowStore, identifier: str, repo: Path, config: Confi
                 )
                 try:
                     result = run_recipe(config, _recipe(plan, step_id), snapshot,
-                                        backend=state["backend"], approve_local=approve_local)
+                                        backend=state["backend"], approve_local=approve_local, repo=repo,
+                                        head=plan["head"])
                     result["snapshot"] = manifest
                     result["receipt"].update(head=plan["head"], snapshot_hash=digest(canonical(manifest)),
                                              config_hash=plan["config_hash"])

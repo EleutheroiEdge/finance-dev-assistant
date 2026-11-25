@@ -2,6 +2,40 @@
 
 All notable changes to finledgerpoli are documented here, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Upgrading
+
+- **A local recipe's `python` is now the project's interpreter, not finassist's.** On the local
+  backend (`check --backend local --approve-local`, and a local workflow run), a leading `python`
+  used to mean the interpreter finassist itself runs on. Installed as recommended, with `pipx` or
+  `uv tool`, that interpreter has none of the project's packages, so a recipe such as
+  `python -m pytest` could never run. It is now set by `recipe_python`: by default the first
+  `python`, then `python3`, on an absolute `PATH` entry, so activate the project's environment
+  before `check`. To keep the old behaviour, for example when finassist is installed in the
+  project's environment and run without activating it, set `recipe_python: "finassist"`; an
+  absolute path pins one interpreter. Container runs are unchanged, and a configuration that
+  does not set `recipe_python` keeps its hash.
+- **Local recipes take every program from absolute `PATH` entries only, and never one the change
+  could supply.** A bare program name is no longer looked up in the current directory or through
+  an empty or relative `PATH` entry (`recipe_program_not_found`), and a `.cmd` or `.bat` file is
+  refused however it is named. A program found on `PATH`, or written with a root, is refused with
+  `recipe_program_inside_change` when any folder or link on the way to it is in the snapshot, or
+  in a top-level entry of the repository that Git tracks; an ignored `.venv` is fine. A relative
+  path such as `./run-tests.sh` still names the change's own script.
+- **A `python -m MODULE` recipe whose interpreter lacks MODULE stops before it runs.** `check`
+  reports `recipe_python_module_missing`, naming the module, instead of saving a failed check
+  record. The lookup runs none of the snapshot's code.
+- **Two schema identifiers change for the new setting.** The configuration schema becomes
+  `urn:finledgerpoli:schema:config:3` and the CI policy schema, which refers to it,
+  `urn:finledgerpoli:schema:ci-policy:3`. Documents keep their `schema_version`. Update a pin on
+  a schema identifier or digest.
+
+### Fixed
+
+- **On Windows, a tool named with its suffix is found.** The search of `PATH` always added a
+  suffix, so a name such as `pwsh.exe` was looked up as `pwsh.exe.EXE` and reported missing.
+
 ## 0.12.0 - 2026-11-23
 
 ### Upgrading

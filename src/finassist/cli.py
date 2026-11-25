@@ -222,7 +222,8 @@ def execute(args, config: Config | None = None) -> int:
             snapshot = Path(temporary) / "source"
             manifest = export_snapshot(args.repo, args.head, snapshot, config)
             result = run_recipe(
-                config, args.recipe, snapshot, backend=args.backend, approve_local=args.approve_local
+                config, args.recipe, snapshot, backend=args.backend, approve_local=args.approve_local,
+                repo=args.repo, head=manifest["head"],
             )
             result["snapshot"] = manifest
             result["receipt"].update(

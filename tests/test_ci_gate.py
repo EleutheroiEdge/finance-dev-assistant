@@ -64,7 +64,8 @@ def ci_case(repository):
 def dispatch(monkeypatch):
     calls = []
 
-    def fake(config, name, _snapshot, *, backend, approve_local):
+    def fake(config, name, _snapshot, *, backend, approve_local, repo=None, head=None):
+        # repo and head serve the local backend's check of the program; a container run ignores them.
         assert backend in {"docker", "podman"} and not approve_local
         calls.append(name)
         output = "PRIVATE-SYNTHETIC-CHECK-OUTPUT"

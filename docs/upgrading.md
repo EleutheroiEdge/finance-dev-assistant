@@ -108,7 +108,7 @@ your own repository, and replace the installed program only when they report wha
 | A gate policy without `forbidden_token_sources` | Nothing. Its bytes and its `--policy-sha256` pin stay valid | Preflight a recent range with `finassist doctor --policy` |
 | A configuration or gate policy with `forbidden_token_sources` | Figure sources are not available in this release, so it is refused before any file is read | Remove the sources, as the steps below say |
 | Commands run from a subfolder, or with a `--config` kept elsewhere | They stop with `state_location_moved` before writing | Pass `--state-dir` naming the folder to keep |
-| A pin on a schema identifier | The configuration schema is `urn:finledgerpoli:schema:config:2`, the gate policy schema `urn:finledgerpoli:schema:gate-policy:16` and the CI policy schema `urn:finledgerpoli:schema:ci-policy:2` | Update the pin. Documents keep their `schema_version` |
+| A pin on a schema identifier | The configuration schema is `urn:finledgerpoli:schema:config:3`, the gate policy schema `urn:finledgerpoli:schema:gate-policy:16` and the CI policy schema `urn:finledgerpoli:schema:ci-policy:3` | Update the pin. Documents keep their `schema_version` |
 
 0.10.0 itself did not read figure sources. A policy or configuration that lists them was written
 for a development build, and these steps are for it.

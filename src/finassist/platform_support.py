@@ -1,7 +1,7 @@
 """Portable text, executable and private-state conventions."""
 
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import sys
 
 from .errors import AssistantError
@@ -33,6 +33,8 @@ def locate_tool(name: str, environment=None, *, windows: bool | None = None) -> 
     suffixes = [""]
     if windows:
         suffixes = [item for item in environment.get("PATHEXT", "").split(";") if item] or list(_WINDOWS_SUFFIXES)
+        if PureWindowsPath(name).suffix.upper() in {item.upper() for item in suffixes}:
+            suffixes = [""]  # "pwsh.exe" already names its file, as for Windows itself
     for entry in environment.get("PATH", os.defpath).split(";" if windows else os.pathsep):
         directory = Path(entry.strip('"') if windows else entry)
         if not entry or not directory.is_absolute():

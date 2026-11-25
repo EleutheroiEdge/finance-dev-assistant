@@ -25,7 +25,7 @@ SCHEMA_FILES = {
 SCHEMA_IDS = {
     "config": SCHEMA_ID,
     "gate-policy": "urn:finledgerpoli:schema:gate-policy:16",  # 3 to 15: rules 2 to 25 in development; 16: rules 26, 27
-    "ci-policy": "urn:finledgerpoli:schema:ci-policy:2",  # 2: it refers to config:2
+    "ci-policy": "urn:finledgerpoli:schema:ci-policy:3",  # 2: it refers to config:2; 3: to config:3
     "workflow-template": "urn:finledgerpoli:schema:workflow-template:1",
     "packet": "urn:finledgerpoli:schema:packet:2",
     "gate-report": "urn:finledgerpoli:schema:gate-report:2",

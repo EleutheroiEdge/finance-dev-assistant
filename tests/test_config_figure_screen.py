@@ -72,7 +72,7 @@ def test_unset_figure_settings_leave_the_configuration_hash_as_it_was():
         "forbidden_token_file", "forbidden_token_hashes", "forbidden_token_sources", "forbidden_token_match",
         "forbidden_token_min_digits", "forbidden_token_round_figures", "forbidden_token_sources_experimental",
         "unreviewable_paths", "placeholder_credential_paths",
-        "runner_memory_mb", "runner_cpus", "runner_pids", "runner_tmp_mb"}
+        "runner_memory_mb", "runner_cpus", "runner_pids", "runner_tmp_mb", "recipe_python"}
 
 
 @pytest.mark.parametrize("document,code", [

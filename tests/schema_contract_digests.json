@@ -1,6 +1,6 @@
 {
-  "urn:finledgerpoli:schema:ci-policy:2": "e5d6ccac527fcfff6573f83ef434e80b1a9bcb09143fc9a1ef305bb481e3cd07",
-  "urn:finledgerpoli:schema:config:2": "9f3d967b3371c1b64f0d9ee281b9253f31b24e9184d06328a2ece4e1295309e9",
+  "urn:finledgerpoli:schema:ci-policy:3": "219d01bea83eb07263e8d5506093972430287fcdea434ec21a26d118c9f25788",
+  "urn:finledgerpoli:schema:config:3": "14f29c4d9a7437a7eb9784b7934ae3d66923d45c519e0cdb2f99e024a19f4445",
   "urn:finledgerpoli:schema:evaluation-suite:1": "ab66f2828f7823e2f2e654ea0fbfea88e5975b5fee7cef1d2e3a2893cfbcee63",
   "urn:finledgerpoli:schema:gate-policy:16": "1e029b6f814d91a03dfca0531c000fd4d56bed1f621014ae14c9ef40d41a327a",
   "urn:finledgerpoli:schema:gate-report-not-applicable:1": "2970ec8a688c423a26e1170168f559fceac6900e94b4dbe37b70e5f9a445d966",
