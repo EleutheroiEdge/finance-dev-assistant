@@ -1,5 +1,5 @@
 {
-  "$id": "urn:finledgerpoli:schema:gate-policy:16",
+  "$id": "urn:finledgerpoli:schema:gate-policy:17",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -125,8 +125,8 @@
         },
         "forbidden_token_source_rule": {
           "enum": [
-            26,
-            27
+            28,
+            29
           ],
           "type": "integer"
         },
@@ -141,14 +141,50 @@
               {
                 "additionalProperties": false,
                 "not": {
-                  "properties": {
-                    "decimal_mark": {
-                      "const": ","
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "decimal_mark": {
+                          "const": ","
+                        },
+                        "delimiter": {
+                          "const": ","
+                        }
+                      }
                     },
-                    "delimiter": {
-                      "const": ","
+                    {
+                      "properties": {
+                        "decimal_mark": {
+                          "const": ","
+                        },
+                        "group_mark": {
+                          "const": ","
+                        }
+                      }
+                    },
+                    {
+                      "properties": {
+                        "decimal_mark": {
+                          "const": "."
+                        },
+                        "group_mark": {
+                          "const": "."
+                        }
+                      }
+                    },
+                    {
+                      "properties": {
+                        "header": {
+                          "const": false
+                        },
+                        "text_columns": {
+                          "contains": {
+                            "type": "string"
+                          }
+                        }
+                      }
                     }
-                  }
+                  ]
                 },
                 "properties": {
                   "decimal_mark": {
@@ -162,20 +198,53 @@
                       ",",
                       ";",
                       "\t",
-                      "|",
-                      null
+                      "|"
                     ]
+                  },
+                  "group_mark": {
+                    "enum": [
+                      null,
+                      ",",
+                      ".",
+                      " ",
+                      "'"
+                    ]
+                  },
+                  "header": {
+                    "type": "boolean"
                   },
                   "path": {
                     "maxLength": 4096,
                     "minLength": 1,
                     "type": "string"
+                  },
+                  "text_columns": {
+                    "items": {
+                      "oneOf": [
+                        {
+                          "maximum": 4096,
+                          "minimum": 1,
+                          "type": "integer"
+                        },
+                        {
+                          "maxLength": 256,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "maxItems": 64,
+                    "type": "array",
+                    "uniqueItems": true
                   }
                 },
                 "required": [
                   "decimal_mark",
                   "delimiter",
-                  "path"
+                  "group_mark",
+                  "header",
+                  "path",
+                  "text_columns"
                 ],
                 "type": "object"
               }

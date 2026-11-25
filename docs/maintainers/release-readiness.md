@@ -47,8 +47,9 @@ Its publication was cancelled, so 0.11.0 never reached PyPI; its fix first ships
 
 ## Where 0.12.0 stands
 
-Each row says where its number comes from. A8, A9 and A10 were measured again on the 0.12.0 tree, offline, on
-synthetic data generated at run time. The gates that are tests (A1, A4, A5, B5 and B8) and E2 pass on that tree.
+Each row says where its number comes from. A9 and A10 were measured again on the 0.12.0 tree, offline, on
+synthetic data generated at run time; A8 was measured on the tree after it, where a strict reader replaces the
+one 0.12.0 held. The gates that are tests (A1, A4, A5, B5 and B8) and E2 pass on that tree.
 The rows that need the reference repositories (A2, A3, A11, B1 to B3, B3a, B6 and B9) were measured again on
 18 November, offline, with no model call, on a wheel built locally from the 0.12.0 tree (SHA-256
 `45869ddff0284e73347bb6d7f30a9572af3f930fe602090af3cb043206d5ac92`) and installed by hash into a fresh environment,
@@ -71,7 +72,7 @@ fingerprint `471b2dfe27d4dc2a` (see Commands), unless a row names another tree. 
 | A5 | The route tests pass: every path to a provider runs the four screens | Yes |
 | A6 | A reply is screened on the review, gate and proposal routes, hidden characters last | Yes |
 | A7 | Not measured. It needs live calls | No |
-| A8 | Not reachable in 0.12.0, so not a gate for this release (see below); a measurement of the reader's code. 0 files missing a figure, 0 unexpected refusals and 0 unscreenable files accepted, read every way and declared, on 480 synthetic exports at seed 20261114: the default corpus (`848464313da02461`), each round-amount and cut-cell run in Commands, and the `--hidden-marks` and `--edge-spellings` profiles. Measured on the 0.12.0 tree | Yes |
+| A8 | Not reachable in 0.12.0, so not a gate for this release (see below); a measurement of the reader's code. 0 failures in 200,000 seeded mutants of synthetic sources, over the script's eight seeds: 184,768 refused and 15,232 read, every one as a second reader written apart reads it, and each of the 8,135 read mutants of the noise family lists exactly its planted amounts. Measured on the tree after 0.12.0, whose strict reader replaces the one 0.12.0 held | Yes |
 | A9 | Recall 1.000 and 0.998 (95% intervals from 0.997 and 0.994), precision 1.000 at both seeds, on 1,140 synthetic credentials and 340 look-alikes. Measured on the 0.12.0 tree | Yes |
 | A10 | 23 of 23 payloads refused, 0 of 16 ordinary texts refused. Measured on the 0.12.0 tree | Yes |
 | A11 | 450 of 450 checks byte-identical: `doctor` on each of the 225 reference changes, under both documented setups, gave the same exit status and the same output and error output bytes in all 5 runs, as before | Yes |
@@ -128,18 +129,20 @@ measurement is not passed.
 | A5. One screen, every route | Every path to `providers.invoke` passes the credential, private-path, figure and hidden-character screens. A request without them is refused, not sent | `pytest tests/test_every_route_is_screened.py tests/test_hidden_text.py` |
 | A6. Output is screened | Free text a model returns is screened on every route before it is shown or saved | route table test |
 | A7. Injection | Across at least 60 adversarial packets, 0 changed verdicts and 0 echoes of screened data | needs live calls; see D |
-| A8. Figure sources in export layouts | Across 480 seeded synthetic custody exports (holdings, tax lots, realized gains, account lists, name and amount lists and one-column files; every delimiter, both decimal marks, five kinds of grouping, quoting, totals, byte-order marks, currency codes, credit and debit marks, footnotes, fractions with no zero before the decimal mark, totals beside a label, spreadsheet text markers, timestamps, UTF-16 and cp1252, and files that quote nothing): 0 files that miss a figure, read every way or with the layout declared; every file holding a number with a decimal comma and no digit before it refused in both modes, a file that quotes nothing refused or read whole; no other declared file refused; read every way, otherwise only one-column files refused, and only as ambiguous. The same for two profiles, each with its own fingerprints and its settings printed: round amounts (`--round-amounts`) under each round-figure setting, and amounts cut into cells after a short quantity (`--cut-cell-amounts`) under each round-figure setting and match mode | `scripts/figure_source_corpus.py`, exit status 0 for the default corpus and each run below |
+| A8. Figure sources read strictly | For any bytes, a figure source is refused by name, or every digit in it belongs to a cell read in full as one amount or to a column its layout declares as text. Across 200,000 seeded mutants of synthetic sources with planted amounts (invisible and look-alike characters; quotes added, moved and removed; line breaks inside cells; other encodings, with bytes dropped; an `=`, spaces, brackets and text marks around an amount; other grouping and decimal marks than the declared ones; raw bytes, digits, delimiters and line breaks added, removed and replaced): the reader refuses and reads exactly what a second reader written apart from it does, the digits of every file read are the digits of its cells, and every mutant of the noise family that is read lists exactly its planted amounts | `scripts/figure_source_mutants.py`, exit status 0 |
 | A9. Credential screen accuracy | On a labelled synthetic corpus of credential-shaped values in the formats real credentials take, and of look-alikes that must pass: recall at least 0.88 and precision at least 0.75, the bar the best single tools reach on a public labelled set | `scripts/secret_screen_accuracy.py`, exit status 0, at two seeds |
 | A10. Hidden characters | Every payload of the published attack types (bidirectional controls, tag characters, zero-width and other invisible characters) is refused, and no ordinary text in other scripts is | `scripts/hidden_text_accuracy.py`, exit status 0 |
 | A11. The same answer every time | `doctor` on every reference change, under both documented setups (test paths listed, on the configuration and on the gate route), gives the same exit status and the same output and error output bytes in each of 5 runs | `scripts/doctor_stability.py`, exit status 0 |
 
 A4 and A8 measure the figure-source reader. It is not reachable in 0.12.0: a configuration or gate
 policy that lists a figure source is refused whatever else it sets, `"forbidden_token_sources_experimental":
-true` included, so no released route reads one, and A4 and A8 do not gate this release. Their results
-stand as measurements of the reader's code, which is kept for a later release. They count only the
-synthetic shapes they generate, and amounts in other shapes have been found that the reader misses, so
-passing them is no claim that a source lists every figure, and release notes must not say it does. A1 to
-A3, A5 to A7 and A9 to A11 do not use figure sources.
+true` included, so no released route reads one, and A4 and A8 do not gate this release. The reader 0.12.0
+held missed amounts in shapes its corpus did not generate, and a strict reader has replaced it: a source is
+read by the layout its entry declares and refused whole unless every cell outside its declared text columns
+is empty, a label or one amount in full. A8 counts only the damage its script generates, a figure inside a
+column declared as text is not listed, and a wrong layout is not detected, so passing A8 is no claim that a
+source lists every figure, and release notes must not say it does. A1 to A3, A5 to A7 and A9 to A11 do not
+use figure sources.
 
 ### B. A stranger's repository works
 
@@ -261,14 +264,8 @@ python scripts/secret_screen_accuracy.py --seed 20261114
 python scripts/secret_screen_accuracy.py --seed 7
 python scripts/hidden_text_accuracy.py
 
-# A8: synthetic exports written to a temporary folder and removed after the run
-python scripts/figure_source_corpus.py --files 480 --seed 20261114
-python scripts/figure_source_corpus.py --files 480 --seed 20261114 --round-amounts
-python scripts/figure_source_corpus.py --files 480 --seed 20261114 --round-amounts --round-figures list
-python scripts/figure_source_corpus.py --files 480 --seed 20261114 --cut-cell-amounts
-python scripts/figure_source_corpus.py --files 480 --seed 20261114 --cut-cell-amounts --round-figures list
-python scripts/figure_source_corpus.py --files 480 --seed 20261114 --cut-cell-amounts --match digits
-python scripts/figure_source_corpus.py --files 480 --seed 20261114 --cut-cell-amounts --match digits --round-figures list
+# A8: synthetic sources generated and damaged in memory; nothing is written
+python scripts/figure_source_mutants.py
 
 # B5
 python -m pytest tests/test_credential_references.py

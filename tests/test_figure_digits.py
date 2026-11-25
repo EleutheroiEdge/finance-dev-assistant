@@ -5,6 +5,7 @@ Every figure, file and repository here is synthetic.
 
 from dataclasses import replace
 import hashlib
+import json
 import random
 import re
 
@@ -12,6 +13,7 @@ import pytest
 
 from conftest import command
 from figure_cases import SURROUNDINGS, _framed
+from figure_source_cases import layout
 from finassist.config import Config, load_config
 from finassist.config_preflight import config_preflight
 from finassist.errors import AssistantError
@@ -30,10 +32,16 @@ pytest_plugins = ("test_model_gate", "test_model_policy")
 
 DIGITS = {"forbidden_token_match": "digits"}
 CUSTODY = (
-    "account,description,market_value,price,quantity,as_of,reference\n"
-    'SYN-0001,"Synthetic Fund A","1,234,567.89",48213.5712,7.5,20261110,00012345\n'
-    'SYN-0002,"Synthetic Fund B","(905.13)",$73026.00,250000,2026-11-10,"USD 6,729,102.50"\n'
+    "account;description;market_value;price;quantity;as_of;reference\n"
+    'SYN-0001;Synthetic Fund A;1,234,567.89;48213.5712;7.5;20261110;00012345\n'
+    'SYN-0002;"Synthetic Fund B";"(905.13)";$73026.00;250000;2026-11-10;USD 6,729,102.50\n'
 )
+TEXT_COLUMNS = ("account", "description", "as_of")
+
+
+def _entry(path: str) -> dict:
+    """The custody file's layout: semicolons, decimal points, grouping commas, and its three columns of text."""
+    return layout(path, ";", ".", ",", True, TEXT_COLUMNS)
 
 
 @pytest.fixture
@@ -45,7 +53,8 @@ def custody(tmp_path):
 
 
 def _snapshot(source: str, match: str = "digits", **rules) -> TokenSnapshot:
-    return load_token_snapshot({"forbidden_token_sources": [source], "forbidden_token_match": match, **rules}, ())
+    entry = _entry(source) if isinstance(source, str) else source
+    return load_token_snapshot({"forbidden_token_sources": [entry], "forbidden_token_match": match, **rules}, ())
 
 
 def _refused(text: str, snapshot: TokenSnapshot, path: str | None = None) -> bool:
@@ -57,9 +66,9 @@ def _refused(text: str, snapshot: TokenSnapshot, path: str | None = None) -> boo
     return False
 
 
-def test_a_source_lists_every_numeric_cell_that_is_a_figure(custody):
+def test_a_source_lists_every_amount_that_is_a_figure(custody):
     snapshot = _snapshot(custody)
-    # 1234567.89, 48213.5712, 905.13, 73026, 6729102.5 and 12345: dates, text, 7.5 and 250000 are not figures.
+    # 1234567.89, 48213.5712, 905.13, 73026, 6729102.5 and 12345: the text columns, 7.5 and 250000 are not figures.
     assert snapshot.source_figures == snapshot.listed == 6 and not snapshot.hashes
     assert len(_snapshot(custody, match="value").hashes) == 6
     assert snapshot.digit_lengths == {5, 7, 8, 9}  # 482135712 and its rounding 4821357 among them
@@ -91,22 +100,17 @@ def test_digit_matching_passes_other_numbers(custody, text):
     assert not _refused(text, _snapshot(custody))
 
 
-def test_a_source_cell_with_an_exponent_or_a_leading_point_is_listed(tmp_path):
-    # One ordinary cell beside each notation: a figure that was left out must not hide behind another.
+@pytest.mark.parametrize("cell", ["1.23456789e6", ".4821399", "9.0513E+02", "6729102500e-3", "$ .7302604", "123456e678"])
+def test_a_source_cell_with_an_exponent_or_a_leading_point_refuses_the_source(tmp_path, cell):
+    # One ordinary cell beside each notation: such a cell is not an amount in a source, and nothing hides behind it.
     path = tmp_path / "mixed.csv"
-    path.write_text("value\n48213.57\n1.23456789e6\n.4821399\n9.0513E+02\n6729102500e-3\n$ .7302604\n",
-                    encoding="utf-8", newline="\n")
-    listed = ("48213.57", "1234567.89", "0.4821399", "905.13", "6729102.5", "0.7302604")
+    path.write_text(f"value\n48213.57\n{cell}\n", encoding="utf-8", newline="\n")
     for match in ("digits", "value"):
-        snapshot = _snapshot(str(path), match=match)
-        assert snapshot.source_figures == len(listed)
-        for value in listed:
-            assert _refused("total " + value + " due", snapshot), (match, value)
-    # A leading point is a fraction: the cell is not also listed as the whole number its digits spell.
-    assert not _refused("4821399", _snapshot(str(path), match="value"))
-    # An exponent too large to be a figure is not one: the cell is text, and the other cells still load.
-    path.write_text("value\n48213.57\n123456e678\n", encoding="utf-8", newline="\n")
-    assert _refused("48213.57", _snapshot(str(path)))
+        with pytest.raises(AssistantError, match="^forbidden_token_source_cell_unreadable$"):
+            _snapshot(layout(str(path), ";", ".", None, True, ()), match=match)
+    path.write_text("value\n48213.57\n0.4821399\n", encoding="utf-8", newline="\n")
+    snapshot = _snapshot(layout(str(path), ";", ".", None, True, ()), match="value")
+    assert _refused("total .4821399 due", snapshot) and not _refused("4821399", snapshot)
 
 
 @pytest.mark.parametrize("text", [
@@ -163,7 +167,7 @@ def test_the_minimum_number_of_digits_is_a_setting(custody):
 def test_a_semicolon_file_with_decimal_commas_is_read(tmp_path):
     path = tmp_path / "export.csv"
     path.write_text("name;value;other\nSynthetic;48.213,57;1.234.567,89\n", encoding="utf-8", newline="\n")
-    snapshot = _snapshot(str(path))
+    snapshot = _snapshot(layout(str(path), text_columns=["name"]))
     assert _refused("48213.57", snapshot) and _refused("1,234,567.89", snapshot) and _refused("4821357", snapshot)
 
 
@@ -182,7 +186,7 @@ def test_a_list_file_gains_digit_forms_when_matching_by_digits(tmp_path):
 ])
 def test_invalid_matching_settings_are_refused(custody, rules):
     with pytest.raises(AssistantError, match="^forbidden_token_match_invalid$"):
-        load_token_snapshot({"forbidden_token_sources": [custody], **rules}, ())
+        load_token_snapshot({"forbidden_token_sources": [_entry(custody)], **rules}, ())
 
 
 def test_unusable_sources_are_refused(custody, tmp_path, repository):
@@ -193,9 +197,11 @@ def test_unusable_sources_are_refused(custody, tmp_path, repository):
     inside.write_text(CUSTODY, encoding="utf-8", newline="\n")
     for sources, roots in [([str(empty)], ()), ([str(tmp_path / "missing.csv")], ()), (["relative.csv"], ()),
                            ([custody, custody], ()), ([str(inside)], (repo,)),
-                           ([custody] * 0 + [f"{custody}{n}" for n in range(MAX_SOURCE_FILES + 1)], ()), ([7], ())]:
+                           ([f"{custody}{n}" for n in range(MAX_SOURCE_FILES + 1)], ()), ([7], ())]:
+        entries = [layout(source, ",", ".", None, True, ()) if source == str(empty) else _entry(source)
+                   if isinstance(source, str) else source for source in sources]
         with pytest.raises(AssistantError, match="^forbidden_token_source_invalid$"):
-            load_token_snapshot({"forbidden_token_sources": sources}, roots)
+            load_token_snapshot({"forbidden_token_sources": entries}, roots)
 
 
 def test_a_source_may_be_given_relative_to_the_home_directory(custody, tmp_path, monkeypatch):
@@ -205,17 +211,17 @@ def test_a_source_may_be_given_relative_to_the_home_directory(custody, tmp_path,
 
 
 def test_a_guard_parses_an_unchanged_source_once_and_refuses_a_changed_one(custody, monkeypatch):
-    parses, real = [], figure_sources._source_figures
-    monkeypatch.setattr(figure_sources, "_source_figures",
-                        lambda raw, minimum, layout=None, rounds=False: parses.append(1) or real(raw, minimum, layout,
-                                                                                    rounds))
-    guard = TokenGuard.load({"forbidden_token_sources": [{"path": custody, "delimiter": ",", "decimal_mark": "."}],
+    parses, real = [], figure_sources.read_source
+    monkeypatch.setattr(figure_sources, "read_source",
+                        lambda raw, declared, minimum, rounds=False: parses.append(1) or real(raw, declared, minimum,
+                                                                                      rounds))
+    guard = TokenGuard.load({"forbidden_token_sources": [_entry(custody)],
                              "forbidden_token_sources_experimental": True, **DIGITS}, ())
     for _ in range(3):
         guard.recheck({"files": []}, "synthetic instructions")
     assert len(parses) == 1
     with open(custody, "a", encoding="utf-8", newline="\n") as handle:
-        handle.write('SYN-0003,"Synthetic Fund C",31415.92,1.00,3,2026-11-10,7\n')
+        handle.write('SYN-0003;Synthetic Fund C;31415.92;1.00;3;2026-11-10;7\n')
     with pytest.raises(AssistantError, match="^forbidden_token_configuration_changed$"):
         guard.recheck({"files": []}, "synthetic instructions")
 
@@ -225,7 +231,7 @@ def test_plan_and_doctor_use_sources_and_digit_matching(repository, custody):
     (repo / "src/cash.py").write_text("OPENING = 48_213.57  # rounded\n", encoding="utf-8", newline="\n")
     command(repo, "commit", "-q", "-am", "Synthetic change with a rounded figure")
     head = command(repo, "rev-parse", "HEAD")
-    config = replace(Config(), forbidden_token_sources=(SourceFormat(custody, ",", "."),),
+    config = replace(Config(), forbidden_token_sources=(SourceFormat(custody, ";", ".", ",", True, TEXT_COLUMNS),),
                      forbidden_token_sources_experimental=True, **DIGITS)
     with pytest.raises(AssistantError, match="^forbidden_token_present$"):
         build_packet(repo, base, head, config)
@@ -233,14 +239,14 @@ def test_plan_and_doctor_use_sources_and_digit_matching(repository, custody):
     report = config_preflight(repo, base, head, config)
     assert report["figure_screen"] == {"configured": True, "listed": 6, "match": "digits", "digit_forms": 7}
     assert [item["code"] for item in report["blockers"]] == ["forbidden_token_present"]
-    loaded = load_config(content=('{"forbidden_token_sources": [{"path": "%s", "delimiter": ",", "decimal_mark": "."}], '
-                                  '"forbidden_token_sources_experimental": true, "forbidden_token_match": "digits", '
-                                  '"forbidden_token_min_digits": 6}' % custody.replace("\\", "/")).encode())
+    loaded = load_config(content=json.dumps({"forbidden_token_sources": [_entry(custody)],
+                                             "forbidden_token_sources_experimental": True,
+                                             "forbidden_token_match": "digits", "forbidden_token_min_digits": 6}).encode())
     assert loaded.forbidden_token_rules["forbidden_token_min_digits"] == 6
 
 
 def test_a_gate_uses_sources_and_digit_matching(gate_case, custody):
-    change_policy(gate_case, forbidden_token_sources=[{"path": custody, "delimiter": ",", "decimal_mark": "."}],
+    change_policy(gate_case, forbidden_token_sources=[_entry(custody)],
                   forbidden_token_source_rule=figure_sources.SOURCE_RULE,
                   **DIGITS)
     (gate_case["repo"] / "src/cash.py").write_text("OPENING = 4821357  # cents\n", encoding="utf-8", newline="\n")
@@ -298,7 +304,7 @@ def test_whatever_a_baseline_guard_refuses_this_screen_refuses(tmp_path):
         path = tmp_path / f"custody-{batch}.csv"
         path.write_text("value\n" + "".join(f'"{value}"\n' for value in values), encoding="utf-8", newline="\n")
         listed = set().union(*(_baseline_forms(value) for value in values))
-        snapshot = _snapshot(str(path))
+        snapshot = _snapshot(layout(str(path), ";", ".", None, True, ()))
         for _ in range(250):
             value = generator.choice(values)
             # Half the payloads hold a listed value, written some way; half hold a nearby number.

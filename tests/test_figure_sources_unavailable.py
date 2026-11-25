@@ -1,7 +1,7 @@
 """Figure sources are not available in this release, and cannot be turned on.
 
-Their reader can miss amounts written in shapes it does not read, so a configuration that sets
-`forbidden_token_sources` to anything but an empty list, and a gate policy that holds the key at all, is refused as
+The strict reader that reads them is not released yet, so a configuration that sets `forbidden_token_sources` to
+anything but an empty list, and a gate policy that holds the key at all, is refused as
 `forbidden_token_sources_experimental` on every route, whatever else it sets, before any file is opened. Only code
 turns the reader on, as its own tests do. Synthetic only."""
 
@@ -13,6 +13,7 @@ import re
 import pytest
 
 from conftest import command
+from figure_source_cases import layout
 from test_model_gate import gate_case, run, change_policy  # noqa: F401 - fixtures
 from test_model_policy import model_policy, policy_case  # noqa: F401 - fixture registration
 
@@ -33,8 +34,8 @@ from finassist.security import canonical, digest
 
 CODE = "forbidden_token_sources_experimental"
 PACKAGE = Path(__file__).resolve().parents[1] / "src" / "finassist"
-# A quoted amount after a space and split across lines: the reader lists only 765,43 of it.
-SPLIT = b'Name; Amount\nSYN-1; "98\n765,43"\n'
+# A well-formed source: were it read, it would list its amount.
+SOURCE = b"Name;Amount\nSYN-1;98.765,43\n"
 
 
 @pytest.fixture
@@ -42,7 +43,7 @@ def source(tmp_path, monkeypatch):
     """A source on disk that any read would reach: reading it, or any source, fails the test."""
     path = tmp_path / "exports" / "positions.csv"
     path.parent.mkdir()
-    path.write_bytes(SPLIT)
+    path.write_bytes(SOURCE)
 
     def never(*_args, **_kwargs):
         raise AssertionError("a figure source was read")
@@ -55,21 +56,21 @@ def source(tmp_path, monkeypatch):
         return snapshot(rules, *args, **kwargs)
 
     monkeypatch.setattr(forbidden_tokens, "load_token_snapshot", snapshot_without_sources)
-    monkeypatch.setattr(figure_sources, "_source_figures", never)
-    monkeypatch.setattr(figure_sources, "_read_source", never)
+    monkeypatch.setattr(figure_sources, "read_source", never)
+    monkeypatch.setattr(figure_sources, "source_amounts", never)
     return str(path)
 
 
 def _shapes(path):
     """name: (forbidden_token_sources, the opt-in or None for none)"""
-    layout = {"path": path, "delimiter": ";", "decimal_mark": ","}
+    declared = layout(path, text_columns=["Name"])
     return {
-        "layouts-opted-in": ([layout], True),
-        "layouts": ([layout], None),
-        "layouts-opted-out": ([layout], False),
+        "layouts-opted-in": ([declared], True),
+        "layouts": ([declared], None),
+        "layouts-opted-out": ([declared], False),
         "bare-path-opted-in": ([path], True),
         "bare-path": ([path], None),
-        "one-object-opted-in": (layout, True),
+        "one-object-opted-in": (declared, True),
         "true-opted-in": (True, True),
         "number-opted-in": (123, True),
         "empty-list-opted-in": ([], True),
@@ -86,7 +87,8 @@ def _settings(source, name):
 
 def _in_code(value):
     if isinstance(value, list):
-        return tuple(SourceFormat(**item) if isinstance(item, dict) else item for item in value)
+        return tuple(SourceFormat(**{**item, "text_columns": tuple(item["text_columns"])})
+                     if isinstance(item, dict) else item for item in value)
     return value
 
 

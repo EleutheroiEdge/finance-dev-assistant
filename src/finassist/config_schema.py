@@ -10,7 +10,8 @@ from typing import get_origin, get_type_hints
 
 from .config import Config
 
-SCHEMA_ID = "urn:finledgerpoli:schema:config:3"  # 2: forbidden_token_round_figures; 3: recipe_python
+# 2: forbidden_token_round_figures; 3: recipe_python, and a figure source declares its whole layout
+SCHEMA_ID = "urn:finledgerpoli:schema:config:3"
 
 
 def configuration_schema() -> dict:

@@ -122,14 +122,15 @@ class Config:
     protected_branches: tuple[str, ...] = ("main", "master", "trunk", "production", "release", "release/*")
     extra_sensitive_patterns: tuple[str, ...] = ()
     # Confidential figures that must never be sent: a private file with one figure per line,
-    # SHA256 hashes of canonical figures, delimited files whose numeric cells are all listed
+    # SHA256 hashes of canonical figures, delimited files whose amounts are all listed
     # (sources), or any of these. All empty (the default): no figure screen.
     forbidden_token_file: str = field(default="", metadata={"identity": "when-set", "json_schema": {"maxLength": 4096}})
     forbidden_token_hashes: tuple[str, ...] = field(default=(), metadata={
         "identity": "when-set",
         "json_schema": {"maxItems": MAX_TOKENS, "uniqueItems": True,
                         "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}})
-    # Each a path, read every way, or a SourceFormat: {path, delimiter, decimal_mark}, read that way only.
+    # Each a SourceFormat, {path, delimiter, decimal_mark, group_mark, header, text_columns}, read that way only. A
+    # bare path declares no layout and is refused by name.
     forbidden_token_sources: tuple[str | SourceFormat, ...] = field(default=(), metadata={
         "identity": "when-set",
         "json_schema": {"maxItems": MAX_SOURCE_FILES, "uniqueItems": True, "items": SOURCE_ENTRY_SCHEMA}})
@@ -139,7 +140,7 @@ class Config:
         "identity": "when-set", "json_schema": {"enum": list(MATCHES)}})
     forbidden_token_min_digits: int = field(default=DEFAULT_MIN_DIGITS, metadata={
         "identity": "when-set", "json_schema": {"minimum": MIN_DIGITS, "maximum": MAX_MIN_DIGITS}})
-    # list: the sources' round figures too, as 347300.00, which the digit minimum leaves out (source rule 27).
+    # list: the sources' round figures too, as 347300.00, which the digit minimum leaves out (source rule 29).
     forbidden_token_round_figures: str = field(default=ROUND_OPTIONS[0], metadata={
         "identity": "when-set", "json_schema": {"enum": list(ROUND_OPTIONS)}})
     # Figure sources are not available in this release: sources are refused even with this set to true.

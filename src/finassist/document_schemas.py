@@ -24,7 +24,8 @@ SCHEMA_FILES = {
 # (review documents) have an explicit schema revision of their own.
 SCHEMA_IDS = {
     "config": SCHEMA_ID,
-    "gate-policy": "urn:finledgerpoli:schema:gate-policy:16",  # 3 to 15: rules 2 to 25 in development; 16: rules 26, 27
+    # 3 to 15: rules 2 to 25 in development; 16: rules 26, 27; 17: rules 28, 29, a source's whole layout declared
+    "gate-policy": "urn:finledgerpoli:schema:gate-policy:17",
     "ci-policy": "urn:finledgerpoli:schema:ci-policy:3",  # 2: it refers to config:2; 3: to config:3
     "workflow-template": "urn:finledgerpoli:schema:workflow-template:1",
     "packet": "urn:finledgerpoli:schema:packet:2",

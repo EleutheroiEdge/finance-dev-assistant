@@ -49,7 +49,9 @@ def by_digits(tmp_path_factory):
     """The same figure listed from a source file and matched by its digits."""
     source = tmp_path_factory.mktemp("figures") / "figures.csv"
     source.write_text("value\n48213.57\n", encoding="utf-8", newline="\n")
-    return load_token_snapshot({"forbidden_token_sources": [str(source)], "forbidden_token_match": "digits"}, ())
+    entry = {"path": str(source), "delimiter": ";", "decimal_mark": ".", "group_mark": None, "header": True,
+             "text_columns": []}
+    return load_token_snapshot({"forbidden_token_sources": [entry], "forbidden_token_match": "digits"}, ())
 
 
 @pytest.mark.parametrize("seed", range(8))
