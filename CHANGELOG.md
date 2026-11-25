@@ -22,7 +22,9 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   refused however it is named. A program found on `PATH`, or written with a root, is refused with
   `recipe_program_inside_change` when any folder or link on the way to it is in the snapshot, or
   in a top-level entry of the repository that Git tracks; an ignored `.venv` is fine. A relative
-  path such as `./run-tests.sh` still names the change's own script.
+  path such as `./run-tests.sh` still names the change's own script. For this check `--repo`
+  must be a folder of the checkout: with the local backend, its Git folder is now refused with
+  `git_read_failed`.
 - **A `python -m MODULE` recipe whose interpreter lacks MODULE stops before it runs.** `check`
   reports `recipe_python_module_missing`, naming the module, instead of saving a failed check
   record. The lookup runs none of the snapshot's code.
