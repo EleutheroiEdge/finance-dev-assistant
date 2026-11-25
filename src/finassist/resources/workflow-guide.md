@@ -82,6 +82,12 @@ not its Git folder. A relative path such as `./run-tests.sh` still names the cha
 in the snapshot, as before. On Windows, a path with a drive but no root (`C:tool.exe`) or a root
 but no drive (`\tools\tool.exe`) is refused.
 
+A folder or link on the way that can't be read, for example for lack of permission, is refused
+with `recipe_program_not_found`. On Windows a junction is followed as a link, and a path without
+a suffix is also checked as the `.exe` it would run. An app-execution alias, such as the Microsoft
+Store's `python.exe`, is read as the file it is. Any other reparse point that Windows does not
+read through by itself is refused; a cloud-synced folder is read through and is an ordinary folder.
+
 `check` and `workflow run` read `recipes` and `recipe_python` from the `--config` file as it is
 on disk when they run, not from the commit being checked. A change that edits that file edits
 the commands too, so keep the reviewed configuration outside the change or review it first.

@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path, PureWindowsPath
+import stat
 import sys
 
 from .errors import AssistantError
@@ -18,6 +19,16 @@ _MISSING = {
 
 
 _WINDOWS_SUFFIXES = (".COM", ".EXE", ".BAT", ".CMD")
+
+
+def is_program(path: Path, *, windows: bool | None = None) -> bool:
+    """Whether path is a file the system would start. One that can't be read is not, whatever the reason."""
+    windows = os.name == "nt" if windows is None else windows
+    try:
+        # Windows has no executable bit: the suffix is what makes a file a program there.
+        return stat.S_ISREG(os.stat(path).st_mode) and (windows or os.access(path, os.X_OK))
+    except (OSError, ValueError):
+        return False
 
 
 def locate_tool(name: str, environment=None, *, windows: bool | None = None) -> str | None:
@@ -41,8 +52,7 @@ def locate_tool(name: str, environment=None, *, windows: bool | None = None) -> 
             continue
         for suffix in suffixes:
             candidate = directory / (name + suffix)
-            # Windows has no executable bit: the suffix is what makes a file a program there.
-            if candidate.is_file() and (windows or os.access(candidate, os.X_OK)):
+            if is_program(candidate, windows=windows):
                 return str(candidate)
     return None
 

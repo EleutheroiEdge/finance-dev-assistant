@@ -8,6 +8,7 @@ from pathlib import Path, PureWindowsPath
 import re
 import selectors
 import signal
+import stat
 import subprocess
 import tempfile
 import time
@@ -16,7 +17,7 @@ import uuid
 from .config import Config
 from .errors import AssistantError
 from .security import canonical, digest, pinned_image, regular_path
-from .platform_support import clean_environment, container_environment, find_tool, locate_tool
+from .platform_support import clean_environment, container_environment, find_tool, is_program, locate_tool
 from .posix_process import ExitObserver, non_reaping_wait_available, signal_group
 
 
@@ -130,6 +131,9 @@ _PROBE = ("import importlib.util, sys; sys.path[:0] = sys.argv[2:]; "
 _BATCH = {".cmd", ".bat"}
 # As the system's own limit on links followed while reading one path (Linux allows 40).
 _MAX_LINK_HOPS = 40
+# Windows reparse tags, which the `stat` module names on Windows only: a directory junction
+# (IO_REPARSE_TAG_MOUNT_POINT) and an app-execution alias (IO_REPARSE_TAG_APPEXECLINK).
+_JUNCTION, _APP_ALIAS = 0xA0000003, 0x8000001B
 
 
 def _batch(name: str, *, windows: bool | None = None) -> bool:
@@ -170,7 +174,7 @@ def _interpreter(config: Config, environment: dict) -> str:
         if _batch(config.recipe_python):
             raise AssistantError("batch_tool_not_supported")
         path = Path(config.recipe_python)
-        found = str(path) if path.is_file() and (os.name == "nt" or os.access(path, os.X_OK)) else None
+        found = str(path) if is_program(path) else None
     else:
         found = locate_tool("python", environment) or locate_tool("python3", environment)
     if not found:
@@ -181,7 +185,27 @@ def _interpreter(config: Config, environment: dict) -> str:
 
 
 def _is_link(item: Path) -> bool:
-    return item.is_symlink() or (hasattr(item, "is_junction") and item.is_junction())
+    """Whether the entry itself is a link the system follows: a symbolic link or a Windows junction.
+
+    The entry's own record is read here, so the answer does not depend on the Python version. Only an
+    entry that is missing is not a link for that reason. Any other doubt is an OSError, which the caller
+    turns into a refusal: an entry whose record can't be read (no permission, a name too long), and on
+    Windows a reparse point of any other kind, which may lead elsewhere in a way this reading can't
+    follow. One kind is known and allowed: an app-execution alias, the file through which Windows starts
+    an installed app such as the Store's Python. A checkout can't hold one, and it is read as the file
+    it is. A reparse point the system reads through by itself, such as a cloud-synced folder, shows no
+    tag here and is an ordinary folder.
+    """
+    try:
+        found = os.lstat(item)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    tag = getattr(found, "st_reparse_tag", 0)
+    if stat.S_ISLNK(found.st_mode) or tag == _JUNCTION:
+        return True
+    if tag and tag != _APP_ALIAS:
+        raise OSError(f"reparse point of an unknown kind: {tag:#x}")
+    return False
 
 
 def _plain_windows(text: str) -> str:
@@ -204,8 +228,9 @@ def _entries(program: str) -> set[Path]:
     The path is read one part at a time, as the system reads it: a link is followed one hop at a time, its
     target read from the folder the link is in, and a `..` goes up from the folder the system is really in,
     not from the link it came through. An entry is recorded before it is followed, so a link anywhere (a
-    linked folder above, a chain of links, a `..` inside a link's target) leaves every entry it passed. A
-    link that can't be read, or more links than the system itself would follow, is refused.
+    linked folder above, a chain of links, a `..` inside a link's target) leaves every entry it passed. An
+    entry or a link that can't be read, a Windows reparse point that is neither a link nor an
+    app-execution alias, or more links than the system itself would follow, is refused.
     """
     raw = Path(_plain_windows(program) if os.name == "nt" else program)
     current, pending, hops, seen = Path(raw.anchor), list(raw.parts[1:]), 0, set()
@@ -216,15 +241,15 @@ def _entries(program: str) -> set[Path]:
             continue
         entry = current / part
         seen.add(entry)
-        if not _is_link(entry):
-            current = entry
-            continue
-        hops += 1
         try:
+            if not _is_link(entry):
+                current = entry
+                continue
+            hops += 1
             if hops > _MAX_LINK_HOPS:
                 raise OSError("too many links")
             target = os.readlink(entry)
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             raise AssistantError("recipe_program_not_found", {"program": program[:64]}) from exc
         target = Path(_plain_windows(target) if os.name == "nt" else target)
         if target.anchor:
@@ -260,16 +285,40 @@ def _below(entry: Path, root: Path) -> Path | None:
     return None
 
 
+def _record(item: str | Path) -> tuple[int, int] | None:
+    """As `_identity` for the entry itself, but only a missing entry is None: any other failure is raised."""
+    try:
+        found = os.lstat(item)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    return (found.st_dev, found.st_ino) if found.st_ino else None
+
+
 def _names(root: Path, child: Path) -> set[str]:
     """Each name root's own listing has for child: the name written, another case, a Windows short name's
-    long one, or a second name of the same file. A listing that can't be read is refused."""
-    identity = _identity(child, follow=False)
+    long one, or a second name of the same file. A listing that can't be read, or that has an entry
+    which can't be, is refused: that entry could be child under another name."""
     try:
-        listed = {item.name for item in os.scandir(root)
-                  if identity is not None and _identity(Path(item.path), follow=False) == identity}
-    except OSError as exc:
+        identity = _record(child)
+        with os.scandir(root) as listing:
+            listed = {item.name for item in listing if identity is not None and _record(item.path) == identity}
+    except (OSError, ValueError) as exc:
         raise AssistantError("recipe_program_inside_change") from exc
     return {child.name, *listed}
+
+
+def _readings(program: str, *, windows: bool | None = None) -> set[str]:
+    """Each way the program's path is read: as written, tidied, and as the system resolves it.
+
+    Windows runs a path without a suffix as that name with `.exe`. The second name is formed first and
+    read all three ways too, so the file that would really run is resolved under its own name, not under
+    a name that may not exist.
+    """
+    windows = os.name == "nt" if windows is None else windows
+    names = {program}
+    if windows and not PureWindowsPath(program.rstrip(" .")).suffix:
+        names.add(program.rstrip(" .") + ".exe")  # Windows runs "C:\\tools\\x" as x.exe
+    return {reading for name in names for reading in (name, os.path.abspath(name), os.path.realpath(name))}
 
 
 def _outside_change(program: str, snapshot: Path, repo: Path | None, head: str | None) -> None:
@@ -282,15 +331,14 @@ def _outside_change(program: str, snapshot: Path, repo: Path | None, head: str |
     without regard to case and by which file they are on disk, so another spelling of the same folder is
     the same folder. The path is read three ways and each must pass: as written; tidied first, as
     Windows drops `..` and trailing dots before it reads the disk; and as the system itself resolves
-    it, for a kind of link this reading does not know. A doubt (an unreadable link or listing, a Git
-    folder named as the repository) is a refusal.
+    it, for a kind of link this reading does not know. On Windows a path without a suffix is also
+    read, in each of the three ways, as the `.exe` it would run. A doubt (an entry, link or listing
+    that can't be read, a Windows reparse point of an unknown kind, a Git folder named as the
+    repository) is a refusal.
     """
     from .scope import git
 
-    spellings = {program, os.path.abspath(program), os.path.realpath(program)}
-    if os.name == "nt" and not PureWindowsPath(program.rstrip(" .")).suffix:
-        spellings |= {item.rstrip(" .") + ".exe" for item in spellings}  # Windows runs "C:\\tools\\x" as x.exe
-    entries = set().union(*(_entries(item) for item in spellings))
+    entries = set().union(*(_entries(item) for item in _readings(program)))
     if any(_is(item, snapshot) or _below(item, snapshot) is not None for item in entries):
         raise AssistantError("recipe_program_inside_change")
     if repo is None or git(repo, "rev-parse", "--is-bare-repository") == "true":
