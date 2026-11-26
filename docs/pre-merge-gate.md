@@ -693,8 +693,9 @@ and other encodings, and, outside `.py` files, hexadecimal.
 
 Two optional settings:
 
-- **`forbidden_token_sources`** is not available in 0.12.0, and it cannot be turned on: its reader,
-  planned for a later release, can miss amounts in shapes it does not read. A policy whose
+- **`forbidden_token_sources`** is not available in 0.12.0, and it cannot be turned on: the reader
+  it had could miss amounts in shapes it did not read, and the strict reader that replaces it is
+  planned for a later release. A policy whose
   `model_review` holds the key at all, whatever its value and even beside
   `"forbidden_token_sources_experimental": true`, is refused with `forbidden_token_sources_experimental`
   before anything is read or sent, and `doctor --policy-file` names the field. A policy without

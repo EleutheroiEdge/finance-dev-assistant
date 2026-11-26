@@ -41,7 +41,8 @@ def _with(document, **model):
     return result
 
 
-_LAYOUT = {"path": "/synthetic/exports/positions.csv", "delimiter": ";", "decimal_mark": ","}
+_LAYOUT = {"path": "/synthetic/exports/positions.csv", "delimiter": ";", "decimal_mark": ",", "group_mark": ".",
+           "header": True, "text_columns": [1]}
 
 
 def _refused(document):

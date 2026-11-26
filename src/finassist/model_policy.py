@@ -56,14 +56,14 @@ _TOKEN_PROPERTIES = {
     "forbidden_token_file": {"type": "string", "minLength": 1, "maxLength": 4096},
     "forbidden_token_hashes": {"type": "array", "minItems": 1, "maxItems": MAX_TOKENS, "uniqueItems": True,
                               "items": {"type": "string", "pattern": r"^[0-9a-f]{64}$"}},
-    # A path, or a {path, delimiter, decimal_mark} object that declares the file's layout.
+    # Objects that each name a file and declare its whole layout (figure_source_entries).
     "forbidden_token_sources": {"type": "array", "minItems": 1, "maxItems": MAX_SOURCE_FILES, "uniqueItems": True,
                                "items": SOURCE_ENTRY_SCHEMA},
     "forbidden_token_match": {"enum": list(MATCHES)},
     "forbidden_token_min_digits": {"type": "integer", "minimum": MIN_DIGITS, "maximum": MAX_MIN_DIGITS},
     # The rule the sources are read by, stated in the reviewed bytes: required with sources, and only with them.
     "forbidden_token_source_rule": {"type": "integer", "enum": [SOURCE_RULE, ROUND_RULE]},
-    # list: the sources' round figures too, read by rule 27; only with sources.
+    # list: the sources' round figures too, read by rule 29; only with sources.
     "forbidden_token_round_figures": {"enum": list(ROUND_OPTIONS)},
     # Figure sources are not available in this release: a policy with sources is refused even with this set to true.
     OPT_IN: {"const": True},
@@ -111,7 +111,7 @@ _SCHEMA = {
 
 
 def stated_source_rule(model: dict) -> int:
-    """The source rule a policy's own settings call for: 27 with `"forbidden_token_round_figures": "list"`, else 26."""
+    """The source rule a policy's own settings call for: 29 with `"forbidden_token_round_figures": "list"`, else 28."""
     rounds = model.get("forbidden_token_round_figures")
     return source_rule(rounds) if isinstance(rounds, str) else SOURCE_RULE
 

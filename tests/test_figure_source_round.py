@@ -1,11 +1,12 @@
 """Round figures: a source's 347300.00, which the digit minimum leaves out, is listed only when
-forbidden_token_round_figures is "list", read by source rule 27 and matched by its exact value. Synthetic only."""
+forbidden_token_round_figures is "list", read by source rule 29 and matched by its exact value. Synthetic only."""
 
 import json
 
 import pytest
 
-from test_figure_source_formats import _refused, _source
+from conftest import command
+from figure_source_cases import layout, load, refused, write_source
 from test_model_gate import gate_case, run, change_policy  # noqa: F401 - fixtures
 from test_model_policy import model_policy, policy_case  # noqa: F401 - fixture registration
 
@@ -25,10 +26,16 @@ SOURCE = "Name;Amount\nA;347.300,00\nB;12.345,67\n"
 LIST = {"forbidden_token_round_figures": ROUND_LIST}
 SKIP = {"forbidden_token_round_figures": "skip"}
 REQUIRED = "gate_policy_source_rule_required"
+RULE = "forbidden_token_source_rule"
+ABSENT = layout("/synthetic/a.csv")
+
+
+def _entry(tmp_path, text=SOURCE):
+    return layout(write_source(tmp_path, text), text_columns=["Name"])
 
 
 def _snapshot(tmp_path, text=SOURCE, parsed=None, **rules):
-    return load_token_snapshot({"forbidden_token_sources": [_source(tmp_path, text)], **rules}, (), parsed)
+    return load(_entry(tmp_path, text), parsed=parsed, **rules)
 
 
 @pytest.mark.parametrize("whole,fraction,min_digits,expected", [
@@ -46,16 +53,16 @@ def test_listed_round_figures_are_refused_by_value_and_only_by_value(tmp_path, m
     listed = _snapshot(tmp_path, forbidden_token_match=match, **LIST)
     assert listed.round_figures == 1
     for spelling in ("347300", "347300.00", "347,300.00", "3.473e5", "-347300"):
-        assert _refused(spelling, listed), spelling
+        assert refused(spelling, listed), spelling
     for other in ("3473", "3.473", "3473000", "34730"):
-        assert not _refused(other, listed), other
-    assert _refused("12345.67", listed)
+        assert not refused(other, listed), other
+    assert refused("12345.67", listed)
 
 
 def test_skipped_round_figures_are_not_listed_as_before(tmp_path):
     for snapshot in (_snapshot(tmp_path), _snapshot(tmp_path, **SKIP)):
         assert snapshot.round_figures == 0 and snapshot.listed == 1
-        assert not _refused("347300", snapshot) and _refused("12345.67", snapshot)
+        assert not refused("347300", snapshot) and refused("12345.67", snapshot)
 
 
 def test_a_source_of_round_figures_only_reads_under_list_and_is_refused_under_skip(tmp_path):
@@ -74,8 +81,8 @@ def test_a_cached_parse_is_never_reused_under_the_other_setting(tmp_path):
 
 @pytest.mark.parametrize("rules", [
     {"forbidden_token_round_figures": "list"},
-    {"forbidden_token_round_figures": "yes", "forbidden_token_sources": ["/synthetic/a.csv"]},
-    {"forbidden_token_round_figures": True, "forbidden_token_sources": ["/synthetic/a.csv"]},
+    {"forbidden_token_round_figures": "yes", "forbidden_token_sources": [ABSENT]},
+    {"forbidden_token_round_figures": True, "forbidden_token_sources": [ABSENT]},
 ], ids=["list-without-sources", "unknown", "bool"])
 def test_a_wrong_round_setting_is_refused_before_any_source_is_read(rules):
     with pytest.raises(AssistantError, match="^forbidden_token_round_figures_invalid$"):
@@ -83,14 +90,13 @@ def test_a_wrong_round_setting_is_refused_before_any_source_is_read(rules):
 
 
 def test_the_configuration_binds_the_setting_and_its_rule():
-    sources = (b'{"forbidden_token_sources_experimental": true, "forbidden_token_sources": '
-               b'[{"path": "/synthetic/positions.csv", "delimiter": ";", "decimal_mark": "."}]')
-    skip = load_config(content=sources + b'}')
-    explicit = load_config(content=sources + b', "forbidden_token_round_figures": "skip"}')
-    listed = load_config(content=sources + b', "forbidden_token_round_figures": "list"}')
+    sources = {OPT_IN: True, "forbidden_token_sources": [layout("/synthetic/positions.csv")]}
+    skip = load_config(content=json.dumps(sources).encode())
+    explicit = load_config(content=json.dumps({**sources, **SKIP}).encode())
+    listed = load_config(content=json.dumps({**sources, **LIST}).encode())
     assert config_hash(skip) == config_hash(explicit)  # skip is the default and is left out
-    assert config_identity(skip)["forbidden_token_source_rule"] == SOURCE_RULE
-    assert config_identity(listed)["forbidden_token_source_rule"] == ROUND_RULE
+    assert config_identity(skip)[RULE] == SOURCE_RULE
+    assert config_identity(listed)[RULE] == ROUND_RULE == 29
     assert config_identity(listed)["forbidden_token_round_figures"] == ROUND_LIST
     assert config_hash(listed) != config_hash(skip)
     assert config_hash(Config()) == "9354cf6ac3bf4e49201e9255169f76646236fb76fb960fc2413ab009ba49061c"
@@ -98,43 +104,20 @@ def test_the_configuration_binds_the_setting_and_its_rule():
         load_config(content=b'{"forbidden_token_round_figures": "list"}')
 
 
+_ODD = [rule for rule in range(3, SOURCE_RULE) if rule % 2]
+_EVEN = [rule for rule in range(2, SOURCE_RULE) if not rule % 2]
+
+
 @pytest.mark.parametrize("changes,reason", [
-    ({"forbidden_token_round_figures": "list", "forbidden_token_source_rule": SOURCE_RULE}, REQUIRED),
-    ({"forbidden_token_round_figures": "skip", "forbidden_token_source_rule": ROUND_RULE}, REQUIRED),
-    ({"forbidden_token_source_rule": ROUND_RULE}, REQUIRED),
-    ({"forbidden_token_round_figures": "list"}, REQUIRED),
-    ({"forbidden_token_round_figures": "list", "forbidden_token_source_rule": 3}, REQUIRED),
-    ({"forbidden_token_round_figures": "list", "forbidden_token_source_rule": 5}, REQUIRED),
-    ({"forbidden_token_round_figures": "list", "forbidden_token_source_rule": 7}, REQUIRED),
-    ({"forbidden_token_round_figures": "list", "forbidden_token_source_rule": 9}, REQUIRED),
-    ({"forbidden_token_round_figures": "list", "forbidden_token_source_rule": 11}, REQUIRED),
-    ({"forbidden_token_round_figures": "list", "forbidden_token_source_rule": 13}, REQUIRED),
-    ({"forbidden_token_round_figures": "list", "forbidden_token_source_rule": 15}, REQUIRED),
-    ({"forbidden_token_round_figures": "list", "forbidden_token_source_rule": 17}, REQUIRED),
-    ({"forbidden_token_round_figures": "list", "forbidden_token_source_rule": 19}, REQUIRED),
-    ({"forbidden_token_round_figures": "list", "forbidden_token_source_rule": 21}, REQUIRED),
-    ({"forbidden_token_round_figures": "list", "forbidden_token_source_rule": 23}, REQUIRED),
-    ({"forbidden_token_source_rule": 2}, REQUIRED),
-    ({"forbidden_token_source_rule": 4}, REQUIRED),
-    ({"forbidden_token_source_rule": 6}, REQUIRED),
-    ({"forbidden_token_source_rule": 8}, REQUIRED),
-    ({"forbidden_token_source_rule": 10}, REQUIRED),
-    ({"forbidden_token_source_rule": 12}, REQUIRED),
-    ({"forbidden_token_source_rule": 14}, REQUIRED),
-    ({"forbidden_token_source_rule": 16}, REQUIRED),
-    ({"forbidden_token_source_rule": 18}, REQUIRED),
-    ({"forbidden_token_source_rule": 20}, REQUIRED),
-    ({"forbidden_token_source_rule": 22}, REQUIRED),
-    ({"forbidden_token_round_figures": "yes", "forbidden_token_source_rule": SOURCE_RULE}, "gate_policy_invalid"),
+    ({**LIST, RULE: SOURCE_RULE}, REQUIRED), ({**SKIP, RULE: ROUND_RULE}, REQUIRED), ({RULE: ROUND_RULE}, REQUIRED),
+    (dict(LIST), REQUIRED), *[({**LIST, RULE: rule}, REQUIRED) for rule in _ODD],
+    *[({RULE: rule}, REQUIRED) for rule in _EVEN],
+    ({"forbidden_token_round_figures": "yes", RULE: SOURCE_RULE}, "gate_policy_invalid"),
 ], ids=["list-under-the-skip-rule", "skip-under-the-list-rule", "list-rule-alone", "list-without-rule",
-        "list-under-retired-3", "list-under-retired-5", "list-under-retired-7", "list-under-retired-9",
-        "list-under-retired-11", "list-under-retired-13", "list-under-retired-15", "list-under-retired-17",
-        "list-under-retired-19", "list-under-retired-21", "list-under-retired-23", "retired-2", "retired-4",
-        "retired-6", "retired-8", "retired-10", "retired-12", "retired-14", "retired-16", "retired-18", "retired-20",
-        "retired-22", "unknown-setting"])
+        *[f"list-under-retired-{rule}" for rule in _ODD], *[f"retired-{rule}" for rule in _EVEN], "unknown-setting"])
 def test_a_policy_whose_round_setting_and_rule_disagree_stops_before_any_request(gate_case, tmp_path, changes,  # noqa: F811
                                                                               reason):
-    change_policy(gate_case, forbidden_token_sources=[_source(tmp_path, SOURCE)], **changes)
+    change_policy(gate_case, forbidden_token_sources=[_entry(tmp_path)], **changes)
     report, calls = run(gate_case)
     assert not calls and report["verdict"] == "BLOCKED" and report["reasons"] == [reason]
     assert report["spend"]["reserved_usd"] is None
@@ -147,11 +130,8 @@ def test_a_round_setting_without_sources_stops_the_gate(gate_case):  # noqa: F81
 
 
 def test_a_listed_round_figure_in_a_change_stops_the_gate_before_any_request(gate_case, tmp_path):  # noqa: F811
-    entry = {"path": _source(tmp_path, SOURCE), "delimiter": ";", "decimal_mark": ","}
-    change_policy(gate_case, forbidden_token_sources=[entry], **LIST,
-                  forbidden_token_source_rule=ROUND_RULE)
+    change_policy(gate_case, forbidden_token_sources=[_entry(tmp_path)], **LIST, forbidden_token_source_rule=ROUND_RULE)
     (gate_case["repo"] / "src/cash.py").write_text("RESERVE = 347300  # synthetic\n", encoding="utf-8", newline="\n")
-    from conftest import command
     command(gate_case["repo"], "commit", "-q", "-am", "Synthetic change with a round figure")
     gate_case["head"] = command(gate_case["repo"], "rev-parse", "HEAD")
     report, calls = run(gate_case)
@@ -161,7 +141,7 @@ def test_a_listed_round_figure_in_a_change_stops_the_gate_before_any_request(gat
 
 def test_doctor_names_the_list_rule_for_a_policy_listing_round_figures(gate_case, tmp_path, capsys):  # noqa: F811
     document = model_policy()
-    document["model_review"].update(forbidden_token_sources=["/synthetic/absent/positions.csv"],
+    document["model_review"].update(forbidden_token_sources=[layout("/synthetic/absent/positions.csv")],
                                     forbidden_token_source_rule=SOURCE_RULE, **LIST, **{OPT_IN: True})  # only the rule
     policy = tmp_path / "policy.json"
     policy.write_bytes(canonical(document))

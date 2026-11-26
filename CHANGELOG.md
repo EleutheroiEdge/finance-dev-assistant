@@ -35,6 +35,55 @@ All notable changes to finledgerpoli are documented here, following [Keep a Chan
   `urn:finledgerpoli:schema:config:3` and the CI policy schema, which refers to it,
   `urn:finledgerpoli:schema:ci-policy:3`. Documents keep their `schema_version`. Update a pin on
   a schema identifier or digest.
+- **Figure sources are still not available, and three schema identifiers change.** A configuration or gate
+  policy that lists `forbidden_token_sources` is refused with `forbidden_token_sources_experimental`, as in
+  0.12.0, and one without them loads unchanged and keeps its hash and its `--policy-sha256` pin. The schemas
+  now describe a figure-source entry as an object that declares the file's whole layout, so the configuration
+  schema becomes `urn:finledgerpoli:schema:config:3`, the gate policy schema
+  `urn:finledgerpoli:schema:gate-policy:17` and the CI policy schema, which refers to the configuration schema,
+  `urn:finledgerpoli:schema:ci-policy:3`. Documents keep their `schema_version`. Update a pin on a schema
+  identifier or digest.
+
+### Changed
+
+- **A strict reader replaces the figure-source reader. No released route reaches it yet.** The earlier reader
+  guessed a file's layout and accepted many spellings of an amount, and files were found from which it listed
+  only part of a figure. The new one reads a source one way, by the layout its entry declares, and for any bytes
+  either refuses the whole file by name or reads every cell outside its declared text columns in full:
+  - **The entry declares everything.** `path`, `delimiter` (`,`, `;`, tab or `|`), `decimal_mark` (`.` or `,`),
+    `group_mark` (`null`, `,`, `.`, a space or an apostrophe), `header` (whether the first row names the
+    columns) and `text_columns` (the columns that hold no figures, by position from 1 or, with a header, by
+    exact name). The one-cell-per-line form with a `null` delimiter is gone: a file of one column is read
+    with any delimiter it does not hold. A decimal mark that is also the delimiter or the group mark is not
+    a layout.
+  - **The file is UTF-8.** One byte-order mark may start it. A NUL byte, bytes that are not UTF-8, and any
+    character that is not printable ASCII, the tab as the delimiter, a line end (LF or CR LF), one of the
+    currency signs `$`, `€`, `£` and `¥`, or a letter or combining mark outside ASCII refuse the file,
+    wherever they stand. Letters outside ASCII are read in text columns only.
+  - **Quoting is strict.** A quote only opens and closes a whole cell, or stands doubled inside a quoted one. A
+    line break inside a quoted cell refuses the file, and every row has as many cells as the first.
+  - **A cell outside the text columns is empty, a label or one amount.** A label holds no digit. An amount is
+    an optional sign or enclosing brackets, at most one currency sign or three-letter code before or after it
+    with at most one space between, digits written whole or in groups of three by the declared group mark, and
+    an optional declared decimal mark with digits after it. Any other cell with a digit refuses the file: an
+    exponent, a percent sign, a footnote, an `=`, a mark such as `CR`, a date or an identifier in a column not
+    declared as text.
+  - **In a comma file, a bare comma that may group digits refuses the file.** `1,234,567.89` written without
+    quotes is three cells, and `Total 12,345.67` is two; a bare cell that ends with one to three digits, then a
+    bare cell that starts with exactly three, is refused as `forbidden_token_source_ambiguous`, whatever group
+    mark and text columns are declared. Quoted, an amount with grouping commas is read.
+  - **A refusal names a place, never a value.** The error carries the source's place in the list, a line and a
+    column. `forbidden_token_source_layout_mismatch` and `forbidden_token_source_cell_unreadable` are new;
+    `forbidden_token_source_hidden_mark`, `forbidden_token_source_malformed_quotes`,
+    `forbidden_token_source_encoding`, `forbidden_token_source_unscreenable` and
+    `forbidden_token_source_ambiguous` keep their names for the strict rules.
+  - **What is listed has not changed.** Each amount becomes the same value hash and digit forms as an entry of
+    `forbidden_token_file`; one of fewer significant digits than `forbidden_token_min_digits` is read and not
+    listed, as before. A figure inside a column declared as text is not listed.
+  The rules a source is read by are 28, and 29 with `"forbidden_token_round_figures": "list"`; 26 and 27 are
+  retired with the reader they described. `scripts/figure_source_mutants.py` replaces
+  `scripts/figure_source_corpus.py`: it damages synthetic sources with planted amounts and checks each mutant
+  against a second reader and against the planted amounts.
 
 ### Fixed
 

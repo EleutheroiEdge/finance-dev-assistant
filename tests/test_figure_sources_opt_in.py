@@ -1,5 +1,5 @@
 """Where figure sources are available, they are off unless explicitly opted in, and then every source declares
-its layout. They are not available in this release (tests/test_figure_sources_unavailable.py), so these tests turn
+its whole layout. They are not available in this release (tests/test_figure_sources_unavailable.py), so these tests turn
 them on, as only code can.
 
 A configuration or gate policy that lists a figure source without the opt-in is refused by name, never ignored, so
@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from conftest import command
+from figure_source_cases import layout
 from test_model_gate import gate_case, run, change_policy  # noqa: F401 - fixtures
 from test_model_policy import model_policy, policy_case  # noqa: F401 - fixture registration
 
@@ -31,7 +32,7 @@ from finassist.security import canonical
 
 pytestmark = pytest.mark.usefixtures("sources_available")
 ONE_COLUMN = "12.345,67\n98.765,43\n"
-LAYOUT = {"path": "/synthetic/positions.csv", "delimiter": None, "decimal_mark": ","}
+LAYOUT = layout("/synthetic/positions.csv")
 
 
 def _config(document: dict):
@@ -46,11 +47,11 @@ def _source(tmp_path, text=ONE_COLUMN):
 
 
 def _layout(path):
-    return {"path": path, "delimiter": None, "decimal_mark": ","}
+    return layout(path)
 
 
-@pytest.mark.parametrize("sources", [["/synthetic/positions.csv"], [LAYOUT], [{**LAYOUT, "delimiter": ","}]],
-                         ids=["path", "layout", "comma-twice"])  # the opt-in is judged before the entries
+@pytest.mark.parametrize("sources", [["/synthetic/positions.csv"], [LAYOUT], [{**LAYOUT, "delimiter": ","}], [{"path": "/synthetic/positions.csv"}]],
+                         ids=["path", "layout", "comma-twice", "no-layout"])  # the opt-in is judged before the entries
 def test_a_configuration_listing_sources_without_the_opt_in_is_refused_by_name(sources):
     with pytest.raises(AssistantError, match="^forbidden_token_sources_experimental$"):
         _config({"forbidden_token_sources": sources})
@@ -77,7 +78,7 @@ def test_the_guard_itself_refuses_sources_not_opted_in_or_without_a_layout(tmp_p
 def test_every_route_reads_a_source_through_the_guard():
     # The loader and the reader are called only from TokenGuard, which checks the opt-in first, and from each other:
     # no module of the package reaches a source another way.
-    entries, calls = {"load_token_snapshot", "_source_figures", "_read_source"}, set()
+    entries, calls = {"load_token_snapshot", "read_source", "source_amounts"}, set()
 
     def walk(module, node, scope):
         for child in ast.iter_child_nodes(node):
@@ -94,8 +95,8 @@ def test_every_route_reads_a_source_through_the_guard():
         walk(path.stem, ast.parse(path.read_text(encoding="utf-8")), "")
     assert calls == {("forbidden_tokens", "TokenGuard.load", "load_token_snapshot"),
                      ("forbidden_tokens", "TokenGuard.recheck", "load_token_snapshot"),
-                     ("forbidden_tokens", "load_token_snapshot", "_source_figures"),
-                     ("figure_sources", "_source_figures", "_read_source")}
+                     ("forbidden_tokens", "load_token_snapshot", "read_source"),
+                     ("figure_sources", "read_source", "source_amounts")}
 
 
 def test_the_layout_refusal_names_the_layout():
@@ -113,7 +114,7 @@ def test_opted_in_every_source_declares_its_layout(sources):
 
 def test_opted_in_with_layouts_the_configuration_loads_and_carries_the_opt_in():
     config = _config({"forbidden_token_sources": [LAYOUT], OPT_IN: True})
-    assert config.forbidden_token_sources == (SourceFormat("/synthetic/positions.csv", None, ","),)
+    assert config.forbidden_token_sources == (SourceFormat("/synthetic/positions.csv", ";", ",", ".", True, ()),)
     assert config_identity(config)[OPT_IN] is True
     assert config.forbidden_token_rules[OPT_IN] is True
 
@@ -125,7 +126,7 @@ def test_a_configuration_without_sources_keeps_its_hash_and_ignores_nothing():
 
 
 def test_a_screen_built_in_code_without_the_opt_in_is_refused(tmp_path):
-    config = replace(Config(), forbidden_token_sources=(SourceFormat(_source(tmp_path), None, ","),))
+    config = replace(Config(), forbidden_token_sources=(SourceFormat(_source(tmp_path), ";", ",", ".", False, ()),))
     with pytest.raises(AssistantError, match="^forbidden_token_sources_experimental$"):
         config_token_guard(config, tmp_path)
 
@@ -136,7 +137,7 @@ def test_doctor_warns_while_the_reader_is_opted_in(tmp_path, capsys):
     assert main(["--config", str(path), "doctor"]) == 0
     warnings = json.loads(capsys.readouterr().out)["config_warnings"]
     warning = next(row for row in warnings if row["code"] == "forbidden_token_sources_experimental_in_use")
-    assert "experimental" in warning["hint"] and "miss" in warning["hint"]
+    assert "experimental" in warning["hint"] and "not listed" in warning["hint"]
 
 
 def test_doctor_names_the_refusal_for_a_configuration_listing_sources(tmp_path, capsys):
@@ -266,7 +267,7 @@ def test_the_draft_check_doctor_and_the_gate_give_one_code(name, gate_case, tmp_
 
 def test_the_range_preflight_refuses_an_unopted_screen_and_warns_an_opted_in_one(repository, tmp_path):
     repo, base, head = repository
-    unopted = replace(Config(), forbidden_token_sources=(SourceFormat(_source(tmp_path), None, ","),))
+    unopted = replace(Config(), forbidden_token_sources=(SourceFormat(_source(tmp_path), ";", ",", ".", False, ()),))
     report = config_preflight(repo, base, head, unopted)
     assert report["status"] == "blocked"
     assert [item["code"] for item in report["blockers"]][:1] == ["forbidden_token_sources_experimental"]

@@ -3,7 +3,6 @@
 This module does not load policy, authorize a request or dispatch a provider.
 """
 
-import csv
 from dataclasses import dataclass, field
 from datetime import date
 import hashlib
@@ -91,7 +90,7 @@ def _plain_decimal(integer: str, fraction: str, exponent: int, max_digits: int) 
 
 MAX_TOKEN_BYTES = 131_072
 MAX_TOKENS = 1024
-# Figure sources: delimited files, such as custody exports, whose numeric cells are all listed.
+# Figure sources: delimited files, such as custody exports, whose amounts are all listed (figure_sources).
 MAX_SOURCE_FILES = 16
 MAX_SOURCE_BYTES = 8_000_000
 MAX_SOURCE_FIGURES = 200_000
@@ -203,11 +202,12 @@ def load_token_snapshot(rules: dict, excluded_roots: tuple[Path, ...], parsed: d
 
     Every file is read again on each call. `parsed` keeps a source's figures by the digest of its
     bytes, the digit minimum and its declared layout, so a guard that rechecks an unchanged source
-    does not parse it again.
+    does not parse it again. A source is read by its declared layout only, and refused whole, by
+    name, unless every cell outside its declared text columns reads in full (figure_sources).
     """
     from .figure_source_entries import source_entries  # no cycle
-    from .figure_source_marks import EncodingSource, HiddenMarkSource, MalformedQuotesSource
-    from .figure_sources import ROUND_OPTIONS, AmbiguousSource, UnscreenableSource, _source_figures
+    from .figure_sources import (ROUND_OPTIONS, AmbiguousSource, CellSource, EncodingSource, HiddenMarkSource,
+                                 LayoutMismatchSource, MalformedQuotesSource, UnscreenableSource, read_source)
     configured = rules.get("forbidden_token_hashes", [])
     if (not isinstance(configured, list) or len(configured) > MAX_TOKENS
             or any(not isinstance(h, str) or re.fullmatch(r"[0-9a-f]{64}", h) is None for h in configured)):
@@ -244,7 +244,9 @@ def load_token_snapshot(rules: dict, excluded_roots: tuple[Path, ...], parsed: d
         count = len(lines)
         fingerprint = hashlib.sha256(raw).hexdigest()
     digests, figures, rounds, opened = [], set(), set(), set()
-    for source, layout in source_entries(rules.get("forbidden_token_sources", [])):
+    for number, (source, layout) in enumerate(source_entries(rules.get("forbidden_token_sources", [])), 1):
+        if layout is None:  # a bare path declares no layout, and nothing guesses one: it is never opened
+            raise AssistantError("forbidden_token_source_layout_required")
         try:
             # `path` is the figure file's, which the audit may name: a source's path never leaves this loop.
             raw, resolved = _read_token_file(source, excluded_roots, limit=MAX_SOURCE_BYTES, home=True)
@@ -256,30 +258,38 @@ def load_token_snapshot(rules: dict, excluded_roots: tuple[Path, ...], parsed: d
             # bytes: a parse kept under one setting is never reused under the other.
             key = (source_digest, min_digits, layout, round_figures)
             if parsed is None or key not in parsed:
-                values, found, round_values = _source_figures(raw, min_digits, layout, round_figures == "list")
+                values, found, round_values = read_source(raw, layout, min_digits, round_figures == "list")
                 if parsed is not None:
                     parsed[key] = (values, found, round_values)
             else:
                 values, found, round_values = parsed[key]
-        except AmbiguousSource:
-            raise AssistantError("forbidden_token_source_ambiguous") from None
-        except UnscreenableSource:
-            raise AssistantError("forbidden_token_source_unscreenable") from None
-        except HiddenMarkSource:
-            raise AssistantError("forbidden_token_source_hidden_mark") from None
-        except MalformedQuotesSource:
-            raise AssistantError("forbidden_token_source_malformed_quotes") from None
-        except EncodingSource:
-            raise AssistantError("forbidden_token_source_encoding") from None
-        except (csv.Error, ValueError, ArithmeticError, AssistantError):
+        # A refusal names the source by its place in the list, and a line and a column: never a path or a cell.
+        except EncodingSource as refused:
+            raise AssistantError("forbidden_token_source_encoding", {"source": number, **refused.position}) from None
+        except HiddenMarkSource as refused:
+            raise AssistantError("forbidden_token_source_hidden_mark", {"source": number, **refused.position}) from None
+        except MalformedQuotesSource as refused:
+            raise AssistantError("forbidden_token_source_malformed_quotes",
+                                 {"source": number, **refused.position}) from None
+        except AmbiguousSource as refused:
+            raise AssistantError("forbidden_token_source_ambiguous", {"source": number, **refused.position}) from None
+        except LayoutMismatchSource as refused:
+            raise AssistantError("forbidden_token_source_layout_mismatch",
+                                 {"source": number, **refused.position}) from None
+        except CellSource as refused:
+            raise AssistantError("forbidden_token_source_cell_unreadable",
+                                 {"source": number, **refused.position}) from None
+        except UnscreenableSource as refused:
+            raise AssistantError("forbidden_token_source_unscreenable", {"source": number, **refused.position}) from None
+        except (ValueError, ArithmeticError, AssistantError):
             raise AssistantError("forbidden_token_source_invalid") from None
         if not values and not round_values:  # A source with no figure is a wrong file or setting: never a pass.
             raise AssistantError("forbidden_token_source_invalid")
         figures |= values
         forms |= found
         rounds |= round_values
-        # A declared layout is part of the source's provenance: one file read two ways is two screens.
-        digests.append(source_digest if layout is None else _digest(f"{source_digest} {layout!r}"))
+        # The declared layout is part of the source's provenance: one file read two ways is two screens.
+        digests.append(_digest(f"{source_digest} {tuple(layout)!r}"))
     rounds -= figures  # a value another source lists as a figure stays a figure
     if len(figures) + len(rounds) > MAX_SOURCE_FIGURES:
         raise AssistantError("forbidden_token_source_invalid")

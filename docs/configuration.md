@@ -447,8 +447,9 @@ when the configuration names a list:
 - **`forbidden_token_hashes`:** up to 1,024 SHA256 hashes of canonical figures. A hash of a
   short number can be guessed, so keep the hashes private too.
 - **`forbidden_token_sources`:** not available in 0.12.0, and it cannot be turned on. It is planned
-  for a later release, to list the figures in delimited files such as custody exports; its reader can
-  still miss amounts written in shapes it does not read. A configuration that sets it to anything but
+  for a later release, to list the amounts in delimited files such as custody exports, each read
+  strictly by a layout its entry declares; the reader it had could miss amounts written in shapes
+  it did not read. A configuration that sets it to anything but
   an empty list, the default, is refused with `forbidden_token_sources_experimental` before any file is
   read, even beside `"forbidden_token_sources_experimental": true`: listed sources are never ignored.
   List the figures in `forbidden_token_file` or `forbidden_token_hashes` instead.

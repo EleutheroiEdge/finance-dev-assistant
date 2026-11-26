@@ -108,16 +108,16 @@ your own repository, and replace the installed program only when they report wha
 | A gate policy without `forbidden_token_sources` | Nothing. Its bytes and its `--policy-sha256` pin stay valid | Preflight a recent range with `finassist doctor --policy` |
 | A configuration or gate policy with `forbidden_token_sources` | Figure sources are not available in this release, so it is refused before any file is read | Remove the sources, as the steps below say |
 | Commands run from a subfolder, or with a `--config` kept elsewhere | They stop with `state_location_moved` before writing | Pass `--state-dir` naming the folder to keep |
-| A pin on a schema identifier | The configuration schema is `urn:finledgerpoli:schema:config:3`, the gate policy schema `urn:finledgerpoli:schema:gate-policy:16` and the CI policy schema `urn:finledgerpoli:schema:ci-policy:3` | Update the pin. Documents keep their `schema_version` |
+| A pin on a schema identifier | The configuration schema is `urn:finledgerpoli:schema:config:3`, the gate policy schema `urn:finledgerpoli:schema:gate-policy:17` and the CI policy schema `urn:finledgerpoli:schema:ci-policy:3` | Update the pin. Documents keep their `schema_version` |
 
 0.10.0 itself did not read figure sources. A policy or configuration that lists them was written
 for a development build, and these steps are for it.
 
 ### A configuration or gate policy that lists figure sources
 
-Figure sources are not available in 0.12.0, and no setting turns them on. Their reader, planned for
-a later release, can miss amounts written in shapes it does not read, so it is not a complete
-screen. Listed sources are never ignored: a configuration that sets `forbidden_token_sources` to
+Figure sources are not available in 0.12.0, and no setting turns them on. The reader they had
+could miss amounts written in shapes it did not read, so it was not a complete screen; a strict
+reader that replaces it is planned for a later release. Listed sources are never ignored: a configuration that sets `forbidden_token_sources` to
 anything but an empty list, and a gate policy that holds the key at all, is refused with
 `forbidden_token_sources_experimental` before any file is read and before any request is made,
 even beside `"forbidden_token_sources_experimental": true`.
